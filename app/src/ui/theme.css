@@ -1,0 +1,208 @@
+/* WorkSpace — design system (dark theme, Inter). Palette ported verbatim from spec §9.4. */
+
+:root {
+  --bg: #0a0a0a;
+  --surface: #1a1a1a;
+  --surface2: #141414;
+  --text: rgba(255, 255, 255, 0.9);
+  --text-dim: rgba(255, 255, 255, 0.5);
+  --accent: #e6a817; /* the one brand gold */
+  --gold: var(--accent); /* alias of --accent, so every var(--gold) usage is the same gold */
+  --gold-glow: rgba(230, 168, 23, 0.3); /* translucent --accent, for glows + ::selection */
+  --on-accent: #1a1206; /* the ONE near-black for text sitting on a gold fill (warm, matches gold) */
+  --green: #27ae60;
+  --red-fill: rgba(239, 68, 68, 0.85); /* hover fill for labeled delete buttons */
+  --red-tint: rgba(239, 68, 68, 0.16); /* subtle hover hint for danger icon-buttons */
+  --transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* secondary tokens */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --radius: 14px;
+  --red: #ef4444;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+/* Always reserve the vertical scrollbar's space so switching between a short tab
+   (Dashboard) and a tall one (Focus) doesn't shift the centered layout sideways.
+   (Applies to the LANDING/sign-in pages — the signed-in shell scrolls .app-below
+   instead, see components.css, so its window scrollbar is disabled below.) */
+html {
+  scrollbar-gutter: stable;
+  overflow-y: scroll;
+}
+html:has(body.app-mode) {
+  overflow-y: hidden;
+  scrollbar-gutter: auto;
+}
+/* The PiP mini player clones these styles into its own tiny document; it must not
+   inherit the always-on scrollbar above (a forced track in a 300px window).
+   `auto` = plain natural document scrolling: the scrollbar exists exactly when
+   the widget outgrows the window, at ANY window size the user drags it to.
+   The background is the CRITICAL fix: the pip document defaults to transparent →
+   white, which showed (a) as a white scrollbar track (the track is transparent,
+   so it reveals whatever is behind it) and (b) as a white gap below the widget
+   when the window is dragged taller than the content. Painting the root the
+   darkest navy kills both. */
+html:has(.focus-pip-body) {
+  /* The WIDGET is the scroller (focus.css), not the document — a normal block
+     overflow container whose thumb is reliably draggable, unlike a document-level
+     scrollbar in a Document-PiP window (that couldn't be grabbed). So the document
+     itself never scrolls. */
+  overflow: hidden;
+  scrollbar-gutter: auto;
+  background: #070d20;
+}
+
+body {
+  /* subtle dark-blue → even-darker-blue gradient (still clearly blue), fixed */
+  background: linear-gradient(165deg, #0f1c40 0%, #0a1430 50%, #070d20 100%) fixed;
+  min-height: 100vh;
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.45;
+}
+
+/* Mobile-first: a comfortable single column. On larger screens the app fills
+   the width like a desktop app instead of a narrow centered strip. */
+.app {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 16px 14px 80px;
+}
+@media (min-width: 700px) {
+  .app {
+    max-width: 1180px;
+    padding: 24px 48px 96px;
+  }
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* App-wide smooth hover/active/focus transitions for EVERY interactive element —
+   buttons, links, form fields, plus the clickable divs/spans listed by class (task
+   rows, "+ course"/"+ due date" chips, demo todos, hover-revealed action clusters…).
+   We list the properties that state changes actually touch (not `all`) so
+   layout-affecting properties like width/height never animate — e.g. the
+   auto-growing textareas must snap to size, not ooze. Components that declare their
+   own `transition` override this wholesale (CSS keeps only one rule's transition),
+   which is fine — those set their own timings deliberately. */
+button,
+a,
+input,
+textarea,
+select,
+.course-chip.empty,
+.meta-date.empty,
+.task-item,
+.dash-due-item,
+.nav-item,
+.help-icon,
+.parse-rec,
+.sound-pick,
+.focus-todo-text.empty,
+.bm-card-actions,
+.bm-keys-box,
+.lpf-todo,
+.lpf-import-item {
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease,
+    opacity 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, transform 0.2s ease;
+}
+
+input,
+textarea {
+  font-family: inherit;
+}
+
+a {
+  color: var(--accent);
+}
+
+/* Shared spin for icon buttons in a loading state (e.g. the ↻ refresh buttons). */
+@keyframes ws-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Post-sign-in boot screen: shown while the user's data loads (see renderApp),
+   so the moment after the Google popup never looks like a blank hang. */
+.app-booting {
+  min-height: 70vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.app-booting-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ws-spin 0.8s linear infinite;
+}
+
+::selection {
+  background: var(--gold-glow);
+}
+
+/* Custom scrollbars — gold thumb on a TRANSPARENT rail, replacing the default
+   white/gray everywhere anything scrolls (the page, popups, song lists, the
+   settings panels, the PiP mini player — it copies these styles). The rail is
+   transparent so the scrollbar automatically matches WHATEVER background it sits
+   on — the blue page, the near-black task/import cards, the PiP navy — instead
+   of painting a navy stripe across gray surfaces.
+   Chromium uses the ::-webkit-scrollbar parts; Firefox doesn't support those,
+   so it gets the standard two-color properties instead, gated behind @supports
+   so they can't override the richer WebKit styling in Chrome. */
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  /* The transparent border + padding-box clip inset the gold into a slim pill
+     without painting any rail color around it. Longhand properties on purpose:
+     a var() inside the `background` shorthand serializes all its longhands as
+     empty in the CSSOM, which makes the rule impossible to audit. */
+  background-color: var(--accent);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #f2bb33; /* brighter gold on hover, matching button hover behavior */
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* The track-end arrow buttons render as unstyled WHITE squares once a scrollbar
+   is customized (they were the "white pieces" at the PiP's top/bottom) — hide
+   them; modern scrollbars don't use arrows. */
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--accent) transparent;
+  }
+}

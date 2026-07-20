@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WorkSpace · Focus End Sounds — Review</title>
+<style>
+  :root {
+    --bg1: #0f1c40;
+    --bg2: #0a1430;
+    --bg3: #070d20;
+    --surface: #1a1a1a;
+    --surface2: #141414;
+    --text: rgba(255, 255, 255, 0.92);
+    --dim: rgba(255, 255, 255, 0.55);
+    --gold: #e6a817;
+    --border: rgba(255, 255, 255, 0.1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    color: var(--text);
+    background: linear-gradient(165deg, var(--bg1) 0%, var(--bg2) 50%, var(--bg3) 100%) fixed;
+    min-height: 100vh;
+    padding: 48px 18px 80px;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; }
+  h1 { font-size: 26px; letter-spacing: -0.02em; margin-bottom: 6px; }
+  h1 .mon { color: var(--gold); }
+  .sub { color: var(--dim); font-size: 14px; line-height: 1.5; margin-bottom: 8px; }
+  .note {
+    font-size: 13px;
+    color: var(--text);
+    background: rgba(230, 168, 23, 0.08);
+    border: 1px solid rgba(230, 168, 23, 0.3);
+    border-radius: 12px;
+    padding: 12px 14px;
+    line-height: 1.5;
+    margin: 18px 0 26px;
+  }
+  .note b { color: var(--gold); }
+  .card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .emoji { font-size: 30px; flex: none; width: 40px; text-align: center; }
+  .meta { flex: 1; min-width: 0; }
+  .name { font-size: 16px; font-weight: 700; }
+  .desc { font-size: 13px; color: var(--dim); margin-top: 2px; }
+  .num { font-size: 11px; color: var(--dim); font-weight: 700; letter-spacing: 0.08em; }
+  .play {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(230, 168, 23, 0.1);
+    border: 1px solid rgba(230, 168, 23, 0.4);
+    color: var(--gold);
+    font: inherit;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 10px 18px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.1s ease;
+  }
+  .play:hover { background: rgba(230, 168, 23, 0.2); }
+  .play:active { transform: scale(0.96); }
+  .play.playing { background: var(--gold); color: #1a1200; }
+  .playall {
+    display: block;
+    margin: 0 auto 24px;
+    background: var(--gold);
+    color: #1a1200;
+    border: none;
+    font: inherit;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 11px 26px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .foot { color: var(--dim); font-size: 12px; text-align: center; margin-top: 26px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>WorkSpace · Focus End Sounds</h1>
+  <p class="sub">The 10 completion cues that play when a focus session finishes. All are synthesized live with the Web Audio API — no audio files.</p>
+  <div class="note">
+    🎧 <b>How to review:</b> click <b>Play</b> on each one (turn your volume up a touch — they're intentionally gentle). Then tell Claude any edits per sound — e.g. <i>"make Zen Gong longer," "Arcade is too harsh," "Bell needs more shimmer," "swap Ping for a softer chime."</i> These are exactly the sounds wired into the app.
+  </div>
+
+  <button class="playall" id="playAll">▶ Play all (in sequence)</button>
+  <div id="list"></div>
+
+  <p class="foot">This is a throwaway review page (focus-sounds-review.html). The real sounds live in app/src/focus/sounds.ts and stay in sync with whatever edits you approve.</p>
+</div>
+
+<script>
+// ── Audio engine — identical to app/src/focus/sounds.ts ───────────────────────
+let ctx = null;
+function arm() {
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+
+function note(c, type, freq, start, dur, peak, opts = {}) {
+  const t = c.currentTime + start;
+  const o = c.createOscillator();
+  const g = c.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t);
+  if (opts.glideTo) o.frequency.exponentialRampToValueAtTime(opts.glideTo, t + dur);
+  const attack = Math.min(opts.attack ?? 0.01, dur * 0.5);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(peak, t + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(c.destination);
+  o.start(t);
+  o.stop(t + dur + 0.05);
+}
+function noise(c, start, dur, peak, decayTau) {
+  const t = c.currentTime + start;
+  const len = Math.max(1, Math.floor(c.sampleRate * dur));
+  const buf = c.createBuffer(1, len, c.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (c.sampleRate * decayTau));
+  const src = c.createBufferSource();
+  src.buffer = buf;
+  const g = c.createGain();
+  g.gain.setValueAtTime(peak, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(g).connect(c.destination);
+  src.start(t);
+}
+
+function fanfare(c) {
+  const beat = 60 / 148, e = beat * 0.5, q = beat, h = beat * 2;
+  const Bb4 = 466.16, Ab4 = 415.3, Db5 = 554.37, C5 = 523.25, Eb5 = 622.25, F5 = 698.46;
+  const tr = (f, s, du, v) => { note(c, 'square', f, s, du, v); note(c, 'sawtooth', f * 2, s, du, v * 0.5); note(c, 'sine', f * 3, s, du, v * 0.4); };
+  let p = 0;
+  for (let i = 0; i < 3; i++) { tr(Bb4, p, e * 0.8, 0.12); p += e; }
+  tr(Ab4, p, e * 0.8, 0.1); p += e; tr(Bb4, p, q * 1.5, 0.14); p += q * 2;
+  for (let i = 0; i < 3; i++) { tr(Db5, p, e * 0.8, 0.13); p += e; }
+  tr(C5, p, e * 0.8, 0.11); p += e; tr(Db5, p, q * 1.5, 0.15); p += q * 2;
+  tr(Eb5, p, q * 1.5, 0.16); p += q * 2; tr(Db5, p, e * 0.8, 0.13); p += e; tr(Eb5, p, e * 0.8, 0.13); p += e; tr(F5, p, h * 1.5, 0.18); p += h * 2;
+  noise(c, 0, 0.4, 0.12, 0.08); noise(c, beat * 4, 0.4, 0.12, 0.08); noise(c, beat * 8, 0.4, 0.12, 0.08);
+}
+function zen(c) {
+  const strike = (s, base, v) => [[1, v], [2.4, v * 0.4], [4.1, v * 0.2], [5.8, v * 0.12]].forEach(([m, vol]) => note(c, 'sine', base * m, s, 3.2, vol, { attack: 0.05 }));
+  strike(0, 96, 0.3); strike(0.18, 144, 0.1);
+}
+function arcade(c) {
+  const seq = [523.25, 659.25, 783.99, 1046.5];
+  seq.forEach((f, i) => note(c, 'square', f, i * 0.09, 0.1, 0.16, { attack: 0.005 }));
+  note(c, 'square', 1046.5, seq.length * 0.09, 0.28, 0.18, { attack: 0.005 });
+  note(c, 'square', 1318.5, seq.length * 0.09 + 0.14, 0.18, 0.14, { attack: 0.005 });
+}
+function marimba(c) {
+  const seq = [523.25, 659.25, 783.99, 987.77, 1046.5];
+  seq.forEach((f, i) => { note(c, 'triangle', f, i * 0.11, 0.45, 0.18, { attack: 0.004 }); note(c, 'sine', f * 2, i * 0.11, 0.18, 0.05, { attack: 0.004 }); });
+}
+function bell(c) {
+  const strike = (s, base, v) => [[1, v], [2.76, v * 0.5], [5.4, v * 0.25], [8.9, v * 0.1]].forEach(([m, vol]) => note(c, 'sine', base * m, s, 1.6, vol, { attack: 0.002 }));
+  strike(0, 660, 0.16); strike(0.5, 880, 0.12);
+}
+function synthwave(c) {
+  [261.63, 329.63, 392.0, 523.25].forEach((f) => note(c, 'sawtooth', f, 0, 1.8, 0.07, { attack: 0.25 }));
+  note(c, 'sawtooth', 130.81, 0, 1.4, 0.06, { attack: 0.1, glideTo: 523.25 });
+}
+function ping(c) {
+  note(c, 'sine', 880, 0, 0.18, 0.2, { attack: 0.004 });
+  note(c, 'sine', 1318.5, 0.12, 0.4, 0.2, { attack: 0.004 });
+}
+function harp(c) {
+  [392.0, 440.0, 523.25, 587.33, 659.25, 783.99, 880.0, 1046.5].forEach((f, i) => note(c, 'triangle', f, i * 0.06, 0.6, 0.12, { attack: 0.003 }));
+}
+function drumroll(c) {
+  const n = 18, total = 0.9;
+  for (let i = 0; i < n; i++) noise(c, i * (total / n), 0.05, 0.04 + 0.1 * (i / n), 0.012);
+  noise(c, total, 0.5, 0.16, 0.1);
+  note(c, 'sine', 110, total, 0.4, 0.2, { attack: 0.005, glideTo: 55 });
+}
+function ambient(c) {
+  [220, 277.18, 329.63].forEach((f) => note(c, 'sine', f, 0, 2.6, 0.12, { attack: 0.5 }));
+  note(c, 'sine', 110, 0, 2.8, 0.1, { attack: 0.6 });
+}
+
+const SOUNDS = [
+  { key: 'fanfare', label: 'Fanfare', emoji: '🎺', desc: 'Triumphant brass + cymbals', dur: 6.5, play: fanfare },
+  { key: 'zen', label: 'Zen Gong', emoji: '🧘', desc: 'Deep, slow temple gong', dur: 3.5, play: zen },
+  { key: 'arcade', label: 'Arcade', emoji: '🕹️', desc: '8-bit level-up jingle', dur: 1.0, play: arcade },
+  { key: 'marimba', label: 'Marimba', emoji: '🎶', desc: 'Warm wooden mallets', dur: 1.2, play: marimba },
+  { key: 'bell', label: 'Bell', emoji: '🔔', desc: 'Bright ringing bell', dur: 2.3, play: bell },
+  { key: 'synthwave', label: 'Synthwave', emoji: '🌆', desc: 'Retro saw-chord swell', dur: 2.0, play: synthwave },
+  { key: 'ping', label: 'Ping', emoji: '📲', desc: 'Clean two-tone chime', dur: 0.7, play: ping },
+  { key: 'harp', label: 'Harp', emoji: '🎼', desc: 'Ascending glissando', dur: 1.3, play: harp },
+  { key: 'drumroll', label: 'Drumroll', emoji: '🥁', desc: 'Roll into a crash', dur: 1.5, play: drumroll },
+  { key: 'ambient', label: 'Ambient', emoji: '🌊', desc: 'Soft calming swell', dur: 3.0, play: ambient },
+];
+
+const list = document.getElementById('list');
+SOUNDS.forEach((s, i) => {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    '<div class="emoji">' + s.emoji + '</div>' +
+    '<div class="meta"><div class="num">' + String(i + 1).padStart(2, '0') + '</div>' +
+    '<div class="name">' + s.label + '</div><div class="desc">' + s.desc + '</div></div>';
+  const btn = document.createElement('button');
+  btn.className = 'play';
+  btn.textContent = '▶ Play';
+  btn.addEventListener('click', () => {
+    s.play(arm());
+    btn.classList.add('playing');
+    btn.textContent = '♪ Playing…';
+    setTimeout(() => { btn.classList.remove('playing'); btn.textContent = '▶ Play'; }, s.dur * 1000);
+  });
+  card.appendChild(btn);
+  list.appendChild(card);
+});
+
+document.getElementById('playAll').addEventListener('click', () => {
+  const c = arm();
+  let t = 0;
+  SOUNDS.forEach((s) => { setTimeout(() => s.play(c), t * 1000); t += s.dur + 0.6; });
+});
+</script>
+</body>
+</html>

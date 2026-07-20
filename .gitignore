@@ -1,0 +1,38 @@
+# === Dependencies ===
+node_modules/
+
+# === Build output ===
+dist/
+build/
+.firebase/
+
+# === Env & secrets (NEVER commit) ===
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.env
+
+# Credential-bearing setup docs & scripts (redact before tracking if you want them in)
+EMAIL-SETUP-FOR-COWORKER.md
+FIREBASE-SETUP.md
+test-smtp.ps1
+
+# === Large media / archives (too big for git — keep in Dropbox / Firebase Storage) ===
+Music Database/
+*.zip
+*.mp3
+
+# === Vite / tooling temp ===
+*.timestamp-*.mjs
+
+# === Logs ===
+*-debug.log
+npm-debug.log*
+
+# === OS / editor cruft ===
+.DS_Store
+Thumbs.db
+
+# === Local Claude settings ===
+.claude/settings.local.json

@@ -1,0 +1,13 @@
+{
+  "name": "workspace-functions",
+  "description": "WorkSpace Cloud Functions — closed-app assignment reminders via FCM",
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^5.0.0"
+  },
+  "private": true
+}

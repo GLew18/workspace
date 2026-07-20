@@ -1,0 +1,564 @@
+/* WorkSpace — Links (Quick Access) tab. Rich rectangular cards: big favicon on
+   the left, name + host on the right, in a responsive grid that fills the app's
+   content width. Uses the shared theme tokens (theme.css), so it matches the
+   rest of WorkSpace automatically. */
+
+.bm-page {
+  width: 100%;
+}
+.bm-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 14px;
+}
+
+/* ===== Search ===== */
+.bm-search-wrap {
+  margin-bottom: 14px;
+}
+/* Text boxes (search + modal fields) share the Tasks quick-add bar's recipe
+   (components.css .quick-add input): surface fill, 12px radius, 13/14 padding,
+   gold focus ring. */
+.bm-search,
+.bm-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  padding: 13px 14px;
+  font-size: 15px;
+  /* Explicit list (not `all`) — these wrap-grow; height must snap (see .quick-add). */
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+}
+.bm-search:focus,
+.bm-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--gold-glow);
+}
+.bm-input.invalid {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25);
+}
+
+/* ===== Responsive grid ===== */
+.bm-grid {
+  display: grid;
+  /* ~3–4 big cards per row — each wide enough for the favicon, name, URL, and the
+     +Group / +Shortcut buttons. Container-based so it tracks the content width. */
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.bm-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 28px 0;
+}
+
+/* ===== Rich card ===== */
+.bm-card {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-height: 92px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  text-decoration: none;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+/* Drag handle (⋮⋮) — same concept as focus-session todos: grab here to reorder.
+   Stretched to the card's FULL height with side padding, so the grab target is a
+   generous strip (~22px × card height), not just the tiny glyph itself. */
+.bm-card-handle {
+  flex: none;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+  font-size: 16px;
+  line-height: 1;
+  letter-spacing: -2px;
+  cursor: grab;
+  opacity: 0.5;
+  padding: 0 6px 0 8px;
+}
+.bm-card-handle:hover {
+  opacity: 1;
+}
+.bm-card-handle:active {
+  cursor: grabbing;
+}
+.bm-card.dragging {
+  opacity: 0.5;
+}
+.bm-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+.bm-card-icon {
+  flex: none;
+  width: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 28px;
+}
+.bm-card-icon img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  pointer-events: none;
+}
+.bm-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.bm-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bm-card-host {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Action buttons on the card: + Group / + Shortcut */
+/* Stacked, one chip per line — Group and Shortcut never share a row, so neither
+   can push the other into an awkward wrap. */
+.bm-card-btns {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 8px;
+  min-width: 0;
+}
+.bm-chip-btn {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+  /* Long content (a wordy group name, a big combo) truncates inside the chip
+     instead of bleeding past the card. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.bm-chip-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.1);
+}
+.bm-chip-btn.bm-chip-kbd {
+  color: var(--accent);
+  background: rgba(230, 168, 23, 0.12);
+  border-color: rgba(230, 168, 23, 0.35);
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.bm-chip-btn.bm-chip-group {
+  color: var(--chip-color, var(--accent));
+  border-color: var(--chip-color, var(--border-strong));
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Group picker modal */
+.bm-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.bm-group-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 13px;
+}
+.bm-group-row:hover {
+  border-color: var(--border-strong);
+}
+.bm-group-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+/* The "None" row's dot: hollow — no group, no color. */
+.bm-group-dot.none {
+  background: transparent;
+  border: 1.5px solid var(--border-strong);
+}
+.bm-group-row-name {
+  flex: 1;
+}
+.bm-group-check {
+  color: var(--accent);
+  font-weight: 700;
+}
+/* Per-row group edit (✎) — dim until hovered, then full text color. */
+.bm-group-pencil {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 3px;
+  cursor: pointer;
+}
+.bm-group-pencil:hover {
+  color: var(--text);
+}
+/* Per-row group delete (×) — dim until hovered, then red like other deletes. */
+.bm-group-x {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 3px;
+  cursor: pointer;
+}
+.bm-group-x:hover {
+  color: var(--red);
+}
+.bm-group-color {
+  flex: none;
+  width: 36px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface2);
+  padding: 2px;
+  cursor: pointer;
+}
+
+/* Per-card actions (edit / delete) — appear on hover */
+.bm-card-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: none;
+  gap: 4px;
+}
+.bm-card:hover .bm-card-actions {
+  display: flex;
+}
+.bm-icon-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bm-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+/* Small icon delete: red glyph + a subtle red tint (NOT a full red fill), matching
+   .attach-iconbtn.danger — the full fill is reserved for labeled Delete buttons. */
+.bm-icon-danger:hover {
+  background: var(--red-tint);
+  color: var(--red);
+}
+
+/* ===== Add button ===== */
+.bm-add-wrap {
+  text-align: center;
+}
+.bm-add-btn {
+  padding: 9px 22px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+}
+.bm-add-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ===== Modal (shared add/edit + delete confirm) ===== */
+.bm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.bm-modal {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+.bm-modal-sm {
+  max-width: 360px;
+}
+.bm-modal-title {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 700;
+}
+.bm-modal-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 600;
+  margin: 10px 0 4px;
+}
+.bm-modal-iconrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bm-modal-iconprev {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 8px;
+  font-size: 18px;
+}
+.bm-modal-iconprev img {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+.bm-mini-input {
+  flex: 1;
+  /* Compact override of the big .bm-input recipe: the group create/edit rows sit
+     among small controls (mini buttons, group rows), so the field matches their
+     13px scale instead of the full-size Add-link fields. */
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.bm-mini-btn {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface2);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.bm-mini-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.bm-modal-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+.bm-modal-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+.bm-modal-spacer {
+  flex: 1;
+}
+.bm-btn {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+}
+.bm-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.bm-btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  font-weight: 700;
+}
+.bm-btn-primary:hover {
+  color: var(--on-accent);
+  filter: brightness(1.06);
+}
+.bm-btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: none;
+}
+.bm-btn-danger {
+  color: var(--red);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+.bm-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.85);
+  color: #fff;
+  border-color: transparent;
+}
+
+/* ===== "Select Keys" shortcut modal ===== */
+.bm-keys-premium {
+  margin: 4px 0 2px;
+}
+/* The big focusable capture box. Idle → focused → valid/invalid states. */
+.bm-keys-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding: 12px 16px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface2);
+  color: var(--text-dim);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-align: center;
+  user-select: none;
+  outline: none;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.bm-keys-box:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.bm-keys-box.is-focused {
+  border-style: solid;
+  border-color: var(--accent);
+  background: rgba(230, 168, 23, 0.06);
+  color: var(--text);
+  box-shadow: 0 0 0 3px var(--gold-glow);
+}
+.bm-keys-box.is-valid {
+  border-style: solid;
+  border-color: var(--accent);
+  background: rgba(230, 168, 23, 0.12);
+  color: var(--accent);
+  letter-spacing: 0.8px;
+}
+.bm-keys-box.is-invalid {
+  border-style: solid;
+  border-color: var(--red);
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--red);
+}
+.bm-keys-text {
+  pointer-events: none;
+}
+/* The validation/help line under the box. */
+.bm-keys-error {
+  min-height: 16px;
+  margin: 8px 2px 0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--red);
+}
+.bm-keys-error.is-ok {
+  color: var(--green);
+}
+
+/* ===== Premium / install prompt ===== */
+.bm-install-wrap {
+  margin: 12px 0 4px;
+}
+.bm-install-banner {
+  border: 1px solid rgba(230, 168, 23, 0.35);
+  background: rgba(230, 168, 23, 0.08);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.bm-install-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.bm-install-body {
+  font-size: 11px;
+  color: var(--text);
+  line-height: 1.45;
+}
+.bm-install-actions {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 8px;
+}
+.bm-install-actions .bm-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.bm-install-note {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+/* Connected (installed) confirmation row. */
+.bm-install-connected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(39, 174, 96, 0.35);
+  background: rgba(39, 174, 96, 0.1);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
+}
+.bm-install-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.2);
+}

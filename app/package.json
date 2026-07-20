@@ -1,0 +1,20 @@
+{
+  "name": "workspace-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "WorkSpace — a productivity space that makes work more convenient and fun.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "firebase": "^10.12.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}

@@ -1,0 +1,176 @@
+/* WorkSpace — sign-in screen (see src/ui/authScreen.ts).
+   Centered, branded card shown over the landing when "Try now" is pressed.
+   Two methods only: manual email/password and Continue with Google. */
+
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* the landing's dark-blue gradient (theme.css body), near-opaque so the screen
+     reads as a dedicated blue sign-in page while still hinting at the landing. */
+  background: linear-gradient(165deg, rgba(15, 28, 64, 0.94) 0%, rgba(10, 20, 48, 0.95) 50%, rgba(7, 13, 32, 0.96) 100%);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: auth-fade 0.18s ease;
+}
+@keyframes auth-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.auth-card {
+  position: relative;
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 18px;
+  padding: 30px 26px 26px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  animation: auth-rise 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes auth-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+.auth-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-size: 15px;
+  cursor: pointer;
+  /* inherits the global 0.2s button transition (theme.css) */
+}
+.auth-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.auth-logo {
+  display: flex;
+  justify-content: center;
+  font-size: 26px; /* the wordmark scales to its font-size */
+  margin: 4px 0 14px;
+}
+
+.auth-title {
+  margin: 0 0 20px;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.auth-input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  color: var(--text);
+  padding: 13px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  /* inherits the global 0.2s transition */
+}
+.auth-input::placeholder {
+  color: var(--text-faint, rgba(255, 255, 255, 0.32));
+}
+.auth-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--gold-glow);
+}
+
+.auth-error {
+  min-height: 16px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--red);
+}
+
+.auth-continue {
+  width: 100%;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 11px;
+  padding: 13px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  /* inherits the global 0.2s transition */
+}
+.auth-continue:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+.auth-continue:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* "or" divider with a rule on each side */
+.auth-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  color: var(--text-faint, rgba(255, 255, 255, 0.32));
+  font-size: 12px;
+}
+.auth-or::before,
+.auth-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.auth-google {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  color: var(--text);
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  /* inherits the global 0.2s transition */
+}
+.auth-google:hover:not(:disabled) {
+  border-color: var(--text-dim);
+  background: var(--surface);
+}
+.auth-google:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.auth-google-ico {
+  display: inline-flex;
+  /* No chip — the Google mark sits directly on the dark button, matching the bar. */
+  line-height: 0;
+}

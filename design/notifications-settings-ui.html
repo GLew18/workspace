@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WorkSpace — Notifications settings (current UI)</title>
+<!--
+  Standalone, self-contained export of the CURRENT Settings ▸ Notifications UI.
+  Nothing external is loaded, so it renders identically offline and is safe to import
+  into Figma (e.g. the "html.to.design" plugin: paste this file / its URL) or just
+  open in a browser to screenshot. Colors + spacing are copied verbatim from the app
+  (theme.css variables + settings.css notification rules). Edit freely in Figma and
+  hand it back. — generated 2026-07-14
+-->
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --surface: #1a1a1a;
+    --surface2: #141414;
+    --text: rgba(255, 255, 255, 0.9);
+    --text-dim: rgba(255, 255, 255, 0.5);
+    --text-faint: rgba(255, 255, 255, 0.32);
+    --accent: #e6a817;
+    --gold: var(--accent);
+    --gold-glow: rgba(230, 168, 23, 0.3);
+    --on-accent: #1a1206;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.16);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: linear-gradient(165deg, #0f1c40 0%, #0a1430 50%, #070d20 100%) fixed;
+    min-height: 100vh;
+    color: var(--text);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.45;
+    padding: 44px 16px;
+  }
+
+  /* Card the whole notifications section sits in (mirrors the settings panel). */
+  .panel {
+    max-width: 468px;
+    margin: 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px 22px 26px;
+  }
+  .panel-title { font-size: 19px; font-weight: 700; margin: 0 0 3px; }
+  .panel-sub { font-size: 12.5px; color: var(--text-dim); margin: 0 0 18px; }
+
+  /* ===== notification settings (master · appearance · type cards) ===== */
+  .settings-status { font-size: 12.5px; color: var(--text-dim); }
+  .notify-perm { margin-top: 4px; margin-bottom: 14px; }
+
+  /* iOS-style switch, shared by the master and each type. */
+  .nswitch {
+    flex: none; position: relative; width: 44px; height: 26px;
+    border-radius: 999px; border: none; background: var(--surface2);
+    box-shadow: inset 0 0 0 1px var(--border-strong); cursor: pointer; padding: 0;
+  }
+  .nswitch::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px;
+    border-radius: 50%; background: #d8d8d8;
+    transition: transform 0.22s cubic-bezier(0.4, 0.1, 0.2, 1), background 0.22s ease;
+  }
+  .nswitch[aria-checked="true"] { background: var(--accent); box-shadow: inset 0 0 0 1px transparent; }
+  .nswitch[aria-checked="true"]::after { transform: translateX(18px); background: var(--on-accent); }
+
+  /* master bar */
+  .nmaster {
+    display: flex; align-items: center; gap: 13px; padding: 14px 15px;
+    border-radius: 12px; background: var(--surface); border: 1px solid var(--border-strong);
+    margin-bottom: 10px;
+  }
+  .nmaster-text { flex: 1; min-width: 0; }
+  .nmaster-title { font-size: 14px; font-weight: 650; }
+  .nmaster-desc { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+
+  /* "How to set up" launcher button */
+  .notify-howto {
+    display: block; width: 100%; text-align: center; margin: 0 0 14px;
+    padding: 10px 14px; border-radius: 10px; cursor: pointer;
+    background: rgba(230,168,23,0.10); border: 1px solid rgba(230,168,23,0.35);
+    color: var(--accent); font-family: inherit; font-size: 13px; font-weight: 600;
+  }
+
+  /* appearance */
+  .nappear {
+    border-radius: 12px; background: var(--surface2); border: 1px solid var(--border);
+    padding: 13px 15px; margin-bottom: 16px;
+  }
+  .nappear-title { font-size: 12.5px; font-weight: 650; margin-bottom: 8px; }
+  .nchecklist { display: flex; flex-direction: column; gap: 1px; }
+  .ncheck {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    background: none; border: none; color: var(--text); font-family: inherit;
+    font-size: 13px; font-weight: 500; padding: 7px 6px; border-radius: 8px; cursor: pointer;
+  }
+  .ncheck-box {
+    flex: none; width: 18px; height: 18px; border-radius: 5px;
+    border: 1.5px solid var(--border-strong); display: grid; place-items: center;
+    font-size: 11px; line-height: 1; color: transparent;
+  }
+  .ncheck[aria-checked="true"] .ncheck-box { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+  /* type cards */
+  .ntypes { display: flex; flex-direction: column; gap: 10px; }
+  .ncard { border-radius: 12px; background: var(--surface2); border: 1px solid var(--border); overflow: hidden; }
+  .ncard.open { border-color: rgba(230,168,23,0.4); background: rgba(230,168,23,0.06); }
+  .ncard-bar { display: flex; align-items: flex-start; gap: 12px; padding: 14px 15px; }
+  .ncard-ico { flex: none; width: 30px; height: 30px; border-radius: 8px; background: var(--surface); display: grid; place-items: center; color: var(--text-dim); margin-top: 1px; }
+  .ncard.open .ncard-ico { color: var(--accent); background: rgba(230,168,23,0.14); }
+  .ncard-main { flex: 1; min-width: 0; }
+  .ncard-title { font-size: 13.5px; font-weight: 600; }
+  .ncard-desc { font-size: 12px; color: var(--text-dim); margin-top: 3px; line-height: 1.45; }
+  /* detail (shown only on an .open card) */
+  .ncard-detail-inner { padding: 4px 15px 15px; border-top: 1px solid var(--border); }
+  .ncard-detail-inner > * + * { margin-top: 12px; }
+  .nopt-label { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-faint); }
+  .nopt-label + * { margin-top: 8px; }
+
+  /* "Also email me" card */
+  .nemail { margin-bottom: 16px; }
+  .nemail-input {
+    width: 100%; box-sizing: border-box; padding: 9px 11px; border-radius: 9px;
+    background: var(--surface); border: 1px solid var(--border-strong); color: var(--text);
+    font-family: inherit; font-size: 13px;
+  }
+  .nwheel-cap { font-size: 12px; color: var(--text-dim); }
+  .nwheel-cap b { color: var(--text); font-weight: 600; }
+
+  /* Tasks / Focus groups — a labeled subheader bar over each stack of cards */
+  .ngroups { display: flex; flex-direction: column; gap: 20px; }
+  .ngroup-bar { display: flex; align-items: center; gap: 13px; padding: 2px 2px 10px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+  .ngroup-main { flex: 1; min-width: 0; }
+  .ngroup-title { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text); }
+  .ngroup-desc { font-size: 11.5px; color: var(--text-dim); margin-top: 3px; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <div class="panel-title">Notifications</div>
+    <div class="panel-sub">Reminders for your tasks &amp; focus sessions.</div>
+
+    <div class="settings-status notify-perm">Allowed by your browser ✓</div>
+
+    <!-- master -->
+    <div class="nmaster">
+      <div class="nmaster-text">
+        <div class="nmaster-title">All reminders</div>
+        <div class="nmaster-desc">Turn every notification below on or off at once.</div>
+      </div>
+      <button class="nswitch" aria-checked="true" role="switch"></button>
+    </div>
+
+    <!-- how to set up -->
+    <button class="notify-howto">How to set up notifications →</button>
+
+    <!-- also email me (shown open, with the address field) -->
+    <div class="ncard nemail open">
+      <div class="ncard-bar">
+        <div class="ncard-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></div>
+        <div class="ncard-main">
+          <div class="ncard-title">Also email me</div>
+          <div class="ncard-desc">Send every notification to your inbox too, alongside the pop-up.</div>
+        </div>
+        <button class="nswitch" aria-checked="true" role="switch"></button>
+      </div>
+      <div class="ncard-detail">
+        <div class="ncard-detail-inner">
+          <div class="nopt-label">Send emails to</div>
+          <input class="nemail-input" type="email" value="gabriel.lewinsohn@gmail.com" />
+          <div class="nwheel-cap">Emails send <b>while WorkSpace is open</b>, at the same moment as the pop-up.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- appearance -->
+    <div class="nappear">
+      <div class="nappear-title">What each notification shows</div>
+      <div class="nchecklist">
+        <button class="ncheck" aria-checked="true" role="checkbox"><span class="ncheck-box">✓</span><span class="ncheck-label">Course</span></button>
+        <button class="ncheck" aria-checked="false" role="checkbox"><span class="ncheck-box">✓</span><span class="ncheck-label">Priority</span></button>
+        <button class="ncheck" aria-checked="true" role="checkbox"><span class="ncheck-box">✓</span><span class="ncheck-label">Due time</span></button>
+      </div>
+    </div>
+
+    <!-- groups -->
+    <div class="ngroups">
+      <!-- Tasks group (has a group switch) -->
+      <div class="ngroup">
+        <div class="ngroup-bar">
+          <div class="ngroup-main">
+            <div class="ngroup-title">Tasks</div>
+            <div class="ngroup-desc">Assignment reminders, agendas &amp; new-work alerts.</div>
+          </div>
+          <button class="nswitch" aria-checked="true" role="switch"></button>
+        </div>
+        <div class="ntypes">
+          <div class="ncard">
+            <div class="ncard-bar">
+              <div class="ncard-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+              <div class="ncard-main"><div class="ncard-title">Due-soon reminders</div><div class="ncard-desc">A heads-up before a task that has a due time.</div></div>
+              <button class="nswitch" aria-checked="true" role="switch"></button>
+            </div>
+          </div>
+          <div class="ncard">
+            <div class="ncard-bar">
+              <div class="ncard-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></div>
+              <div class="ncard-main"><div class="ncard-title">Daily agenda</div><div class="ncard-desc">A morning rundown of everything due today.</div></div>
+              <button class="nswitch" aria-checked="true" role="switch"></button>
+            </div>
+          </div>
+          <div class="ncard">
+            <div class="ncard-bar">
+              <div class="ncard-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></div>
+              <div class="ncard-main"><div class="ncard-title">Tomorrow preview</div><div class="ncard-desc">An evening look at what’s due tomorrow.</div></div>
+              <button class="nswitch" aria-checked="false" role="switch"></button>
+            </div>
+          </div>
+          <div class="ncard">
+            <div class="ncard-bar">
+              <div class="ncard-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.5 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.5A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.5z"/></svg></div>
+              <div class="ncard-main"><div class="ncard-title">New assignments</div><div class="ncard-desc">When WorkSpace imports new work from Schoology.</div></div>
+              <button class="nswitch" aria-checked="false" role="switch"></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Focus group (label only — single type, no group switch) -->
+      <div class="ngroup">
+        <div class="ngroup-bar">
+          <div class="ngroup-main">
+            <div class="ngroup-title">Focus</div>
+            <div class="ngroup-desc">Cheers when a focus session finishes.</div>
+          </div>
+        </div>
+        <div class="ntypes">
+          <div class="ncard">
+            <div class="ncard-bar">
+              <div class="ncard-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg></div>
+              <div class="ncard-main"><div class="ncard-title">Focus sessions</div><div class="ncard-desc">A “session complete!” cheer when a focus timer finishes.</div></div>
+              <button class="nswitch" aria-checked="true" role="switch"></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,1871 @@
+/* WorkSpace — Focus session styles. */
+
+/* ---- Setup screen ---- */
+.focus-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.focus-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-top: 14px;
+}
+.focus-presets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.focus-preset {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 11px 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.focus-preset.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 2px var(--gold-glow);
+}
+/* User-saved presets carry a small × (delete). Kept dim until hovered so the row
+   reads clean; the × sits inside the button but never triggers the jump. */
+.focus-preset.custom {
+  position: relative;
+}
+.focus-preset-del {
+  position: absolute;
+  top: 2px;
+  right: 7px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-dim);
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.focus-preset.custom:hover .focus-preset-del {
+  opacity: 1;
+}
+.focus-preset-del:hover {
+  color: var(--red);
+}
+/* "+ Preset" under the carousel — saves the dialed time as a new preset above. */
+.focus-add-preset {
+  display: block;
+  margin: 10px auto 0;
+  background: none;
+  border: 2px dashed var(--border-strong);
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 7px 22px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: border-color 0.2s, color 0.2s;
+}
+.focus-add-preset:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Hours : minutes carousel for fine-tuning the session length. */
+.focus-carousel {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+  user-select: none;
+}
+.focus-wheel-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.focus-wheel {
+  height: 170px;
+  width: 66px;
+  overflow-y: scroll;
+  padding: 68px 0; /* (170 − 34) / 2, so the first/last value can reach the centre */
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(transparent, #000 33%, #000 67%, transparent);
+  mask-image: linear-gradient(transparent, #000 33%, #000 67%, transparent);
+}
+.focus-wheel::-webkit-scrollbar {
+  display: none;
+}
+.focus-wheel-item {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+.focus-wheel-item.active {
+  color: var(--text);
+  font-weight: 700;
+  transform: scale(1.08);
+}
+.focus-wheel-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.focus-carousel-window {
+  position: absolute;
+  top: 85px; /* centre of the 170px wheel */
+  left: 0;
+  right: 0;
+  height: 34px;
+  transform: translateY(-50%);
+  border-top: 1px solid rgba(230, 168, 23, 0.5);
+  border-bottom: 1px solid rgba(230, 168, 23, 0.5);
+  background: rgba(230, 168, 23, 0.06);
+  pointer-events: none;
+}
+.focus-custom,
+.focus-todo-input,
+.focus-add-music input,
+.focus-add-music textarea {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 11px 12px;
+  font-size: 14px;
+  width: 100%;
+}
+.focus-custom:focus,
+.focus-todo-input:focus,
+.focus-add-music input:focus,
+.focus-add-music textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.focus-todo-input.invalid,
+.focus-custom.invalid {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25);
+}
+/* Inline error under the custom session-length field (enforces the 12-hour cap). */
+.focus-field-error {
+  color: var(--red);
+  font-size: 12px;
+  min-height: 14px;
+}
+/* "+ title" affordance shown when a focus todo has only a course, no title. */
+.focus-todo-text.empty {
+  color: var(--text-dim);
+  opacity: 0.7;
+  cursor: pointer;
+}
+.focus-todo-text.empty:hover {
+  opacity: 1;
+  color: var(--text);
+}
+/* Free-text add row: input + gold "+". */
+.focus-add-todo {
+  display: flex;
+  gap: 6px;
+}
+.focus-add-todo .focus-todo-input {
+  flex: 1;
+}
+.focus-add-btn {
+  flex: none;
+  width: 44px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 10px;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+.focus-add-btn:hover {
+  filter: brightness(1.06); /* was `background: var(--gold)` — a no-op (--gold IS --accent) */
+}
+
+/* Import Tasks toggle button. */
+.focus-import {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.focus-import:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.focus-import.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Import dropdown panel. */
+.focus-import-panel {
+  display: none;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface2);
+  overflow: hidden;
+}
+.focus-import-panel.open {
+  display: flex;
+}
+/* ---- Focus folders (independent from Tasks-tab folders) ---- */
+.focus-folder {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin: 6px 0;
+  overflow: hidden;
+}
+.focus-folder-headrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 8px;
+}
+.focus-folder-head {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  padding: 9px 4px;
+  cursor: pointer;
+  min-width: 0;
+}
+.focus-folder-ico {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  vertical-align: -3px;
+}
+.focus-folder-name {
+  font-weight: 650;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.focus-folder-count {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  flex: none;
+}
+.focus-folder-arrow {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+.focus-folder.open .focus-folder-arrow {
+  transform: rotate(90deg);
+}
+.focus-folder-body {
+  border-top: 1px solid var(--border);
+  padding: 6px 8px 8px 18px; /* indented: members read as inside the folder */
+}
+.focus-folder-autocb {
+  flex: none;
+  cursor: not-allowed; /* folders complete themselves — never clickable */
+  opacity: 0.85;
+}
+/* the per-todo 🗀 button (setup rows + session rows) */
+.focus-todo-fold {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 6px;
+  line-height: 1;
+}
+.focus-todo-fold:hover {
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+}
+.focus-todo-fold svg {
+  display: inline-block;
+  vertical-align: -2px;
+}
+/* the import panel's folder rows reuse .focus-import-bulk; the icon sits inline
+   with the label text */
+.focus-import-bulk-label .focus-folder-ico {
+  vertical-align: -3px;
+  margin-right: 2px;
+}
+
+/* Search filter — a plain native <input> (centers its text automatically). Mirrors
+   the "Add a task…" box's look (var(--surface) bg, 1px border, 10px radius, 11/12
+   padding, 14px text), with inset margins so it reads as its own independent field
+   rather than a strip fused to the panel's top edge. */
+.focus-import-search {
+  display: block;
+  box-sizing: border-box;
+  width: calc(100% - 20px);
+  margin: 10px 10px 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 11px 12px;
+  font-size: 14px;
+  line-height: 1.4; /* match the "Add a task…" textarea's height exactly (44px); the
+                       input still vertically-centers its text natively regardless */
+  font-family: inherit;
+}
+.focus-import-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.focus-import-search::placeholder {
+  color: var(--text-dim);
+}
+.focus-import-body {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-top: 8px; /* clear breathing room so the first subheader never hugs the search box */
+}
+.focus-import-section {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  padding: 11px 13px 5px;
+}
+.focus-import-section.gold {
+  color: var(--accent);
+}
+.focus-import-bulk,
+.focus-import-task {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 13px;
+  border-top: 1px solid var(--border);
+}
+.focus-import-bulk {
+  background: rgba(230, 168, 23, 0.05);
+}
+.focus-import-bulk-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+}
+.focus-import-course {
+  font-weight: 700;
+}
+.focus-import-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.focus-import-task-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.focus-import-title {
+  font-size: 14px;
+  word-break: break-word;
+}
+.focus-import-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+}
+.focus-import-date {
+  font-weight: 700;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.focus-import-tags .course-chip {
+  font-size: 11.5px;
+}
+.focus-import-task.imported {
+  opacity: 0.5;
+}
+.focus-import-editbtn {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 4px 5px;
+  border-radius: 6px;
+  line-height: 1;
+  opacity: 0.4;
+}
+.focus-import-task:hover .focus-import-editbtn {
+  opacity: 1;
+}
+.focus-import-editbtn:hover {
+  color: var(--text);
+  background: var(--surface);
+  opacity: 1;
+}
+.focus-import-add {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: 1px solid var(--border-strong);
+  color: var(--accent);
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.focus-import-add:hover {
+  border-color: var(--accent);
+  background: rgba(230, 168, 23, 0.08);
+}
+.focus-import-add.done {
+  color: var(--green);
+  border-color: rgba(39, 174, 96, 0.4);
+  cursor: default;
+}
+.focus-import-add.done:hover {
+  background: none;
+}
+.focus-import-empty {
+  padding: 18px 13px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.focus-import-edit-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  color: var(--text);
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 13px;
+}
+.focus-import-edit-input.course {
+  flex: 0 0 96px;
+}
+
+.focus-todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.focus-todo-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 14px;
+}
+.focus-todo-label {
+  flex: 1; /* stretch to the row's full width so the inline editor can fill it */
+  display: flex;
+  flex-direction: column; /* course always beneath the title, never to the right */
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+.focus-todo-text {
+  word-break: break-word;
+}
+.focus-todo-label .course-chip {
+  font-size: 11.5px;
+  flex: none;
+}
+/* English translation carried over from a foreign-language task. */
+.focus-todo-translation {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+.focus-todo-translation-badge {
+  font-size: 10px;
+  font-style: normal;
+  opacity: 0.85;
+  flex: none;
+}
+.focus-todo-del {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.focus-todo-del:hover {
+  color: var(--red);
+}
+.focus-music-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px; /* the whole 99-track library scrolls here, grouped by genre */
+  overflow-y: auto;
+}
+.focus-music-opt {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-size: 14px;
+}
+.focus-music-opt.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.focus-music-opt-emoji {
+  flex: none;
+  font-size: 15px;
+}
+.focus-music-opt-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Genre header inside the setup music list. */
+.focus-music-genre-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 4px 4px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.focus-music-genre-head:first-of-type {
+  border-top: none;
+  margin-top: 0;
+}
+.focus-music-genre-name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.focus-music-genre-count {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- setup music browser: Genres / Artists / Custom ---- */
+.focus-music-subhead {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 12px 4px 4px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.focus-music-subhead:first-of-type {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 4px;
+}
+.focus-music-coll {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.focus-music-coll:hover {
+  border-color: var(--border-strong);
+}
+.focus-music-coll.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.focus-music-coll-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.focus-music-hint {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 4px 4px 2px;
+}
+
+/* ---- song window (double-click a genre/artist to see every song) ---- */
+.focus-songwin-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(6, 10, 22, 0.72);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.focus-songwin {
+  width: 100%;
+  max-width: 460px;
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+.focus-songwin-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.focus-songwin-titles {
+  flex: 1;
+  min-width: 0;
+}
+.focus-songwin-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+.focus-songwin-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.focus-songwin-close {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+}
+.focus-songwin-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+.focus-songwin-list {
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.focus-songwin-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  color: var(--text);
+  border-radius: 9px;
+  padding: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+.focus-songwin-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.focus-songwin-row.active {
+  background: rgba(230, 168, 23, 0.12);
+  color: var(--accent);
+}
+.focus-songwin-emoji {
+  flex: none;
+  font-size: 16px;
+}
+.focus-songwin-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+}
+.focus-songwin-artist {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.focus-add-music {
+  display: flex;
+  gap: 6px;
+}
+.focus-add-music button {
+  flex: none;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0 14px;
+  font-weight: 600;
+}
+.focus-start {
+  margin-top: 18px;
+}
+
+/* ---- Active session overlay (full-screen, desktop) ---- */
+.focus-overlay {
+  /* A softer, less-saturated red than the global --red (#ef4444) — it reads better
+     on the dark-blue focus background. Used by the trim/End buttons + urgent ring. */
+  --focus-red: #e04545;
+  --focus-red-rgb: 224, 69, 69;
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column; /* quote (full-width, centered) stacks above the stage */
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 20px; /* was 40 — reclaimed so the session fits 768px-tall laptops */
+  overflow: auto;
+  /* Same dark-blue gradient as the rest of the app (theme.css body), so the focus
+     takeover reads as the same app — plus a faint gold glow behind the ring. */
+  background:
+    radial-gradient(820px 560px at 50% 16%, rgba(230, 168, 23, 0.07), transparent 60%),
+    linear-gradient(165deg, #0f1c40 0%, #0a1430 50%, #070d20 100%);
+}
+
+/* Two-column stage on desktop; stacks to one column on narrow screens. */
+.focus-stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 30px;
+  width: 100%;
+  max-width: 560px;
+}
+.focus-left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px; /* was 28 — part of the fit-on-768px-screens shrink */
+}
+.focus-right {
+  display: flex;
+  min-width: 0;
+}
+@media (min-width: 900px) {
+  .focus-stage {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
+    max-width: 1100px;
+    gap: 60px; /* was 90 — part of the fit shrink */
+    align-items: center;
+  }
+}
+
+.focus-min-btn {
+  position: fixed;
+  top: 18px;
+  left: 18px;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.focus-min-btn svg {
+  width: 20px;
+  height: 20px;
+}
+.focus-min-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.focus-quote {
+  /* Centered on the SCREEN (not the ring column), so the same text wraps across
+     fewer lines — and nudged up so it sits considerably higher than the ring. */
+  position: relative;
+  top: -45px;
+  max-width: 680px;
+  margin: 0 auto;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* "⏰ Ends 2:34 PM" — wall-clock end time, centered beneath the ring, above controls. */
+.focus-endtime {
+  display: flex;
+  align-self: center;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 0 6px;
+  color: var(--text-dim);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.focus-endtime-icon {
+  font-size: 15px;
+}
+.focus-widget .focus-endtime {
+  font-size: 12px;
+  gap: 5px;
+  margin: 1px 0 3px;
+}
+.focus-widget .focus-endtime-icon {
+  font-size: 12px;
+}
+
+/* 340px (was 430): with the quote, end-time, controls and ± rows stacked below,
+   430 pushed the session past ~740px tall — off the bottom of 768px laptops. */
+.focus-ring-wrap {
+  position: relative;
+  width: 340px;
+  height: 340px;
+}
+.focus-ring {
+  width: 340px;
+  height: 340px;
+}
+.focus-ring .ring-bg {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 10;
+}
+.focus-ring .ring-fg {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 10;
+  stroke-linecap: round;
+  /* The arc's offset is animated frame-by-frame in JS (startRingAnimation), so no
+     CSS transition on it. The stroke/filter transitions stay for the smooth
+     gold→red→gold fade entering/leaving the last 5 minutes. */
+  transition: stroke 1s ease, filter 1s ease;
+  filter: drop-shadow(0 0 8px var(--gold-glow));
+}
+.focus-ring .ring-dot {
+  fill: var(--accent);
+  filter: drop-shadow(0 0 6px var(--gold-glow));
+  transition: fill 1s ease, filter 1s ease;
+}
+/* Last 5 minutes — ONLY the ring + start-dot fade to a soft red (the timer text
+   stays white). The smooth 1s fade comes from the base transitions above. */
+.focus-ring-wrap.urgent .ring-fg {
+  stroke: var(--focus-red);
+  filter: drop-shadow(0 0 8px rgba(var(--focus-red-rgb), 0.4));
+}
+.focus-ring-wrap.urgent .ring-dot {
+  fill: var(--focus-red);
+  filter: drop-shadow(0 0 6px rgba(var(--focus-red-rgb), 0.4));
+}
+.focus-time {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 60px; /* was 76 — scaled with the 340px ring */
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+.focus-time.flash-up {
+  animation: focusFlashUp 0.45s ease;
+}
+.focus-time.flash-down {
+  animation: focusFlashDown 0.45s ease;
+}
+@keyframes focusFlashUp {
+  0% { transform: scale(1); color: #fff; }
+  35% { transform: scale(1.09); color: var(--accent); }
+  100% { transform: scale(1); color: #fff; }
+}
+@keyframes focusFlashDown {
+  0% { transform: scale(1); color: #fff; }
+  35% { transform: scale(0.94); color: var(--focus-red); }
+  100% { transform: scale(1); color: #fff; }
+}
+
+/* Add (gold) / trim (red) time rows. The custom (✎) button opens a carousel popup. */
+.focus-extend {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 420px;
+}
+.focus-extend-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.focus-extend-btn {
+  /* gray surface (matches the task panel) with gold/red accents on text + border */
+  background: var(--surface);
+  border: 2px solid var(--border-strong);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 13px 0;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.focus-extend-row.add .focus-extend-btn {
+  color: var(--accent);
+  border-color: rgba(230, 168, 23, 0.35);
+}
+.focus-extend-row.add .focus-extend-btn:hover {
+  background: rgba(230, 168, 23, 0.12);
+  border-color: var(--accent);
+}
+.focus-extend-row.trim .focus-extend-btn {
+  color: var(--focus-red);
+  border-color: rgba(var(--focus-red-rgb), 0.32);
+}
+.focus-extend-row.trim .focus-extend-btn:hover {
+  background: rgba(var(--focus-red-rgb), 0.12);
+  border-color: var(--focus-red);
+}
+.focus-extend-btn.custom {
+  font-size: 15px;
+}
+
+/* Custom add/trim popup: H:M:S carousel (compact — fewer visible rows than setup). */
+.focus-extend-modal .focus-carousel {
+  margin: 10px 0 14px;
+}
+.focus-extend-carousel .focus-wheel {
+  height: 102px;
+  padding: 34px 0; /* (102 − 34) / 2 so the first/last value can reach the centre */
+}
+.focus-extend-carousel .focus-carousel-window {
+  top: 51px; /* centre of the 102px wheel */
+}
+.focus-extend-carousel .focus-wheel-item {
+  font-size: 16px;
+}
+
+/* Primary controls. */
+.focus-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+}
+.focus-ctrl {
+  /* gray surface (matches the task panel); accent colors live on text + border */
+  background: var(--surface);
+  border: 2px solid var(--border-strong);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 14px 30px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.focus-ctrl:hover {
+  border-color: var(--accent);
+}
+/* Pause/Resume = OUTLINE style (dark surface bg + gold border/text), mirroring the
+   End Session .danger button so the two controls match. Same in BOTH the overlay and
+   the mini widget (shared base rule — no per-screen override). */
+.focus-ctrl.primary {
+  border-color: rgba(230, 168, 23, 0.5);
+  color: var(--accent);
+}
+.focus-ctrl.primary:hover {
+  background: rgba(230, 168, 23, 0.12);
+}
+.focus-ctrl.gold {
+  /* Outline style (dark bg + gold text/border), mirroring .danger so Add & Trim match. */
+  color: var(--accent);
+  border-color: rgba(230, 168, 23, 0.4);
+}
+.focus-ctrl.gold:hover {
+  background: rgba(230, 168, 23, 0.12);
+  border-color: var(--accent);
+}
+.focus-ctrl.danger {
+  color: var(--focus-red);
+  border-color: rgba(var(--focus-red-rgb), 0.4);
+}
+.focus-ctrl.danger:hover {
+  background: rgba(var(--focus-red-rgb), 0.12);
+  border-color: var(--focus-red);
+}
+
+/* Task panel (right column). */
+.focus-task-panel {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(70vh, 560px);
+}
+.focus-task-head {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+}
+.focus-overlay-todos {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.focus-todos-empty {
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: center;
+  padding: 16px 0;
+}
+.focus-todo-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 14.5px;
+}
+.focus-todo-item.dragging {
+  opacity: 0.5;
+  border-color: var(--accent);
+}
+.focus-todo-item .focus-todo-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column; /* course always beneath the title, never to the right */
+  align-items: flex-start;
+  gap: 2px;
+}
+.focus-todo-item .course-chip {
+  font-size: 11.5px;
+  flex: none;
+}
+.focus-todo-item.done {
+  opacity: 0.5;
+}
+.focus-todo-item.done .focus-todo-text {
+  text-decoration: line-through;
+}
+.focus-todo-handle {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: grab;
+  letter-spacing: -2px;
+  opacity: 0.5;
+}
+.focus-todo-handle:hover {
+  opacity: 1;
+}
+.focus-todo-handle:active {
+  cursor: grabbing;
+}
+.focus-todo-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.focus-todo-iconbtn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-decoration: none;
+  padding: 4px 5px;
+  border-radius: 6px;
+  line-height: 1;
+}
+.focus-todo-item:hover .focus-todo-iconbtn {
+  color: var(--text);
+}
+.focus-todo-iconbtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--accent);
+}
+/* The in-session add row + import reuse the setup styles; sit them on --surface2
+   so they read as inputs inside the gray --surface panel (same as the rest of the app). */
+.focus-task-panel .focus-todo-input,
+.focus-task-panel .focus-import {
+  background: var(--surface2);
+}
+
+/* Custom add/trim modal. */
+.focus-modal-back {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  background: rgba(4, 8, 20, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* This popup mounts on <body>, outside .focus-overlay — so the focus red is defined
+     here too, letting .focus-ctrl.danger (the Trim button) resolve var(--focus-red). */
+  --focus-red: #e04545;
+  --focus-red-rgb: 224, 69, 69;
+}
+.focus-modal {
+  width: 100%;
+  max-width: 300px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.focus-modal-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+.focus-modal-input {
+  background: var(--surface2);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 11px 12px;
+  font-size: 15px;
+}
+.focus-modal-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.focus-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Music transport (bottom-right) — a column: standalone round buttons + label on
+   top, a volume slider right beneath. No enclosing pill (kept subtle). */
+.focus-music-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end; /* keep buttons + slider right-aligned */
+  gap: 9px;
+  max-width: 320px;
+}
+.focus-music-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* --- 🎵 music menu: a popover that opens ABOVE the bottom-right transport --- */
+.focus-music-menu {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  width: 272px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  padding: 12px 12px 14px;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.5);
+  /* Never grow into the top edge of the screen — cap the popover and let it
+     scroll as ONE list instead (breathing room stays above it). */
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+}
+.focus-music-menu.open {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.focus-menu-section {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+.focus-menu-section:first-child {
+  margin-top: 0;
+}
+/* Now-playing block: the current song + its seek bar, set off from the song list. */
+.focus-menu-nowplaying {
+  margin-bottom: 16px; /* clear gap before all the other (non-playing) songs */
+}
+/* Current song row — SAME padding + emoji gap as .focus-menu-track so it lines up. */
+.focus-menu-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+/* Seek bar: ⏪ 0:12 —o— 6:12 ⏩ — kept COMPACT so the skip buttons never run off
+   the menu edge (the slider shrinks via min-width:0; everything else is tight). */
+.focus-menu-seek {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 4px 0;
+}
+.focus-menu-skip {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 2px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.focus-menu-skip:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+.focus-menu-time {
+  flex: none;
+  min-width: 26px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.focus-seek-slider {
+  flex: 1;
+  min-width: 0; /* let the slider shrink so the ⏩ button always stays on-screen */
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+}
+.focus-seek-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+}
+.focus-seek-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+}
+.focus-menu-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px; /* the whole 99-track library scrolls here, grouped by genre */
+  overflow-y: auto;
+}
+/* Browse mode's section boxes: plain containers — the MENU is the one scroller,
+   so the playlist list never nests scrollbars inside scrollbars. */
+.focus-menu-tracks.focus-menu-browse {
+  max-height: none;
+  overflow: visible;
+}
+/* Genre header inside the grouped library list — a clickable heading that plays
+   the whole genre from the top. */
+.focus-menu-genre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  padding: 8px 8px 5px;
+  margin-top: 4px;
+}
+.focus-menu-genre:first-of-type {
+  border-top: none;
+  margin-top: 0;
+}
+.focus-menu-genre:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+}
+.focus-menu-genre-name {
+  flex: 1;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.focus-menu-genre.active .focus-menu-genre-name {
+  color: var(--accent);
+}
+.focus-menu-count {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+/* Track/playlist title: one line, ellipsis if long. It FILLS the row (flex:1) so
+   the count+length that follows sits flush against the right edge — no dead space
+   mid-row. The :not(.focus-menu-count) keeps this rule off the count span, which
+   must stay flex:none (see .focus-menu-count) to hug that right edge. */
+.focus-menu-track span:not(.focus-menu-emoji):not(.focus-menu-count),
+.focus-menu-current span:not(.focus-menu-emoji) {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.focus-menu-track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  padding: 5px 8px; /* a touch tighter so the browse list runs shorter */
+  cursor: pointer;
+}
+/* Heart / favorite toggle (song rows in the menu + song window). */
+.focus-fav {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+.focus-fav:hover {
+  color: var(--red);
+  transform: scale(1.15);
+}
+.focus-fav.on {
+  color: var(--red);
+}
+/* In-menu "Switch playlist" / "Back" button (Spotify-style, inside the 🎵 menu). */
+.focus-menu-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  padding: 9px 11px;
+  margin-bottom: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.focus-menu-switch:hover {
+  border-color: var(--accent);
+}
+.focus-menu-switch-label {
+  flex: 1;
+  text-align: left;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.focus-menu-switch-cta {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.focus-menu-track:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.focus-menu-track.active {
+  background: rgba(230, 168, 23, 0.12);
+  color: var(--accent);
+  font-weight: 600;
+}
+.focus-menu-emoji {
+  flex: none;
+  font-size: 14px;
+}
+.focus-menu-stub {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 2px 2px 0;
+}
+
+.focus-music-volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.focus-music-menu .focus-vol-slider {
+  flex: 1;
+  width: auto; /* stretch across the menu instead of the old fixed 132px */
+}
+.focus-music-vol-icon {
+  flex: none;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.focus-vol-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 132px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+}
+.focus-vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+}
+.focus-vol-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+}
+.focus-music-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+  margin-right: 4px;
+}
+.focus-music-emoji {
+  font-size: 14px;
+}
+.focus-music-ctrl {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  color: var(--text);
+  font-size: 13px;
+}
+.focus-music-ctrl:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+.focus-music-ctrl.play {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.focus-music-ctrl.play:hover {
+  filter: brightness(1.06); /* was `background: var(--gold)` — a no-op (--gold IS --accent) */
+}
+
+/* ---- Floating widget = a smaller, condensed CLONE of the overlay's left column.
+       It reuses the same components (.focus-quote / .focus-ring-wrap / .focus-controls
+       / .focus-extend), scaled down here, so both screens look identical. ---- */
+.focus-widget {
+  --focus-red: #e04545;
+  --focus-red-rgb: 224, 69, 69;
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2000;
+  width: 250px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  /* Same dark-blue hue as the overlay/app, so it reads as a shrunk-down takeover. */
+  background: linear-gradient(165deg, #0f1c40 0%, #0a1430 55%, #070d20 100%);
+  border: 1px solid rgba(230, 168, 23, 0.35);
+  border-radius: 16px;
+  padding: 34px 16px 18px; /* top room for the maximize button */
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  cursor: grab;
+  touch-action: none;
+}
+.focus-widget.dragging {
+  cursor: grabbing;
+  opacity: 0.9;
+}
+/* ---- Mini screen = the FULL session UI stacked vertically ----
+   quote → timer + buttons → tasks → music (same shared components as the max
+   screen, compacted). */
+.focus-widget .focus-quote {
+  position: static; /* the overlay version rides 45px up; in the mini it's in flow */
+  top: auto;
+  /* The ring's decrease factor (mini 178px / max 340px ≈ 0.5235) applied to a
+     BIGGER base than the actual 15px (which landed unreadably small at 7.85px):
+     22px × 178/340 = 11.5px. Letter-spacing is em-based, so it scales along. */
+  font-size: 11.5px;
+  max-width: 100%;
+  /* The max screen's measured quote→ring gap (65px) scaled by the ring factor
+     (178/340), so the spacing LOOKS the same next to the half-size ring:
+     65 × 0.5235 ≈ 34px visual gap = 20px margin + the widget's 14px flex gap. */
+  margin: 0 0 20px;
+}
+.focus-widget .focus-task-panel {
+  /* 240px squeezed the todo LIST to ~1.5 rows once the head + add-input +
+     Import button took their ~140px — the list was unreadably cramped (per
+     Gabe). 420px gives it ~5–6 rows; the mini screen just grows taller and
+     music slides down (everything below is in normal flow). */
+  max-height: 420px;
+  padding: 12px;
+}
+/* Floor for the widget's todo list: whatever else squeezes, never crush the
+   actual tasks below ~3 comfortable rows. */
+.focus-widget .focus-overlay-todos {
+  min-height: 150px;
+}
+/* The in-tab float can now outgrow short viewports: cap + scroll it. Children
+   must NOT flex-shrink (they'd compress instead of overflowing — the same trap
+   the pip scroller hit). Native scrollbars work fine in the MAIN document; only
+   the pip hides its bars. */
+.focus-widget:not(.focus-widget-pip) {
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+}
+.focus-widget:not(.focus-widget-pip) > * {
+  flex-shrink: 0;
+}
+.focus-widget button {
+  cursor: pointer;
+}
+/* Detached mini player: the widget lives in its own Document-Picture-in-Picture
+   window (draggable anywhere on screen). It fills that small window instead of
+   floating in a tab corner — no fixed offsets, no drag cursor, no outer chrome. */
+/* The pip's real scroll container is the inline-styled .focus-pip-scroll div
+   created in openPipWidget() (position:fixed + inset:0 + overflow-y:auto) — NOT
+   the body. This rule is just a backstop background so nothing flashes white
+   before that div mounts; the inline styles in JS own the actual behavior. */
+.focus-pip-body {
+  margin: 0;
+  background: #070d20;
+}
+.focus-pip-scroll {
+  /* everything set inline in openPipWidget(); listed here for discoverability */
+}
+.focus-widget.focus-widget-pip {
+  position: static;
+  inset: auto;
+  width: 100%;
+  /* Transparent: the BODY paints the single continuous gradient (above). If the
+     widget kept its own gradient it would be 0–506px while the body's is the full
+     window height, so a seam would show where they misalign. */
+  background: transparent;
+  /* CRITICAL: the base .focus-widget sets `touch-action: none` (so the draggable
+     in-tab FLOAT doesn't scroll the page while you drag it). The PiP widget isn't
+     draggable, and that rule DISABLES scroll gestures — it's why the mini player
+     couldn't be scrolled no matter how the scroll container was structured. Re-
+     enable normal scrolling here. */
+  touch-action: auto;
+  /* Natural height, no cap — the widget just flows and the BLOCK body scrolls it
+     (see .focus-pip-body). A max-height + overflow HERE would compress the flex
+     children instead of scrolling. width:100% (below) makes it fill the body. */
+  /* Trimmed top margin (was 34px). The maximize button sits over the ring's empty
+     top-left corner, so less headroom is fine — and it helps the whole mini player
+     fit its window without scrolling. */
+  padding: 20px 16px 16px;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  cursor: default;
+  justify-content: center;
+}
+.focus-widget-expand {
+  position: absolute;
+  top: 8px;
+  left: 10px; /* maximize sits in the LEFT corner (mirrors the overlay's minimize) */
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.focus-widget-expand:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+/* Scale the shared components down — same look, smaller. */
+.focus-widget .focus-ring-wrap,
+.focus-widget .focus-ring {
+  width: 178px;
+  height: 178px;
+}
+.focus-widget .focus-time {
+  font-size: 36px;
+}
+.focus-widget .focus-controls {
+  gap: 10px;
+}
+.focus-widget .focus-ctrl {
+  padding: 9px 20px;
+  font-size: 12.5px;
+}
+.focus-widget .focus-extend {
+  max-width: 252px;
+  gap: 7px;
+}
+.focus-widget .focus-extend-row {
+  gap: 7px;
+}
+.focus-widget .focus-extend-btn {
+  padding: 8px 0;
+  font-size: 12.5px;
+  border-radius: 8px;
+}
+.focus-widget .focus-extend-btn.custom {
+  font-size: 12.5px;
+}
+/* Tiny "MUSIC" label over the transport — the ⏮⏸⏭ there control the SOUNDTRACK, not
+   the session; this keeps the two pause buttons impossible to confuse (esp. in the
+   compact mini player). */
+.focus-music-caption {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+  opacity: 0.65;
+  text-align: center;
+  margin-bottom: 2px;
+  /* Span the panel so the centered text sits exactly over the transport buttons.
+     The overlay panel right-aligns its children (align-items: flex-end), which would
+     otherwise shrink-wrap this label off to one side. */
+  align-self: stretch;
+}
+
+/* Music transport in the mini player: inline (not fixed bottom-right), centered,
+   with the 🎵 menu opening INLINE below it (the window scrolls to reveal it). */
+.focus-widget .focus-music-panel {
+  position: static;
+  width: 100%;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 2px;
+}
+.focus-widget .focus-music-bar {
+  justify-content: center;
+}
+.focus-widget .focus-music-menu.open {
+  position: static;
+  width: 100%;
+  box-shadow: none;
+  padding: 8px 6px 10px;
+  max-height: none; /* the mini window scrolls as a whole — no inner cap */
+  overflow: visible;
+}
+.focus-widget .focus-menu-tracks {
+  max-height: 220px; /* keep the song list scroll compact inside the small window */
+}
+
+/* ---- End-of-session toast (slide-up pill) ---- */
+.focus-end-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(160%);
+  z-index: 2500;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 420px;
+  background: var(--surface);
+  border: 1px solid rgba(230, 168, 23, 0.4);
+  border-radius: 14px;
+  padding: 14px 20px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.focus-end-toast.show {
+  transform: translateX(-50%) translateY(0);
+}
+.focus-end-toast-icon {
+  flex: none;
+  font-size: 24px;
+}
+.focus-end-toast-body {
+  flex: 1;
+  min-width: 0;
+}
+.focus-end-toast-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+.focus-end-toast-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.focus-end-toast-sub strong {
+  color: var(--text);
+}
+.focus-end-toast-close {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 16px;
+  padding: 4px 8px;
+}
+.focus-end-toast-close:hover {
+  color: var(--text);
+}
+/* "Restore" — the short-lived undo on manual ends + the session-waiting offer.
+   Gold and solid: it's the toast's one real action. */
+.focus-end-toast-retrieve {
+  flex: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.focus-end-toast-retrieve:hover {
+  filter: brightness(1.06); /* was `background: var(--gold)` — a no-op (--gold IS --accent) */
+}
+/* Compact variant for the two SESSION toasts (Restore? / Switch Focus to this tab):
+   standing signposts, not celebrations. Single line each: the toast sizes to its
+   content (width: max-content) so the gold header never wraps into a second line. */
+.focus-end-toast.focus-session-mini {
+  gap: 10px;
+  padding: 9px 14px;
+  border-radius: 12px;
+  width: max-content;
+  max-width: min(520px, 92vw);
+}
+.focus-session-mini .focus-end-toast-icon {
+  font-size: 17px;
+}
+.focus-session-mini .focus-end-toast-title {
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+/* The "· 23:41 LEFT" tail of the restore header: brand gray, so the gold carries
+   only the question and the time reads as secondary info. */
+.focus-end-toast-time {
+  color: var(--text-dim);
+}
+.focus-session-mini .focus-end-toast-retrieve {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.focus-session-mini .focus-end-toast-close {
+  font-size: 14px;
+}

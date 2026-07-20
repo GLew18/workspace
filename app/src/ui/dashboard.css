@@ -1,0 +1,186 @@
+/* WorkSpace — Dashboard styles. */
+
+.dash {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-top: 8px;
+}
+
+.dash-greeting {
+  font-size: 30px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0;
+  text-align: center;
+  /* Constant text→accent gradient, clipped to the text (no animated sweep). */
+  background-image: linear-gradient(120deg, var(--text), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.dash-quote {
+  padding: 10px 0;
+  line-height: 1.5;
+  text-align: center;
+}
+.dash-quote-text {
+  color: var(--text-dim);
+  font-size: 14.5px;
+  font-style: italic;
+}
+.dash-quote-author {
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gold);
+}
+
+.dash-due {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.dash-due-header {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.dash-due-empty {
+  margin-top: 10px;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+.dash-due-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dash-due-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color var(--transition);
+}
+.dash-due-item:hover {
+  border-color: var(--border-strong);
+}
+.dash-due-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.dash-due-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-due-time {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* schedule card — same gray-box treatment as .dash-due (Today's Tasks): the
+   header lives INSIDE the surface container, items sit on surface2 within it. */
+.dash-schedule {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.dash-schedule:empty {
+  display: none;
+}
+.dash-schedule-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+.dash-refresh-btn {
+  /* Icon-only ↻. Compact circle so the loading spin is clean and it never resizes
+     (single-glyph states: ↻ / ⚠). */
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--gold);
+  background: rgba(230, 168, 23, 0.08);
+  border: 1px solid rgba(230, 168, 23, 0.3);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+.dash-refresh-btn:hover {
+  background: rgba(230, 168, 23, 0.16);
+  border-color: rgba(230, 168, 23, 0.5);
+}
+.dash-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.dash-refresh-btn.spinning {
+  animation: ws-spin 0.7s linear infinite;
+}
+.dash-schedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dash-schedule-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--surface2); /* inner-item surface, same as .dash-due-item */
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: border-color var(--transition);
+}
+.dash-schedule-item:hover {
+  border-color: var(--border-strong);
+}
+.dash-schedule-title {
+  font-size: 14px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-schedule-open {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gold);
+}
+.dash-schedule-empty {
+  color: var(--text-dim);
+  font-size: 14px;
+}

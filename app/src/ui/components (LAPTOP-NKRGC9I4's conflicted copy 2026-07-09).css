@@ -1,0 +1,1015 @@
+/* WorkSpace — component styles. */
+
+/* ---- App header (independent full-width bar, never compressed) ---- */
+:root {
+  --header-h: 92px;
+}
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 500;
+  height: var(--header-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0px 28px;
+  background: #14224a;
+  border-bottom: 1px solid var(--border-strong);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.32);
+}
+.app-header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  cursor: pointer;
+}
+/* Square icon buttons (menu toggle in header-left, settings gear in header-right). */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 9px;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+.icon-btn.active {
+  color: var(--text);
+  background: rgba(230, 168, 23, 0.16);
+  border-color: rgba(230, 168, 23, 0.3);
+}
+
+/* ---- Below-header area: sidebar trickles DOWN from under the header,
+       content to its right compresses. The header itself is untouched. ---- */
+.app-below {
+  position: relative;
+  transition: padding-left 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.app-below.nav-open {
+  padding-left: 248px;
+}
+.ws-sidebar {
+  position: fixed;
+  top: var(--header-h);
+  left: 0;
+  bottom: 0;
+  width: 248px;
+  background: #161d2b;
+  border-right: 1px solid var(--border-strong);
+  padding: 18px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transform: translateX(-100%); /* hidden off the left edge */
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 400;
+  box-shadow: 6px 0 28px rgba(0, 0, 0, 0.45);
+}
+.app-below.nav-open .ws-sidebar {
+  transform: translateX(0); /* emerges from the left side */
+}
+
+/* Nav items stagger in as the bar drops. */
+.app-below.nav-open .ws-sidebar .nav-item {
+  animation: nav-item-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.ws-sidebar .nav-item:nth-child(1) { animation-delay: 0.1s; }
+.ws-sidebar .nav-item:nth-child(2) { animation-delay: 0.15s; }
+.ws-sidebar .nav-item:nth-child(3) { animation-delay: 0.2s; }
+.ws-sidebar .nav-item:nth-child(4) { animation-delay: 0.25s; }
+.ws-sidebar .nav-item:nth-child(5) { animation-delay: 0.3s; }
+@keyframes nav-item-in {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ws-sidebar { transition: transform 0.18s ease; }
+  .app-below.nav-open .ws-sidebar .nav-item { animation: none; }
+}
+
+.nav-item {
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+.nav-item.active {
+  color: var(--text);
+  background: rgba(230, 168, 23, 0.16);
+}
+
+/* ---- "WorkSpace" wordmark — the "o" is a computer monitor ---- */
+.ws-mark {
+  display: inline-flex;
+  align-items: center;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 34px;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+  line-height: 1;
+  white-space: nowrap;
+}
+.ws-mark-text {
+  color: #ffffff;
+}
+.ws-mon {
+  height: 1em;
+  width: auto;
+  display: inline-block;
+  /* nest the monitor where the "o" sits, snug to W and r */
+  margin: 0 -0.02em;
+  /* center the screen on the letters' optical center so it reads as an "o" */
+  transform: translateY(0.2em);
+  color: #e6a817; /* fixed brand gold */
+}
+.app-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.app-user button {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.app-user button:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+/* The settings gear is an icon button, not a pill like "Sign out". */
+.app-user .icon-btn {
+  padding: 0;
+  border-radius: 9px;
+  border-color: transparent;
+}
+.app-user .icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: transparent;
+}
+.app-user .icon-btn.active {
+  background: rgba(230, 168, 23, 0.16);
+  border-color: rgba(230, 168, 23, 0.3);
+}
+
+/* ---- Tabs ---- */
+.tab-bar {
+  display: flex;
+  gap: 6px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px;
+  margin-bottom: 18px;
+}
+.tab-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 0;
+  border-radius: 999px;
+  /* inherits the global 0.2s button transition (theme.css) */
+}
+.tab-btn.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border-strong), 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.tab-panel {
+  display: none;
+}
+.tab-panel.active {
+  display: block;
+  animation: fade-in 0.3s ease;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- Sign-in screen ---- */
+.signin {
+  max-width: 360px;
+  margin: 14vh auto 0;
+  text-align: center;
+  padding: 0 18px;
+}
+.signin h1 {
+  font-size: 30px;
+  letter-spacing: -0.03em;
+  margin: 18px 0 6px;
+}
+.signin p {
+  color: var(--text-dim);
+  margin: 0 0 26px;
+}
+.signin img {
+  width: 64px;
+  height: 64px;
+}
+.btn-primary {
+  width: 100%;
+  background: var(--accent);
+  color: #1a1200;
+  border: none;
+  border-radius: 12px;
+  padding: 13px;
+  font-size: 15px;
+  font-weight: 700;
+  /* inherits the global 0.2s button transition (theme.css) */
+}
+.btn-primary:hover {
+  box-shadow: 0 0 0 3px var(--gold-glow);
+}
+.signin input,
+.signin textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  padding: 13px;
+  font-size: 15px;
+  margin-bottom: 12px;
+}
+.signin input:focus,
+.signin textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.signin .hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 18px;
+}
+
+/* ---- Tasks header (refresh) ---- */
+.tasks-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+.tasks-refresh-btn {
+  /* Icon-only ↻. Compact circle so the loading spin is clean and it never resizes
+     (single-glyph states: ↻ / ✓ / ⚠). */
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--gold);
+  background: rgba(230, 168, 23, 0.08);
+  border: 1px solid rgba(230, 168, 23, 0.3);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+.tasks-refresh-btn:hover {
+  background: rgba(230, 168, 23, 0.16);
+  border-color: rgba(230, 168, 23, 0.5);
+}
+.tasks-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.tasks-refresh-btn.spinning {
+  animation: ws-spin 0.7s linear infinite;
+}
+
+/* ---- Wrapping text box ----
+   A <textarea> that behaves like a single-line input but WRAPS long text instead
+   of scrolling sideways (see textInput() in util/dom.ts). Every converted field
+   carries .ws-textbox on top of its own look-class; this only adds the textarea
+   resets + wrapping, so the app-wide styling below still applies unchanged. */
+.ws-textbox {
+  resize: none;
+  overflow: hidden; /* JS switches overflow-y to auto once it passes the height cap */
+  white-space: pre-wrap; /* wrap long lines */
+  overflow-wrap: anywhere; /* break very long unbroken tokens (e.g. URLs) */
+  line-height: 1.4;
+  vertical-align: top;
+}
+/* Add-rows = a growing text box beside a button. Center the button on the box so it
+   stays vertically aligned (and never stretches to the box's full growing height). */
+.focus-add-todo,
+.focus-add-music {
+  align-items: center;
+}
+
+/* ---- Quick add ---- */
+.quick-add {
+  position: relative;
+  margin-bottom: 18px;
+}
+.quick-add input,
+.quick-add textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  padding: 13px 14px;
+  font-size: 15px;
+  transition: var(--transition);
+}
+.quick-add input:focus,
+.quick-add textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--gold-glow);
+}
+.quick-add input.invalid,
+.quick-add textarea.invalid {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25);
+}
+.quick-add-hint {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin: 7px 2px 0;
+}
+
+/* ---- Task groups ---- */
+.task-group-header {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin: 20px 4px 8px;
+}
+.task-group-header.tone-red {
+  color: var(--red);
+}
+.task-group-header.tone-orange {
+  color: #e85d04;
+}
+
+/* ---- Task item ---- */
+.task-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 12px 12px 16px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  transition: border-color var(--transition);
+}
+.task-item:hover {
+  border-color: var(--border-strong);
+}
+.task-item.completing {
+  opacity: 0;
+  transform: translateX(56px);
+  /* One calm, two-beat motion: the row slowly glides to the right and fades
+     out, THEN (once it's gone) its empty space gently collapses so the tasks
+     below ease up into place — no sideways-then-up snap. */
+  transition: opacity 0.5s ease, transform 0.5s ease,
+    height 0.34s ease 0.46s, margin 0.34s ease 0.46s, padding 0.34s ease 0.46s,
+    border-width 0.34s ease 0.46s;
+}
+.task-item.completed {
+  opacity: 0.5;
+}
+
+.task-priority {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+.task-priority.highest {
+  background: #ef4444;
+}
+.task-priority.high {
+  background: #e85d04;
+}
+.task-priority.normal {
+  background: #f0c030;
+}
+.task-priority.low {
+  background: #60a5fa;
+}
+.task-priority.lowest {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.task-cb {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border: 2px solid var(--border-strong);
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  color: transparent;
+  /* inherits the global 0.2s button transition (theme.css) */
+}
+.task-cb:hover {
+  border-color: var(--accent);
+}
+.task-cb.checked {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+.task-cb svg {
+  width: 13px;
+  height: 13px;
+}
+
+.task-info {
+  flex: 1;
+  min-width: 0;
+}
+.task-title {
+  font-size: 15px;
+  font-weight: 500;
+  word-break: break-word;
+}
+.task-item.completed .task-title {
+  text-decoration: line-through;
+}
+/* English translation shown beneath a foreign-language title. */
+.task-translation {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+.task-translation-badge {
+  font-size: 11px;
+  font-style: normal;
+  opacity: 0.85;
+  flex: none;
+}
+.task-bottom-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.task-meta-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.task-meta {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.task-meta .meta-dot {
+  opacity: 0.5;
+}
+.task-meta .meta-time,
+.task-meta .meta-date,
+.course-chip {
+  cursor: text;
+}
+.course-chip {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.course-chip.empty,
+.task-meta .meta-date.empty {
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--text-dim);
+  opacity: 0.7;
+  border: 1px dashed var(--border-strong);
+  border-radius: 999px;
+  padding: 0 7px;
+}
+.course-chip.empty:hover,
+.task-meta .meta-date.empty:hover {
+  opacity: 1;
+  color: var(--text);
+}
+
+.task-details-text {
+  white-space: pre-wrap;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.55;
+  margin-bottom: 14px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.task-due-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  letter-spacing: 0.03em;
+  background: var(--surface2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.task-due-badge.OVR,
+.task-due-badge.TOD {
+  color: var(--red);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+.task-due-badge.TOM {
+  color: #e85d04;
+  border-color: rgba(232, 93, 4, 0.45);
+}
+/* TEST badge — sits beside the days badge on quiz/test/exam-looking tasks.
+   Red urgency treatment: assessments deserve to jump out of the list. */
+.task-test-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  letter-spacing: 0.03em;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--red);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.task-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+.task-actions button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 4px 4px;
+  border-radius: 6px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+}
+.task-actions button:hover {
+  background: var(--surface2);
+  color: var(--text);
+}
+.task-actions .act-schoology:hover {
+  color: #06b6d4;
+}
+/* Dot between the assignment cluster (↗ ⓘ) and the tools cluster (🌐 📎 ⇅ ⎘). */
+.task-actions .act-sep {
+  color: var(--text-dim);
+  opacity: 0.6;
+  padding: 0 4px;
+  user-select: none;
+  pointer-events: none;
+}
+/* Translate button states. */
+/* Translation toggle: dim when the translation is hidden, full when shown
+   (emoji ignore `color`, so opacity is what signals the on/off state). */
+.task-actions .act-translate {
+  opacity: 0.4;
+}
+.task-actions .act-translate.active {
+  opacity: 1;
+}
+.attach-count {
+  display: inline-block; /* inline spans aren't transformable — this one must be */
+  font-size: 10px;
+  /* Tucked tight against the 📎 (negative gap) and raised superscript-style, so
+     the count unambiguously belongs to the paperclip. (The button is a flex row,
+     so vertical-align would be ignored — transform does the lift instead.) */
+  margin-left: -3px;
+  transform: translateY(-3px);
+}
+
+/* ---- Super-task (collapsed same-label run) ---- */
+.supertask {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface2);
+  padding: 6px;
+  margin-bottom: 8px;
+}
+.supertask-header {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 6px 6px 8px 10px;
+}
+.supertask-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+.supertask .task-item {
+  margin-bottom: 6px;
+  background: var(--surface);
+}
+.supertask .task-item:last-child {
+  margin-bottom: 0;
+}
+
+/* ---- Inline edit ----
+   ZERO bump / ZERO dilation: the negative margins cancel the box's own
+   padding (2px/6px) + border (1px) exactly, so the text being edited sits on
+   the SAME pixels as the static text it replaced — the gold box expands
+   OUTWARD over surrounding whitespace instead of pushing the text right/down
+   or growing the row. Shared by every task-data edit point in the app: task
+   titles, course/date chips, and the Focus todos (setup + session, incl.
+   imported tasks, whose edits write through to the source task). */
+.inline-edit {
+  background: var(--surface2);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 2px 6px;
+  margin: -3px -7px; /* −(padding + border) on each side */
+  font: inherit;
+}
+.inline-edit:focus {
+  outline: none;
+}
+/* Title editor: the SAME boxed look as the course/date `.inline-edit` chips (gold
+   border, surface fill, rounded), but full-width so long titles wrap at the task's
+   right edge instead of scrolling, and in the title's font. */
+.inline-edit-block {
+  display: block;
+  width: calc(100% + 14px); /* still spans the full container despite the pullback */
+  box-sizing: border-box;
+  background: var(--surface2);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 2px 6px;
+  margin: -3px -7px; /* −(padding + border) on each side */
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.45;
+  word-break: break-word;
+}
+.inline-edit-block:focus {
+  outline: none;
+}
+
+/* ---- Empty state ---- */
+.empty-state {
+  text-align: center;
+  color: var(--text-dim);
+  padding: 40px 20px;
+  font-size: 14px;
+}
+
+/* ---- Undo toast ----
+   Slide-up pill, same motion as the Settings save reminder: hidden slightly below
+   with a fade, then .show glides it up; removing .show glides it back down before
+   removal (see showUndoToast).
+   Centering is left/right 0 + margin auto (NOT left:50% + translateX(-50%)): the
+   old trick left the pre-transform layout box hanging past the container's right
+   edge, which grew a horizontal scrollbar inside scroll containers (the landing
+   frame). With auto margins the layout box always fits, and both the page and
+   frame variants share the exact same translateY animation. */
+.toast {
+  position: fixed;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: min(92vw, 540px);
+  bottom: 24px;
+  transform: translateY(12px);
+  opacity: 0;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+.toast button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+/* ---- Wipe-guard banner ---- */
+.wipe-banner {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+.wipe-banner button {
+  margin-top: 10px;
+  background: var(--red);
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  padding: 8px 14px;
+  font-weight: 600;
+}
+
+/* ---- Popup (priority / attachments) ---- */
+.popup-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 20px;
+}
+.popup {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 16px;
+  width: 100%;
+  max-width: 360px;
+  max-height: 80vh;
+  overflow: auto;
+}
+.popup h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+.priority-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  margin-bottom: 7px;
+  font-size: 14px;
+}
+.priority-option:hover {
+  border-color: var(--border-strong);
+}
+.priority-option .arrow {
+  font-size: 16px;
+  width: 18px;
+  text-align: center;
+}
+
+.attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.attach-empty {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  padding: 4px 2px;
+}
+.attach-item {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+/* Edit mode: a small form card — labeled Name/URL fields stacked, then a
+   Remove / Done row. Mirrors the Bookmarks add-link modal. */
+.attach-item.editing {
+  flex-direction: column;
+  align-items: stretch;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+/* Display card = a simplified bookmark: badge + title + domain, click to open. */
+.attach-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 7px 10px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.attach-open:hover {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+.attach-labels {
+  min-width: 0; /* lets the text ellipsis instead of forcing the card wider */
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.attach-title,
+.attach-domain {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.attach-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.attach-domain {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.attach-domain:empty {
+  display: none;
+}
+/* Edit mode: title + url stacked full-width so a long URL can't widen the popup. */
+.attach-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.attach-field-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 600;
+  margin: 6px 0 4px;
+}
+.attach-field-label:first-child {
+  margin-top: 0;
+}
+/* Same recipe as the Tasks quick-add bar / Bookmarks fields. */
+.attach-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  padding: 13px 14px;
+  font-size: 15px;
+  transition: var(--transition);
+}
+.attach-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--gold-glow);
+}
+.attach-edit-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+}
+.attach-remove {
+  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 8px;
+  color: var(--red);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.attach-remove:hover {
+  background: rgba(239, 68, 68, 0.85);
+  border-color: transparent;
+  color: #fff;
+}
+.attach-done {
+  padding: 7px 18px;
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  color: #1a1206;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.attach-done:hover {
+  filter: brightness(1.05);
+}
+.attach-iconbtn {
+  flex: none;
+  width: 34px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+.attach-iconbtn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.attach-iconbtn.danger:hover {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+.attach-add {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 12.5px;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+.attach-add:hover {
+  border-color: var(--accent);
+}
+.attach-footer {
+  display: flex;
+  gap: 8px;
+}
+.attach-footer .btn-primary {
+  flex: 1;
+}
+.attach-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 5px;
+  color: #fff;
+  letter-spacing: 0.03em;
+}
