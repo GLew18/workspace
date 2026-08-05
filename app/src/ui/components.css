@@ -1,5 +1,35 @@
 /* WorkSpace — component styles. */
 
+/* =========================== THE WRAP RULE ===========================
+   Gabe's app-wide rule: when text is too long, it WRAPS. It never runs off
+   the side, and it is not truncated with an ellipsis. Anything holding text a
+   user typed or a teacher wrote — task titles, folder names, course names,
+   song/playlist names, bookmark names, attachment titles — must wrap.
+
+   How: `white-space: normal` + `overflow-wrap: anywhere`, and `min-width: 0`
+   on the element (and its flex ancestors) so a flex item is actually ALLOWED
+   to shrink — without that, a long unbroken word forces the row wider and
+   overflows no matter what the wrapping properties say. `anywhere` (not just
+   `break-word`) is what breaks a run like "aaaaaaaa…" that has no spaces.
+
+   Long text usually appears inside a FLEX ROW (icon + name + count + arrow).
+   Make the NAME the only shrinking part: give it `min-width: 0`, and give the
+   fixed bits `flex: none`. Set the row to `align-items: flex-start` so the icon
+   and count stay on the name's FIRST line instead of floating to the middle of
+   a wrapped block. Raw text placed straight into a flex container (e.g. a
+   toast) becomes an anonymous item that CSS can't target — put
+   `overflow-wrap: anywhere` on the container itself in that case.
+
+   The DELIBERATE exceptions, each marked at its rule:
+     · .ws-wordmark      — the brand lockup must stay on one line
+     · .cal-dows > div   — calendar day headers (Sun/Mon…) in a fixed grid
+     · .cal-chip-txt     — calendar chips clamp to 2 lines by design
+     · counts / times / due badges — short, numeric, fixed-width by nature
+     · .bm-chip-btn, .bm-mini-btn — pill buttons sized to one line
+     · .toast button ("Undo") — a control, not prose
+   Anything else that clips is a bug, not a style choice.
+   ==================================================================== */
+
 /* ---- App header (independent full-width bar, never compressed) ---- */
 :root {
   --header-h: 92px;
@@ -457,11 +487,16 @@ body.app-mode .app-below {
 .qa-folder-opt svg {
   flex: none;
 }
+.qa-folder-opt {
+  align-items: flex-start; /* the icon stays on the name's FIRST line when it wraps */
+}
 .qa-folder-opt span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* WRAP RULE (see the wrapping note in this file): long folder names wrap onto
+     more lines instead of running off the menu. `anywhere` also breaks a single
+     unbroken run of characters, which plain word-wrapping can't. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .qa-folder-opt:hover {
   background: rgba(255, 255, 255, 0.06);
@@ -654,8 +689,10 @@ body.app-mode .app-below {
   align-items: center;
   gap: 5px;
   min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
+  /* WRAP RULE: a long course name pushes the date to the next line rather than
+     being clipped — the row just gets taller. */
+  flex-wrap: wrap;
+  white-space: normal;
 }
 .task-meta .meta-dot {
   opacity: 0.5;
@@ -667,8 +704,8 @@ body.app-mode .app-below {
 }
 .course-chip {
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
+  overflow-wrap: anywhere; /* WRAP RULE */
 }
 .course-chip.empty,
 .task-meta .meta-date.empty {
@@ -693,7 +730,8 @@ body.app-mode .app-below {
   font-size: 13px;
   line-height: 1.55;
   margin-bottom: 14px;
-  max-height: 40vh;
+  /* Schoology instructions run long — 40vh scrolled far too early (per Gabe). */
+  max-height: 60vh;
   overflow-y: auto;
 }
 
@@ -715,9 +753,11 @@ body.app-mode .app-below {
 }
 .task-folder-head {
   display: flex;
-  align-items: center;
+  /* Icon, count and arrow stay on the name's FIRST line when it wraps. */
+  align-items: flex-start;
   gap: 10px;
   width: 100%;
+  min-width: 0;
   text-align: left;
   background: none;
   border: none;
@@ -725,6 +765,14 @@ body.app-mode .app-below {
   font: inherit;
   padding: 11px 14px;
   cursor: pointer;
+}
+/* The name is the only part allowed to shrink+wrap (it has min-width:0);
+   the icon, count and arrow keep their size and stay on the first line. */
+.task-folder-head .task-folder-ico,
+.task-folder-count,
+.task-folder-arrow {
+  flex: none;
+  margin-top: 1px;
 }
 .task-folder-head:hover {
   background: var(--surface2);
@@ -737,6 +785,8 @@ body.app-mode .app-below {
 .task-folder-name {
   font-weight: 650;
   font-size: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere; /* WRAP RULE — a very long folder name wraps, never overflows the row */
 }
 .task-folder-count {
   font-size: 12px;
@@ -777,7 +827,8 @@ body.app-mode .app-below {
 }
 .folder-pick-row {
   display: flex;
-  align-items: center;
+  /* Icon pinned to the name's FIRST line when the name wraps to several. */
+  align-items: flex-start;
   gap: 10px;
   text-align: left;
   background: var(--surface2);
@@ -788,6 +839,18 @@ body.app-mode .app-below {
   font-weight: 600;
   padding: 10px 12px;
   cursor: pointer;
+  min-width: 0;
+}
+/* WRAP RULE: a long folder name wraps inside the picker row. */
+.folder-pick-row span {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.folder-pick-row .task-folder-ico,
+.folder-pick-row svg {
+  flex: none;
+  margin-top: 1px;
 }
 .folder-pick-row:hover {
   border-color: var(--border-strong);
@@ -864,6 +927,68 @@ body.app-mode .app-below {
   padding: 0;
   border: none;
   opacity: 0;
+}
+
+/* ===================== Resize grip (shared) =====================
+   The grab bar produced by util/resize.ts. Purely additive: the panel looks
+   unchanged until the user drags it. On the default bottom edge DOWN grows and
+   UP shrinks; .ws-resize-grip-top rides the top edge of a panel that can only
+   grow upward, so there UP grows — the drag always follows the moving edge. */
+.ws-resize-grip {
+  display: flex;
+  justify-content: center;
+  padding: 5px 0 7px;
+  cursor: ns-resize;
+  touch-action: none; /* the pointer-drag owns vertical gestures here */
+}
+/* Mirrored padding: the roomier side always faces away from the panel edge. */
+.ws-resize-grip-top {
+  padding: 7px 0 5px;
+}
+.ws-resize-grip-pill {
+  width: 64px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(230, 168, 23, 0.45); /* visible gold, not a faint gray sliver */
+  transition: background 0.15s ease, width 0.15s ease;
+}
+.ws-resize-grip:hover .ws-resize-grip-pill {
+  background: var(--accent);
+  width: 84px;
+}
+/* Horizontal twin: rides the RIGHT edge of a popup — drag right to widen. */
+.ws-resize-grip-x {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.ws-resize-grip-x-pill {
+  width: 5px;
+  height: 54px;
+  border-radius: 999px;
+  background: rgba(230, 168, 23, 0.45);
+  transition: background 0.15s ease, height 0.15s ease;
+}
+.ws-resize-grip-x:hover .ws-resize-grip-x-pill {
+  background: var(--accent);
+  height: 76px;
+}
+
+/* "f:" folder autocomplete list — sizes itself to however many folders match
+   (no grip here). The max-height is only a runaway guard for dozens of them. */
+.qa-folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 340px;
+  overflow-y: auto;
 }
 
 /* ===================== Multi-select (Tasks list) ===================== */
@@ -1290,10 +1415,21 @@ body.app-mode .app-below {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   z-index: 1000;
   transition: transform 0.3s ease, opacity 0.3s ease;
+  /* WRAP RULE: toasts name folders and tasks, so their text can be long. It
+     wraps onto more lines (at spaces first) instead of stretching the pill off
+     the screen. `anywhere` is what lets the flex box shrink below its longest
+     word — notice() puts raw text straight in here, and an anonymous flex item
+     can't be given min-width:0 from CSS. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
 }
 .toast.show {
   transform: translateY(0);
   opacity: 1;
+}
+.toast > span {
+  min-width: 0; /* the message shrinks; the Undo button below never does */
 }
 .toast button {
   background: none;
@@ -1301,6 +1437,8 @@ body.app-mode .app-below {
   color: var(--accent);
   font-weight: 700;
   font-size: 14px;
+  flex: none;
+  white-space: nowrap; /* "Undo" is a control, not prose — it stays on one line */
 }
 
 /* ---- Wipe-guard banner ---- */
@@ -1341,7 +1479,18 @@ body.app-mode .app-below {
   width: 100%;
   max-width: 360px;
   max-height: 80vh;
-  overflow: auto;
+  /* The BODY scrolls, not the card: an edge-anchored width grip (and the title)
+     must stay put instead of scrolling away with long content. */
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+.popup > h3 {
+  flex: none;
+}
+.popup-body {
+  overflow-y: auto;
+  min-height: 0;
 }
 .popup h3 {
   margin: 0 0 12px;
@@ -1422,9 +1571,9 @@ body.app-mode .app-below {
 }
 .attach-title,
 .attach-domain {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* WRAP RULE: long titles and URLs wrap instead of being cut off. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .attach-title {
   font-size: 13px;

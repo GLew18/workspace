@@ -1,5 +1,13 @@
 {
   "projects": {
     "default": "workspace-67029"
+  },
+  "targets": {},
+  "etags": {
+    "workspace-67029": {
+      "extensionInstances": {
+        "firestore-send-email": "5bdefa86ec022c0985183bcbe6518ef41f89c5f4a2f3a361d4f6de84cb86d099"
+      }
+    }
   }
 }

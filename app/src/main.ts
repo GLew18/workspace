@@ -232,7 +232,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   // regardless of which tab is showing.
   void focusView.bootRestore();
 
-  // Background sync — driven by Settings ▸ Schoology ▸ Syncing: an on-open sync
+  // Background sync — driven by Settings ▸ Tasks ▸ Syncing: an on-open sync
   // (optional) plus a background re-sync at the chosen interval while the app
   // stays open. Failures are silent (the next tick / Settings retries). A true
   // server cron for when the app is CLOSED comes with Firebase later.

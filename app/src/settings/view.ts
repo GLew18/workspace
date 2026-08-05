@@ -34,6 +34,7 @@ import {
   ensureNotificationPermission,
   notificationPermission,
   sendNotification,
+  setEmailAddress,
 } from '../notify/notify';
 
 // Preview button glyphs: a play triangle and a two-bar pause, drawn as SVG so
@@ -49,7 +50,9 @@ const NEW_COURSE_COLOR = '#9ca3af';
 const NAV_ICONS: Record<string, string> = {
   Profile:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.5 4-7 8-7s8 2.5 8 7"/></svg>',
-  Schoology:
+  // NOTE: these keys ARE the tab labels — NAV_ICONS[label] and DESCS[label] both
+  // look up by the visible string, so renaming a tab means renaming all three.
+  Tasks:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8l10-4 10 4-10 4z"/><path d="M6 10v5c0 1.6 3 3 6 3s6-1.4 6-3v-5"/></svg>',
   Courses:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6C10 5 6 5 4 6v13c2-1 6-1 8 0 2-1 6-1 8 0V6c-2-1-6-1-8 0z"/><path d="M12 6v13"/></svg>',
@@ -184,7 +187,7 @@ export class SettingsView {
     const secNotify = this.sectionNotify();
     const tabs: [string, HTMLElement][] = [
       ['Profile', secProfile],
-      ['Schoology', secSchool],
+      ['Tasks', secSchool],
       ['Courses', secCourses],
       ['Focus', secSound],
       ['Notifications', secNotify],
@@ -193,7 +196,7 @@ export class SettingsView {
     // Artifact-style page heads: each tab opens with its title + a one-line purpose.
     const DESCS: Record<string, string> = {
       Profile: 'Your account and how WorkSpace behaves for you.',
-      Schoology: 'Auto-import your assignments from your Schoology calendar.',
+      Tasks: 'Where your assignments come from, what gets imported, and how the calendar looks.',
       Courses: "Name, color, and auto-file each class's assignments with parse words.",
       Focus: 'Defaults for your focus sessions — sound, timer, and music.',
       Notifications: 'Assignment reminders and daily digests, with a live preview of each.',
@@ -1295,20 +1298,33 @@ export class SettingsView {
       };
     };
 
-    const buildTest = (getContent: () => { title: string; body: string }): HTMLElement => {
-      const btn = el('button', { class: 'notify-test ntest', text: 'Test out notification' }) as HTMLButtonElement;
+    const buildTest = (
+      getContent: () => { title: string; body: string },
+      channel: 'popup' | 'gmail' = 'popup'
+    ): HTMLElement => {
+      const isEmail = channel === 'gmail';
+      const label = isEmail ? 'Test out email' : 'Test out notification';
+      const btn = el('button', { class: 'notify-test ntest', text: label }) as HTMLButtonElement;
       let timer = 0;
       btn.addEventListener('click', async () => {
-        const ok = await ensureNotificationPermission();
-        refreshPerm();
-        if (!ok) return;
         const c = getContent();
-        sendNotification(c.title, c.body, { popup: true });
+        if (isEmail) {
+          // Send a REAL email through the Trigger Email pipeline: queueEmail writes a
+          // doc to the `mail` collection and the extension delivers it, to the signed-in
+          // account's email. No notification permission needed — that's popup-only.
+          setEmailAddress(this.opts.email || '');
+          sendNotification(c.title, c.body, { gmail: true });
+        } else {
+          const ok = await ensureNotificationPermission();
+          refreshPerm();
+          if (!ok) return;
+          sendNotification(c.title, c.body, { popup: true });
+        }
         btn.textContent = 'Sent ✓';
         btn.classList.add('sent');
         clearTimeout(timer);
         timer = window.setTimeout(() => {
-          btn.textContent = 'Test out notification';
+          btn.textContent = label;
           btn.classList.remove('sent');
         }, 2200);
       });
@@ -1397,7 +1413,8 @@ export class SettingsView {
     };
     drawLeads();
     const dueTest = buildTest(() => dueToast.get());
-    dueInner.append(leadGrid, dueCap, dueToast.el, dueTest, dueMail.el);
+    const dueEmailTest = buildTest(() => dueToast.get(), 'gmail');
+    dueInner.append(leadGrid, dueCap, dueToast.el, dueTest, dueMail.el, dueEmailTest);
     dueDetail.append(dueInner);
     dueCard.append(dueDetail);
     previewRefreshers.push(refreshDue);
@@ -1432,7 +1449,8 @@ export class SettingsView {
       agCap.innerHTML = `Sends at <b>${n.dailyAgenda.hour}:${String(n.dailyAgenda.minute).padStart(2, '0')} AM</b>`;
     };
     const agTest = buildTest(() => agToast.get());
-    agInner.append(wheels, agCap, agToast.el, agTest, agMail.el);
+    const agEmailTest = buildTest(() => agToast.get(), 'gmail');
+    agInner.append(wheels, agCap, agToast.el, agTest, agMail.el, agEmailTest);
     agDetail.append(agInner);
     agCard.append(agDetail);
     previewRefreshers.push(refreshAg);
@@ -1468,7 +1486,8 @@ export class SettingsView {
       tmCap.innerHTML = `Sends at <b>${n.tomorrow.hour}:${String(n.tomorrow.minute).padStart(2, '0')} PM</b>`;
     };
     const tmTest = buildTest(() => tmToast.get());
-    tmInner.append(tmWheels, tmCap, tmToast.el, tmTest, tmMail.el);
+    const tmEmailTest = buildTest(() => tmToast.get(), 'gmail');
+    tmInner.append(tmWheels, tmCap, tmToast.el, tmTest, tmMail.el, tmEmailTest);
     tmDetail.append(tmInner);
     tmCard.append(tmDetail);
     previewRefreshers.push(refreshTm);
@@ -1539,7 +1558,8 @@ export class SettingsView {
       save();
     });
     const naTest = buildTest(() => naToast.get());
-    naInner.append(seg, naIntervalWrap, naToast.el, naTest, naMail.el);
+    const naEmailTest = buildTest(() => naToast.get(), 'gmail');
+    naInner.append(seg, naIntervalWrap, naToast.el, naTest, naMail.el, naEmailTest);
     naDetail.append(naInner);
     naCard.append(naDetail);
     previewRefreshers.push(refreshNa);
@@ -1560,7 +1580,8 @@ export class SettingsView {
     };
     const fsCap = el('div', { class: 'nwheel-cap', text: 'Fires when your focus timer reaches zero. No setup — it just cheers you on.' });
     const fsTest = buildTest(() => fsToast.get());
-    fsInner.append(fsCap, fsToast.el, fsTest, fsMail.el);
+    const fsEmailTest = buildTest(() => fsToast.get(), 'gmail');
+    fsInner.append(fsCap, fsToast.el, fsTest, fsMail.el, fsEmailTest);
     fsDetail.append(fsInner);
     fsCard.append(fsDetail);
     previewRefreshers.push(refreshFs);
@@ -1595,12 +1616,14 @@ export class SettingsView {
       ch: Channels,
       toast: { el: HTMLElement },
       test: HTMLElement,
-      mail: { el: HTMLElement; setTo: (a: string) => void }
+      mail: { el: HTMLElement; setTo: (a: string) => void },
+      emailTest: HTMLElement
     ): void => {
       card.classList.toggle('open', cardOn(ch));
       toast.el.style.display = ch.popup ? '' : 'none';
       test.style.display = ch.popup ? '' : 'none';
       mail.el.style.display = ch.gmail ? '' : 'none';
+      emailTest.style.display = ch.gmail ? '' : 'none';
       mail.setTo(addr());
     };
     const refreshAll = (): void => {
@@ -1610,11 +1633,11 @@ export class SettingsView {
       tmChan.sync();
       naChan.sync();
       fsChan.sync();
-      vis(dueCard, n.dueSoon.channels, dueToast, dueTest, dueMail);
-      vis(agCard, n.dailyAgenda.channels, agToast, agTest, agMail);
-      vis(tmCard, n.tomorrow.channels, tmToast, tmTest, tmMail);
-      vis(naCard, n.newAssignment.channels, naToast, naTest, naMail);
-      vis(fsCard, n.focusSession.channels, fsToast, fsTest, fsMail);
+      vis(dueCard, n.dueSoon.channels, dueToast, dueTest, dueMail, dueEmailTest);
+      vis(agCard, n.dailyAgenda.channels, agToast, agTest, agMail, agEmailTest);
+      vis(tmCard, n.tomorrow.channels, tmToast, tmTest, tmMail, tmEmailTest);
+      vis(naCard, n.newAssignment.channels, naToast, naTest, naMail, naEmailTest);
+      vis(fsCard, n.focusSession.channels, fsToast, fsTest, fsMail, fsEmailTest);
       refreshPreviews();
     };
 

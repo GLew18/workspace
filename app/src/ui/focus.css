@@ -238,6 +238,16 @@
   border-radius: 12px;
   margin: 6px 0;
   overflow: hidden;
+  /* CRITICAL: inside the session's flex-column list, a block would otherwise be
+     SHRUNK below its content height — and with overflow:hidden that silently
+     cut the last task off with no way to reach it. Rows keep their natural
+     height; the list scrolls instead. */
+  flex: none;
+}
+/* Same trap for every other row in the two todo lists. */
+.focus-overlay-todos > *,
+.focus-todo-list > * {
+  flex: none;
 }
 .focus-folder-headrow {
   display: flex;
@@ -248,7 +258,8 @@
 .focus-folder-head {
   flex: 1;
   display: flex;
-  align-items: center;
+  /* Icon/count/arrow stay on the name's first line when the name wraps. */
+  align-items: flex-start;
   gap: 9px;
   text-align: left;
   background: none;
@@ -259,7 +270,14 @@
   cursor: pointer;
   min-width: 0;
 }
+.focus-folder-count,
+.focus-folder-arrow {
+  flex: none;
+  margin-top: 2px;
+}
 .focus-folder-ico {
+  flex: none;
+  margin-top: 2px;
   width: 16px;
   height: 16px;
   flex: none;
@@ -268,9 +286,10 @@
 .focus-folder-name {
   font-weight: 650;
   font-size: 13.5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
+  /* WRAP RULE: long folder names wrap onto more lines, never clip. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .focus-folder-count {
   font-size: 11.5px;
@@ -289,11 +308,11 @@
 .focus-folder-body {
   border-top: 1px solid var(--border);
   padding: 6px 8px 8px 18px; /* indented: members read as inside the folder */
-}
-.focus-folder-autocb {
-  flex: none;
-  cursor: not-allowed; /* folders complete themselves — never clickable */
-  opacity: 0.85;
+  /* A folder full of tasks scrolls INSIDE itself (gold bar, per the theme)
+     instead of stretching the session list — per Gabe, this is essential once a
+     folder holds more than a few. */
+  max-height: 260px;
+  overflow-y: auto;
 }
 /* the per-todo 🗀 button (setup rows + session rows) */
 .focus-todo-fold {
@@ -347,10 +366,13 @@
   color: var(--text-dim);
 }
 .focus-import-body {
-  max-height: 320px;
+  /* Generous by DEFAULT (per Gabe: importing is browsing — a 1-2 row slit is
+     unusable). ~7 task rows before it scrolls; the grab bar tunes it from there. */
+  max-height: 440px;
   overflow-y: auto;
   padding-top: 8px; /* clear breathing room so the first subheader never hugs the search box */
 }
+/* (The resize grip is now the shared .ws-resize-grip — see components.css.) */
 .focus-import-section {
   font-size: 10.5px;
   font-weight: 700;
@@ -568,9 +590,9 @@
 .focus-music-opt-label {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* WRAP RULE */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /* Genre header inside the setup music list. */
 .focus-music-genre-head {
@@ -639,9 +661,9 @@
 .focus-music-coll-name {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* WRAP RULE */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .focus-music-hint {
   font-size: 12.5px;
@@ -742,9 +764,9 @@
 .focus-songwin-name {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* WRAP RULE */
+  white-space: normal;
+  overflow-wrap: anywhere;
   font-size: 13.5px;
 }
 .focus-songwin-artist {
@@ -1069,7 +1091,10 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: min(70vh, 560px);
+  /* Roomier than the old min(70vh,560px) so the session's task + import lists
+     aren't cramped — but still viewport-relative, so a 768px laptop keeps the
+     overlay on screen (the reason this was capped in the first place). */
+  max-height: min(76vh, 680px);
 }
 .focus-task-head {
   font-size: 11px;
@@ -1078,12 +1103,22 @@
   letter-spacing: 0.1em;
   color: var(--accent);
 }
+/* Only the TASKS LIST flexes when the import window is resized — the head,
+   the add row, and the Import button keep their full size; the drag may never
+   crush them (it takes space from the list alone). */
+.focus-task-panel > .focus-task-head,
+.focus-task-panel > .focus-add-todo,
+.focus-task-panel > .focus-import {
+  flex-shrink: 0;
+}
 .focus-overlay-todos {
   display: flex;
   flex-direction: column;
   gap: 7px;
   flex: 1 1 auto;
-  min-height: 0;
+  /* A floor, not 0: a tall import window may EAT into this list (resize grip),
+     but the session tasks always keep at least a visible sliver. */
+  min-height: 60px;
   overflow-y: auto;
 }
 .focus-todos-empty {
@@ -1350,8 +1385,15 @@
   max-height: 320px; /* the whole 99-track library scrolls here, grouped by genre */
   overflow-y: auto;
 }
-/* Browse mode's section boxes: plain containers — the MENU is the one scroller,
-   so the playlist list never nests scrollbars inside scrollbars. */
+/* Browse mode ("Switch playlist"): the WRAP is the single scroller holding every
+   section, so one grip resizes the whole browser and no scrollbar nests inside
+   another. The individual section boxes stay uncapped and plain. */
+.focus-menu-browse-wrap {
+  display: flex;
+  flex-direction: column;
+  max-height: 420px;
+  overflow-y: auto;
+}
 .focus-menu-tracks.focus-menu-browse {
   max-height: none;
   overflow: visible;
@@ -1395,18 +1437,17 @@
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
-/* Track/playlist title: one line, ellipsis if long. It FILLS the row (flex:1) so
-   the count+length that follows sits flush against the right edge — no dead space
-   mid-row. The :not(.focus-menu-count) keeps this rule off the count span, which
-   must stay flex:none (see .focus-menu-count) to hug that right edge. */
+/* Track/playlist title: WRAPS when long (see the wrap rule), never clipped. It
+   FILLS the row (flex:1) so the count+length that follows sits flush against the
+   right edge — no dead space mid-row. The :not(.focus-menu-count) keeps this rule
+   off the count span, which must stay flex:none (see .focus-menu-count). */
 .focus-menu-track span:not(.focus-menu-emoji):not(.focus-menu-count),
 .focus-menu-current span:not(.focus-menu-emoji) {
   flex: 1;
   min-width: 0;
   text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .focus-menu-track {
   display: flex;

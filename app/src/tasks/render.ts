@@ -5,6 +5,7 @@ import type { Data, TasksUpdate } from '../db';
 import { el, textInput, copyTextMetrics, autoWidthToText } from '../util/dom';
 import { formatMetaDate, formatShortDate, formatTimeOfDay, formatDate, todayStr } from '../util/dates';
 import { getPrefs, PREFS_EVENT, type AppPrefs } from '../prefs';
+import { makeWidthGrip } from '../util/resize';
 import { genId } from '../util/ids';
 import { buildQuickAdd } from './quickadd';
 import { makeTask, duplicateTask, groupTasks, dueBadge, type TaskGroup } from './store';
@@ -15,7 +16,14 @@ import { ASSESSMENT_RE } from '../schoology/ical';
 import { parseDateTime } from './parser';
 import { detectAttachmentType, normalizeUrl, openAttachment, openAll } from './attachments';
 import { playCompleteChime, showUndoToast } from './complete';
-import { getTaskFolders, saveTaskFolders, makeFolder, folderMembers } from './folders';
+import {
+  getTaskFolders,
+  saveTaskFolders,
+  makeFolder,
+  folderMembers,
+  mutateTaskFolders,
+  FOLDERS_EVENT,
+} from './folders';
 import { runSync } from '../schoology/sync';
 import { analyzeTitle, languageName } from '../util/translate';
 
@@ -142,10 +150,17 @@ export class TasksView {
     this.data.watchTasks((u) => this.onUpdate(u));
     // Re-render when course colors/names change in Preferences.
     onRegistryChange(() => this.render());
-    // Folders load once; they only change through this view's own actions.
+    // Folders are SHARED with Focus now, so they change from outside this view
+    // too — load once, then re-read whenever anything writes them.
     void getTaskFolders(this.data).then((f) => {
       this.folders = f;
       this.render();
+    });
+    window.addEventListener(FOLDERS_EVENT, () => {
+      void getTaskFolders(this.data).then((f) => {
+        this.folders = f;
+        this.render();
+      });
     });
   }
 
@@ -789,7 +804,14 @@ export class TasksView {
     }
 
     if (changed) {
-      await saveTaskFolders(this.data, this.folders);
+      // Merge by ID against the CURRENT stored list — never write this view's
+      // whole array back, or a folder created in Focus (which this copy has
+      // never seen) would be erased along with the dissolved ones.
+      this.folders = await mutateTaskFolders(
+        this.data,
+        gone.map((f) => f.id),
+        this.folders
+      );
       if (animating) window.setTimeout(() => this.render(), 820); // let the fold-shut play out first
       else this.render();
     }
@@ -1338,8 +1360,12 @@ export class TasksView {
     const backdrop = el('div', { class: 'popup-backdrop' });
     const box = el('div', { class: 'popup' });
     box.append(el('h3', { text: title }));
-    const body = el('div');
+    const body = el('div', { class: 'popup-body' });
     box.append(body);
+    // Every popup (folder picker, priority, attachments, details) shares ONE
+    // width — drag the right edge once and they all remember it. Width is the
+    // pinch here, not height: long folder names and URLs are what get squeezed.
+    box.append(makeWidthGrip({ box, storageKey: 'ws:popupWidth' }));
     backdrop.append(box);
     (this.sample?.host ?? document.body).append(backdrop);
     const close = () => backdrop.remove();

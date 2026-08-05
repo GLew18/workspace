@@ -20,9 +20,36 @@ export async function getTaskFolders(data: Data): Promise<TaskFolder[]> {
   );
 }
 
-/** Persist the full folder list. */
+/** Fired after ANY folder write. Folders are shared between the Tasks tab and
+ *  Focus, so each view re-reads on this instead of polling (a profile read is a
+ *  network round-trip — see Data.getProfile). */
+export const FOLDERS_EVENT = 'ws:folders-changed';
+
+/** Persist the full folder list, then tell every view to re-read. */
 export async function saveTaskFolders(data: Data, list: TaskFolder[]): Promise<void> {
   await data.setProfile(KEY, { list });
+  window.dispatchEvent(new CustomEvent(FOLDERS_EVENT));
+}
+
+/**
+ * Persist a change WITHOUT clobbering folders this view has never seen.
+ *
+ * Both the Tasks tab and Focus write the whole array, and each keeps its own
+ * copy — so a view holding a stale list would erase any folder created in the
+ * other one (this really happened: a Tasks-side dissolve wiped a folder Focus
+ * had just made). Re-read first, apply the delta BY ID, then save.
+ */
+export async function mutateTaskFolders(
+  data: Data,
+  removeIds: string[],
+  add: TaskFolder[] = []
+): Promise<TaskFolder[]> {
+  const fresh = await getTaskFolders(data);
+  const gone = new Set(removeIds);
+  const next = fresh.filter((f) => !gone.has(f.id));
+  for (const f of add) if (!next.some((x) => x.id === f.id)) next.push(f);
+  await saveTaskFolders(data, next);
+  return next;
 }
 
 /** Create a folder (color comes from the creating task's course — the caller

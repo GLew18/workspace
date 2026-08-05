@@ -103,7 +103,7 @@ export async function runSync(data: Data): Promise<SyncResult> {
   const events = parseIcal(ics);
   const today = todayStr();
 
-  // Settings ▸ Schoology ▸ Import: which event types come in, and how far ahead.
+  // Settings ▸ Tasks ▸ Import: which event types come in, and how far ahead.
   const imp = getPrefs().importPrefs;
   const horizon = addDays(today, imp.windowDays);
   const allowed = (e: IcalEvent): boolean => {

@@ -2,12 +2,12 @@
 
 import type { Data } from '../db';
 import type { Task, TaskMap, TaskFolder } from '../types';
-import { getTaskFolders } from '../tasks/folders';
-import { collapseFolderBlock } from '../tasks/render';
+import { getTaskFolders, saveTaskFolders, makeFolder, FOLDERS_EVENT } from '../tasks/folders';
+import { makeResizeGrip, restoreSavedHeight } from '../util/resize';
 import { el, textInput, copyTextMetrics, autoWidthToText } from '../util/dom';
 import { makeWheel } from './wheel';
 import { genId } from '../util/ids';
-import { sortTasks } from '../tasks/store';
+import { sortTasks, makeTask } from '../tasks/store';
 import { getCourseColor, matchCourseStrict } from '../courses/registry';
 import { armAudioContext, formatClock } from './timer';
 import { playEndSound, DEFAULT_END_SOUND, DEFAULT_END_VOLUME, type EndSoundHandle } from './sounds';
@@ -15,7 +15,7 @@ import { MusicEngine, type Track } from './music';
 import { MUSIC_GENRES, LIBRARY_TRACKS, tracksForGenre, libraryTrack, type LibraryTrack } from './library';
 import { majorArtists, minorArtistTracks, hasMinorArtists, tracksForArtist } from './artists';
 import { loadPlaylists, playlistEmoji, type CustomPlaylist } from './playlists';
-import type { MusicCollKind, FocusFolder } from './persist'; // shared with FocusState
+import type { MusicCollKind } from './persist'; // shared with FocusState
 
 /** Where the focus-music MP3s are hosted. DEV: '' → the "/music-lib/…" paths are served
  *  by the Vite middleware from the local Music Database folder. PRODUCTION: set
@@ -47,6 +47,12 @@ const FOCUS_FOLDER_SVG = (color: string) =>
 /** Outline folder glyph for the per-todo 🗀 button (currentColor). */
 const FOCUS_FOLDER_BTN_SVG =
   '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+
+/** Saved height of the in-session music menu's song list (drag-resizable). Lives
+ *  at module scope because the menu is rebuilt from scratch on every redraw. */
+const MENU_TRACKS_H_KEY = 'focus:menuTracksHeight';
+/** Same, for the "Switch playlist" browser (all genres/artists/playlists). */
+const MENU_BROWSE_H_KEY = 'focus:menuBrowseHeight';
 
 /** Compact playlist run time: "2h 5m", "1h", "48m", "9m". Empty when unknown (0). */
 function fmtPlaylistLen(sec: number): string {
@@ -248,10 +254,11 @@ export class FocusView {
   private pendingSel: { kind: MusicCollKind; key: string; index: number } | null = null;
   // FOCUS folders (independent from Tasks-tab folders): the setup list's and the
   // running session's, snapshotted at start exactly like the todos themselves.
-  private setupFolders: FocusFolder[] = [];
-  private sessionFolders: FocusFolder[] = [];
+  // ONE folder list, shared with the Tasks tab (profile 'taskFolders'). Focus no
+  // longer keeps its own 'ffold_' namespace: creating, renaming, recoloring or
+  // filing a todo here IS the same action in Tasks, and vice versa (per Gabe).
+  private taskFolders: TaskFolder[] = [];
   private openFocusFolders = new Set<string>(); // expanded folder rows (view state)
-  private taskFolders: TaskFolder[] = []; // Tasks-tab folders, for the import panel
 
   // timer state
   private endTimeMs = 0;
@@ -298,15 +305,33 @@ export class FocusView {
     // Cross-tab session coordination (ownership handoffs, signpost toasts).
     // Removed in teardown() so re-sign-ins don't stack listeners.
     window.addEventListener('storage', this.onStorage);
+    // Tasks→Focus sync subscribes HERE, not in mount(). A session restored at
+    // boot (or run from the mini player) never mounts the Focus tab, so a
+    // mount-time subscription left those sessions deaf to Tasks-tab edits —
+    // titles/courses edited in Tasks silently didn't reach a running session.
+    this.ensureTaskWatch();
+    void this.refreshFolders(); // shared folder list, needed even without a mount
+    // Folders written anywhere (Tasks tab, or another focus screen) → re-read.
+    window.addEventListener(FOLDERS_EVENT, () => {
+      void this.refreshFolders().then(() => {
+        this.redrawTodos?.();
+        this.redrawSessionTodos?.();
+      });
+    });
+  }
+
+  /** Subscribe once to task updates, so the import window and every linked todo
+   *  (setup draft + live session) follow the Tasks tab. Idempotent. */
+  private ensureTaskWatch(): void {
+    if (this.watchingTasks) return;
+    this.watchingTasks = true;
+    this.data.watchTasks((u) => this.onTasksUpdate(u.tasks));
   }
 
   async mount(panel: HTMLElement): Promise<void> {
     this.panel = panel;
-    // Keep the import window + linked session todos in step with the Tasks tab.
-    if (!this.watchingTasks) {
-      this.watchingTasks = true;
-      this.data.watchTasks((u) => this.onTasksUpdate(u.tasks));
-    }
+    this.ensureTaskWatch(); // no-op after the constructor; kept for safety on re-mount
+    await this.refreshFolders(); // the folder list is shared with Tasks — load it before drawing
     this.playlist = await this.buildPlaylist();
     void this.loadEndSound();
     // An active session is shown as an overlay on <body> (see bootRestore), which
@@ -882,10 +907,13 @@ export class FocusView {
         // 🗀 — group this todo into a FOCUS folder (independent of Tasks folders).
         const fold = el('button', { class: 'focus-todo-fold', title: 'Add to folder' });
         fold.innerHTML = FOCUS_FOLDER_BTN_SVG;
-        const inFolder = this.setupFolders.find((f) => f.id === t.folderId);
+        const inFolder = this.taskFolders.find((f) => f.id === t.folderId);
         if (inFolder) fold.style.color = inFolder.color;
-        fold.addEventListener('click', () => this.openFocusFolderPicker(t, this.setupFolders, drawTodos));
-        const del = el('button', { class: 'focus-todo-del', text: '✕', title: 'Remove' });
+        fold.addEventListener('click', () => this.openFocusFolderPicker(t, this.taskFolders, drawTodos));
+        // Takes it out of THIS session only. Every todo now has a real task behind
+        // it, and dropping a task from a session is not the same as deleting it —
+        // so the task itself is never touched here. Delete it in the Tasks tab.
+        const del = el('button', { class: 'focus-todo-del', text: '✕', title: 'Remove from this session' });
         del.addEventListener('click', () => {
           this.todos.splice(this.todos.indexOf(t), 1);
           drawTodos();
@@ -894,19 +922,20 @@ export class FocusView {
         row.append(fold, del);
         return row;
       };
-      const { blocks, loose } = this.groupTodosByFolder(this.todos, this.setupFolders);
+      const { blocks, loose } = this.groupTodosByFolder(this.todos, this.taskFolders);
       for (const { folder, members } of blocks) {
         const open = this.openFocusFolders.has(folder.id);
         const box = el('div', { class: `focus-folder${open ? ' open' : ''}`, 'data-folder-id': folder.id });
         const head = el('button', { class: 'focus-folder-head' });
         head.innerHTML = FOCUS_FOLDER_SVG(folder.color);
         const nameEl = el('span', { class: 'focus-folder-name', text: folder.name });
-        // Double-click renames the FOCUS folder only — an imported mirror keeps
-        // the Tasks tab's original name untouched.
+        // Renaming here renames the SHARED folder — it shows up in Tasks too.
         nameEl.addEventListener('dblclick', (e) => {
           e.stopPropagation();
           this.inlineTodoEdit(nameEl, folder.name, 'folder name', (v) => {
-            if (v) folder.name = v;
+            if (!v) return;
+            folder.name = v;
+            void saveTaskFolders(this.data, this.taskFolders);
           }, drawTodos);
         });
         head.append(
@@ -921,12 +950,13 @@ export class FocusView {
           else this.openFocusFolders.add(folder.id);
           drawTodos();
         });
-        const kill = el('button', { class: 'focus-todo-del', text: '✕', title: 'Remove folder (tasks stay)' });
+        // Takes THESE todos out of the folder (writing through to their tasks).
+        // It never deletes the shared folder itself — that folder may hold other
+        // tasks that were never imported into this session.
+        const kill = el('button', { class: 'focus-todo-del', text: '✕', title: 'Take these out of the folder' });
         kill.addEventListener('click', (e) => {
           e.stopPropagation();
-          for (const m of members) delete m.folderId; // members drop back to loose
-          this.setupFolders.splice(this.setupFolders.indexOf(folder), 1);
-          drawTodos();
+          void Promise.all(members.map((m) => this.fileTodoInFolder(m, null))).then(drawTodos);
         });
         const headWrap = el('div', { class: 'focus-folder-headrow' });
         headWrap.append(head, kill);
@@ -939,7 +969,6 @@ export class FocusView {
         todoList.append(box);
       }
       for (const t of loose) todoList.append(buildRow(t));
-      this.sweepEmptyFocusFolders(this.todos, this.setupFolders, drawTodos);
     };
     this.redrawTodos = drawTodos; // so external task edits can refresh this list
 
@@ -953,10 +982,8 @@ export class FocusView {
     const addFreeText = () => {
       const v = todoInput.value.trim();
       if (!v) return;
-      // Recognize a course parse word ("write essay mon" → "write essay" + Monkey)
-      // so a freshly-created focus task is tagged + colored like the Tasks tab.
-      const { text, course } = parseFocusInput(v);
-      this.todos.push({ id: 'ft_' + genId(), text, done: false, course });
+      // Creates the real Tasks-tab task too — see addTypedTodo.
+      this.addTypedTodo(this.todos, v);
       todoInput.value = '';
       todoInput.focus();
       drawTodos();
@@ -968,7 +995,7 @@ export class FocusView {
     addRow.append(todoInput, addTodoBtn);
 
     // Import Tasks — reusable dropdown (shared with the active session screen).
-    importUI = this.buildImportUI(() => this.todos, drawTodos, () => this.setupFolders);
+    importUI = this.buildImportUI(() => this.todos, drawTodos);
     // Assembled tasks sit ABOVE the import controls, so it's clear what's already
     // in the session vs. what can still be imported below.
     wrap.append(addRow, todoList, importUI.button, importUI.panel);
@@ -1063,7 +1090,10 @@ export class FocusView {
       drawMusic();
     });
     addMusic.append(urlIn, addBtn);
-    wrap.append(musicList, addMusic);
+    // Resizable: the library is 150+ tracks in a 320px window by default — drag
+    // the bottom edge down for a proper browsing view. (No fitTo: this list is in
+    // normal page flow, so it simply extends the page downward.)
+    wrap.append(musicList, makeResizeGrip({ body: musicList, storageKey: 'focus:musicListHeight' }).el, addMusic);
 
     // Start. When a session is already running, this screen is inert — you can't
     // start a second one (matches the guard in startSession).
@@ -1108,46 +1138,99 @@ export class FocusView {
    *  at a deleted focus folder fall back to loose. */
   private groupTodosByFolder(
     todos: FocusTodo[],
-    folders: FocusFolder[]
-  ): { blocks: { folder: FocusFolder; members: FocusTodo[] }[]; loose: FocusTodo[] } {
-    const blocks = folders.map((folder) => ({
-      folder,
-      members: todos.filter((t) => t.folderId === folder.id),
-    }));
-    const foldered = new Set(folders.map((f) => f.id));
-    const loose = todos.filter((t) => !t.folderId || !foldered.has(t.folderId));
+    folders: TaskFolder[]
+  ): { blocks: { folder: TaskFolder; members: FocusTodo[] }[]; loose: FocusTodo[] } {
+    // Only folders that actually hold something in THIS session get a block —
+    // the shared list also contains folders whose tasks were never imported.
+    // (This replaces the old empty-folder sweep: focus must never delete a
+    // shared folder, since its tasks can live entirely outside the session.)
+    const blocks = folders
+      .map((folder) => ({ folder, members: todos.filter((t) => t.folderId === folder.id) }))
+      .filter((b) => b.members.length > 0);
+    const shown = new Set(blocks.map((b) => b.folder.id));
+    const loose = todos.filter((t) => !t.folderId || !shown.has(t.folderId));
     return { blocks, loose };
   }
 
-  /** EMPTY focus folders dissolve (per Gabe): deleting or migrating the last
-   *  member deletes the folder — with the SAME fold-shut animation as every
-   *  other dissolution. Runs right after a draw (the empty block is still on
-   *  screen to animate); the follow-up redraw waits for the fold to finish.
-   *  Creation never trips this: the picker assigns the creating todo's folderId
-   *  in the same action. Done-but-present members keep their folder alive. */
-  private sweepEmptyFocusFolders(todos: FocusTodo[], folders: FocusFolder[], redraw: () => void): boolean {
-    const empty = folders.filter((f) => !todos.some((t) => t.folderId === f.id));
-    if (!empty.length) return false;
-    let animating = false;
-    for (const f of empty) {
-      this.openFocusFolders.delete(f.id);
-      folders.splice(folders.indexOf(f), 1);
-      const block = document.querySelector<HTMLElement>(`.focus-folder[data-folder-id="${f.id}"]`);
-      if (block) {
-        collapseFolderBlock(block);
-        animating = true;
-      }
-    }
-    if (animating) window.setTimeout(redraw, 820); // let the fold-shut play out first
-    else redraw();
-    return true;
+  /** Re-read the shared folder list (profile) into the view. */
+  private async refreshFolders(): Promise<void> {
+    this.taskFolders = await getTaskFolders(this.data);
   }
 
-  /** The 🗀 on a focus todo row: join/leave a FOCUS folder, or create one right
-   *  here — focus folders are their own thing ('ffold_' namespace), completely
-   *  disconnected from the Tasks tab's folders. (Imported task-folders appear
-   *  here too, as mirrors; joining/creating never writes back to Tasks.) */
-  private openFocusFolderPicker(todo: FocusTodo, folders: FocusFolder[], redraw: () => void): void {
+  /**
+   * Add a task typed into a Focus box — and create the REAL task behind it.
+   *
+   * Focus and Tasks are ONE list (per Gabe): a task added in either place exists
+   * in both from the moment it's typed. So this doesn't wait for the todo to be
+   * filed in a folder (the old promote-on-file rule) — the task is written right
+   * away, which means it outlives the session and can be dated, filed, or
+   * completed from either side, and completing it here checks it off there
+   * (syncLinkedTask). Course parse words still apply ("write essay mon").
+   *
+   * Synchronous on purpose: Data.putTask updates its cache and notifies BEFORE
+   * the network settles, so the caller can push, redraw, and move on.
+   */
+  private addTypedTodo(list: FocusTodo[], raw: string): void {
+    const { text, course } = parseFocusInput(raw);
+    if (!text) return;
+    // Only title + course: the Focus box has no date/priority grammar, so the new
+    // task lands under "No due date" in Tasks, ready to be scheduled there.
+    const task = makeTask({
+      title: text,
+      dueDate: '',
+      dueTime: '',
+      timeLabel: '',
+      course,
+      priority: 'normal',
+    });
+    list.push({ id: 'ft_' + genId(), text, done: false, course, taskId: task.id });
+    void this.data.putTask(task);
+  }
+
+  /** File a focus todo into a shared folder — and make that true in Tasks too.
+   *  A todo linked to a task just updates that task. A FREE-TEXT todo has no
+   *  task behind it, so one is created and linked (per Gabe: full symmetry —
+   *  anything in a folder exists in both places). Pass null to unfile. */
+  private async fileTodoInFolder(todo: FocusTodo, folderId: string | null): Promise<void> {
+    if (folderId) todo.folderId = folderId;
+    else delete todo.folderId;
+
+    if (todo.taskId) {
+      const src = this.data.getTasks()[todo.taskId];
+      if (src) {
+        const next = { ...src };
+        if (folderId) next.folderId = folderId;
+        else delete next.folderId; // delete, not undefined — Firebase rejects undefined
+        await this.data.putTask(next);
+      }
+      return;
+    }
+    if (!folderId) return; // unlinked todo leaving a folder: nothing in Tasks to update
+    // FALLBACK for todos with no task behind them: sessions saved before Focus
+    // started creating tasks on add (addTypedTodo) restore with taskId missing.
+    // Promote on file, exactly as before, so their folder membership is real.
+    const task = makeTask({
+      title: todo.text,
+      dueDate: '',
+      dueTime: '',
+      timeLabel: '',
+      course: todo.course || '',
+      priority: 'normal',
+    });
+    task.folderId = folderId;
+    todo.taskId = task.id; // links it three ways from now on
+    await this.data.putTask(task);
+  }
+
+  // NOTE: focus no longer sweeps "empty" folders. Folders are shared with the
+  // Tasks tab now, and a folder with no members in THIS session can still hold
+  // plenty of tasks — deleting it here would destroy them. Blocks simply stop
+  // rendering when the session has nothing in them (see groupTodosByFolder), and
+  // genuinely empty folders are dissolved by the Tasks tab's folderMaintenance.
+
+  /** The 🗀 on a focus todo row: join/leave a folder, or create one — all against
+   *  the SHARED folder list, so every action here lands in the Tasks tab too. */
+  private openFocusFolderPicker(todo: FocusTodo, folders: TaskFolder[], redraw: () => void): void {
     const back = el('div', { class: 'focus-modal-back' });
     const card = el('div', { class: 'focus-modal' });
     card.append(el('div', { class: 'focus-modal-title', text: 'Add to folder' }));
@@ -1158,9 +1241,8 @@ export class FocusView {
       b.innerHTML = FOCUS_FOLDER_SVG(f.color);
       b.append(el('span', { text: f.name }));
       b.addEventListener('click', () => {
-        todo.folderId = f.id;
         this.openFocusFolders.add(f.id);
-        redraw();
+        void this.fileTodoInFolder(todo, f.id).then(redraw);
         close();
       });
       wrap.append(b);
@@ -1168,14 +1250,14 @@ export class FocusView {
     if (todo.folderId) {
       const rm = el('button', { class: 'folder-pick-remove', text: 'Remove from folder' });
       rm.addEventListener('click', () => {
-        delete todo.folderId;
-        redraw();
+        void this.fileTodoInFolder(todo, null).then(redraw);
         close();
       });
       wrap.append(rm);
     }
     // "+ New folder" row: color well (defaults to the todo's course color, freely
-    // editable) + name box — the same creation flow as the Tasks tab's picker.
+    // editable) + name box — the same creation flow as the Tasks tab's picker,
+    // and it creates a REAL shared folder.
     const courseColor = todo.course ? getCourseColor(todo.course) : '#e6a817';
     const colorIn = el('input', {
       type: 'color',
@@ -1188,12 +1270,13 @@ export class FocusView {
       if (e.key !== 'Enter') return;
       const name = input.value.trim();
       if (!name) return;
-      const folder: FocusFolder = { id: 'ffold_' + genId(), name, color: colorIn.value };
-      folders.push(folder);
-      todo.folderId = folder.id;
+      const folder = makeFolder(name, colorIn.value);
+      this.taskFolders.push(folder);
       this.openFocusFolders.add(folder.id);
-      redraw();
       close();
+      void saveTaskFolders(this.data, this.taskFolders)
+        .then(() => this.fileTodoInFolder(todo, folder.id))
+        .then(redraw);
     });
     const newRow = el('div', { class: 'folder-pick-new' });
     newRow.append(colorIn, input);
@@ -1206,7 +1289,7 @@ export class FocusView {
     document.body.append(back);
   }
 
-  private buildImportUI(getTodos: () => FocusTodo[], redraw: () => void, getFolders?: () => FocusFolder[]): {
+  private buildImportUI(getTodos: () => FocusTodo[], redraw: () => void): {
     button: HTMLElement;
     panel: HTMLElement;
     refresh: () => void;
@@ -1225,7 +1308,20 @@ export class FocusView {
       autocomplete: 'off',
     });
     const importBody = el('div', { class: 'focus-import-body' });
-    importPanel.append(importSearchInput, importBody);
+
+    // RESIZABLE: TOP-edge grip, drag UP to grow (see util/resize.ts). This panel
+    // is the last thing in the capped session card, so its bottom is pinned and it
+    // can only ever grow UPWARD — the card fills to its cap, then the tasks list
+    // above yields to its floor. The grip therefore rides the edge that actually
+    // moves; a bottom grip would sit still while the panel opened above it.
+    const importGrip = makeResizeGrip({
+      body: importBody,
+      storageKey: 'focus:importHeight',
+      fitTo: '.focus-task-panel',
+      edge: 'top',
+    });
+    importBtn.addEventListener('click', importGrip.refit); // a closed panel can't be measured
+    importPanel.append(importGrip.el, importSearchInput, importBody); // grip FIRST = top edge
 
     // The open-task snapshot lives on the instance (this.importTasks) and is kept
     // fresh by onTasksUpdate, so Tasks-tab edits show here without reopening.
@@ -1233,7 +1329,13 @@ export class FocusView {
     const importedTaskIds = () =>
       new Set(getTodos().map((t) => t.taskId).filter(Boolean) as string[]);
 
-    const addTaskToTodos = (t: Task, folderId?: string) => {
+    // A task ALWAYS arrives in the folder it lives in over in Tasks — folders are
+    // shared, so the same id means the same folder (per Gabe: in a folder there =
+    // in that folder here). This holds no matter how it came in: one row, a whole
+    // course, or the folder itself. The block is auto-opened so the task lands
+    // somewhere visible instead of inside a collapsed folder.
+    const addTaskToTodos = (t: Task) => {
+      if (t.folderId) this.openFocusFolders.add(t.folderId);
       getTodos().push({
         id: 'ft_' + genId(),
         text: t.title,
@@ -1243,22 +1345,8 @@ export class FocusView {
         schoologyUrl: t.schoologyUrl || '',
         translatedTitle: t.translatedTitle || '',
         translatedLang: t.translatedLang || '',
-        ...(folderId ? { folderId } : {}),
+        ...(t.folderId ? { folderId: t.folderId } : {}),
       });
-    };
-
-    // Import a whole Tasks-tab folder: it arrives as a FOCUS folder (mirrored
-    // name + color) with every not-yet-imported active member inside.
-    const importTaskFolder = (tf: TaskFolder, members: Task[]) => {
-      const folders = getFolders?.();
-      if (!folders) return;
-      let mirror = folders.find((f) => f.fromTaskFolder === tf.id);
-      if (!mirror) {
-        mirror = { id: 'ffold_' + genId(), name: tf.name, color: tf.color, fromTaskFolder: tf.id };
-        folders.push(mirror);
-      }
-      this.openFocusFolders.add(mirror.id);
-      for (const t of members) addTaskToTodos(t, mirror.id);
     };
 
     const buildTaskRow = (t: Task, already: boolean): HTMLElement => {
@@ -1330,8 +1418,8 @@ export class FocusView {
 
       const imported = importedTaskIds();
 
-      // FOLDERS — import a whole Tasks-tab folder as one collapsible focus folder.
-      if (getFolders) {
+      // FOLDERS — bring a whole folder's un-imported tasks into the session.
+      {
         const folderRows = this.taskFolders
           .map((tf) => ({
             tf,
@@ -1348,7 +1436,9 @@ export class FocusView {
             row.append(label, el('span', { class: 'focus-import-count', text: String(members.length) }));
             const add = el('button', { class: 'focus-import-add', text: '+', title: `Import the ${tf.name} folder` });
             add.addEventListener('click', () => {
-              importTaskFolder(tf, members);
+              // Nothing folder-specific to do here any more: every member already
+              // carries this folder's id, and addTaskToTodos honors it.
+              for (const t of members) addTaskToTodos(t);
               redraw();
               drawImportBody();
             });
@@ -1419,7 +1509,7 @@ export class FocusView {
     this.originalTitle = document.title;
     // Hand the assembled setup (tasks + folders + chosen track) to the session…
     this.sessionTodos = this.todos;
-    this.sessionFolders = this.setupFolders;
+    // Folders aren't snapshotted any more — they're the shared Tasks-tab list.
     this.sessionMusic = this.selectedMusic;
     this.totalSeconds = this.selectedSeconds;
     this.endTimeMs = Date.now() + this.totalSeconds * 1000;
@@ -1434,7 +1524,6 @@ export class FocusView {
     // …then reset the "start focus" screen for next time — empty tasks, default length
     // + music. The running session keeps its own snapshot above, untouched.
     this.todos = [];
-    this.setupFolders = [];
     this.selectedSeconds = 60 * 60;
     this.selectedMusic = tracksForGenre(MUSIC_GENRES[0].id)[0]?.id ?? null;
     this.renderSetup();
@@ -1443,7 +1532,7 @@ export class FocusView {
   private restore(s: FocusState): void {
     this.originalTitle = document.title;
     this.sessionTodos = s.todos;
-    this.sessionFolders = s.folders ?? []; // older saved states predate folders
+    // s.folders is ignored (legacy): folders now live in the shared profile list.
     this.totalSeconds = s.totalSeconds;
     this.endTimeMs = s.endTimeMs;
     this.quote = s.quote;
@@ -1637,7 +1726,6 @@ export class FocusView {
           totalSeconds: this.totalSeconds,
           pausedRemainingSec: this.currentRemaining(),
           todos: [...this.sessionTodos],
-          folders: [...this.sessionFolders],
           selectedMusic: this.sessionMusic,
           musicVolume: this.musicVolume,
           musicIndex: this.engine?.currentIndex() ?? 0,
@@ -1853,7 +1941,6 @@ export class FocusView {
     const importUI = this.buildImportUI(
       () => this.sessionTodos,
       () => this.drawOverlayTodos(todoList),
-      () => this.sessionFolders
     );
 
     // Mid-session free-text add.
@@ -1866,10 +1953,9 @@ export class FocusView {
     const addNow = () => {
       const v = addInput.value.trim();
       if (!v) return;
-      // Same parse-word recognition as the setup screen, for tasks created
-      // mid-session ("write essay mon" → "write essay" tagged Monkey).
-      const { text, course } = parseFocusInput(v);
-      this.sessionTodos.push({ id: 'ft_' + genId(), text, done: false, course });
+      // Same as the setup screen: this also creates the task in Tasks, so a
+      // mid-session addition isn't lost when the session ends (see addTypedTodo).
+      this.addTypedTodo(this.sessionTodos, v);
       addInput.value = '';
       addInput.focus();
       this.drawOverlayTodos(todoList);
@@ -1882,7 +1968,10 @@ export class FocusView {
     addBtn.addEventListener('click', addNow);
     addRow.append(addInput, addBtn);
 
-    taskPanel.append(todoList, addRow, importUI.button, importUI.panel);
+    // Add-a-task sits ABOVE the list (same order as the setup screen) — so the
+    // import resize drag moves ONLY the Import button + search + list boundary
+    // upward; the add row and the tasks' top edge never budge (per Gabe).
+    taskPanel.append(addRow, todoList, importUI.button, importUI.panel);
     return taskPanel;
   }
 
@@ -2166,11 +2255,14 @@ export class FocusView {
           );
           parent.append(row);
         };
+        // Every section (Favorites/Genres/Artists/Custom) lives in ONE scroller so
+        // a single grip below resizes the whole playlist browser — and so there's
+        // never a scrollbar inside a scrollbar. The inner boxes stay uncapped.
+        const browseWrap = el('div', { class: 'focus-menu-browse-wrap' });
         const section = (title: string): HTMLElement => {
-          menu.append(el('div', { class: 'focus-menu-section', text: title }));
-          // focus-menu-browse: NO inner scroll cap — the menu itself scrolls.
+          browseWrap.append(el('div', { class: 'focus-menu-section', text: title }));
           const box = el('div', { class: 'focus-menu-tracks focus-menu-browse' });
-          menu.append(box);
+          browseWrap.append(box);
           return box;
         };
 
@@ -2187,6 +2279,12 @@ export class FocusView {
           const cl = section('Custom');
           for (const pl of this.customPlaylists) collItem(cl, 'playlist', pl.id, playlistEmoji(pl), pl.name, this.playlistTracks(pl.id));
         }
+        // Rebuilt on every redraw, so re-apply the saved height and hang a fresh grip.
+        restoreSavedHeight(browseWrap, MENU_BROWSE_H_KEY);
+        menu.append(
+          browseWrap,
+          makeResizeGrip({ body: browseWrap, storageKey: MENU_BROWSE_H_KEY, max: 720 }).el
+        );
       } else {
         // The active playlist (a "Switch playlist" button) sits ABOVE the now-playing
         // song, then the current playlist's songs in order.
@@ -2274,7 +2372,11 @@ export class FocusView {
           const favId = t.key.startsWith('track_') ? undefined : t.key; // custom tracks aren't favoritable
           list.append(trackRow(t.emoji, t.label, cur?.key === t.key, () => this.playIndex(i), favId));
         });
-        menu.append(list);
+        // Resizable song list. This menu is rebuilt on every track change, so the
+        // saved height is re-applied to the fresh list each draw, and a new grip
+        // rides below it. (No fitTo: the menu itself is viewport-capped and scrolls.)
+        restoreSavedHeight(list, MENU_TRACKS_H_KEY);
+        menu.append(list, makeResizeGrip({ body: list, storageKey: MENU_TRACKS_H_KEY }).el);
       }
 
       // Volume (moved here from under the transport). Live, and it sticks across
@@ -2402,10 +2504,10 @@ export class FocusView {
       // 🗀 — regroup mid-session too (focus folders, independent namespace).
       const fold = el('button', { class: 'focus-todo-fold', title: 'Add to folder' });
       fold.innerHTML = FOCUS_FOLDER_BTN_SVG;
-      const inFolder = this.sessionFolders.find((f) => f.id === todo.folderId);
+      const inFolder = this.taskFolders.find((f) => f.id === todo.folderId);
       if (inFolder) fold.style.color = inFolder.color;
       fold.addEventListener('click', () =>
-        this.openFocusFolderPicker(todo, this.sessionFolders, () => {
+        this.openFocusFolderPicker(todo, this.taskFolders, () => {
           this.drawOverlayTodos(host);
           this.persist();
         })
@@ -2415,31 +2517,23 @@ export class FocusView {
       return row;
     };
 
-    const { blocks, loose } = this.groupTodosByFolder(this.sessionTodos, this.sessionFolders);
+    const { blocks, loose } = this.groupTodosByFolder(this.sessionTodos, this.taskFolders);
     for (const { folder, members } of blocks) {
       const open = this.openFocusFolders.has(folder.id);
-      const allDone = members.length > 0 && members.every((m) => m.done);
       const box = el('div', { class: `focus-folder${open ? ' open' : ''}`, 'data-folder-id': folder.id });
       const headWrap = el('div', { class: 'focus-folder-headrow' });
-      // The folder's checkbox is a MIRROR, not a control: it checks itself when
-      // every member is done and cannot be clicked directly (per the spec).
-      const autoCb = el('button', {
-        class: `task-cb focus-folder-autocb${allDone ? ' checked' : ''}`,
-        title: 'Folders complete themselves — finish the tasks inside',
-        disabled: true,
-      });
-      autoCb.innerHTML =
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
+      // NO checkbox on a folder (per Gabe) — folders aren't checkable things.
+      // The done/total count already says how far along it is.
       const head = el('button', { class: 'focus-folder-head' });
       head.innerHTML = FOCUS_FOLDER_SVG(folder.color);
       const nameEl = el('span', { class: 'focus-folder-name', text: folder.name });
-      // Double-click renames the FOCUS folder only — an imported mirror keeps
-      // the Tasks tab's original name untouched.
+      // Renaming here renames the SHARED folder — it shows up in Tasks too.
       nameEl.addEventListener('dblclick', (e) => {
         e.stopPropagation();
         this.inlineTodoEdit(nameEl, folder.name, 'folder name', (v) => {
-          if (v) folder.name = v;
-          this.persist();
+          if (!v) return;
+          folder.name = v;
+          void saveTaskFolders(this.data, this.taskFolders);
         }, () => this.drawOverlayTodos(host));
       });
       head.append(
@@ -2454,7 +2548,7 @@ export class FocusView {
         else this.openFocusFolders.add(folder.id);
         this.drawOverlayTodos(host);
       });
-      headWrap.append(autoCb, head);
+      headWrap.append(head);
       box.append(headWrap);
       if (open) {
         const body = el('div', { class: 'focus-folder-body' });
@@ -2473,9 +2567,6 @@ export class FocusView {
     // bottom zone isn't a list you order, it's where finished things rest.
     for (const todo of loose.filter((t) => !t.done)) host.append(buildRow(todo, true));
     for (const todo of loose.filter((t) => t.done)) host.append(buildRow(todo, false));
-    if (this.sweepEmptyFocusFolders(this.sessionTodos, this.sessionFolders, () => this.drawOverlayTodos(host))) {
-      this.persist(); // the folder list changed — save the session state now
-    }
   }
 
   /** Tasks-tab-style inline editor: swap `host` for a text input that commits on
@@ -2610,6 +2701,25 @@ export class FocusView {
    *  deliberately NOT synced — checking off in Focus is one-way. */
   private onTasksUpdate(tasks: TaskMap): void {
     this.importTasks = Object.values(tasks).filter((t) => !t.completed);
+    // Folders are shared: a folder created/renamed/recolored in Tasks (or a task
+    // filed into one there) must show up here too. Re-read, then redraw.
+    void this.refreshFolders().then(() => {
+      this.redrawTodos?.();
+      this.redrawSessionTodos?.();
+    });
+    // Membership changes made in Tasks land on the linked todos as well.
+    for (const list of [this.todos, this.sessionTodos]) {
+      for (const todo of list) {
+        if (!todo.taskId) continue;
+        const src = tasks[todo.taskId];
+        if (!src) continue;
+        const srcFolder = src.folderId;
+        if ((todo.folderId || '') !== (srcFolder || '')) {
+          if (srcFolder) todo.folderId = srcFolder;
+          else delete todo.folderId;
+        }
+      }
+    }
     let changed = false;
     // Keep BOTH the setup draft and the active session's linked todos in step with the
     // Tasks tab (the two lists are otherwise independent).
@@ -3017,7 +3127,7 @@ export class FocusView {
       totalSeconds: this.totalSeconds,
       pausedRemainingSec: this.pausedRemainingSec,
       todos: this.sessionTodos,
-      folders: this.sessionFolders,
+      folders: this.taskFolders,
       selectedMusic: this.sessionMusic,
       musicVolume: this.musicVolume,
       musicIndex: this.engine?.currentIndex() ?? 0,

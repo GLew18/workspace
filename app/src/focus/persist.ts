@@ -22,8 +22,9 @@ export interface FocusTodo {
   // Translation stashed at import so a foreign task keeps its English line in Focus.
   translatedTitle?: string;
   translatedLang?: string;
-  /** Membership in a FOCUS folder (FocusFolder.id) — session-scoped grouping,
-   *  fully independent from the Tasks tab's folders. */
+  /** Folder membership — a SHARED TaskFolder.id, the same value the linked task
+   *  carries in Tasks (folders are one list across both tabs; the old
+   *  session-scoped FocusFolder namespace is gone). */
   folderId?: string;
 }
 

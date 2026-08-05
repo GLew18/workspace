@@ -131,16 +131,17 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
+  /* WRAP RULE: long bookmark names wrap instead of being cut off. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .bm-card-host {
   font-size: 11px;
   color: var(--text-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /* Action buttons on the card: + Group / + Shortcut */
 /* Stacked, one chip per line — Group and Shortcut never share a row, so neither

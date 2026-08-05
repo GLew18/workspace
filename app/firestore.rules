@@ -7,12 +7,7 @@ service cloud.firestore {
     // reads and sends them. Every other path is denied by the absence of a rule.
     match /mail/{docId} {
       allow create: if request.auth != null;
-      // TEMP (debugging the first send): read + delete are open so the console can
-      // show delivery.state and clear out old test docs. REVERT both to `if false`
-      // once email is confirmed working.
-      allow read: if true;
-      allow delete: if true;
-      allow update: if false;
+      allow read, update, delete: if false;
     }
   }
 }

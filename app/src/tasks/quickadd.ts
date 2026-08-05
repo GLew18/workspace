@@ -7,6 +7,11 @@ import { el, textInput } from '../util/dom';
 
 const TOKEN_RE = /(^|\s)f:(.*)$/i; // the folder token runs to the end of the line
 
+// The suggestion list simply FITS its folders (per Gabe — no grip here; the
+// window adapts to however many there are). The CSS max-height is only a
+// runaway guard for someone with dozens of folders.
+const QA_DROP_MATCHES = 12;
+
 export function buildQuickAdd(
   onSubmit: (parsed: ParsedTask) => void,
   getFolders?: () => TaskFolder[]
@@ -36,6 +41,9 @@ export function buildQuickAdd(
   };
   const renderDrop = (): void => {
     drop.replaceChildren();
+    // The options live in their own scroller so the grip below can resize it.
+    // Rebuilt on every keystroke, so the saved height is re-applied each time.
+    const list = el('div', { class: 'qa-folder-list' });
     matches.forEach((f, i) => {
       const row = el('button', { class: `qa-folder-opt${i === hi ? ' active' : ''}`, type: 'button' });
       row.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="${f.color}"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
@@ -45,8 +53,9 @@ export function buildQuickAdd(
         e.preventDefault();
         accept(f);
       });
-      drop.append(row);
+      list.append(row);
     });
+    drop.append(list);
     drop.classList.toggle('open', matches.length > 0);
   };
   const accept = (f: TaskFolder): void => {
@@ -70,7 +79,7 @@ export function buildQuickAdd(
         (a, b) =>
           Number(b.name.toLowerCase().startsWith(part)) - Number(a.name.toLowerCase().startsWith(part))
       )
-      .slice(0, 6);
+      .slice(0, QA_DROP_MATCHES);
     // The name is already complete → nothing to suggest; let Enter submit.
     if (matches.length === 1 && matches[0].name.toLowerCase() === part) {
       closeDrop();
@@ -88,21 +97,12 @@ export function buildQuickAdd(
   };
 
   input.addEventListener('keydown', (e) => {
-    // The open dropdown owns Tab / arrows / Enter / Esc.
+    // The open dropdown owns Tab / Enter / Esc.
     if (matches.length) {
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        hi = (hi + (e.shiftKey ? -1 : 1) + matches.length) % matches.length;
-        renderDrop();
-        return;
-      }
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        hi = (hi + (e.key === 'ArrowDown' ? 1 : -1) + matches.length) % matches.length;
-        renderDrop();
-        return;
-      }
-      if (e.key === 'Enter') {
+      // Tab COMPLETES the highlighted folder, shell-style — it never cycles
+      // through them (per Gabe). Clicking a row is how you pick a different one,
+      // and a click accepts it outright, so there's no "move the highlight" step.
+      if (e.key === 'Tab' || e.key === 'Enter') {
         e.preventDefault();
         accept(matches[hi]);
         return;
@@ -128,14 +128,16 @@ export function buildQuickAdd(
       // tokens off the name's tail and hand them back to the parser. A token
       // counts as recognized when the REAL parser consumes it out of a probe
       // title — same vocabulary as everywhere, nothing duplicated here.
+      // The LAST word is never peeled (per Gabe): a parse word only overrides
+      // when another word rides with it — "f:vh" alone names the folder "vh".
       const words = folderName.split(/\s+/).filter(Boolean);
       const returned: string[] = [];
-      while (words.length) {
+      while (words.length > 1) {
         const probe = parseQuickAdd('zzqx ' + words[words.length - 1]);
         if (probe && probe.title.trim() === 'zzqx') returned.unshift(words.pop()!);
         else break;
       }
-      folderName = words.join(' '); // may end up empty ("f:vh") → no folder at all
+      folderName = words.join(' ');
       if (returned.length) text = `${text} ${returned.join(' ')}`.trim();
     }
     const parsed = parseQuickAdd(text);
