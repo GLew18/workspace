@@ -2,10 +2,19 @@
 
 import type { ParsedTask, TaskFolder } from '../types';
 import { parseQuickAdd } from './parser';
+import { normFolder } from './folders';
 import { todayStr } from '../util/dates';
 import { el, textInput } from '../util/dom';
 
-const TOKEN_RE = /(^|\s)f:(.*)$/i; // the folder token runs to the end of the line
+// The folder token is ONE WORD (per Gabe): "f:English" — everything after the
+// next space belongs to the task title, wherever the token sits in the line. Use
+// a hyphen for a multi-word name ("f:AP-Bio"); the matcher treats hyphens and
+// underscores as spaces, so it still files into an existing "AP Bio".
+const TOKEN_RE = /(^|\s)f:(\S*)/i;
+// While the name is still being TYPED it runs to the end of the input — that is
+// when the autocomplete belongs on screen. Once a space follows, the folder is
+// settled and the menu gets out of the way.
+const TOKEN_TAIL_RE = /(^|\s)f:(\S*)$/i;
 
 // The suggestion list simply FITS its folders (per Gabe — no grip here; the
 // window adapts to however many there are). The CSS max-height is only a
@@ -59,29 +68,32 @@ export function buildQuickAdd(
     drop.classList.toggle('open', matches.length > 0);
   };
   const accept = (f: TaskFolder): void => {
-    const m = input.value.match(TOKEN_RE);
-    if (m) input.value = input.value.slice(0, m.index! + m[1].length) + 'f:' + f.name;
+    const m = input.value.match(TOKEN_TAIL_RE);
+    // Hyphenate a legacy multi-word folder on the way in, so the one-word token
+    // still round-trips to the right folder instead of filing under its first word.
+    if (m) input.value = input.value.slice(0, m.index! + m[1].length) + 'f:' + f.name.trim().replace(/\s+/g, '-');
     closeDrop();
     input.focus();
   };
   const refreshDrop = (): void => {
     const folders = getFolders?.() ?? [];
-    const m = input.value.match(TOKEN_RE);
+    const m = input.value.match(TOKEN_TAIL_RE);
     if (!m || !folders.length) {
       closeDrop();
       return;
     }
-    const part = m[2].trim().toLowerCase();
+    // Compare hyphen-insensitively, so typing "AP-B" still finds "AP Bio".
+    const part = normFolder(m[2]);
     matches = folders
-      .filter((f) => f.name.toLowerCase().includes(part))
+      .filter((f) => normFolder(f.name).includes(part))
       // prefix matches float above mere substring hits
       .sort(
         (a, b) =>
-          Number(b.name.toLowerCase().startsWith(part)) - Number(a.name.toLowerCase().startsWith(part))
+          Number(normFolder(b.name).startsWith(part)) - Number(normFolder(a.name).startsWith(part))
       )
       .slice(0, QA_DROP_MATCHES);
     // The name is already complete → nothing to suggest; let Enter submit.
-    if (matches.length === 1 && matches[0].name.toLowerCase() === part) {
+    if (matches.length === 1 && normFolder(matches[0].name) === part) {
       closeDrop();
       return;
     }
@@ -114,31 +126,21 @@ export function buildQuickAdd(
     }
     if (e.key !== 'Enter' || e.shiftKey) return;
     e.preventDefault();
-    // "f:NAME" (anywhere after a space; runs to the END of the line, so folder
-    // names can have spaces — put it last) peels off BEFORE the normal parse:
-    // the parser never sees it, so titles/dates/courses parse exactly as usual.
+    // "f:NAME" peels off BEFORE the normal parse, so the parser never sees it and
+    // titles/dates/courses parse exactly as usual. The name is ONE WORD and the
+    // token can sit anywhere: everything around it — including everything after
+    // the space that ends it — is the task. That makes the split positional and
+    // predictable ("essay f:English tmw vh" → folder English, title "essay",
+    // tomorrow, ⇈) instead of depending on which trailing words the parser happens
+    // to recognize, which is what the previous run-to-end-of-line rule required.
     let text = input.value;
     let folderName = '';
     const fm = text.match(TOKEN_RE);
     if (fm) {
       folderName = fm[2].trim();
-      text = text.slice(0, fm.index).trim();
-      // Parse words typed AFTER the folder name belong to the TASK, not the
-      // name ("f:Essays vh" → folder "Essays", priority ⇈). Peel recognized
-      // tokens off the name's tail and hand them back to the parser. A token
-      // counts as recognized when the REAL parser consumes it out of a probe
-      // title — same vocabulary as everywhere, nothing duplicated here.
-      // The LAST word is never peeled (per Gabe): a parse word only overrides
-      // when another word rides with it — "f:vh" alone names the folder "vh".
-      const words = folderName.split(/\s+/).filter(Boolean);
-      const returned: string[] = [];
-      while (words.length > 1) {
-        const probe = parseQuickAdd('zzqx ' + words[words.length - 1]);
-        if (probe && probe.title.trim() === 'zzqx') returned.unshift(words.pop()!);
-        else break;
-      }
-      folderName = words.join(' ');
-      if (returned.length) text = `${text} ${returned.join(' ')}`.trim();
+      const before = text.slice(0, fm.index);
+      const after = text.slice(fm.index! + fm[0].length);
+      text = `${before} ${after}`.replace(/\s+/g, ' ').trim();
     }
     const parsed = parseQuickAdd(text);
     if (!parsed || !parsed.title.trim()) {

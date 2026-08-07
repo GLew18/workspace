@@ -98,9 +98,9 @@ function friendlyAuthError(code: string): string {
     case 'auth/wrong-password':
       return 'Incorrect password for this email.';
     case 'auth/too-many-requests':
-      return 'Too many attempts — wait a moment and try again.';
+      return 'Too many attempts. Wait a moment and try again.';
     case 'auth/network-request-failed':
-      return 'Network error — check your connection and try again.';
+      return 'Network error. Check your connection and try again.';
     case 'auth/operation-not-allowed':
       return 'Email sign-in isn’t enabled yet. Turn on Email/Password in Firebase.';
     default:

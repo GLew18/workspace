@@ -1256,9 +1256,11 @@ body.app-mode .app-below {
   color: #e85d04;
   border-color: rgba(232, 93, 4, 0.45);
 }
-/* TEST badge — sits beside the days badge on quiz/test/exam-looking tasks.
+/* TEST badge — sits beside the days badge on quiz/test-looking tasks.
    Red urgency treatment: assessments deserve to jump out of the list. */
 .task-test-badge {
+  display: inline-flex;
+  align-items: center;
   font-size: 10.5px;
   font-weight: 700;
   padding: 2px 6px;
@@ -1267,6 +1269,30 @@ body.app-mode .app-below {
   background: rgba(239, 68, 68, 0.1);
   color: var(--red);
   border: 1px solid rgba(239, 68, 68, 0.4);
+}
+/* The dismiss ✕: zero-width until the badge is hovered, so the pill keeps its
+   compact look — then it slides open. "Test" may just be a word in the title;
+   one click says "not actually a test" and the badge never comes back. */
+.task-test-badge-x {
+  background: none;
+  border: none;
+  color: var(--red);
+  font-size: 9px;
+  line-height: 1;
+  padding: 0;
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+  cursor: pointer;
+  transition: width 0.15s ease, opacity 0.15s ease, margin 0.15s ease;
+}
+.task-test-badge:hover .task-test-badge-x {
+  width: 11px;
+  margin-left: 3px;
+  opacity: 0.75;
+}
+.task-test-badge .task-test-badge-x:hover {
+  opacity: 1;
 }
 
 .task-actions {

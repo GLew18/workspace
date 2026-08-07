@@ -113,13 +113,13 @@ export function groupTasks(map: TaskMap): TaskGroup[] {
     let header: string;
     let tone: 'red' | 'orange' | 'none' = 'none';
     if (date === today) {
-      header = `Today — ${formatGroupHeader(date)}`;
+      header = `Today · ${formatGroupHeader(date)}`;
       tone = 'red';
     } else if (date < today) {
       header = `${formatGroupHeader(date)} (overdue)`;
       tone = 'red';
     } else if (dayDiff(today, date) === 1) {
-      header = `Tomorrow — ${formatGroupHeader(date)}`;
+      header = `Tomorrow · ${formatGroupHeader(date)}`;
       tone = 'orange';
     } else header = formatGroupHeader(date);
     groups.push({ key: date, header, tone, tasks: byDate.get(date)! });

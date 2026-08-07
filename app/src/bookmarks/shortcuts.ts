@@ -17,7 +17,7 @@
 // known EXTENSION_ID exist; otherwise fall back to a window.postMessage handshake
 // with the extension's bridge content script (dev/localhost + Firefox/Safari).
 
-import { el } from '../util/dom';
+import { el, enterConfirms } from '../util/dom';
 import { normalizeUrl } from './url';
 
 // #region Minimal chrome typings (no @types/chrome in this project)
@@ -233,7 +233,7 @@ export function classifyCombo(
 function reasonMessage(reason: ComboRejectReason): string {
   switch (reason) {
     case 'no-modifier':
-      return 'Add a modifier — try Alt + a letter or Ctrl + Shift + a letter.';
+      return 'Add a modifier: try Alt + a letter or Ctrl + Shift + a letter.';
     case 'reserved':
       return 'That combo is reserved by the browser. Try Alt + a letter or Ctrl + Shift + a letter.';
     case 'in-use':
@@ -588,6 +588,13 @@ export function openShortcutModal(bm: ShortcutBookmark, opts: OpenShortcutModalO
         keysBox.blur();
         return;
       }
+      // Bare Enter = Save (per Gabe: Enter confirms every popup). Safe to steal
+      // here because a bare Enter can never BE a combo (no modifier), while
+      // Ctrl/Alt+Enter still falls through and records like any other combo.
+      if (ev.key === 'Enter' && !ev.ctrlKey && !ev.altKey && !ev.metaKey && !ev.shiftKey) {
+        if (captured) saveBtn.click();
+        return;
+      }
       const raw = comboFromEvent(ev);
       if (!raw) {
         const building = buildingLabel(ev);
@@ -597,7 +604,7 @@ export function openShortcutModal(bm: ShortcutBookmark, opts: OpenShortcutModalO
         // so a Shift-led press — Shift, then a letter — otherwise looks frozen: every
         // key is swallowed with no explanation. Tell the user another modifier is needed.
         if (ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey && ev.key.length === 1) {
-          setError(`Shift alone isn’t enough — add Ctrl or Alt. Try Ctrl + Shift + ${ev.key.toUpperCase()}.`);
+          setError(`Shift alone isn’t enough. Add Ctrl or Alt. Try Ctrl + Shift + ${ev.key.toUpperCase()}.`);
         } else {
           clearMsg();
         }
@@ -655,6 +662,10 @@ export function openShortcutModal(bm: ShortcutBookmark, opts: OpenShortcutModalO
     if (bm.shortcut) footer.append(clearBtn);
     footer.append(el('div', { class: 'bm-modal-spacer' }), cancel, saveBtn);
     content.append(footer);
+
+    // Enter = Save when a valid combo is staged and focus ISN'T in the keys box
+    // (there, the capture handler above owns every key and does the same thing).
+    enterConfirms(back, () => (captured ? saveBtn : null));
 
     keysBox.focus();
   };

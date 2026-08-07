@@ -4,7 +4,7 @@ import type { Data } from '../db';
 import type { Task, TaskMap, TaskFolder } from '../types';
 import { getTaskFolders, saveTaskFolders, makeFolder, FOLDERS_EVENT } from '../tasks/folders';
 import { makeResizeGrip, restoreSavedHeight } from '../util/resize';
-import { el, textInput, copyTextMetrics, autoWidthToText } from '../util/dom';
+import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms } from '../util/dom';
 import { makeWheel } from './wheel';
 import { genId } from '../util/ids';
 import { sortTasks, makeTask } from '../tasks/store';
@@ -32,6 +32,23 @@ const MUSIC_BASE_URL = import.meta.env.PROD
 /** Sum a playlist's track lengths, in seconds. */
 function totalSeconds(tracks: LibraryTrack[]): number {
   return tracks.reduce((s, t) => s + (t.duration || 0), 0);
+}
+
+/** The same intrinsic-edit gate the Tasks tab enforces (see tasks/render.ts
+ *  editingUnlocked): title/course edits here write through to the real task, so
+ *  they honor the same Settings ▸ Tasks "Edit task details" switch — one lock,
+ *  both tabs. Checking off, folders, and reordering stay free. */
+function taskEditUnlocked(): boolean {
+  if (getPrefs().tasks.allowEdit) return true;
+  const t = el('div', { class: 'toast', text: '✏️ Editing is off. Turn it on with “Edit task details” in Settings ▸ Tasks.' });
+  document.body.append(t);
+  void t.offsetHeight;
+  t.classList.add('show');
+  window.setTimeout(() => {
+    t.classList.remove('show');
+    window.setTimeout(() => t.remove(), 350);
+  }, 2600);
+  return false;
 }
 /** Browse-list order for genre/artist rows: most songs first; equal counts break
  *  by total run time. So a 5-song 13m list outranks a 4-song 35m one, which
@@ -65,6 +82,7 @@ function fmtPlaylistLen(sec: number): string {
 }
 import { pickEmoji } from '../tasks/emoji';
 import { parseFocusInput } from '../tasks/parser';
+import { recordManualLabelForTask } from '../schoology/extension';
 import { getPrefs } from '../prefs';
 import { sendNotification, normalizeNotifySettings } from '../notify/notify';
 import {
@@ -112,13 +130,13 @@ const QUOTES = [
   'WHERE FOCUS GOES, ENERGY FLOWS',
   'ONE TASK. FULL FOCUS. NOTHING ELSE.',
   'FOCUS IS THE ART OF KNOWING WHAT TO IGNORE',
-  'YOUR ATTENTION IS YOUR SUPERPOWER — AIM IT HERE',
+  'YOUR ATTENTION IS YOUR SUPERPOWER. AIM IT HERE',
   'DISTRACTION IS A DECISION. CHOOSE THE WORK.',
   'DEEP WORK IS A SUPERPOWER. USE YOURS.',
-  'GUARD THIS HOUR — IT IS BUILDING YOUR FUTURE',
+  'GUARD THIS HOUR. IT IS BUILDING YOUR FUTURE',
   // Starting + momentum
   'START NOW. PERFECT LATER.',
-  'THE HARDEST PART IS STARTING — AND YOU ALREADY HAVE',
+  'THE HARDEST PART IS STARTING, AND YOU ALREADY HAVE',
   'MOMENTUM IS BUILT ONE FOCUSED MINUTE AT A TIME',
   'A YEAR FROM NOW YOU WILL WISH YOU STARTED TODAY',
   'THE SECRET OF GETTING AHEAD IS GETTING STARTED',
@@ -140,7 +158,7 @@ const QUOTES = [
   'SMALL STEPS DAILY BEAT GIANT LEAPS SOMEDAY',
   'MOTIVATION GETS YOU STARTED. DISCIPLINE KEEPS YOU GOING.',
   'QUALITY IS NOT AN ACT. IT IS A HABIT.',
-  "SHOW UP — ESPECIALLY WHEN YOU DON'T WANT TO",
+  "SHOW UP, ESPECIALLY WHEN YOU DON'T WANT TO",
   'DISCIPLINE WEIGHS OUNCES. REGRET WEIGHS TONS.',
   // Effort
   "HARD WORK BEATS TALENT WHEN TALENT DOESN'T WORK HARD",
@@ -178,7 +196,7 @@ const QUOTES = [
   'THE FUTURE DEPENDS ON WHAT YOU DO TODAY',
   // Mindset + resilience
   'THE BODY ACHIEVES WHAT THE MIND BELIEVES',
-  "NOBODY IS COMING TO SAVE YOU — AND THAT'S YOUR POWER",
+  "NOBODY IS COMING TO SAVE YOU, AND THAT'S YOUR POWER",
   'WHEN YOU FEEL LIKE QUITTING, REMEMBER WHY YOU STARTED',
   "DON'T NEGOTIATE WITH THE PART OF YOU THAT WANTS TO QUIT",
   'PROVE IT TO YOURSELF',
@@ -203,7 +221,7 @@ const QUOTES = [
   'AMATEURS WAIT FOR INSPIRATION. PROS GET TO WORK.',
   'DOUBT KILLS MORE DREAMS THAN FAILURE EVER WILL',
   'STOP TALKING. START PROVING.',
-  'YOU VS. YOU — THE ONLY MATCH THAT MATTERS',
+  'YOU VS. YOU: THE ONLY MATCH THAT MATTERS',
   'YOUR ONLY LIMIT IS THE ONE YOU ACCEPT',
   'GREATNESS IS EARNED, NEVER GIVEN',
 ];
@@ -292,7 +310,9 @@ export class FocusView {
   private musicResumeHandler: ((e: PointerEvent) => void) | null = null; // one-shot autoplay-block retry
   private musicPlaying = true;
   private musicPlayingAtPause = false; // was the track playing when the SESSION was paused?
-  private dragFrom: number | null = null;
+  /** The todo being ⋮⋮-dragged: its flat index + the group it belongs to (folder
+   *  id, or '' when loose). The group is what keeps a drag inside its own list. */
+  private dragFrom: { index: number; group: string } | null = null;
   private originalTitle = ''; // restored when the session ends
   private endCue: EndSoundHandle | null = null; // the in-flight completion cue — stopped if the session is restored mid-ring
   private endSoundKey = DEFAULT_END_SOUND; // user's chosen completion sound (Settings)
@@ -698,7 +718,7 @@ export class FocusView {
       sub.textContent = `${tracks.length} song${tracks.length === 1 ? '' : 's'}`;
       list.replaceChildren();
       if (!tracks.length) {
-        list.append(el('div', { class: 'focus-music-hint', text: 'No favorites yet — tap a ♡ to add songs.' }));
+        list.append(el('div', { class: 'focus-music-hint', text: 'No favorites yet. Tap a ♡ to add songs.' }));
         return;
       }
       tracks.forEach((lt, i) => {
@@ -938,25 +958,43 @@ export class FocusView {
             void saveTaskFolders(this.data, this.taskFolders);
           }, drawTodos);
         });
+        // Click the folder ICON to recolor — the identical hidden native color input
+        // the Tasks tab uses: the glyph previews live while you drag, the pick saves
+        // on close. Folders are shared, so the new color IS the color over there.
+        const colorIn = this.folderColorInput(folder, head, drawTodos);
         head.append(
           nameEl,
           el('span', { class: 'focus-folder-count', text: `${members.filter((m) => m.done).length}/${members.length}` }),
-          el('span', { class: 'focus-folder-arrow', text: '▶' })
+          el('span', { class: 'focus-folder-arrow', text: '▶' }),
+          colorIn
         );
         head.addEventListener('click', (e) => {
           if (head.querySelector('.inline-edit-block')) return; // rename in progress → head inert
-          if ((e.target as HTMLElement).closest('.focus-folder-name')) return;
+          const t = e.target as HTMLElement;
+          if (t.closest('.focus-folder-name')) return;
+          if (t.closest('.focus-folder-ico')) {
+            colorIn.click(); // the icon IS the color well (same gesture as Tasks)
+            return;
+          }
           if (open) this.openFocusFolders.delete(folder.id);
           else this.openFocusFolders.add(folder.id);
           drawTodos();
         });
-        // Takes THESE todos out of the folder (writing through to their tasks).
-        // It never deletes the shared folder itself — that folder may hold other
-        // tasks that were never imported into this session.
-        const kill = el('button', { class: 'focus-todo-del', text: '✕', title: 'Take these out of the folder' });
+        // ONE meaning for ✕ on this screen (per Gabe): take it out of THIS session.
+        // Same icon, same promise — on a folder that's the whole folder and every
+        // task in it, and nothing more. It does NOT unfile the tasks (the 🗀 picker's
+        // "Remove from folder" does that) and it does NOT delete the shared folder,
+        // which may hold tasks that were never imported here. Both survive untouched
+        // in the Tasks tab; only this session forgets them.
+        const kill = el('button', { class: 'focus-todo-del', text: '✕', title: 'Remove from this session' });
         kill.addEventListener('click', (e) => {
           e.stopPropagation();
-          void Promise.all(members.map((m) => this.fileTodoInFolder(m, null))).then(drawTodos);
+          for (const m of members) {
+            const i = this.todos.indexOf(m);
+            if (i >= 0) this.todos.splice(i, 1);
+          }
+          drawTodos();
+          importUI?.refresh(); // those tasks are importable again — re-mark the list
         });
         const headWrap = el('div', { class: 'focus-folder-headrow' });
         headWrap.append(head, kill);
@@ -1103,7 +1141,7 @@ export class FocusView {
       start.textContent = 'Session in progress';
       wrap.append(
         start,
-        el('div', { class: 'focus-field-error', text: 'A focus session is already running — end it to start a new one.' })
+        el('div', { class: 'focus-field-error', text: 'A focus session is already running. End it to start a new one.' })
       );
     } else {
       start.addEventListener('click', () => {
@@ -1157,6 +1195,32 @@ export class FocusView {
     this.taskFolders = await getTaskFolders(this.data);
   }
 
+  /** The folder icon's hidden color well, shared by both Focus folder headers and
+   *  copied from the Tasks tab so the gesture is the same in both places: click the
+   *  glyph, the OS picker opens, the glyph previews as you drag, the pick saves on
+   *  close. The folder list is shared, so recoloring here recolors it in Tasks —
+   *  and every row's 🗀 tint follows on the next draw. */
+  private folderColorInput(folder: TaskFolder, head: HTMLElement, redraw: () => void): HTMLInputElement {
+    const colorIn = el('input', {
+      type: 'color',
+      class: 'focus-folder-colorin',
+      // A folder made before colors (or with junk stored) opens on gold, not on an
+      // invalid value the native picker would silently turn black.
+      value: /^#[0-9a-f]{6}$/i.test(folder.color) ? folder.color : '#e6a817',
+      title: 'Folder color',
+    });
+    colorIn.addEventListener('click', (e) => e.stopPropagation()); // never toggle the block open/closed
+    colorIn.addEventListener('input', () => {
+      folder.color = colorIn.value;
+      head.querySelector('.focus-folder-ico')?.setAttribute('fill', colorIn.value);
+    });
+    colorIn.addEventListener('change', () => {
+      void saveTaskFolders(this.data, this.taskFolders); // fires FOLDERS_EVENT → Tasks re-reads
+      redraw();
+    });
+    return colorIn;
+  }
+
   /**
    * Add a task typed into a Focus box — and create the REAL task behind it.
    *
@@ -1188,9 +1252,9 @@ export class FocusView {
   }
 
   /** File a focus todo into a shared folder — and make that true in Tasks too.
-   *  A todo linked to a task just updates that task. A FREE-TEXT todo has no
-   *  task behind it, so one is created and linked (per Gabe: full symmetry —
-   *  anything in a folder exists in both places). Pass null to unfile. */
+   *  Normally the todo already has a task behind it (addTypedTodo creates one the
+   *  moment you type it), so this just updates that task. The unlinked case is the
+   *  legacy fallback below. Pass null to unfile. */
   private async fileTodoInFolder(todo: FocusTodo, folderId: string | null): Promise<void> {
     if (folderId) todo.folderId = folderId;
     else delete todo.folderId;
@@ -1289,7 +1353,14 @@ export class FocusView {
     document.body.append(back);
   }
 
-  private buildImportUI(getTodos: () => FocusTodo[], redraw: () => void): {
+  private buildImportUI(
+    getTodos: () => FocusTodo[],
+    redraw: () => void,
+    /** Which way this copy of the panel actually grows — see the grip below. The
+     *  setup screen scrolls, so its panel opens DOWNWARD; the session's is pinned
+     *  inside a height-capped card, so it can only open UPWARD. */
+    grows: 'down' | 'up' = 'down'
+  ): {
     button: HTMLElement;
     panel: HTMLElement;
     refresh: () => void;
@@ -1309,19 +1380,27 @@ export class FocusView {
     });
     const importBody = el('div', { class: 'focus-import-body' });
 
-    // RESIZABLE: TOP-edge grip, drag UP to grow (see util/resize.ts). This panel
-    // is the last thing in the capped session card, so its bottom is pinned and it
-    // can only ever grow UPWARD — the card fills to its cap, then the tasks list
-    // above yields to its floor. The grip therefore rides the edge that actually
-    // moves; a bottom grip would sit still while the panel opened above it.
+    // RESIZABLE (see util/resize.ts). The grip goes on whichever edge MOVES, and
+    // that differs between the two copies of this panel:
+    //  • setup screen (grows: 'down') — the screen scrolls, so the panel opens
+    //    downward like any dropdown. Grip at the BOTTOM, drag DOWN to grow.
+    //  • running session (grows: 'up') — the panel is the last thing in a
+    //    height-capped card, so its bottom is pinned: the card fills to its cap and
+    //    then the tasks list above yields, i.e. it opens UPWARD. Grip at the TOP,
+    //    drag UP to grow. A bottom grip there would sit still while the panel grew.
+    const up = grows === 'up';
     const importGrip = makeResizeGrip({
       body: importBody,
       storageKey: 'focus:importHeight',
-      fitTo: '.focus-task-panel',
-      edge: 'top',
+      fitTo: '.focus-task-panel', // only matches in-session (the setup panel has no such card)
+      edge: up ? 'top' : 'bottom',
     });
     importBtn.addEventListener('click', importGrip.refit); // a closed panel can't be measured
-    importPanel.append(importGrip.el, importSearchInput, importBody); // grip FIRST = top edge
+    importPanel.append(
+      ...(up
+        ? [importGrip.el, importSearchInput, importBody] // grip FIRST = top edge
+        : [importSearchInput, importBody, importGrip.el]) // grip LAST = bottom edge
+    );
 
     // The open-task snapshot lives on the instance (this.importTasks) and is kept
     // fresh by onTasksUpdate, so Tasks-tab edits show here without reopening.
@@ -1354,16 +1433,19 @@ export class FocusView {
       const main = el('div', { class: 'focus-import-task-main' });
 
       // Title — double-click to edit (no pen button; editing is double-click only).
+      // Both editors here honor the Settings ▸ Tasks edit lock (taskEditUnlocked).
       const titleEl = el('span', { class: 'focus-import-title', text: t.title });
-      titleEl.addEventListener('dblclick', () =>
-        this.inlineTodoEdit(titleEl, t.title, 'task title', (v) => void this.applyTaskEdit(t.id, { title: v }), drawImportBody)
-      );
+      titleEl.addEventListener('dblclick', () => {
+        if (!taskEditUnlocked()) return;
+        this.inlineTodoEdit(titleEl, t.title, 'task title', (v) => void this.applyTaskEdit(t.id, { title: v }), drawImportBody);
+      });
       main.append(titleEl);
 
       // Only the course is shown here — the due date/priority stay in the Tasks tab,
       // but they still drive the ordering below.
       const tags = el('div', { class: 'focus-import-tags' });
-      const editCourse = (host: HTMLElement, initial: string) =>
+      const editCourse = (host: HTMLElement, initial: string) => {
+        if (!taskEditUnlocked()) return;
         this.inlineTodoEdit(
           host,
           initial,
@@ -1371,6 +1453,7 @@ export class FocusView {
           (v) => void this.applyTaskEdit(t.id, { course: v ? matchCourseStrict(v) : '' }),
           drawImportBody
         );
+      };
       if (t.course) {
         const chip = el('span', { class: 'course-chip', text: t.course });
         chip.style.color = getCourseColor(t.course);
@@ -1560,7 +1643,7 @@ export class FocusView {
     armAudioContext();
     this.buildOverlay();
     this.updateDisplay(remaining);
-    document.title = '⏸ PAUSED — Focus';
+    document.title = '⏸ PAUSED · Focus';
     void this.resumeMusicForRestore(s.musicIndex);
     void this.acquireWakeLock();
   }
@@ -1941,6 +2024,7 @@ export class FocusView {
     const importUI = this.buildImportUI(
       () => this.sessionTodos,
       () => this.drawOverlayTodos(todoList),
+      'up' // pinned at the bottom of the capped session card → it opens upward
     );
 
     // Mid-session free-text add.
@@ -2137,6 +2221,7 @@ export class FocusView {
     back.addEventListener('click', (e) => {
       if (e.target === back) close();
     });
+    enterConfirms(back, () => ok); // Enter = Add/Trim the dialed amount
     document.body.append(back);
 
     // Default the picker to 5 minutes; position the wheels once the popup is laid out.
@@ -2280,10 +2365,14 @@ export class FocusView {
           for (const pl of this.customPlaylists) collItem(cl, 'playlist', pl.id, playlistEmoji(pl), pl.name, this.playlistTracks(pl.id));
         }
         // Rebuilt on every redraw, so re-apply the saved height and hang a fresh grip.
+        // TOP grip: this menu is pinned ABOVE the music button (bottom: 100% + 10px
+        // in focus.css), so its bottom edge can't move — a taller list pushes the
+        // menu's TOP edge upward. The growth happens at the top, so that's where the
+        // grip belongs; drag UP to grow.
         restoreSavedHeight(browseWrap, MENU_BROWSE_H_KEY);
         menu.append(
-          browseWrap,
-          makeResizeGrip({ body: browseWrap, storageKey: MENU_BROWSE_H_KEY, max: 720 }).el
+          makeResizeGrip({ body: browseWrap, storageKey: MENU_BROWSE_H_KEY, max: 720, edge: 'top' }).el,
+          browseWrap
         );
       } else {
         // The active playlist (a "Switch playlist" button) sits ABOVE the now-playing
@@ -2374,9 +2463,11 @@ export class FocusView {
         });
         // Resizable song list. This menu is rebuilt on every track change, so the
         // saved height is re-applied to the fresh list each draw, and a new grip
-        // rides below it. (No fitTo: the menu itself is viewport-capped and scrolls.)
+        // rides ABOVE it — same reason as the browser above: the menu is pinned at
+        // its bottom, so it grows upward and the top edge is the one that moves.
+        // (No fitTo: the menu itself is viewport-capped and scrolls.)
         restoreSavedHeight(list, MENU_TRACKS_H_KEY);
-        menu.append(list, makeResizeGrip({ body: list, storageKey: MENU_TRACKS_H_KEY }).el);
+        menu.append(makeResizeGrip({ body: list, storageKey: MENU_TRACKS_H_KEY, edge: 'top' }).el, list);
       }
 
       // Volume (moved here from under the transport). Live, and it sticks across
@@ -2459,7 +2550,7 @@ export class FocusView {
   private drawOverlayTodos(host: HTMLElement): void {
     host.replaceChildren();
     if (!this.sessionTodos.length) {
-      host.append(el('div', { class: 'focus-todos-empty', text: 'No tasks left — add one below.' }));
+      host.append(el('div', { class: 'focus-todos-empty', text: 'No tasks left. Add one below.' }));
       return;
     }
     const buildRow = (todo: FocusTodo, draggable: boolean): HTMLElement => {
@@ -2468,7 +2559,9 @@ export class FocusView {
 
       if (draggable) {
         const handle = el('button', { class: 'focus-todo-handle', text: '⋮⋮', title: 'Drag to reorder' });
-        this.makeTodoDraggable(row, handle, host, i);
+        // The folder id is the drag GROUP: a folder's rows reorder among
+        // themselves, the loose rows among themselves, and never across.
+        this.makeTodoDraggable(row, handle, host, i, todo.folderId || '');
         row.append(handle);
       }
 
@@ -2536,14 +2629,22 @@ export class FocusView {
           void saveTaskFolders(this.data, this.taskFolders);
         }, () => this.drawOverlayTodos(host));
       });
+      // Same color well as the setup screen and the Tasks tab — click the glyph.
+      const colorIn = this.folderColorInput(folder, head, () => this.drawOverlayTodos(host));
       head.append(
         nameEl,
         el('span', { class: 'focus-folder-count', text: `${members.filter((m) => m.done).length}/${members.length}` }),
-        el('span', { class: 'focus-folder-arrow', text: '▶' })
+        el('span', { class: 'focus-folder-arrow', text: '▶' }),
+        colorIn
       );
       head.addEventListener('click', (e) => {
         if (head.querySelector('.inline-edit-block')) return; // rename in progress → head inert
-        if ((e.target as HTMLElement).closest('.focus-folder-name')) return;
+        const t = e.target as HTMLElement;
+        if (t.closest('.focus-folder-name')) return;
+        if (t.closest('.focus-folder-ico')) {
+          colorIn.click();
+          return;
+        }
         if (open) this.openFocusFolders.delete(folder.id);
         else this.openFocusFolders.add(folder.id);
         this.drawOverlayTodos(host);
@@ -2553,8 +2654,9 @@ export class FocusView {
       if (open) {
         const body = el('div', { class: 'focus-folder-body' });
         // Checked members sink to the bottom of the folder so the remaining
-        // work stays on top (same rule as the loose list below).
-        for (const m of members.filter((t) => !t.done)) body.append(buildRow(m, false));
+        // work stays on top (same rule as the loose list below). Unchecked ones
+        // are ⋮⋮-draggable WITHIN the folder, exactly as in the Tasks tab.
+        for (const m of members.filter((t) => !t.done)) body.append(buildRow(m, true));
         for (const m of members.filter((t) => t.done)) body.append(buildRow(m, false));
         box.append(body);
       }
@@ -2565,6 +2667,8 @@ export class FocusView {
     // order is untouched (this is render-time only), so un-checking floats the
     // todo right back to its original spot. Done rows aren't draggable — the
     // bottom zone isn't a list you order, it's where finished things rest.
+    // This holds however it got checked — here, or over in the Tasks tab
+    // (onTasksUpdate mirrors that check-off onto the todo, and the sink follows).
     for (const todo of loose.filter((t) => !t.done)) host.append(buildRow(todo, true));
     for (const todo of loose.filter((t) => t.done)) host.append(buildRow(todo, false));
   }
@@ -2634,32 +2738,38 @@ export class FocusView {
       if (todo.taskId) void this.applyTaskEdit(todo.taskId, { course });
     };
 
+    // Every editor below honors the Settings ▸ Tasks edit lock — these write
+    // through to the real task, so they're the same gate as the Tasks tab's.
     if (todo.text) {
       const titleEl = el('span', { class: 'focus-todo-text', text: todo.text });
-      titleEl.addEventListener('dblclick', () =>
-        this.inlineTodoEdit(titleEl, todo.text, 'task title', commitTitle, redraw)
-      );
+      titleEl.addEventListener('dblclick', () => {
+        if (!taskEditUnlocked()) return;
+        this.inlineTodoEdit(titleEl, todo.text, 'task title', commitTitle, redraw);
+      });
       label.append(titleEl);
     } else {
       const addTitle = el('span', { class: 'focus-todo-text empty', text: '+ title' });
-      addTitle.addEventListener('click', () =>
-        this.inlineTodoEdit(addTitle, '', 'task title', commitTitle, redraw)
-      );
+      addTitle.addEventListener('click', () => {
+        if (!taskEditUnlocked()) return;
+        this.inlineTodoEdit(addTitle, '', 'task title', commitTitle, redraw);
+      });
       label.append(addTitle);
     }
 
     if (todo.course) {
       const chip = el('span', { class: 'course-chip', text: todo.course });
       chip.style.color = getCourseColor(todo.course);
-      chip.addEventListener('dblclick', () =>
-        this.inlineTodoEdit(chip, todo.course || '', 'course', commitCourse, redraw)
-      );
+      chip.addEventListener('dblclick', () => {
+        if (!taskEditUnlocked()) return;
+        this.inlineTodoEdit(chip, todo.course || '', 'course', commitCourse, redraw);
+      });
       label.append(chip);
     } else {
       const chip = el('span', { class: 'course-chip empty', text: '+ course' });
-      chip.addEventListener('click', () =>
-        this.inlineTodoEdit(chip, '', 'course', commitCourse, redraw)
-      );
+      chip.addEventListener('click', () => {
+        if (!taskEditUnlocked()) return;
+        this.inlineTodoEdit(chip, '', 'course', commitCourse, redraw);
+      });
       label.append(chip);
     }
 
@@ -2692,13 +2802,18 @@ export class FocusView {
       next.course = patch.course;
       next._manualCourse = true;
       changed = true;
+      // Same as the Tasks tab: a hand-set course is ground truth, so it goes in the
+      // cloud label store where it outranks any later extension scrape.
+      void recordManualLabelForTask(this.data, next, patch.course);
     }
     if (changed) await this.data.putTask(next);
   }
 
   /** A task changed anywhere (Tasks tab edit or one of our own) → keep the import
-   *  snapshot and any linked session todos' title/course in step. The done state is
-   *  deliberately NOT synced — checking off in Focus is one-way. */
+   *  snapshot and any linked session todos' title/course/folder/DONE state in step.
+   *  Completion travels both ways now (per Gabe): checked in either place means
+   *  checked in both, and the Focus row sinks to the bottom exactly as if it had
+   *  been checked here. */
   private onTasksUpdate(tasks: TaskMap): void {
     this.importTasks = Object.values(tasks).filter((t) => !t.completed);
     // Folders are shared: a folder created/renamed/recolored in Tasks (or a task
@@ -2741,6 +2856,14 @@ export class FocusView {
           todo.translatedLang = src.translatedLang || '';
           changed = true;
         }
+        // DONE follows the task, whichever side did the checking. Ticking it off in
+        // the Tasks tab checks the Focus row and sinks it to the bottom; un-ticking
+        // it there (their Undo) floats it back up. Our own check-off arrives here
+        // too — as the same value, so it lands as a no-op instead of a loop.
+        if (todo.done !== src.completed) {
+          todo.done = src.completed;
+          changed = true;
+        }
       }
     };
     sync(this.todos);
@@ -2753,17 +2876,25 @@ export class FocusView {
     }
   }
 
-  /** Native drag-and-drop reorder, initiated only from the ⋮⋮ handle. */
+  /** Native drag-and-drop reorder, initiated only from the ⋮⋮ handle.
+   *
+   *  `group` is the row's folder id ('' when loose), and a drop is only accepted
+   *  BETWEEN ROWS OF THE SAME GROUP — the Tasks tab's rule, where a folder's rows
+   *  carry a folder-scoped group key for exactly this reason. So you can reorder
+   *  inside a folder, and reorder the loose list, but dragging can never move a
+   *  task out of its folder (that's the 🗀 picker's job, and it has to write
+   *  through to the real task — a drag can't imply that). */
   private makeTodoDraggable(
     row: HTMLElement,
     handle: HTMLElement,
     host: HTMLElement,
-    index: number
+    index: number,
+    group: string
   ): void {
     handle.addEventListener('pointerdown', () => row.setAttribute('draggable', 'true'));
     handle.addEventListener('pointerup', () => row.removeAttribute('draggable'));
     row.addEventListener('dragstart', (e) => {
-      this.dragFrom = index;
+      this.dragFrom = { index, group };
       row.classList.add('dragging');
       e.dataTransfer?.setData('text/plain', String(index));
       if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
@@ -2774,16 +2905,19 @@ export class FocusView {
       this.dragFrom = null;
     });
     row.addEventListener('dragover', (e) => {
+      if (this.dragFrom?.group !== group) return; // other group → NOT a drop target
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
     });
     row.addEventListener('drop', (e) => {
       e.preventDefault();
       const from = this.dragFrom;
-      if (from == null || from === index) return;
-      const [moved] = this.sessionTodos.splice(from, 1);
-      this.sessionTodos.splice(index, 0, moved);
       this.dragFrom = null;
+      if (!from || from.index === index || from.group !== group) return;
+      // The move happens in the FLAT list; the folder grouping is applied at draw
+      // time, so reordering two members of one folder lands exactly as it looks.
+      const [moved] = this.sessionTodos.splice(from.index, 1);
+      this.sessionTodos.splice(index, 0, moved);
       this.drawOverlayTodos(host);
       this.persist();
     });
@@ -2816,7 +2950,7 @@ export class FocusView {
     if (this.ringWrap) this.ringWrap.classList.toggle('urgent', remaining <= 300 && remaining > 0);
     // Live countdown in the tab title (paused title is set in togglePause and held
     // because the ticker is stopped, so we only write the running title here).
-    if (!this.paused) document.title = `🎯 ${this.clock(remaining)} — Focus`;
+    if (!this.paused) document.title = `🎯 ${this.clock(remaining)} · Focus`;
   }
 
   private togglePause(): void {
@@ -2848,7 +2982,7 @@ export class FocusView {
         this.engine?.pause();
         this.musicPlaying = false;
       }
-      document.title = '⏸ PAUSED — Focus';
+      document.title = '⏸ PAUSED · Focus';
     }
     // Keep the bottom-right music button's icon in step with the session (only when
     // a track is actually loaded — otherwise it stays the 🎵 "no music" glyph).

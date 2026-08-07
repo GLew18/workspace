@@ -109,6 +109,27 @@
   color: var(--text-dim);
 }
 
+/* "Already have an account? Log in" — deliberately a quiet line under the CTA,
+   not a second button: new users shouldn't have to choose a door, while a
+   returning student still gets a one-tap way past the pitch. */
+.lp-login-line {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.lp-login-link {
+  background: none;
+  border: none;
+  padding: 2px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--gold);
+  cursor: pointer;
+}
+.lp-login-link:hover {
+  text-decoration: underline;
+}
+
 .lp-scroll-hint {
   position: absolute;
   bottom: 22px;

@@ -57,6 +57,9 @@ export interface Task {
   translationChecked?: boolean;
   /** User hid the translation line via the 🌐 toggle (default shown). */
   translationHidden?: boolean;
+  /** User dismissed the QUIZ/TEST pill via its hover ✕ — "test" was just a word
+   *  in the title, not an actual assessment. Render-time only; never re-badges. */
+  assessmentDismissed?: boolean;
 }
 
 /** A Tasks-tab folder: a named, colored group of tasks (membership lives on each

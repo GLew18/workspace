@@ -19,6 +19,7 @@ import type { Data } from '../db';
 import type { Task, ScheduleItem, SchoologySettings } from '../types';
 import { parseIcal, taskEvents, scheduleEvents, type IcalEvent } from './ical';
 import { classifyBatch } from './classify';
+import { loadLabels, labelFor } from './extension';
 import { todayStr, addDays } from '../util/dates';
 import { getPrefs } from '../prefs';
 
@@ -130,13 +131,25 @@ export async function runSync(data: Data): Promise<SyncResult> {
     if (!seen.has(key)) fresh.push({ key, e });
   }
 
-  // classify only the new ones
+  // --- GROUND TRUTH BEATS GUESSING -----------------------------------------
+  // The companion extension reads each assignment's REAL course off the student's
+  // own Schoology pages and stores it in the cloud (profile/courseLabels), keyed by
+  // the same /assignment/<id> this feed carries. So the label map is consulted
+  // FIRST, and the heuristic engine only handles what has no true label yet.
+  // Because the labels live in the cloud rather than in the extension, a phone —
+  // where extensions cannot run — gets the exact same course names.
+  const labels = await loadLabels(data);
+  const trueCourse = (e: IcalEvent): string => (e.assignmentId ? labelFor(labels, e.assignmentId) : '');
+
+  // Classify (incl. the AI call) only the items with no ground-truth label — this
+  // also shrinks the batch the classifier ever sees.
+  const needGuess = fresh.filter(({ e }) => !trueCourse(e));
   const guesses = await classifyBatch(
-    fresh.map(({ key, e }) => ({ id: key, title: e.summary, description: e.description }))
+    needGuess.map(({ key, e }) => ({ id: key, title: e.summary, description: e.description }))
   );
 
   const toWrite: Task[] = fresh.map(({ key, e }) =>
-    newTask(key, e, guesses[key]?.course ?? '')
+    newTask(key, e, trueCourse(e) || guesses[key]?.course || '')
   );
   await data.putTasksBulk(toWrite);
 

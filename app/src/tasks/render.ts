@@ -2,7 +2,7 @@
 
 import type { Task, TaskMap, Priority, ParsedTask, TaskFolder } from '../types';
 import type { Data, TasksUpdate } from '../db';
-import { el, textInput, copyTextMetrics, autoWidthToText } from '../util/dom';
+import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms } from '../util/dom';
 import { formatMetaDate, formatShortDate, formatTimeOfDay, formatDate, todayStr } from '../util/dates';
 import { getPrefs, PREFS_EVENT, type AppPrefs } from '../prefs';
 import { makeWidthGrip } from '../util/resize';
@@ -12,7 +12,8 @@ import { makeTask, duplicateTask, groupTasks, dueBadge, type TaskGroup } from '.
 import { PRIORITIES, priorityDef } from './priorities';
 import { getCourseColor, onRegistryChange, matchCourseStrict } from '../courses/registry';
 import { classifyByRules, learnCorrection } from '../schoology/classify';
-import { ASSESSMENT_RE } from '../schoology/ical';
+import { recordManualLabelForTask } from '../schoology/extension';
+import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
 import { parseDateTime } from './parser';
 import { detectAttachmentType, normalizeUrl, openAttachment, openAll } from './attachments';
 import { playCompleteChime, showUndoToast } from './complete';
@@ -22,6 +23,7 @@ import {
   makeFolder,
   folderMembers,
   mutateTaskFolders,
+  normFolder,
   FOLDERS_EVENT,
 } from './folders';
 import { runSync } from '../schoology/sync';
@@ -52,6 +54,10 @@ const DOWS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 /** THE folder-dissolve animation — every dissolution (completed, emptied by
  *  remove/migrate/delete, in any tab) folds shut the same way: fade, then the
  *  height eases closed. ~0.8s total; callers that re-render must wait it out. */
+/** How long the exit animations run: the row's glide (0.5s) plus the delayed
+ *  height collapse behind it (0.34s at +0.46s). Renders are held this long. */
+const EXIT_ANIM_MS = 820;
+
 export function collapseFolderBlock(block: HTMLElement): void {
   const h = block.offsetHeight;
   block.style.height = `${h}px`;
@@ -83,6 +89,11 @@ export class TasksView {
   // the moment between its creation and its first member's save.
   private recentlyDissolved = new Map<string, { folder: TaskFolder; at: number }>();
   private folderBornAt = new Map<string, number>();
+  /** When the exit animation currently playing (a row gliding out, a folder block
+   *  folding shut) is due to finish. A re-render before then would swap the moving
+   *  DOM for a finished list — the animation would simply not be seen. External
+   *  redraw triggers wait for this instead of firing straight through. */
+  private animatingUntil = 0;
   // Tasks whose completion is VISUALLY done but whose write is still pending
   // (the 820ms glide + the undo window). Hidden from renders, and ignored by the
   // folder-resurrection check so an instant dissolve isn't immediately undone.
@@ -159,9 +170,27 @@ export class TasksView {
     window.addEventListener(FOLDERS_EVENT, () => {
       void getTaskFolders(this.data).then((f) => {
         this.folders = f;
-        this.render();
+        // THIS re-render used to kill both dissolve animations. Completing the last
+        // task in a folder writes the folder list (the dissolve) — which fires this
+        // very event, milliseconds later, and rebuilding the list mid-flight
+        // replaced the gliding row and the folding block with a finished list. So
+        // the fold-shut is allowed to play out first; the fresh folders are already
+        // in hand, they just get drawn at the end of the animation.
+        this.renderAfterAnimation();
       });
     });
+  }
+
+  /** Mark an exit animation as running, so renders hold off until it's done. */
+  private beginExitAnimation(): void {
+    this.animatingUntil = Date.now() + EXIT_ANIM_MS;
+  }
+
+  /** Render now, or — if a row/folder is mid-flight — the moment it lands. */
+  private renderAfterAnimation(): void {
+    const wait = this.animatingUntil - Date.now();
+    if (wait > 0) window.setTimeout(() => this.render(), wait);
+    else this.render();
   }
 
   private onUpdate(u: TasksUpdate): void {
@@ -173,7 +202,9 @@ export class TasksView {
     }
     this.bannerHost.replaceChildren();
     if (u.suspectedWipe) this.showWipeBanner();
-    this.render();
+    // Same hold as the folder listener: a task write landing mid-glide (our own
+    // delayed commit, or one from Focus) must not repaint over the animation.
+    this.renderAfterAnimation();
     void this.folderMaintenance();
     // Read any not-yet-checked titles in the background and translate the foreign ones.
     void this.autoTranslatePass();
@@ -183,7 +214,7 @@ export class TasksView {
     const banner = el('div', { class: 'wipe-banner' });
     banner.append(
       el('div', {
-        text: '⚠️ Your data looked suddenly empty — WorkSpace blocked it to protect you. Restore everything from your most recent backup?',
+        text: '⚠️ Your data looked suddenly empty. WorkSpace blocked it to protect you. Restore everything from your most recent backup?',
       })
     );
     const btn = el('button', { text: 'Restore from backup' });
@@ -208,8 +239,10 @@ export class TasksView {
     // "f:NAME": join the folder with that name, or create it — color = the
     // task's course color, gray when there's no course (per Gabe's spec).
     if (parsed.folderName) {
-      const want = parsed.folderName.toLowerCase();
-      let folder = this.folders.find((f) => f.name.trim().toLowerCase() === want);
+      // Hyphen-insensitive: the quick-add token is one word, so "f:AP-Bio" must
+      // find an existing "AP Bio" rather than spawn a near-duplicate folder.
+      const want = normFolder(parsed.folderName);
+      let folder = this.folders.find((f) => normFolder(f.name) === want);
       if (!folder) {
         folder = makeFolder(parsed.folderName, parsed.course ? getCourseColor(parsed.course) : '#8b97a8');
         this.folderBornAt.set(folder.id, Date.now()); // shield from the empty sweep while the task saves
@@ -416,7 +449,7 @@ export class TasksView {
         : priorityDef(t.priority).color;
     const chip = el('button', {
       class: `cal-chip${t.completed ? ' done' : ''}`,
-      title: t.course ? `${t.title} — ${t.course}` : t.title,
+      title: t.course ? `${t.title} · ${t.course}` : t.title,
     });
     chip.style.setProperty('--chip', color);
     const txt = el('span', { class: 'cal-chip-txt' });
@@ -778,7 +811,6 @@ export class TasksView {
       this.folderBornAt.delete(f.id);
       return members.every((t) => t.completed);
     });
-    let animating = false;
     if (gone.length) {
       this.folders = this.folders.filter((f) => !gone.includes(f));
       for (const f of gone) {
@@ -789,7 +821,7 @@ export class TasksView {
         const block = this.listEl.querySelector<HTMLElement>(`.task-folder[data-folder-id="${f.id}"]`);
         if (block) {
           collapseFolderBlock(block);
-          animating = true;
+          this.beginExitAnimation(); // the deadline IS the "are we animating?" flag now
         }
       }
       // Only the EMPTIED case gets its own notice. All-members-done dissolves
@@ -798,7 +830,7 @@ export class TasksView {
       // a second toast on top was redundant (per Gabe).
       const last = gone[gone.length - 1];
       if (folderMembers(last, this.map).length === 0) {
-        this.notice(`📁 “${last.name}” empty — folder dissolved`);
+        this.notice(`📁 “${last.name}” empty, folder dissolved`);
       }
       changed = true;
     }
@@ -812,8 +844,8 @@ export class TasksView {
         gone.map((f) => f.id),
         this.folders
       );
-      if (animating) window.setTimeout(() => this.render(), 820); // let the fold-shut play out first
-      else this.render();
+      // Let the fold-shut play out first (beginExitAnimation set the deadline).
+      this.renderAfterAnimation();
     }
   }
 
@@ -898,7 +930,7 @@ export class TasksView {
       const upd = el('span', {
         class: 'task-altered-badge',
         text: '✱',
-        title: `Changed on Schoology since import: ${what} — click to dismiss`,
+        title: `Changed on Schoology since import: ${what}. Click to dismiss`,
       });
       upd.addEventListener('click', (ev) => {
         ev.stopPropagation(); // the row itself has click/dblclick behaviors
@@ -963,18 +995,26 @@ export class TasksView {
 
     const badge = dueBadge(task);
     if (badge) metaWrap.append(el('span', { class: `task-due-badge ${badge.state}`, text: badge.label }));
-    // Assessment badge — anything that looks like a graded assessment (same
-    // word-boundary regex the importer uses) gets flagged beside the days badge,
-    // labeled with its actual type: QUIZ / TEST / EXAM / MIDTERM / FINAL.
+    // Assessment badge — QUIZ / TEST only (BADGE_ASSESSMENT_RE; the importer's
+    // wider matcher still imports exams/finals, they just don't wear a pill).
     // Checked at render time so it covers manual tasks, old imports & translations.
+    // The hover ✕ dismisses it for good: "test" might just be a word in the title
+    // ("test your hypothesis"), and the teacher won't fix it — so the student can.
     const assess =
-      ASSESSMENT_RE.exec(task.title) ||
-      (task.translatedTitle ? ASSESSMENT_RE.exec(task.translatedTitle) : null);
-    if (assess) {
+      BADGE_ASSESSMENT_RE.exec(task.title) ||
+      (task.translatedTitle ? BADGE_ASSESSMENT_RE.exec(task.translatedTitle) : null);
+    if (assess && !task.assessmentDismissed) {
       const word = assess[1].toLowerCase();
-      // Singularize the plural forms: quizzes → quiz, exams → exam, finals → final.
+      // Singularize the plural forms: quizzes → quiz, tests → test.
       const label = (word === 'quizzes' ? 'quiz' : word.replace(/s$/, '')).toUpperCase();
-      metaWrap.append(el('span', { class: 'task-test-badge', text: label }));
+      const pill = el('span', { class: 'task-test-badge', text: label });
+      const x = el('button', { class: 'task-test-badge-x', text: '✕', title: 'Not actually a ' + label.toLowerCase() + '? Remove this badge' });
+      x.addEventListener('click', (ev) => {
+        ev.stopPropagation(); // the row itself has click/dblclick behaviors
+        this.save({ ...task, assessmentDismissed: true });
+      });
+      pill.append(x);
+      metaWrap.append(pill);
     }
     bottom.append(metaWrap);
 
@@ -1147,6 +1187,7 @@ export class TasksView {
     animEl.style.height = `${h}px`;
     void animEl.offsetHeight; // force reflow so the collapse animates from full height
     animEl.classList.add('completing');
+    this.beginExitAnimation(); // hold every render until the glide + collapse lands
     requestAnimationFrame(() => {
       animEl.style.height = '0px';
       animEl.style.marginTop = '0px';
@@ -1203,6 +1244,7 @@ export class TasksView {
       () => {
         clearTimeout(completeTimer);
         this.completingIds.delete(task.id);
+        this.animatingUntil = 0; // Undo cancels the exit — repaint at once, don't wait it out
         this.save({ ...task, completed: false, completedAt: null });
         // The un-complete write triggers folderMaintenance, whose resurrection
         // path restores a just-dissolved folder along with this task.
@@ -1264,7 +1306,21 @@ export class TasksView {
     input.addEventListener('blur', () => finish(true));
   }
 
+  /** ONE gate for every intrinsic-field editor (title / course / due date).
+   *  Editing is UNLOCKED by default (Gabe, 8/6/26 — reversed from the original
+   *  locked default); the Settings ▸ Tasks "Edit task details" switch can still
+   *  freeze imports for anyone who wants what the teacher posted left alone. A
+   *  locked click explains itself instead of dying silently. Subjective fields —
+   *  priority, folders, attachments, done — are deliberately NOT behind this. */
+  private editingUnlocked(): boolean {
+    if (this.sample) return true; // the landing demo advertises editing — never lock it there
+    if (getPrefs().tasks.allowEdit) return true;
+    this.notice('✏️ Editing is off. Turn it on with “Edit task details” in Settings ▸ Tasks.');
+    return false;
+  }
+
   private editTitle(task: Task, host: HTMLElement): void {
+    if (!this.editingUnlocked()) return;
     this.inlineEdit(host, task.title, (v) => {
       if (!v) return;
       // New title → drop the old translation and re-check it on the next pass.
@@ -1280,6 +1336,7 @@ export class TasksView {
   }
 
   private editDateTime(task: Task, host: HTMLElement): void {
+    if (!this.editingUnlocked()) return;
     // One editor for both: shows "M/D h:mma" (or just "M/D" when there's no time).
     // Blur preserves; clearing the box deletes the date. A time is written only
     // when one is typed — iCal tasks keep their time, timeless ones stay timeless.
@@ -1295,9 +1352,14 @@ export class TasksView {
   }
 
   private editCourse(task: Task, host: HTMLElement): void {
+    if (!this.editingUnlocked()) return;
     this.inlineEdit(host, task.course, (v) => {
       const course = v ? matchCourseStrict(v) : ''; // '' → renders "+ course"
       this.save({ ...task, course, _manualCourse: true });
+      // Remember the correction as GROUND TRUTH in the cloud label store, not just
+      // on this task: it outranks anything the extension later scrapes, and it
+      // reaches this student's other devices (a phone can fix a label too).
+      void recordManualLabelForTask(this.data, task, course);
       // Layer 3 "Help our AI": reinforce the learned model with the words/phrases
       // of this assignment so the same kind auto-tags (confidently) next time.
       if (course) void learnCorrection(task.title, task.details || '', course);
@@ -1366,6 +1428,10 @@ export class TasksView {
     // width — drag the right edge once and they all remember it. Width is the
     // pinch here, not height: long folder names and URLs are what get squeezed.
     box.append(makeWidthGrip({ box, storageKey: 'ws:popupWidth' }));
+    // Enter = the popup's primary action, IF the builder marked one with
+    // [data-enter-primary] (attachments' Save). Pickers mark nothing: clicking a
+    // row IS the save there, so Enter has nothing meaningful to press.
+    enterConfirms(backdrop, () => box.querySelector<HTMLElement>('[data-enter-primary]'));
     backdrop.append(box);
     (this.sample?.host ?? document.body).append(backdrop);
     const close = () => backdrop.remove();
@@ -1459,6 +1525,16 @@ export class TasksView {
         const urlI = textInput({ class: 'attach-input', placeholder: 'URL', value: n.url });
         titleI.addEventListener('input', () => (notes[idx].title = titleI.value));
         urlI.addEventListener('input', () => (notes[idx].url = urlI.value));
+        // Enter in either field = Done for THIS card (data-enter-own keeps the
+        // popup-level Enter-to-Save out of it); a second Enter then saves.
+        for (const inp of [titleI, urlI]) {
+          inp.setAttribute('data-enter-own', '1');
+          inp.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' || e.shiftKey) return;
+            e.preventDefault();
+            done.click();
+          });
+        }
         fields.append(
           el('div', { class: 'attach-field-label', text: 'Name' }),
           titleI,
@@ -1505,7 +1581,7 @@ export class TasksView {
       openAllBtn.addEventListener('click', () => {
         if (!this.sample) openAll(notes);
       });
-      const saveBtn = el('button', { class: 'btn-primary', text: 'Save' });
+      const saveBtn = el('button', { class: 'btn-primary', text: 'Save', 'data-enter-primary': '1' });
       saveBtn.addEventListener('click', () => {
         const cleaned = notes
           .filter((n) => n.url.trim())

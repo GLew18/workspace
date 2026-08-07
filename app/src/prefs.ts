@@ -38,6 +38,15 @@ export interface AppPrefs {
     /** How far ahead to pull, in days. */
     windowDays: 14 | 30 | 60;
   };
+  tasks: {
+    /** Allow editing a task's INTRINSIC fields — title, course, due date/time —
+     *  from the Tasks tab and Focus. ON by default (Gabe, 8/6/26, reversing the
+     *  earlier locked-by-default call: "editing tasks is really important").
+     *  The switch stays, so anyone who wants imports frozen can still lock them.
+     *  Subjective fields (priority, folders, attachments, done) ignore this and
+     *  are always editable. */
+    allowEdit: boolean;
+  };
   focus: {
     /** Persisted; the M:SS vs minutes-only display option is phased. */
     showSeconds: boolean;
@@ -68,6 +77,7 @@ export const DEFAULT_PREFS: AppPrefs = {
   dash: { greetName: true, quote: true, quoteStyle: 'modern', tasksCard: true, scheduleCard: true },
   sync: { auto: true, intervalMins: 30, onOpen: true },
   importPrefs: { assignments: true, assessments: true, quizzes: true, windowDays: 30 },
+  tasks: { allowEdit: true },
   focus: { showSeconds: true, keepAwake: true, autoStartMusic: true },
   calendar: {
     defaultScreen: 'list',
@@ -107,6 +117,9 @@ export function normalizePrefs(raw: unknown): AppPrefs {
       assessments: bool(r.importPrefs?.assessments, d.importPrefs.assessments),
       quizzes: bool(r.importPrefs?.quizzes, d.importPrefs.quizzes),
       windowDays: pick(r.importPrefs?.windowDays, [14, 30, 60] as const, d.importPrefs.windowDays),
+    },
+    tasks: {
+      allowEdit: bool(r.tasks?.allowEdit, d.tasks.allowEdit),
     },
     focus: {
       showSeconds: bool(r.focus?.showSeconds, d.focus.showSeconds),

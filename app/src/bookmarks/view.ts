@@ -14,7 +14,7 @@
 // for shortcuts that fire even when WorkSpace isn't focused.
 
 import type { Data } from '../db';
-import { el, textInput } from '../util/dom';
+import { el, textInput, enterConfirms } from '../util/dom';
 import { genId } from '../util/ids';
 import { normalizeUrl } from './url';
 import {
@@ -264,7 +264,7 @@ export class BookmarksView {
       this.grid.append(
         el('div', {
           class: 'bm-empty',
-          text: this.state.list.length === 0 ? 'No links yet — add your first one below.' : 'No links match your search.',
+          text: this.state.list.length === 0 ? 'No links yet. Add your first one below.' : 'No links match your search.',
         })
       );
       return;
@@ -614,6 +614,7 @@ export class BookmarksView {
     back.addEventListener('click', (e) => {
       if (e.target === back) close();
     });
+    enterConfirms(back, () => saveBtn); // Enter anywhere in the modal = Save
     (this.sample?.host ?? document.body).append(back);
     nameInp.focus();
   }
@@ -640,6 +641,7 @@ export class BookmarksView {
     back.addEventListener('click', (e) => {
       if (e.target === back) back.remove();
     });
+    enterConfirms(back, () => yes); // Enter = confirm the delete
     (this.sample?.host ?? document.body).append(back);
   }
   // #endregion

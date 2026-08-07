@@ -144,3 +144,35 @@ export const escapeHtml = (s: string): string =>
 /** querySelector shorthand. */
 export const $ = <T extends Element = HTMLElement>(sel: string, root: ParentNode = document): T | null =>
   root.querySelector<T>(sel);
+
+/**
+ * Enter = the popup's primary action (per Gabe: every popup with a Save/Confirm
+ * should accept Enter as that button).
+ *
+ * One document-level listener per popup, alive while `back` (the backdrop) is in
+ * the DOM; it removes itself on the first keydown after the popup closes. Skips:
+ * modified/repeated Enter; presses while a BUTTON/link is focused, where Enter
+ * must keep activating THAT control (a focused Cancel must never trigger Save);
+ * and presses inside an element marked `data-enter-own` (a field whose own
+ * keydown handler already gives Enter a meaning — defaultPrevented can't signal
+ * that, because textInput() preventDefaults EVERY Enter to stay single-line).
+ * `primary` resolves at press time so a button that only becomes valid later (a
+ * staged shortcut) works naturally; return null to swallow nothing.
+ */
+export function enterConfirms(back: HTMLElement, primary: () => HTMLElement | null): void {
+  const onKey = (e: KeyboardEvent) => {
+    if (!back.isConnected) {
+      document.removeEventListener('keydown', onKey);
+      return;
+    }
+    if (e.key !== 'Enter' || e.repeat || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === 'BUTTON' || t.tagName === 'A' || t.tagName === 'SELECT')) return;
+    if (t?.closest?.('[data-enter-own]')) return;
+    const btn = primary();
+    if (!btn) return;
+    e.preventDefault();
+    btn.click();
+  };
+  document.addEventListener('keydown', onKey);
+}

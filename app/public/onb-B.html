@@ -1,0 +1,994 @@
+<title>WorkSpace — Onboarding B (Schoology integration)</title>
+<!-- Without this a phone lays the page out at ~980px and zooms out, so the
+     max-width breakpoints below never fire. The real app already has it. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+  /* ============ WorkSpace tokens (ported from app/src/ui/theme.css) ============ */
+  :root{
+    --bg0:#0f1c40; --bg1:#0a1430; --bg2:#070d20;
+    --surface:#1a1a1a; --surface2:#141414;
+    --text:rgba(255,255,255,.92); --dim:rgba(255,255,255,.52);
+    --gold:#e6a817; --gold-glow:rgba(230,168,23,.3); --on-gold:#1a1206;
+    --green:#27ae60; --red:#ef4444;
+    --border:rgba(255,255,255,.08); --border-strong:rgba(255,255,255,.16);
+    --radius:14px;
+    --sBG:#0d1526; --sP:#182338; --sP2:#22304f; /* scene palette (notifyGuides) */
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;min-height:720px}
+  /* The field the whole deck sits on. Three layers, painted back to front: a navy
+     ramp that starts at real COLOR rather than near-black, a warm gold bloom off
+     the top-right, and a cool blue bloom off the bottom-left. The drifting .orb
+     elements ride on top of this and supply the motion. */
+  body{
+    margin:0; overflow:hidden;
+    background:
+      radial-gradient(1150px 720px at 82% -12%, rgba(230,168,23,.17), transparent 62%) fixed,
+      radial-gradient(900px 720px at -6% 108%, rgba(64,152,215,.18), transparent 62%) fixed,
+      linear-gradient(165deg,#16295c 0%,#0d1a3d 46%,var(--bg2) 100%) fixed;
+    color:var(--text);
+    font-family:'Inter',system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased; line-height:1.45;
+  }
+  /* A fine dot grid over the field. This is the detail that reads as "designed"
+     instead of "a gradient" — it is barely visible on its own, and it is what the
+     eye registers as texture. Masked so it fades out down the page, keeping the
+     lower ramp clean. Behind .deck (z-index 1), alongside the orbs. */
+  body::before{
+    content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+    background-image:radial-gradient(rgba(255,255,255,.055) 1px,transparent 1px);
+    background-size:22px 22px;
+    -webkit-mask-image:radial-gradient(130% 95% at 50% 0%,#000 38%,transparent 100%);
+    mask-image:radial-gradient(130% 95% at 50% 0%,#000 38%,transparent 100%);
+  }
+  ::selection{background:var(--gold-glow)}
+  button{font-family:inherit;cursor:pointer}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+
+  /* ambient depth — two slow-drifting glow orbs behind everything. Dimmer than
+     they were, because the baked blooms above now carry most of the color; at the
+     old .10 the two sets stacked into mud. */
+  .orb{position:fixed;border-radius:50%;filter:blur(90px);pointer-events:none;z-index:0}
+  .orb.a{width:420px;height:420px;background:rgba(230,168,23,.07);top:-120px;right:-100px;animation:orbA 22s ease-in-out infinite alternate}
+  .orb.b{width:520px;height:520px;background:rgba(64,152,215,.07);bottom:-180px;left:-140px;animation:orbB 26s ease-in-out infinite alternate}
+  @keyframes orbA{to{transform:translate(-70px,90px) scale(1.15)}}
+  @keyframes orbB{to{transform:translate(90px,-70px) scale(.9)}}
+
+  /* ============ chrome: progress + corner controls ============ */
+  .prog-rail{position:fixed;top:0;left:0;right:0;height:4px;background:rgba(255,255,255,.07);z-index:40}
+  .prog-fill{height:100%;width:15%;background:linear-gradient(90deg,var(--gold),#f2bb33);
+    box-shadow:0 0 12px var(--gold-glow);transition:width .8s cubic-bezier(.4,0,.2,1);
+    position:relative;overflow:hidden}
+  /* a soft light sweep riding the fill — the bar reads alive, not static */
+  .prog-fill::after{content:'';position:absolute;inset:0;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.4),transparent);
+    transform:translateX(-100%);animation:shimmer 3s ease-in-out infinite}
+  @keyframes shimmer{55%,100%{transform:translateX(100%)}}
+  .corner{position:fixed;z-index:40;display:flex;gap:8px;align-items:center}
+  .corner.tl{top:14px;left:16px}
+  .corner.tr{top:14px;right:16px}
+  .cbtn{
+    background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--dim);
+    border-radius:10px;padding:7px 11px;font-size:12px;font-weight:600;backdrop-filter:blur(6px);
+    transition:color .2s ease,border-color .2s ease;
+  }
+  .cbtn:hover{color:var(--text);border-color:var(--border-strong)}
+  .cbtn.on{color:var(--gold);border-color:var(--gold)}
+  .cbtn.hide{visibility:hidden}
+
+  /* ============ full-screen slide deck ============ */
+  .deck{position:fixed;inset:0;z-index:1}
+  .screen{
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+    /* EQUAL top/bottom padding, on purpose: .sc below centers itself with
+       margin:auto, which centers within whatever space this padding leaves.
+       Unequal padding (it used to be 56/30) biases that center — the pane
+       visibly sat lower than true screen-middle. Same value both sides =
+       true center, whatever the value; 56px was already proven clear of the
+       corner buttons (they end around y44), so it's what got matched. */
+    padding:56px 22px;overflow-y:auto;
+    opacity:0;transform:translateX(48px);pointer-events:none;
+    transition:opacity .45s ease,transform .45s cubic-bezier(.4,0,.2,1);
+  }
+  .screen.on{opacity:1;transform:none;pointer-events:auto}
+  .screen.off-l{transform:translateX(-48px)}
+  /* ============ the content pane ============
+     Every screen's column IS .sc, so framing this one selector mats all of them
+     at once — welcome, connect, courses, payoff.
+
+     Three parts, outermost first:
+       1. the MAT — a spread-only shadow (no blur, no offset) that paints a
+          translucent ring OUTSIDE the border, like the white matting around a
+          framed print. This is the single detail that makes the pane look placed
+          rather than dropped onto the background.
+       2. the HAIRLINE — a real gold-to-blue gradient border, drawn with the
+          two-layer background-clip trick: the fill layer is clipped to
+          padding-box, the gradient layer to border-box, and the border itself is
+          transparent so the gradient shows through it. No pseudo-element needed.
+       3. the FILL — translucent navy over a backdrop blur, so the field's blooms
+          and dot grid stay faintly visible through the pane.
+
+     NEVER add overflow:hidden here. The design-note .pin badges are positioned
+     with negative offsets and hang outside the pane on purpose. */
+  .sc{
+    width:100%;max-width:500px;margin:auto;position:relative;
+    display:flex;flex-direction:column;align-items:center;text-align:center;
+    padding:38px 34px 34px;border-radius:26px;
+    border:1px solid transparent; /* painted by the border-box layer below */
+    background:
+      linear-gradient(180deg,rgba(23,35,68,.72),rgba(12,19,42,.66)) padding-box,
+      linear-gradient(135deg,rgba(230,168,23,.55),rgba(255,255,255,.10) 42%,rgba(64,152,215,.42)) border-box;
+    backdrop-filter:blur(18px) saturate(120%);
+    -webkit-backdrop-filter:blur(18px) saturate(120%);
+    box-shadow:
+      0 0 0 9px rgba(255,255,255,.035),    /* the mat */
+      0 34px 90px rgba(0,0,0,.55),         /* lift off the field */
+      inset 0 1px 0 rgba(255,255,255,.08); /* top edge catches the light */
+  }
+  .sc.wide{max-width:560px}
+  .visual{width:100%;display:flex;justify-content:center;margin-bottom:34px}
+  h1{
+    margin:0 0 12px;font-size:clamp(26px,4.5vw,36px);font-weight:800;letter-spacing:-.02em;
+    text-wrap:balance;line-height:1.15;
+  }
+  h1 .g{color:var(--gold)}
+  .sub{margin:0;font-size:15px;color:var(--dim);max-width:40ch;text-wrap:balance}
+  .cta{
+    margin-top:36px;width:100%;max-width:340px;
+    background:linear-gradient(180deg,#f0b428,var(--gold));color:var(--on-gold);
+    border:none;border-radius:14px;font-weight:750;font-size:15.5px;padding:15px 24px;
+    box-shadow:0 10px 30px rgba(230,168,23,.25);
+    transition:filter .2s ease,transform .15s ease,box-shadow .2s ease;
+    position:relative;overflow:hidden;
+  }
+  /* periodic shine sweep across the primary button */
+  .cta::after{content:'';position:absolute;top:0;bottom:0;left:-60%;width:38%;
+    background:linear-gradient(105deg,transparent,rgba(255,255,255,.5),transparent);
+    transform:skewX(-20deg);animation:sheen 4.2s 1.2s ease-in-out infinite}
+  @keyframes sheen{0%,55%{left:-60%}80%,100%{left:130%}}
+  .cta:hover{filter:brightness(1.06);box-shadow:0 12px 36px rgba(230,168,23,.35)}
+  .cta:active{transform:scale(.98)}
+  .under{margin-top:14px;min-height:18px}
+  .linkish{background:none;border:none;color:var(--dim);font-size:13px;text-decoration:underline;text-underline-offset:3px;padding:4px}
+  .linkish:hover{color:var(--text)}
+
+  /* staggered entrance for a screen's children */
+  .screen.on .rise{opacity:0;transform:translateY(14px);animation:rise .6s cubic-bezier(.2,.7,.3,1) forwards}
+  .screen.on .rise.d1{animation-delay:.08s}.screen.on .rise.d2{animation-delay:.18s}
+  .screen.on .rise.d3{animation-delay:.28s}.screen.on .rise.d4{animation-delay:.4s}
+  @keyframes rise{to{opacity:1;transform:none}}
+
+  /* ---------- screen 1 · welcome — the REAL icon artwork (public/icons/icon.svg,
+     its monitor group verbatim) WITHOUT the navy tile, so the computer sits
+     directly on the page gradient — no discernible box behind it. ---------- */
+  .hero-wrap{position:relative;display:flex;align-items:center;justify-content:center}
+  .hero-glow{position:absolute;width:280px;height:280px;border-radius:50%;
+    background:radial-gradient(circle,rgba(230,168,23,.16),transparent 65%);
+    animation:glowPulse 3.4s 1s ease-in-out infinite}
+  @keyframes glowPulse{0%,100%{opacity:.6;transform:scale(1)}50%{opacity:1;transform:scale(1.12)}}
+  .app-mark{
+    width:168px;height:168px;position:relative;
+    filter:drop-shadow(0 14px 34px rgba(0,0,0,.45));
+    animation:iconPop .8s cubic-bezier(.3,1.4,.4,1) both, floaty 4.6s 1.2s ease-in-out infinite alternate;
+  }
+  @keyframes iconPop{from{transform:scale(.6);opacity:0}}
+  @keyframes floaty{to{transform:translateY(-9px)}}
+  .wordmark{font-size:clamp(34px,6vw,46px);font-weight:800;letter-spacing:-.02em;margin:6px 0 0;color:#fff}
+  .wordmark .o{color:var(--gold)}
+  .welcome-eyebrow{font-size:12px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:var(--dim);margin-bottom:10px}
+
+  /* ---------- screens 2–3 · explainer visuals ---------- */
+  .vcard{
+    position:relative;width:min(430px,100%);border-radius:20px;padding:26px 24px;
+    background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02));
+    border:1px solid var(--border-strong);
+    box-shadow:0 24px 70px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  /* import animation: pills fly from the S tile into the task stack, looping */
+  .imp-visual{display:flex;align-items:center;gap:18px;justify-content:center}
+  /* The real Schoology mark (see SGY_LOGO). The tile is now just a sized,
+     shadowed circle holding the artwork — no blue square, no letter of our own. */
+  .sgy-tile{
+    width:58px;height:58px;border-radius:50%;flex:none;
+    box-shadow:0 8px 24px rgba(75,175,232,.35);
+    animation:tileBeat 3s ease-in-out infinite; /* breathes in step with the departing pills */
+  }
+  .sgy-mark{width:100%;height:100%;display:block}
+  @keyframes tileBeat{0%,100%{transform:scale(1)}12%{transform:scale(1.07)}30%{transform:scale(1)}}
+  .fly-lane{position:relative;flex:none;width:64px;height:60px}
+  .fly{position:absolute;left:0;width:34px;height:8px;border-radius:99px;background:var(--gold);opacity:0}
+  .fly.f1{top:8px;animation:fly 3s .0s ease-in-out infinite}
+  .fly.f2{top:26px;animation:fly 3s .9s ease-in-out infinite}
+  .fly.f3{top:44px;animation:fly 3s 1.8s ease-in-out infinite}
+  @keyframes fly{0%{opacity:0;transform:translateX(0) scale(.7)}18%{opacity:1}55%{opacity:1;transform:translateX(30px) scale(1)}80%,100%{opacity:0;transform:translateX(58px) scale(.8)}}
+  .mini-list{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+  .mini-task{
+    display:flex;align-items:center;gap:9px;background:var(--sP);border:1px solid var(--border);
+    border-radius:10px;padding:9px 11px;font-size:12px;text-align:left;
+  }
+  .mini-task .cb{width:14px;height:14px;border-radius:5px;border:2px solid var(--border-strong);flex:none}
+  .mini-task .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mini-task .crs{font-size:10px;font-weight:700;flex:none}
+  .screen.on .mini-task{opacity:0;animation:rise .5s forwards}
+  .screen.on .mini-task:nth-child(1){animation-delay:.5s}
+  .screen.on .mini-task:nth-child(2){animation-delay:.75s}
+  .screen.on .mini-task:nth-child(3){animation-delay:1s}
+
+  /* focus ring — the REAL ring (focus/view.ts buildRing + focus.css, verbatim):
+     280 viewBox, r=130, stroke 10, gold arc with round caps + drop-shadow, the
+     gold start-dot at 12 o'clock, and the big weight-700 timer. Only the display
+     size is scaled down; every proportion and color is the app's. */
+  .ring-wrap{position:relative;width:200px;height:200px;margin:0 auto}
+  .ring-wrap svg{width:100%;height:100%}
+  .ring-bg{fill:none;stroke:rgba(255,255,255,.08);stroke-width:10}
+  .ring-fg{fill:none;stroke:var(--gold);stroke-width:10;stroke-linecap:round;
+    stroke-dasharray:816.8;stroke-dashoffset:816.8; /* 2π·130 */
+    filter:drop-shadow(0 0 8px var(--gold-glow))}
+  .screen.on .ring-fg{animation:ringGo 2.4s .3s cubic-bezier(.3,.6,.3,1) forwards}
+  @keyframes ringGo{to{stroke-dashoffset:204}} /* → 75% remaining, like a session underway */
+  .ring-dot{fill:var(--gold);filter:drop-shadow(0 0 6px var(--gold-glow))}
+  .ring-time{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:43px; /* 60px at the real 280 ring, scaled to 200 */
+    font-weight:700;letter-spacing:-.02em;color:#fff;font-variant-numeric:tabular-nums;
+  }
+  .note-float{position:absolute;font-size:15px;opacity:0;animation:noteUp 3.4s 1.2s ease-in infinite}
+  .note-float.n2{animation-delay:2.4s;font-size:12px}
+  @keyframes noteUp{0%{opacity:0;transform:translateY(6px)}20%{opacity:.9}70%{opacity:0;transform:translateY(-30px)}100%{opacity:0}}
+
+  /* ---------- screen 4 · courses — Settings ▸ Courses, VERBATIM ----------
+     Every class below is copied from ui/settings.css (.settings-courses,
+     .course-row, .course-color, .course-name, .parse-chip[-x], .parse-rec[-plus],
+     .parse-add, .parse-error, .settings-add). This screen IS that editor —
+     onboarding is where courses are born; Settings is where they're edited.
+     ONE deviation, on purpose: paddings/gaps run a notch tighter than Settings
+     so the whole editor fits a laptop viewport with NO scrolling (per Gabe). */
+  /* The course list scrolls INSIDE itself so the slide never grows tall enough to
+     scroll the whole page — same trick as the imported-assignment list on the
+     payoff, with one deliberate difference: rows here keep their NATURAL height
+     instead of a rigid grid track, because a row's height depends on how many
+     parse-word chips wrap onto a second line. Pinning them would clip chips.
+     The cap is viewport-relative so short laptops give up less to the list than
+     tall screens do. */
+  .courses-wrap{position:relative;width:100%;margin-top:16px}
+  .settings-courses{
+    width:100%;display:flex;flex-direction:column;gap:8px;text-align:left;
+    max-height:min(285px, 40vh);
+    overflow-y:auto;overscroll-behavior:contain;
+    scrollbar-width:none;    /* Firefox */
+    -ms-overflow-style:none; /* legacy Edge */
+    /* Fades only the last ~24px, so a partly-visible row still reads as "more
+       below" without dimming any row you're actually editing. */
+    -webkit-mask-image:linear-gradient(180deg,#000 calc(100% - 24px),transparent 100%);
+    mask-image:linear-gradient(180deg,#000 calc(100% - 24px),transparent 100%);
+  }
+  .settings-courses::-webkit-scrollbar{width:0;height:0;display:none} /* Chrome, Safari */
+  .course-row{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:9px 12px}
+  .screen.on .course-row{opacity:0;animation:rise .45s forwards}
+  .screen.on .course-row:nth-child(1){animation-delay:.15s}
+  .screen.on .course-row:nth-child(2){animation-delay:.23s}
+  .screen.on .course-row:nth-child(3){animation-delay:.31s}
+  .screen.on .course-row:nth-child(4){animation-delay:.39s}
+  .course-row-top{display:flex;align-items:center;gap:10px}
+  .course-color{
+    flex:none;appearance:none;-webkit-appearance:none;width:18px;height:18px;padding:0;border:none;
+    border-radius:6px;background:none;overflow:hidden;cursor:pointer;
+  }
+  .course-color::-webkit-color-swatch-wrapper{padding:0}
+  .course-color::-webkit-color-swatch{border:none;border-radius:6px}
+  .course-name{
+    flex:1;min-width:0;background:transparent;border:1px solid transparent;border-radius:6px;
+    color:var(--text);padding:5px 8px;margin-left:-8px;font-size:14px;font-weight:700;font-family:inherit;
+  }
+  .course-name:hover{border-color:var(--border)}
+  .course-name:focus{outline:none;background:var(--surface);border-color:var(--border-strong)}
+  .course-del{flex:none;background:none;border:none;color:var(--dim);font-size:14px}
+  .course-del:hover{color:var(--red)}
+  .parse-chips{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin:7px 0 0}
+  .parse-chip{
+    display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.06);
+    border:1px solid var(--border-strong);border-radius:999px;padding:3px 6px 3px 10px;
+    font-size:12px;font-weight:600;color:var(--text);
+  }
+  .parse-chip-x{background:none;border:none;color:var(--dim);font-size:13px;line-height:1;padding:0 2px}
+  .parse-chip-x:hover{color:var(--red)}
+  .parse-recs{display:contents}
+  .parse-rec{
+    display:inline-flex;align-items:center;gap:4px;background:rgba(230,168,23,.08);
+    border:1px dashed var(--gold);border-radius:999px;padding:3px 10px 3px 8px;
+    font-size:12px;font-weight:600;color:var(--gold);
+  }
+  .parse-rec:hover{background:rgba(230,168,23,.18)}
+  .parse-rec-plus{font-weight:700;line-height:1}
+  .parse-add{
+    width:108px;background:none;border:1px dashed var(--border-strong);border-radius:999px;
+    color:var(--text);padding:3px 10px;font-size:12px;font-weight:600;font-family:inherit;
+  }
+  .parse-add::placeholder{color:var(--dim);font-weight:600}
+  .parse-add:focus{outline:none;border-color:var(--border-strong);border-style:solid;background:var(--surface)}
+  .parse-error{color:var(--red);font-size:11.5px;margin-top:6px;min-height:0}
+  .parse-error:empty{display:none}
+  .settings-add{
+    margin-top:8px;background:var(--surface2);border:1px dashed var(--border-strong);border-radius:8px;
+    color:var(--text);padding:7px;width:100%;cursor:pointer;font-size:12.5px;
+  }
+  .settings-add:hover{background:var(--surface)}
+  /* No .sugg-row here: the integration's courses come FROM Schoology, so
+     one-tap "add a course you don't have" suggestions don't apply. Variant A
+     keeps them — see its own stylesheet. */
+  /* the whole editor must fit a laptop screen with NO scrolling → tighter head + CTA */
+  .sc.tight h1{font-size:clamp(21px,3.4vw,27px);margin-bottom:6px}
+  .sc.tight .sub{font-size:13px}
+  .sc.tight .cta{margin-top:18px;padding:12px 22px}
+
+  /* payoff confetti — a one-shot gold/blue burst behind the ✓ */
+  .confetti{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+  .confetti i{
+    position:absolute;top:-12px;left:var(--x);width:7px;height:11px;border-radius:2px;
+    background:var(--c);opacity:0;transform:rotate(var(--r));
+    animation:conf 2.7s var(--d) cubic-bezier(.25,.6,.4,1) forwards;
+  }
+  @keyframes conf{
+    0%{opacity:1;transform:translateY(0) rotate(var(--r))}
+    100%{opacity:0;transform:translateY(80vh) rotate(calc(var(--r) + 300deg))}
+  }
+
+  /* ---------- screen 4 · connect — the integration doing its work ----------
+     There is no link to paste any more, so the visual carries the story: the
+     Schoology tile, a scan sweeping it, and the real course names surfacing one
+     by one. The student watches the app FIND their courses. */
+  .scan-stage{
+    position:relative;width:min(430px,100%);min-height:172px;border-radius:20px;padding:22px;
+    display:flex;flex-direction:column;align-items:center;gap:16px;overflow:hidden;
+    background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02));
+    border:1px solid var(--border-strong);
+    box-shadow:0 24px 70px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06);
+    transition:border-color .4s ease;
+  }
+  .scan-stage.done{border-color:rgba(39,174,96,.5)}
+  .sgy-tile.lg{width:70px;height:70px;border-radius:50%;animation:none}
+  .scan-stage.scanning .sgy-tile.lg{animation:tileBeat 1.4s ease-in-out infinite}
+  .scan-beam{
+    position:absolute;left:0;right:0;height:80px;top:-90px;pointer-events:none;opacity:0;
+    background:linear-gradient(180deg,transparent,rgba(230,168,23,.22),transparent);
+  }
+  .scan-stage.scanning .scan-beam{opacity:1;animation:beam 1.5s linear infinite}
+  @keyframes beam{to{transform:translateY(300px)}}
+  .found-chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;min-height:26px}
+  .found-chip{
+    display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);
+    border:1px solid var(--border-strong);border-radius:999px;padding:4px 11px;
+    font-size:12px;font-weight:650;color:var(--text);
+    animation:chipIn .45s cubic-bezier(.2,1.3,.4,1) both;
+  }
+  .found-chip::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--c);flex:none}
+  @keyframes chipIn{from{opacity:0;transform:translateY(8px) scale(.9)}}
+
+  /* ---------- screen 4b · name — one field, nothing competing for attention ----------
+     This screen holds exactly one input, so it gets to be a HERO field rather than
+     a form row: big type, generous padding, centered text. (Was silently using an
+     undefined .field class carried over from variant A's iCal input — B never
+     defined that class, so it rendered as a bare unstyled native input. This is
+     that class's dedicated replacement, sized for its own screen.) */
+  .name-input{
+    width:100%;background:var(--surface2);border:1.5px solid var(--border);border-radius:18px;
+    color:var(--text);font-family:inherit;font-size:30px;font-weight:750;letter-spacing:-.01em;
+    text-align:center;padding:22px 20px;
+    transition:border-color .2s ease,box-shadow .2s ease;
+  }
+  .name-input::placeholder{color:rgba(255,255,255,.28);font-weight:650}
+  .name-input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 4px var(--gold-glow)}
+
+  /* ---------- screen 7 · setting up / payoff ---------- */
+  .spin{
+    width:44px;height:44px;border-radius:50%;border:4px solid rgba(255,255,255,.1);
+    border-top-color:var(--gold);animation:spin .8s linear infinite;margin:0 auto 22px;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .payoff-check{
+    width:64px;height:64px;border-radius:50%;background:rgba(39,174,96,.12);border:2px solid var(--green);
+    display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--green);
+    margin:0 auto 20px;animation:pop .5s cubic-bezier(.3,1.6,.5,1)}
+  @keyframes pop{from{transform:scale(.4);opacity:0}}
+  /* The import list. GRID, not flex, on purpose: grid-auto-rows pins every row to
+     the same height whatever it holds, so the box is a predetermined shape instead
+     of one that grows with its longest title. Exactly three rows show; the rest
+     scroll. The scrollbar is hidden by decision (cleanest look), so a bottom fade
+     does the job the bar would have done and says "there is more below". */
+  .imp-wrap{width:100%;position:relative}
+  .imp-rows{
+    --row:44px; --gap:8px; --peek:14px;
+    width:100%;margin-top:22px;text-align:left;
+    display:grid;grid-auto-rows:var(--row);row-gap:var(--gap);
+    /* Three rows fully readable, then a 14px sliver of the fourth. The sliver is
+       the ONLY affordance that this list scrolls, now that the bar is gone, so it
+       is load-bearing rather than decorative. */
+    max-height:calc(var(--row) * 3 + var(--gap) * 3 + var(--peek));
+    overflow-y:auto;overscroll-behavior:contain;
+    scrollbar-width:none;    /* Firefox */
+    -ms-overflow-style:none; /* legacy Edge */
+    /* Fade starts exactly where row three ends, so the three real rows stay crisp
+       and only the sliver dissolves. */
+    -webkit-mask-image:linear-gradient(180deg,#000 calc(100% - 22px),transparent 100%);
+    mask-image:linear-gradient(180deg,#000 calc(100% - 22px),transparent 100%);
+  }
+  .imp-rows::-webkit-scrollbar{width:0;height:0;display:none} /* Chrome, Safari */
+  /* Row grid: title takes the slack and truncates, badge and course hug the right.
+     minmax(0,1fr) is what lets the title actually ellipsis instead of overflowing. */
+  .imp-row{
+    display:grid;grid-template-columns:minmax(0,1fr) auto auto;
+    align-items:center;column-gap:10px;
+    background:var(--surface2);border:1px solid var(--border);
+    border-radius:12px;padding:0 13px;font-size:13.5px;
+    opacity:0;transform:translateY(8px);animation:rise .45s ease forwards;
+  }
+  /* Only the visible rows cascade in; everything past three is below the fold. */
+  .imp-row:nth-child(2){animation-delay:.14s}
+  .imp-row:nth-child(n+3){animation-delay:.28s}
+  .imp-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .imp-row .course{font-size:11.5px;font-weight:700}
+  /* Matches the real app's .task-test-badge (components.css) exactly: translucent
+     red, always — the app has no separate quiz color, so this prototype shouldn't
+     invent one. Every assessment word (test, quiz, exam…) gets the same pill. */
+  .imp-row .badge{
+    font-size:10.5px;font-weight:700;letter-spacing:.03em;border-radius:6px;padding:2px 6px;
+    background:rgba(239,68,68,.1);color:var(--red);border:1px solid rgba(239,68,68,.4);
+  }
+
+  /* ============ design-notes drawer + pins ============ */
+  .pin{
+    position:absolute;z-index:5;display:none;width:22px;height:22px;border-radius:50%;
+    background:var(--gold);color:var(--on-gold);font-size:11.5px;font-weight:800;line-height:22px;text-align:center;
+    box-shadow:0 0 0 3px rgba(230,168,23,.25);cursor:default;
+  }
+  body.notes .pin{display:block}
+  body.notes [data-note]{outline:1.5px dashed var(--gold-glow);outline-offset:5px;border-radius:8px}
+  .drawer{
+    position:fixed;left:0;right:0;bottom:0;z-index:50;max-height:52vh;overflow-y:auto;
+    background:rgba(13,18,32,.97);border-top:1px solid var(--border-strong);
+    padding:18px 20px 24px;transform:translateY(102%);transition:transform .4s cubic-bezier(.4,0,.2,1);
+    backdrop-filter:blur(10px);
+  }
+  body.notes .drawer{transform:none}
+  .drawer-inner{max-width:860px;margin:0 auto}
+  .drawer h3{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.11em;color:var(--gold);margin:0 0 12px}
+  .note-cards{display:grid;grid-template-columns:1fr;gap:10px}
+  @media(min-width:700px){.note-cards{grid-template-columns:1fr 1fr 1fr}}
+  .note-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px}
+  .note-card .n{display:inline-block;width:19px;height:19px;border-radius:50%;background:var(--gold);color:var(--on-gold);
+    font-size:10.5px;font-weight:800;line-height:19px;text-align:center;margin-right:7px}
+  .note-card h4{display:inline;font-size:13px;font-weight:750;margin:0}
+  .note-card p{margin:7px 0 0;font-size:12px;color:var(--dim);line-height:1.5}
+  .note-card p b{color:var(--text);font-weight:650}
+  .note-card.void{border-style:dashed;opacity:.85}
+  .note-card.void .n{background:var(--surface2);color:var(--dim);border:1px solid var(--border-strong)}
+
+  /* Short viewports (a 1280x800 laptop is the common case): the pane's 72px of
+     vertical padding is enough to push the tallest screen — courses — into a
+     scroll it did not need before. Claw it back here. */
+  @media (max-height:900px){
+    .sc{padding:24px 30px 22px}
+  }
+
+  /* Phones: the pane keeps its identity but stops eating the width. Tighter
+     padding, a smaller radius, and a thinner mat, since 9px of ring on a 375px
+     screen is most of the margin. */
+  @media (max-width:620px){
+    .sc{
+      padding:26px 18px 24px;border-radius:20px;
+      box-shadow:
+        0 0 0 6px rgba(255,255,255,.03),
+        0 22px 60px rgba(0,0,0,.5),
+        inset 0 1px 0 rgba(255,255,255,.07);
+    }
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .orb,.fly,.note-float{animation:none !important}
+    .screen{transition:none}
+    .screen.on .rise,.screen.on .course-row,.screen.on .mini-task{animation-duration:.01s !important;animation-delay:0s !important}
+    .prog-fill{transition:none}
+    .app-mark,.hero-glow,.cta::after,.prog-fill::after,.confetti i,.sgy-tile{animation:none !important}
+    .app-mark{opacity:1;transform:none}
+    .screen.on .ring-fg{animation-duration:.01s}
+  }
+</style>
+
+<div class="orb a"></div><div class="orb b"></div>
+<div class="prog-rail"><div class="prog-fill" id="fill"></div></div>
+<div class="corner tl"><button class="cbtn" id="backBtn" aria-label="Back">‹ Back</button></div>
+<div class="corner tr">
+  <button class="cbtn" id="notesBtn">🧠</button>
+  <button class="cbtn" id="restartBtn">↺</button>
+</div>
+
+<div class="deck" id="deck"></div>
+
+<!-- design-notes drawer -->
+<div class="drawer" id="drawer">
+  <div class="drawer-inner">
+    <h3>The psychology, pinned to the pixel</h3>
+    <div class="note-cards">
+      <div class="note-card"><span class="n">1</span><h4>Goal-Gradient</h4>
+        <p>The bar is <b>born at 15%</b> and only ever climbs — Back never drains it. The final stretch lands <b>together with the import payoff</b>, so completion and reward arrive as one moment.</p></div>
+      <div class="note-card"><span class="n">2</span><h4>Smart Defaults → real data</h4>
+        <p>v1 guessed four common courses. Now the connection <b>returns the student's actual roster</b>, so the screen opens already correct — the strongest default is the true one. Editing stays one tap away.</p></div>
+      <div class="note-card"><span class="n">3</span><h4>IKEA / Endowment</h4>
+        <p>You build first, commit last, and in this version the commitment <b>is the connection</b>. Schoology already knows who the student is, so there is no account to invent and no form at the end. The flow ends on the payoff, not on a wall.</p></div>
+      <div class="note-card"><span class="n">4</span><h4>Friction killer — deleted, not decorated</h4>
+        <p>v1 spent five animated slides teaching students to hunt down a calendar link. The <b>integration removes the step instead of explaining it</b>: one tap, no URL, nothing to copy. The best fix for a hard step is not a better tutorial.</p></div>
+      <div class="note-card"><span class="n">5</span><h4>No side door</h4>
+        <p>Skip is <b>gone</b>. A student who skips forgets, opens an empty app, and concludes the product is bad — the connection <b>is</b> the product, so the flow offers no way past it.</p></div>
+      <div class="note-card"><span class="n">6</span><h4>Reciprocity — the payoff</h4>
+        <p>The flow ends by <b>giving</b>: every imported assignment, not a teaser. The count in the headline and the rows below it are <b>the same data</b>, so the number is never a claim the list contradicts.</p></div>
+      <div class="note-card"><span class="n">7</span><h4>Ask once you have earned it</h4>
+        <p>The name is requested <b>after</b> the connection pays off, not before. Schoology already supplied one, so the field arrives pre-filled and the ask is a <b>confirmation</b> rather than a form.</p></div>
+      <div class="note-card"><span class="n">S</span><h4>Settings mirror</h4>
+        <p>The Courses screen is the <b>Settings ▸ Courses UI, verbatim</b> — color dot, editable bold name, ✕. What you set up here is exactly what you’ll edit there later.</p></div>
+      <div class="note-card void"><span class="n">–</span><h4>Anchoring — absent</h4>
+        <p>No price exists in onboarding, so nothing to anchor. <b>Reserved for the premium screen.</b></p></div>
+      <div class="note-card void"><span class="n">–</span><h4>Sample — on the landing page</h4>
+        <p>Give-before-ask already happened: the landing page’s <b>playable demo</b> is the free taste. Onboarding starts after reciprocity has done its job once.</p></div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* public/icons/icon.svg artwork, verbatim (tile removed) — the hero AND the
+   auth card's wordmark-o both render THIS, so the brand is one drawing. */
+const ICON_ART = `<svg class="app-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="WorkSpace"><g transform="translate(60 60) scale(1.02) translate(-50 -49.75)" fill="#e6a817"><rect x="16" y="10" width="68" height="54" rx="12" fill="none" stroke="#e6a817" stroke-width="9"/><path d="M44 64 L56 64 L60 75 L40 75 Z"/><path fill-rule="evenodd" d="M23 75 L77 75 L87 94 L13 94 Z M23.99 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M32.2 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M40.4 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M48.6 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M56.8 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M65 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M73.21 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M21.89 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M29.52 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M37.15 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M44.78 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M52.42 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M60.05 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M67.68 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M75.31 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M19.78 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M26.99 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M34.19 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M41.4 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M48.6 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M55.8 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M63.01 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M70.21 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M77.42 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M17.68 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M24.55 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M31.42 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M38.29 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M45.16 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M52.04 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M58.91 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M65.78 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M72.65 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M79.52 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z"/></g></svg>`;
+/* Schoology's real mark, inline so it needs no network. White disc included so
+   it never shows a transparent halo on the navy background. */
+const SGY_LOGO = `<svg class="sgy-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Schoology"><circle cx="50" cy="50" r="47" fill="#fff"/><circle cx="50" cy="50" r="42.5" fill="none" stroke="#4BAFE8" stroke-width="9"/><text x="50" y="51" text-anchor="middle" dominant-baseline="central" font-family="Inter, Helvetica, Arial, sans-serif" font-size="56" font-weight="700" fill="#38383B">S</text></svg>`;
+
+/* ================================================================== state */
+/* Course names, colors, and parse words are the REAL ones — courses/maps.ts
+   COURSE_COLORS + COURSE_ABBR, and the landing sandbox's demo set. */
+const DEFAULTS = [
+  {name:'English',        color:'#e091a8', parseWords:['ela','english','eng']},
+  {name:'Math',           color:'#f0c040', parseWords:['math','geometry','geo']},
+  {name:'Science',        color:'#9b7ec8', parseWords:['sci','science','bio']},
+  {name:'Social Studies', color:'#e05050', parseWords:['ss','social','history']},
+];
+const NEW_COURSE_COLOR = '#e6a817';
+
+/* Everything the import found. The payoff lists ALL of it rather than a sample
+   plus a "…and 20 more", so the headline count and the rows below it are the same
+   data and the number can never contradict the list. `c` is an INDEX into
+   state.courses (it wraps), so every row wears the color the student picked two
+   screens ago. `b` is an optional badge. */
+const IMPORTED = [
+  {t:'Read Ch. 7 & annotate',                 c:0},
+  {t:'Unit 5 Test',                           c:1, b:'TEST'},
+  {t:'השלם את עמוד 16 · 🌐 Complete page 16',  c:4},
+  {t:'Lab write-up: titration',               c:2},
+  {t:'Chapter 12 reading questions',          c:3},
+  {t:'Mishna 3:4 chavruta prep',              c:5},
+  {t:'Essay draft: The Crucible',             c:0},
+  {t:'Problem set 5.3, odds only',            c:1},
+  {t:'Quiz: polyatomic ions',                 c:2, b:'QUIZ'},
+  {t:'Primary source analysis',               c:3},
+  {t:'אוצר מילים · Vocabulary quiz',           c:4, b:'QUIZ'},
+  {t:'Gemara shiur notes',                    c:5},
+  {t:'Peer review workshop',                  c:0},
+  {t:'Midterm review packet',                 c:1},
+  {t:'Lab safety module',                     c:2},
+  {t:'DBQ outline',                           c:3},
+  {t:'Present your dialogue in pairs',        c:4},
+  {t:'Sugya summary, one page',               c:5},
+  {t:'Annotated bibliography',                c:0},
+  {t:'Unit 6: similar triangles',             c:1},
+  {t:'Stoichiometry practice',                c:2},
+  {t:'Midterm',                               c:3, b:'TEST'},
+  {t:'Read pp. 44-51',                        c:5},
+];
+
+/* What the Schoology connection RETURNS. In the real app these are the section
+   titles read from the account, so they carry the school's own wording (a real
+   roster is longer and messier than the four tidy defaults a student would have
+   typed) — that difference is the whole point of the integration. */
+/* The account Schoology hands back when the student authorizes. In production
+   this comes from the API's profile payload; here it is the stand-in that makes
+   the name derivation real rather than hardcoded. */
+const SGY_ACCOUNT_EMAIL = 'gabe.lewinsohn@heschel.org';
+/* Same helper variant A uses on its sign-in screen: take the local part, cut at
+   the first separator, capitalize. zaki.cohen@heschel.org → "Zaki". */
+const nameFromEmail = (m)=>{
+  const raw = String(m).split('@')[0].split(/[._-]/)[0];
+  return raw ? raw[0].toUpperCase()+raw.slice(1) : 'Student';
+};
+
+const DISCOVERED = [
+  {name:'English 10',            color:'#e091a8', parseWords:['ela','english','eng']},
+  {name:'Enriched Geometry',     color:'#f0c040', parseWords:['geometry','geo','math']},
+  {name:'Chemistry Honors',      color:'#9b7ec8', parseWords:['chem','chemistry','lab']},
+  {name:'US History',            color:'#e05050', parseWords:['history','ush','apush']},
+  {name:'Ivrit',                 color:'#70c0e0', parseWords:['ivrit','hebrew','heb']},
+  {name:"Torah She'b'al Peh",    color:'#6abf69', parseWords:['toshba','tsbp','mishna']},
+];
+const clone = c => ({name:c.name, color:c.color, parseWords:[...c.parseWords]});
+const state = {
+  i: 0,
+  name: 'Gabe',
+  courses: DEFAULTS.map(clone),
+  connected: false,
+};
+
+/* The REAL app icon — public/icons/icon-512.png embedded verbatim (injected as a
+   data URI at build time; see APP_ICON below). No hand-redrawing. */
+// Per-screen bar targets. The LAST entry is 92, not 100, ON PURPOSE: arriving at
+// the setup screen must not complete the bar — done() pushes it to 100 together
+// with the payoff, so finishing and the reward land as one moment. (100 here was
+// the bug: go()'s own tick raced ahead and filled the bar early.)
+const PCT = [15, 32, 50, 66, 82, 92]; // welcome, explainer, connect, courses, name, payoff
+let lastPct = 15;
+let screenTimer = null; // any per-screen interval (the focus countdown) — cleared on nav
+const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const deck = document.getElementById('deck');
+
+/* ============================================================== deck engine */
+const SCREENS = []; // {build(el), enter?()}
+function go(i){
+  if (i<0 || i>=SCREENS.length) return;
+  clearInterval(screenTimer); screenTimer = null;
+  const dir = i >= state.i ? 1 : -1;
+  state.i = i;
+  [...deck.children].forEach(n=>n.remove());
+  const div = document.createElement('div');
+  div.className = 'screen' + (dir<0 ? ' off-l' : '');
+  SCREENS[i].build(div);
+  deck.append(div);
+  // setTimeout, not rAF: rAF never fires in a hidden/uncomposited tab, which
+  // would freeze the entrance + bar. One tick is enough for the transition to
+  // see the initial state first.
+  setTimeout(()=>{
+    div.classList.add('on');
+    lastPct = Math.max(lastPct, PCT[i]);
+    document.getElementById('fill').style.width = lastPct + '%';
+  }, 30);
+  document.getElementById('backBtn').classList.toggle('hide', i===0 || i===SCREENS.length-1);
+  SCREENS[i].enter?.(div);
+}
+document.getElementById('backBtn').addEventListener('click',()=>go(state.i-1));
+
+/* ============================================================ 1 · welcome */
+SCREENS.push({ build(el){ el.innerHTML = `
+  <div class="sc">
+    <div class="visual hero-wrap" style="margin-bottom:26px">
+      <div class="hero-glow"></div>
+      ${ICON_ART}
+    </div>
+    <div class="welcome-eyebrow rise d1">welcome to</div>
+    <div class="wordmark rise d1">W<span class="o">o</span>rkSpace</div>
+    <p class="sub rise d2" style="margin-top:16px">Your Schoology, organized — every assignment in one calm place.</p>
+    <button class="cta rise d3" id="n">Let’s go</button>
+  </div>`;
+  el.querySelector('#n').addEventListener('click',()=>go(state.i+1));
+}});
+
+/* ========================================================== 2 · auto-import */
+SCREENS.push({ build(el){ el.innerHTML = `
+  <div class="sc">
+    <div class="visual rise">
+      <div class="vcard">
+        <div class="imp-visual">
+          <div class="sgy-tile">${SGY_LOGO}</div>
+          <div class="fly-lane"><div class="fly f1"></div><div class="fly f2"></div><div class="fly f3"></div></div>
+          <div class="mini-list">
+            <div class="mini-task"><span class="cb"></span><span class="nm">Read Ch. 7 &amp; annotate</span><span class="crs" style="color:#e091a8">English</span></div>
+            <div class="mini-task"><span class="cb"></span><span class="nm">Unit 5 Test</span><span class="crs" style="color:#f0c040">Math</span></div>
+            <div class="mini-task"><span class="cb"></span><span class="nm">Finish lab write-up</span><span class="crs" style="color:#9b7ec8">Science</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <h1 class="rise d1">Every assignment <span class="g">imports itself</span></h1>
+    <p class="sub rise d2">WorkSpace connects to Schoology and turns your coursework into a clean task list — sorted by class, automatically, forever.</p>
+    <button class="cta rise d3" id="n">Continue</button>
+  </div>`;
+  el.querySelector('#n').addEventListener('click',()=>go(state.i+1));
+}});
+
+/* ============================================================ 4 · connect */
+/* Schoology is an INTEGRATION, not a link the student has to go find: one tap
+   authorizes, WorkSpace reads the account, and the courses it discovers become
+   the next screen. No iCal URL is ever shown — that plumbing is invisible now. */
+SCREENS.push({ build(el){
+  el.innerHTML = `
+  <div class="sc">
+    <div class="visual rise" style="margin-bottom:26px">
+      <div class="scan-stage" id="stage" data-note="4">
+        <span class="pin" style="top:-10px;right:-10px">4</span>
+        <div class="sgy-tile lg">${SGY_LOGO}</div>
+        <div class="scan-beam" id="beam"></div>
+        <div class="found-chips" id="chips"></div>
+      </div>
+    </div>
+    <h1 class="rise d1">Connect <span class="g">Schoology</span></h1>
+    <p class="sub rise d2" id="csub">One tap signs you in with Schoology and pulls in your courses and assignments. No second account, nothing to copy, nothing to paste.</p>
+    <span class="rise d3" style="position:relative;display:inline-block" data-note="5">
+      <button class="cta" id="n">Connect Schoology</button>
+      <span class="pin" style="top:-4px;right:-14px">5</span>
+    </span>
+  </div>`;
+  const btn = el.querySelector('#n'), sub = el.querySelector('#csub');
+  const stage = el.querySelector('#stage'), chips = el.querySelector('#chips');
+  btn.addEventListener('click',()=>{
+    if (state.connected) { go(state.i+1); return; }
+    btn.disabled = true;
+    btn.textContent = 'Connecting…';
+    sub.textContent = 'Signing in to Schoology and reading your courses…';
+    stage.classList.add('scanning');
+    // Reveal the discovered courses one at a time — the student SEES the app find
+    // them, which is what makes the next screen feel earned rather than assumed.
+    DISCOVERED.forEach((c,i)=>setTimeout(()=>{
+      const s=document.createElement('span');
+      s.className='found-chip'; s.style.setProperty('--c', c.color);
+      s.textContent = c.name;
+      chips.append(s);
+    }, 500 + i*260));
+    setTimeout(()=>{
+      stage.classList.remove('scanning'); stage.classList.add('done');
+      state.connected = true;
+      // Schoology's profile carries the account email, so the first name is
+      // DERIVED from it exactly the way variant A derives one from the sign-in
+      // email. Same mechanism, different source — which is why the name screen
+      // downstream arrives pre-filled in both flows.
+      state.name = nameFromEmail(SGY_ACCOUNT_EMAIL);
+      state.courses = DISCOVERED.map(clone);
+      sub.innerHTML = `Connected. Found <b style="color:var(--gold)">${DISCOVERED.length} courses</b> and your upcoming assignments.`;
+      btn.disabled = false; btn.textContent = 'Continue';
+    }, 500 + DISCOVERED.length*260 + 500);
+  });
+}});
+
+/* ============================================================ 4 · courses */
+/* The Settings ▸ Courses editor, whole: color dot + bold name + ✕ on top, then
+   the parse-word chip row (saved chips ×, gold "+ word" recommendations for new
+   courses, and the "+ parse word" input). Courses arrive PRE-FILLED from the
+   Schoology connection — this screen is confirmation, not data entry — and it is
+   the same editor students meet later in Settings, on purpose. */
+SCREENS.push({ build(el){
+  el.innerHTML = `
+  <div class="sc wide tight">
+    <h1 class="rise">We found your <span class="g">courses</span></h1>
+    <p class="sub rise d1">Straight from Schoology. Rename, recolor, or remove any course below.</p>
+    <div class="courses-wrap rise d2" data-note="S">
+      <span class="pin" style="top:12px;right:-10px">2</span>
+      <div class="settings-courses" id="rows"></div>
+    </div>
+    <div style="width:100%" class="rise d2">
+      <button class="settings-add" id="addCourse">+ Add course</button>
+    </div>
+    <button class="cta rise d3" id="n">Continue</button>
+  </div>`;
+  const rows = el.querySelector('#rows');
+  const newIds = new Set(); // courses added HERE show gold parse-word recommendations
+  let refocusIdx = -1;      // after Enter-adding a word, put the cursor back (type, Enter, type…)
+  let firstDraw = true;     // the fade-in stagger below is an ENTRANCE, not a refresh cue —
+                             // it should play once when the screen appears, never on every edit
+
+  /* recommendParseWords — ported from the REAL app (settings/view.ts) so this
+     screen recommends exactly what Settings ▸ Courses would:
+       "English Language Arts" → ela, english, language
+       "Computer Science"      → cs, computer, science
+       "Mathematics"           → math, mat
+     The old lite version here also suggested the course's own NAME, which is
+     noise: the parser matches an exact course name outright, so adding it as a
+     parse word does nothing. The real app excludes it, and now so does this. */
+  const STOP_WORDS = new Set(['of','the','and','a','an','for','to','in','on','&']);
+  const recommend = (c)=>{
+    const name = (c.name || '').trim();
+    if (!name || name.toLowerCase()==='new course') return [];
+    const exclude = new Set(state.courses.flatMap(x=>x.parseWords));
+    const words = name.toLowerCase().split(/\s+/)
+      .map(w=>w.replace(/[^a-z0-9]/g,''))
+      .filter(w=>w && !STOP_WORDS.has(w));
+    if (!words.length) return [];
+    const candidates = [];
+    if (words.length >= 2){
+      candidates.push(words.map(w=>w[0]).join(''));      // acronym, e.g. "ela"
+      for (const w of words) if (w.length >= 3) candidates.push(w); // each significant word
+    } else {
+      const w = words[0];
+      candidates.push(w);                                // the word itself
+      if (w.length > 4) candidates.push(w.slice(0,4));   // 4-letter abbreviation
+      if (w.length > 3) candidates.push(w.slice(0,3));   // 3-letter abbreviation
+    }
+    const nameKey = name.toLowerCase().replace(/[^a-z0-9]/g,'');
+    const seen = new Set(), out = [];
+    for (const w of candidates){
+      if (w.length < 2 || w === nameKey || seen.has(w) || exclude.has(w)) continue;
+      seen.add(w); out.push(w);
+      if (out.length === 3) break;
+    }
+    return out;
+  };
+
+  const draw = ()=>{
+    // Every add/delete/rename rebuilds ALL rows (simplest correct approach for a
+    // list this size) — but rebuilding means fresh DOM nodes, and fresh nodes
+    // match .screen.on .course-row and REPLAY its opacity-0 fade-in-and-rise.
+    // That's the flicker: editing ONE course visibly refreshed the whole list.
+    // The entrance is worth keeping on first paint, so it isn't a CSS rule to
+    // delete — it's just skipped, inline, on every redraw after the first.
+    [...rows.querySelectorAll('.course-row')].forEach(r=>r.remove());
+    state.courses.forEach((c,idx)=>{
+      const row = document.createElement('div');
+      row.className='course-row';
+      if (!firstDraw) { row.style.opacity='1'; row.style.transform='none'; row.style.animation='none'; }
+      const chipHtml = c.parseWords.map(w=>
+        `<span class="parse-chip">${esc(w)}<button class="parse-chip-x" data-w="${esc(w)}">×</button></span>`).join('');
+      const recHtml = newIds.has(c) ? recommend(c).map(w=>
+        `<button class="parse-rec" data-w="${esc(w)}" title="Add “${esc(w)}”"><span class="parse-rec-plus">+</span><span>${esc(w)}</span></button>`).join('') : '';
+      row.innerHTML = `
+        <div class="course-row-top">
+          <input type="color" class="course-color" value="${c.color}" title="Course color">
+          <input class="course-name" value="${esc(c.name)}" aria-label="Course name">
+          <button class="course-del" title="Remove">✕</button>
+        </div>
+        <div class="parse-chips">${chipHtml}<span class="parse-recs">${recHtml}</span>
+          <input class="parse-add" placeholder="+ parse word"></div>
+        <div class="parse-error"></div>`;
+      row.querySelector('.course-color').addEventListener('input',e=>{ c.color=e.target.value; });
+      row.querySelector('.course-name').addEventListener('input',e=>{ c.name=e.target.value; });
+      row.querySelector('.course-name').addEventListener('change',()=>{ if(newIds.has(c)) draw(); }); // recs follow the name
+      row.querySelector('.course-del').addEventListener('click',()=>{ state.courses.splice(idx,1); newIds.delete(c); draw(); });
+      row.querySelectorAll('.parse-chip-x').forEach(x=>x.addEventListener('click',()=>{
+        c.parseWords = c.parseWords.filter(w=>w!==x.dataset.w); draw();
+      }));
+      row.querySelectorAll('.parse-rec').forEach(r=>r.addEventListener('click',()=>{
+        if(!c.parseWords.includes(r.dataset.w)) c.parseWords.push(r.dataset.w);
+        refocusIdx = idx; draw();
+      }));
+      const wordIn = row.querySelector('.parse-add');
+      const err = row.querySelector('.parse-error');
+      wordIn.addEventListener('keydown',e=>{
+        if(e.key!=='Enter') return;
+        const w = wordIn.value.trim().toLowerCase();
+        if(!w) return;
+        const conflict = state.courses.find(x=>x!==c && x.parseWords.includes(w));
+        if(conflict){ err.textContent = `Already used in "${conflict.name}".`; return; }
+        if(!c.parseWords.includes(w)) c.parseWords.push(w);
+        refocusIdx = idx; draw();
+      });
+      rows.append(row);
+      if (refocusIdx === idx){ refocusIdx = -1; setTimeout(()=>wordIn.focus(),0); }
+    });
+    // No suggestion pills here, on purpose: this list came FROM Schoology, so
+    // there is no such thing as a course the student doesn't already have. "+ Add
+    // course" alone covers the rare case of something the sync missed. (Variant A
+    // keeps suggestions — its iCal feed carries no course names at all, so the
+    // student is building the list from scratch and genuinely benefits from them.)
+    firstDraw = false;
+  };
+  draw();
+  el.querySelector('#addCourse').addEventListener('click',()=>{
+    const c = {name:'New course', color:NEW_COURSE_COLOR, parseWords:[]};
+    state.courses.push(c); newIds.add(c); draw();
+    // The list scrolls internally now, so a new row can land below the fold.
+    // Bring it into view BEFORE focusing, so the caret never appears off-screen.
+    const lastRow = rows.querySelector('.course-row:last-child');
+    lastRow?.scrollIntoView({ block: 'nearest' });
+    const last = lastRow?.querySelector('.course-name');
+    last?.focus(); last?.select();
+  });
+  el.querySelector('#n').addEventListener('click',()=>go(state.i+1));
+}});
+
+/* =============================================================== 4b · name */
+/* Asked AFTER the import and the courses have already paid off, never before.
+   By this point the student has watched their real courses get discovered and
+   confirmed them, so the ask lands as investing in something that already works
+   rather than as a form standing between them and the product. Identical to
+   variant A's screen — the only difference is where the starting value comes
+   from: here Schoology's profile supplies it, so the field arrives pre-filled
+   and the student is confirming rather than typing. */
+SCREENS.push({ build(el){
+  el.innerHTML = `
+  <div class="sc">
+    <h1 class="rise">What should we <span class="g">call you</span>?</h1>
+    <p class="sub rise d1">This is the name WorkSpace greets you with.</p>
+    <div style="width:100%;max-width:420px;margin-top:30px" class="rise d2">
+      <input class="name-input" id="nameIn" value="${esc(state.name)}" placeholder="Your first name"
+             autocomplete="given-name" spellcheck="false">
+      <div class="err" id="err"></div>
+    </div>
+    <span class="rise d3" style="position:relative;display:inline-block" data-note="7">
+      <button class="cta" id="n">Continue</button>
+      <span class="pin" style="top:-4px;right:-14px">7</span>
+    </span>
+  </div>`;
+  const inp = el.querySelector('#nameIn'), err = el.querySelector('#err');
+  // Same shape as the real app's capitalizeName: first letter up, rest untouched,
+  // so "gabe" reads back as "Gabe" without mangling "deVries" or "Ben-Zvi".
+  const tidy = s => s.trim().replace(/^\p{L}/u, ch => ch.toUpperCase());
+  const submit = ()=>{
+    const v = tidy(inp.value);
+    if(!v){ err.textContent='Enter a name so WorkSpace knows what to call you.'; inp.focus(); return; }
+    state.name = v; go(state.i+1);
+  };
+  el.querySelector('#n').addEventListener('click',submit);
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter') submit(); });
+  inp.addEventListener('input',()=>err.textContent='');
+  setTimeout(()=>{ inp.focus(); inp.select(); }, 380); // after the entrance settles
+}});
+
+/* ===================================================== 7 · set up + payoff */
+SCREENS.push({
+  build(el){
+    el.innerHTML = `
+    <div class="sc" id="setupSc">
+      <div class="spin" id="spinner"></div>
+      <h1 id="setupTitle">Setting things up…</h1>
+      <p class="sub" id="setupSub">Importing your assignments from Schoology.</p>
+      <div id="payoffBody" style="width:100%;max-width:420px"></div>
+    </div>`;
+  },
+  enter(el){
+    const done = ()=>{
+      const sc = el.querySelector('#setupSc');
+      const cls = state.courses;
+      const color = i => cls.length ? cls[i % cls.length].color : '#e6a817';
+      const name  = i => cls.length ? esc(cls[i % cls.length].name) : '';
+      // The pin lives on the WRAPPER, not on .imp-rows: .imp-rows is now a scroll
+      // container, so a badge hanging off its top edge would be clipped by it.
+      const rows = `
+        <div class="imp-wrap" data-note="6">
+          <span class="pin" style="top:12px;right:-10px">6</span>
+          <div class="imp-rows">
+            ${IMPORTED.map(a => `
+            <div class="imp-row">
+              <span class="imp-title">${esc(a.t)}</span>
+              ${a.b ? `<span class="badge">${a.b}</span>` : ''}
+              <span class="course" style="color:${color(a.c)}">${name(a.c)}</span>
+            </div>`).join('')}
+          </div>
+        </div>`;
+      sc.innerHTML = `
+        <div class="payoff-check">✓</div>
+        <h1>You’re in, ${esc(state.name)}!</h1>
+        <p class="sub">${IMPORTED.length} assignments imported, sorted into your courses.</p>
+        ${rows}
+        <button class="cta" id="enter" style="margin-top:30px">Enter WorkSpace</button>`;
+      sc.querySelector('#enter').addEventListener('click',restart);
+      document.getElementById('fill').style.width = '100%'; lastPct = 100;
+      // confetti burst — completion and reward land as one moment
+      const burst = document.createElement('div');
+      burst.className = 'confetti';
+      const colors = ['#e6a817','#f2bb33','#4098d7','#27ae60','#fff'];
+      for (let i=0;i<28;i++){
+        const p = document.createElement('i');
+        p.style.setProperty('--x', (4+Math.random()*92)+'%');
+        p.style.setProperty('--d', (Math.random()*0.5)+'s');
+        p.style.setProperty('--r', Math.floor(Math.random()*360)+'deg');
+        p.style.setProperty('--c', colors[i%colors.length]);
+        burst.append(p);
+      }
+      el.append(burst);
+      setTimeout(()=>burst.remove(), 3600); // sweep up after the fall
+    };
+    lastPct = Math.max(lastPct, 92);
+    document.getElementById('fill').style.width = lastPct + '%';
+    setTimeout(done, 1700);
+  }
+});
+
+/* ----- corner controls ----- */
+document.getElementById('notesBtn').addEventListener('click',e=>{
+  document.body.classList.toggle('notes');
+  e.currentTarget.classList.toggle('on');
+});
+function restart(){
+  state.i=0; state.name='Gabe'; state.connected=false;
+  state.courses = DEFAULTS.map(clone);
+  lastPct = 15;
+  document.getElementById('fill').style.width = '15%';
+  go(0);
+}
+document.getElementById('restartBtn').addEventListener('click',restart);
+
+go(0);
+</script>

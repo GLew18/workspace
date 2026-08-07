@@ -16,6 +16,12 @@ import { getCourseColor as staticColor } from './normalize';
 let courses: CourseConfig[] = [];
 let data: Data | null = null;
 const subscribers = new Set<() => void>();
+/** True only when initRegistry read a REAL stored course list (not seeded defaults,
+ *  not a blank read). Automatic writers must check this: persisting while the
+ *  in-memory list is seed defaults would overwrite the user's real courses — the
+ *  hazard initRegistry avoids for itself but cannot enforce on its callers. */
+let hydratedFromStore = false;
+export const registryHydratedFromStore = (): boolean => hydratedFromStore;
 
 /** Build the default course list from the static catalog (colors + abbreviations as seed parse words). */
 function seedDefaults(): CourseConfig[] {
@@ -42,6 +48,7 @@ export async function initRegistry(d: Data): Promise<void> {
     // — the single point where stored courses enter the app — so every consumer can
     // safely treat parseWords as an array.
     courses = stored.list.map((c) => ({ ...c, parseWords: Array.isArray(c.parseWords) ? c.parseWords : [] }));
+    hydratedFromStore = true;
   } else {
     // No stored courses. Seed defaults IN MEMORY only — never write them to the
     // cloud here. An empty read can mean "brand-new user" OR "a read momentarily came

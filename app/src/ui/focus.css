@@ -283,6 +283,16 @@
   flex: none;
   vertical-align: -3px;
 }
+/* The recolor well behind the folder glyph: invisible and sizeless — the ICON is
+   the button (head's click forwards to it). Mirrors .task-folder-colorin. */
+.focus-folder-colorin {
+  position: absolute;
+  width: 0;
+  height: 0;
+  padding: 0;
+  border: none;
+  opacity: 0;
+}
 .focus-folder-name {
   font-weight: 650;
   font-size: 13.5px;
@@ -509,16 +519,23 @@
   flex-direction: column;
   gap: 6px;
 }
+/* The setup screen's rows: same chrome rules as the in-session ones above (and so
+   as the Tasks tab's). Background is --surface here because these sit on the tab's
+   own backdrop, not on a card. */
 .focus-todo-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 9px 12px;
   font-size: 14px;
+  transition: border-color var(--transition);
+}
+.focus-todo-row:hover {
+  border-color: var(--border-strong);
 }
 .focus-todo-label {
   flex: 1; /* stretch to the row's full width so the inline editor can fill it */
@@ -1127,15 +1144,25 @@
   text-align: center;
   padding: 16px 0;
 }
+/* Chrome matched to the Tasks tab's .task-item: same corner radius, same hover
+   border-lift, and TOP-aligned children so the checkbox sits on the title's first
+   line instead of floating beside a two-line row. The background stays --surface2
+   (not the Tasks tab's --surface) on purpose: these rows sit ON a --surface card,
+   so matching the literal value would make them vanish. Same contrast, one step
+   down the scale. */
 .focus-todo-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   background: var(--surface2);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 10px 12px;
   font-size: 14.5px;
+  transition: border-color var(--transition);
+}
+.focus-todo-item:hover {
+  border-color: var(--border-strong);
 }
 .focus-todo-item.dragging {
   opacity: 0.5;
@@ -1161,6 +1188,12 @@
 }
 .focus-todo-handle {
   flex: none;
+  /* Stretch + center, exactly like the Tasks tab's .task-handle: now that the row
+     is top-aligned, the grip would otherwise stick to the first line instead of
+     staying centered against the whole row. */
+  align-self: stretch;
+  display: flex;
+  align-items: center;
   background: none;
   border: none;
   color: var(--text-dim);

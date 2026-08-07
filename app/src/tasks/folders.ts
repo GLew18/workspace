@@ -52,6 +52,14 @@ export async function mutateTaskFolders(
   return next;
 }
 
+/** Canonical form for comparing folder names. The quick-add bar's "f:" token is
+ *  ONE WORD, so a multi-word folder is typed with a hyphen ("f:AP-Bio") — this
+ *  makes that land in the existing "AP Bio" instead of creating a near-duplicate.
+ *  Comparison only; the stored name keeps whatever the user actually typed. */
+export function normFolder(name: string): string {
+  return name.trim().toLowerCase().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ');
+}
+
 /** Create a folder (color comes from the creating task's course — the caller
  *  resolves it, since course colors live in the registry). */
 export function makeFolder(name: string, color: string): TaskFolder {

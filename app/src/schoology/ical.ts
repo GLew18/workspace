@@ -25,9 +25,14 @@ export interface IcalEvent {
 // #region Matchers & helpers — regexes + raw-ICS text/date parsing
 // Events that aren't assignments still become tasks if their title looks like a graded
 // assessment. Word-boundary matched so "contest"/"testing"/"protest" don't trigger.
-// Exported: the Tasks view reuses it to badge test-looking tasks (render-time, so it
-// also covers manual tasks and imports that predate the badge).
 export const ASSESSMENT_RE = /\b(quiz|quizzes|test|exam|exams|midterm|final|finals)\b/i;
+
+// The Tasks view's BADGE matcher is narrower ON PURPOSE (per Gabe): quiz/test/exam
+// earn the red pill, but not "final"/"midterm", which are too often ordinary title
+// words ("final draft"). "Exam" is back in (Gabe 8/6): unlike "final", it only ever
+// means an assessment. The IMPORT matcher above keeps the full list, so midterms
+// and finals still become tasks; they just don't wear a pill.
+export const BADGE_ASSESSMENT_RE = /\b(quiz|quizzes|test|tests|exam|exams)\b/i;
 
 /** Unfold RFC-5545 folded lines (continuation lines begin with a space or tab). */
 function unfold(text: string): string {

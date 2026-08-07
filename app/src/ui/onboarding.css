@@ -1,0 +1,850 @@
+/* WorkSpace — first-run onboarding deck.
+ *
+ * Ported from the onb-A prototype (app/public/onb-A.html). Everything here is
+ * scoped under `.onb-deck` so the deck's generic names (.sc, .cta, .visual…)
+ * can never leak into the signed-in app.
+ *
+ * DELIBERATELY NOT REDEFINED HERE: the course editor. .settings-courses,
+ * .course-row, .parse-chip, .parse-rec, .settings-add and friends all live in
+ * settings.css already, and the onboarding renders that same markup on purpose,
+ * so the screen where courses are BORN looks identical to the Settings screen
+ * where they're edited later. The only thing overridden below is making that
+ * list scroll inside itself while onboarding.
+ */
+
+/* ============================ the field ============================ */
+/* Three layers, painted back to front: a navy ramp that starts at real COLOR
+   rather than near-black, a warm gold bloom off the top-right, and a cool blue
+   bloom off the bottom-left. The drifting orbs ride on top and supply motion. */
+.onb-deck {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  overflow: hidden;
+  color: var(--text);
+  background:
+    radial-gradient(1150px 720px at 82% -12%, rgba(230, 168, 23, 0.17), transparent 62%) fixed,
+    radial-gradient(900px 720px at -6% 108%, rgba(64, 152, 215, 0.18), transparent 62%) fixed,
+    linear-gradient(165deg, #16295c 0%, #0d1a3d 46%, #070d20 100%) fixed;
+}
+/* A fine dot grid over the field: barely visible alone, but it's what the eye
+   registers as texture. Masked so it fades out down the page. */
+.onb-deck::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(130% 95% at 50% 0%, #000 38%, transparent 100%);
+  mask-image: radial-gradient(130% 95% at 50% 0%, #000 38%, transparent 100%);
+}
+.onb-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+  z-index: 0;
+}
+.onb-orb.a {
+  width: 420px;
+  height: 420px;
+  background: rgba(230, 168, 23, 0.07);
+  top: -120px;
+  right: -100px;
+  animation: onb-orbA 22s ease-in-out infinite alternate;
+}
+.onb-orb.b {
+  width: 520px;
+  height: 520px;
+  background: rgba(64, 152, 215, 0.07);
+  bottom: -180px;
+  left: -140px;
+  animation: onb-orbB 26s ease-in-out infinite alternate;
+}
+@keyframes onb-orbA {
+  to {
+    transform: translate(-70px, 90px) scale(1.15);
+  }
+}
+@keyframes onb-orbB {
+  to {
+    transform: translate(90px, -70px) scale(0.9);
+  }
+}
+
+/* ======================= progress + back button ======================= */
+.onb-rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.07);
+  z-index: 40;
+}
+.onb-fill {
+  height: 100%;
+  width: 14%;
+  background: linear-gradient(90deg, var(--gold), #f2bb33);
+  box-shadow: 0 0 12px var(--gold-glow);
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+/* a soft light sweep riding the fill — the bar reads alive, not static */
+.onb-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transform: translateX(-100%);
+  animation: onb-shimmer 3s ease-in-out infinite;
+}
+@keyframes onb-shimmer {
+  55%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+.onb-back {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  z-index: 40;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 10px;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  backdrop-filter: blur(6px);
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+.onb-back:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.onb-back.hide {
+  visibility: hidden;
+}
+
+/* ============================== screens ============================== */
+.onb-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* EQUAL top/bottom padding: .onb-sc centers with margin:auto, so unequal
+     padding would bias that center and the pane would sit low. */
+  padding: 56px 22px;
+  overflow-y: auto;
+  opacity: 0;
+  transform: translateX(48px);
+  pointer-events: none;
+  transition: opacity 0.45s ease, transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1;
+}
+.onb-screen.on {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.onb-screen.off-l {
+  transform: translateX(-48px);
+}
+
+/* =========================== the content pane ===========================
+   Three parts, outermost first:
+     1. the MAT — a spread-only shadow painting a translucent ring OUTSIDE the
+        border, like the matting around a framed print. This is what makes the
+        pane look placed rather than dropped onto the background.
+     2. the HAIRLINE — a real gold-to-blue gradient border via the two-layer
+        background-clip trick: fill clipped to padding-box, gradient to
+        border-box, border itself transparent so the gradient shows through.
+     3. the FILL — translucent navy over a backdrop blur.
+   Never add overflow:hidden here; nested popovers depend on it staying visible. */
+.onb-sc {
+  width: 100%;
+  max-width: 500px;
+  margin: auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 38px 34px 34px;
+  border-radius: 26px;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(180deg, rgba(23, 35, 68, 0.72), rgba(12, 19, 42, 0.66)) padding-box,
+    linear-gradient(
+        135deg,
+        rgba(230, 168, 23, 0.55),
+        rgba(255, 255, 255, 0.1) 42%,
+        rgba(64, 152, 215, 0.42)
+      )
+      border-box;
+  backdrop-filter: blur(18px) saturate(120%);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+  box-shadow:
+    0 0 0 9px rgba(255, 255, 255, 0.035),
+    0 34px 90px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.onb-sc.wide {
+  max-width: 560px;
+}
+.onb-visual {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  margin-bottom: 34px;
+}
+.onb-sc h1 {
+  margin: 0 0 12px;
+  font-size: clamp(26px, 4.5vw, 36px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  line-height: 1.15;
+}
+.onb-sc h1 .g {
+  color: var(--gold);
+}
+.onb-sub {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text-dim);
+  max-width: 40ch;
+  text-wrap: balance;
+}
+.onb-cta {
+  margin-top: 36px;
+  width: 100%;
+  max-width: 340px;
+  background: linear-gradient(180deg, #f0b428, var(--gold));
+  color: var(--on-accent);
+  border: none;
+  border-radius: 14px;
+  font-weight: 750;
+  font-size: 15.5px;
+  padding: 15px 24px;
+  box-shadow: 0 10px 30px rgba(230, 168, 23, 0.25);
+  transition: filter 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+/* the periodic gold sheen every primary action in the product shares */
+.onb-cta::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 38%;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  transform: skewX(-20deg);
+  animation: onb-sheen 4.2s 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes onb-sheen {
+  60%,
+  100% {
+    left: 130%;
+  }
+}
+.onb-cta:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 12px 36px rgba(230, 168, 23, 0.35);
+}
+.onb-cta:active {
+  transform: scale(0.98);
+}
+.onb-cta:disabled {
+  opacity: 0.7;
+}
+
+/* entrance cascade — each element rises a beat after the one above it */
+.onb-screen.on .rise {
+  opacity: 0;
+  transform: translateY(14px);
+  animation: onb-rise 0.6s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+.onb-screen.on .rise.d1 {
+  animation-delay: 0.08s;
+}
+.onb-screen.on .rise.d2 {
+  animation-delay: 0.18s;
+}
+.onb-screen.on .rise.d3 {
+  animation-delay: 0.28s;
+}
+@keyframes onb-rise {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ===================== screen 1 · welcome ===================== */
+.onb-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.onb-hero-glow {
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--gold-glow), transparent 65%);
+  filter: blur(30px);
+}
+.onb-mark {
+  width: 108px;
+  height: 108px;
+  border-radius: 26px;
+  display: block;
+  position: relative;
+  filter: drop-shadow(0 16px 40px rgba(0, 0, 0, 0.5));
+  animation: onb-float 5s ease-in-out infinite;
+}
+@keyframes onb-float {
+  50% {
+    transform: translateY(-9px);
+  }
+}
+.onb-eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+.onb-wordmark {
+  font-size: clamp(34px, 6vw, 46px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 6px 0 0;
+  color: #fff;
+}
+.onb-wordmark .o {
+  color: var(--gold);
+}
+
+/* ================= screen 2 · the auto-import explainer ================= */
+.onb-vcard {
+  width: min(430px, 100%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  padding: 18px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.onb-imp {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  justify-content: center;
+}
+.onb-tile {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: #fff;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 7px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  animation: onb-tileBeat 3s ease-in-out infinite;
+}
+@keyframes onb-tileBeat {
+  50% {
+    transform: scale(1.06);
+  }
+}
+.onb-tile svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* three gold pills flying from Schoology into the task list */
+.onb-lane {
+  position: relative;
+  flex: none;
+  width: 64px;
+  height: 60px;
+}
+.onb-fly {
+  position: absolute;
+  left: 0;
+  width: 34px;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--gold);
+  opacity: 0;
+}
+.onb-fly.f1 {
+  top: 8px;
+  animation: onb-flyOver 3s 0s ease-in-out infinite;
+}
+.onb-fly.f2 {
+  top: 26px;
+  animation: onb-flyOver 3s 0.9s ease-in-out infinite;
+}
+.onb-fly.f3 {
+  top: 44px;
+  animation: onb-flyOver 3s 1.8s ease-in-out infinite;
+}
+@keyframes onb-flyOver {
+  10% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(52px);
+    opacity: 0;
+  }
+}
+.onb-mini {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.onb-mini-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 11.5px;
+}
+.onb-mini-task .cb {
+  width: 14px;
+  height: 14px;
+  border-radius: 5px;
+  border: 2px solid var(--border-strong);
+  flex: none;
+}
+.onb-mini-task .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.onb-mini-task .crs {
+  font-size: 10px;
+  font-weight: 700;
+  flex: none;
+}
+
+/* ============ screen 3 · connect (the scan plays in place) ============ */
+.onb-stage {
+  position: relative;
+  width: min(430px, 100%);
+  min-height: 172px;
+  border-radius: 20px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: border-color 0.4s ease;
+}
+.onb-stage.done {
+  border-color: rgba(39, 174, 96, 0.5);
+}
+.onb-tile.lg {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  animation: none;
+}
+.onb-stage.scanning .onb-tile.lg {
+  animation: onb-tileBeat 1.4s ease-in-out infinite;
+}
+.onb-beam {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 80px;
+  top: -90px;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(180deg, transparent, rgba(230, 168, 23, 0.22), transparent);
+}
+.onb-stage.scanning .onb-beam {
+  opacity: 1;
+  animation: onb-beam 1.5s linear infinite;
+}
+@keyframes onb-beam {
+  to {
+    transform: translateY(300px);
+  }
+}
+.onb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  min-height: 26px;
+}
+.onb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text);
+  animation: onb-chipIn 0.45s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.onb-chip::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c, var(--gold));
+  flex: none;
+}
+@keyframes onb-chipIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.9);
+  }
+}
+.onb-field {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 14.5px;
+  font-family: inherit;
+  padding: 13px 14px;
+  transition: border-color 0.2s ease;
+}
+.onb-field::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+.onb-field:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+.onb-help-wrap {
+  width: 100%;
+}
+/* .onb-help is the <summary>. Kill the default disclosure triangle in both
+   engines so it reads as the button it looks like. */
+.onb-help::-webkit-details-marker {
+  display: none;
+}
+.onb-help {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 650;
+  padding: 13px 16px;
+  margin-bottom: 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  text-align: left;
+}
+.onb-help:hover {
+  border-color: var(--gold);
+  box-shadow: 0 6px 24px rgba(230, 168, 23, 0.15);
+}
+.onb-help-steps {
+  margin: 0;
+  padding: 0 0 0 18px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+.onb-err {
+  min-height: 17px;
+  font-size: 12px;
+  color: var(--red);
+  margin-top: 7px;
+  text-align: left;
+  width: 100%;
+}
+
+/* ==================== screen 4 · courses ====================
+   The editor markup is settings.css's, verbatim. The ONLY change while
+   onboarding: the list scrolls inside itself so the slide never grows tall
+   enough to scroll the page. Rows keep their NATURAL height (a row's height
+   depends on how many parse-word chips wrap), so no rigid track here. */
+.onb-courses-wrap {
+  position: relative;
+  width: 100%;
+  margin-top: 16px;
+}
+.onb-deck .settings-courses {
+  max-height: min(285px, 40vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* fades only the last ~24px, so a partly-visible row reads as "more below"
+     without dimming a row you're actually editing */
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 24px), transparent 100%);
+}
+.onb-deck .settings-courses::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+/* tighter head + CTA so the whole editor fits a laptop viewport */
+.onb-sc.tight h1 {
+  font-size: clamp(21px, 3.4vw, 27px);
+  margin-bottom: 6px;
+}
+.onb-sc.tight .onb-sub {
+  font-size: 13px;
+}
+.onb-sc.tight .onb-cta {
+  margin-top: 18px;
+  padding: 12px 22px;
+}
+
+/* ===================== screen 5 · name ===================== */
+/* One field, nothing competing for attention, so it gets to be a HERO field
+   rather than a form row. */
+.onb-name-input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1.5px solid var(--border);
+  border-radius: 18px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 30px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  text-align: center;
+  padding: 22px 20px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.onb-name-input::placeholder {
+  color: rgba(255, 255, 255, 0.28);
+  font-weight: 650;
+}
+.onb-name-input:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 4px var(--gold-glow);
+}
+
+/* ================== screen 6 · setting up / payoff ================== */
+.onb-spin {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 4px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--gold);
+  animation: onb-spin 0.8s linear infinite;
+  margin: 0 auto 22px;
+}
+@keyframes onb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.onb-check {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(39, 174, 96, 0.12);
+  border: 2px solid var(--green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  color: var(--green);
+  margin: 0 auto 20px;
+  animation: onb-pop 0.5s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+@keyframes onb-pop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}
+/* The imported-assignment list. GRID, not flex: grid-auto-rows pins every row
+   to the same height whatever it holds, so the box is a predetermined shape
+   instead of one that grows with its longest title. Three rows show, then a
+   14px sliver of the fourth — the only affordance that this list scrolls, now
+   that the scrollbar is hidden. */
+.onb-imp-wrap {
+  width: 100%;
+  position: relative;
+}
+.onb-imp-rows {
+  --row: 44px;
+  --gap: 8px;
+  --peek: 14px;
+  width: 100%;
+  margin-top: 22px;
+  text-align: left;
+  display: grid;
+  grid-auto-rows: var(--row);
+  row-gap: var(--gap);
+  max-height: calc(var(--row) * 3 + var(--gap) * 3 + var(--peek));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 22px), transparent 100%);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 22px), transparent 100%);
+}
+.onb-imp-rows::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+/* title takes the slack and truncates; badge + course hug the right.
+   minmax(0,1fr) is what lets the title actually ellipsis. */
+.onb-imp-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0 13px;
+  font-size: 13.5px;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: onb-rise 0.45s ease forwards;
+}
+.onb-imp-row:nth-child(2) {
+  animation-delay: 0.14s;
+}
+.onb-imp-row:nth-child(n + 3) {
+  animation-delay: 0.28s;
+}
+.onb-imp-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.onb-imp-row .course {
+  font-size: 11.5px;
+  font-weight: 700;
+}
+/* matches the real app's .task-test-badge exactly — one treatment for every
+   assessment word, never a separate quiz color */
+.onb-imp-row .badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  border-radius: 6px;
+  padding: 2px 6px;
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--red);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+/* one-shot gold/blue burst behind the ✓ */
+.onb-confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 2;
+}
+.onb-confetti i {
+  position: absolute;
+  top: -12px;
+  left: var(--x);
+  width: 7px;
+  height: 11px;
+  background: var(--c);
+  border-radius: 2px;
+  transform: rotate(var(--r));
+  animation: onb-fall 2.6s var(--d) cubic-bezier(0.3, 0.7, 0.5, 1) forwards;
+}
+@keyframes onb-fall {
+  to {
+    transform: translateY(105vh) rotate(calc(var(--r) + 420deg));
+    opacity: 0;
+  }
+}
+
+/* =========================== short viewports =========================== */
+/* A 1280x800 laptop is the common case: the pane's 72px of vertical padding is
+   enough to push the tallest screens into a scroll they don't need. */
+@media (max-height: 900px) {
+  .onb-sc {
+    padding: 24px 30px 22px;
+  }
+}
+
+/* ============================== phones ============================== */
+@media (max-width: 620px) {
+  .onb-sc {
+    padding: 26px 18px 24px;
+    border-radius: 20px;
+    box-shadow:
+      0 0 0 6px rgba(255, 255, 255, 0.03),
+      0 22px 60px rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onb-orb,
+  .onb-fly,
+  .onb-mark,
+  .onb-tile,
+  .onb-cta::after,
+  .onb-fill::after,
+  .onb-confetti i {
+    animation: none !important;
+  }
+  .onb-screen {
+    transition: none;
+  }
+  .onb-screen.on .rise,
+  .onb-imp-row {
+    animation-duration: 0.01s !important;
+    animation-delay: 0s !important;
+  }
+  .onb-fill {
+    transition: none;
+  }
+}

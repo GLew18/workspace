@@ -92,7 +92,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
 
   const announceNewTask = (t: TaskMap[string]): void => {
     const body = taskInfoBody({ course: t.course, priority: cap(t.priority), dueMs: dueMsOf(t) }, settings.appearance);
-    fire(`new|${t.id}`, `New assignment — ${t.title}`, body, settings.newAssignment.channels);
+    fire(`new|${t.id}`, `New assignment: ${t.title}`, body, settings.newAssignment.channels);
   };
 
   const anyOn = (ch: Channels): boolean => ch.popup || ch.gmail;
@@ -122,7 +122,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
             { course: t.course, priority: cap(t.priority), nowMs: now, dueMs, leadMins: lead },
             settings.appearance
           );
-          fire(`rem|${t.id}|${t.dueDate}|${t.dueTime}|${lead}`, `Due soon — ${t.title}`, body, settings.dueSoon.channels);
+          fire(`rem|${t.id}|${t.dueDate}|${t.dueTime}|${lead}`, `Due soon: ${t.title}`, body, settings.dueSoon.channels);
         }
       }
     }
@@ -134,7 +134,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
         const agendaMs = new Date(`${today}T${pad(settings.dailyAgenda.hour)}:${pad(settings.dailyAgenda.minute)}:00`).getTime();
         if (!Number.isNaN(agendaMs) && now >= agendaMs) {
           const n = dueToday.length;
-          fire(`agenda|${today}`, `Good morning — ${n} task${n === 1 ? '' : 's'} due today`, 'Open WorkSpace to see them.', settings.dailyAgenda.channels);
+          fire(`agenda|${today}`, `Good morning: ${n} task${n === 1 ? '' : 's'} due today`, 'Open WorkSpace to see them.', settings.dailyAgenda.channels);
         }
       }
     }
@@ -148,7 +148,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
         const fireMs = new Date(`${today}T${pad(hour24)}:${pad(settings.tomorrow.minute)}:00`).getTime();
         if (!Number.isNaN(fireMs) && now >= fireMs) {
           const n = dueTmr.length;
-          fire(`tomorrow|${today}`, `Heads-up — ${n} task${n === 1 ? '' : 's'} due tomorrow`, 'Open WorkSpace to plan ahead.', settings.tomorrow.channels);
+          fire(`tomorrow|${today}`, `Heads-up: ${n} task${n === 1 ? '' : 's'} due tomorrow`, 'Open WorkSpace to plan ahead.', settings.tomorrow.channels);
         }
       }
     }

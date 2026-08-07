@@ -4,7 +4,7 @@
   "description": "Companion extension for WorkSpace: makes your link keyboard shortcuts fire from any tab in the browser, not just while WorkSpace is focused.",
   "version": "1.0.0",
   "minimum_chrome_version": "102",
-  "permissions": ["storage", "tabs", "scripting"],
+  "permissions": ["storage", "tabs", "scripting", "alarms"],
   "host_permissions": ["<all_urls>"],
   "externally_connectable": {
     "matches": [
@@ -30,6 +30,12 @@
       ],
       "js": ["bridge.js"],
       "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://*.schoology.com/*"],
+      "js": ["schoology.js"],
+      "run_at": "document_idle",
       "all_frames": false
     }
   ],

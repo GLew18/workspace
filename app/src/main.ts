@@ -9,6 +9,7 @@ import './ui/settings.css';
 import './ui/bookmarks.css';
 import './ui/landing.css';
 import './ui/auth.css';
+import './ui/onboarding.css';
 
 import type { AuthUser } from './auth';
 import { onAuth, signInLocal, signOut, isLocalMode } from './auth';
@@ -27,6 +28,7 @@ import { BookmarksView } from './bookmarks/view';
 import { runOnboarding } from './onboarding/view';
 import { renderLanding } from './landing/view';
 import { runSync } from './schoology/sync';
+import { detectSchoologyExtension, requestSgyData, applySgyPayload } from './schoology/extension';
 import { startNotificationScheduler } from './notify/scheduler';
 import { setEmailSink } from './notify/notify';
 import { queueEmail } from './notify/email';
@@ -84,7 +86,7 @@ function renderSignIn(): void {
       btn,
       el('div', {
         class: 'hint',
-        text: 'Local mode — no Firebase configured yet, so data stays on this device. Sign in with different names to test multi-user isolation.',
+        text: 'Local mode: no Firebase configured yet, so data stays on this device. Sign in with different names to test multi-user isolation.',
       })
     );
     root.append(wrap);
@@ -96,7 +98,11 @@ function renderSignIn(): void {
   // onboarding for first-time users once auth state changes.
   root.append(
     renderLanding({
-      onTryNow: () => openAuthScreen(),
+      // Same screen, different starting mode: "Get started" assumes a new student,
+      // "Log in" assumes a returning one. Whether onboarding actually runs is still
+      // decided by the account's own `onboarded` flag below, never by this choice.
+      onTryNow: () => openAuthScreen('signup'),
+      onLogIn: () => openAuthScreen('login'),
     })
   );
 }
@@ -236,7 +242,26 @@ async function renderApp(user: AuthUser): Promise<void> {
   // (optional) plus a background re-sync at the chosen interval while the app
   // stays open. Failures are silent (the next tick / Settings retries). A true
   // server cron for when the app is CLOSED comes with Firebase later.
+  // Pull the companion extension's Schoology scrape (real course names, and the
+  // feed URL itself) into the cloud BEFORE syncing, so a fresh import lands with
+  // true courses instead of a guess that has to be corrected afterwards. Silent
+  // and optional: no extension, no Chrome, or no Schoology tab → resolves false
+  // and the import proceeds exactly as before.
+  const pullSchoologyLabels = async (): Promise<void> => {
+    try {
+      if (!(await detectSchoologyExtension())) return;
+      const payload = await requestSgyData();
+      if (payload) await applySgyPayload(data, payload);
+    } catch {
+      /* never let a scrape problem block the normal import */
+    }
+  };
+
   const syncIfLinked = async () => {
+    // Awaited before the settings read, because applySgyPayload may be what WRITES
+    // the feed URL — the extension can discover it, so this is what lets a user be
+    // "linked" without ever pasting a URL.
+    await pullSchoologyLabels();
     const sgy = await data.getProfile<SchoologySettings>('schoology');
     if (sgy?.icalUrl) {
       try {

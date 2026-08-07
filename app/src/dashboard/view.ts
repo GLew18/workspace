@@ -19,7 +19,7 @@ import { runSync } from '../schoology/sync';
 // keeps the rotating greeting + quote-of-the-day.
 const SAMPLE_GREETING = "Let's do this";
 const SAMPLE_QUOTE: Quote = {
-  text: 'Begin — to begin is half the work.',
+  text: 'Begin. To begin is half the work.',
   author: 'Marcus Aurelius',
 };
 

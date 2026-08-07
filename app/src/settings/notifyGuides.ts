@@ -298,7 +298,7 @@ const TEST_SCENE = testScene('Popup shows → fixed ✓ · Still nothing → try
 const TEST_SCENE_FINAL = testScene('You should finally see the popup now ✓');
 const testStep = (lead: string, last = false): GuideStep => ({
   caption: `${lead} Head back to WorkSpace ▸ Settings ▸ Notifications and press “Test out notification”. ${
-    last ? 'You should finally see a popup now.' : 'A popup means you’re fixed — still nothing means move on to the next guide.'
+    last ? 'You should finally see a popup now.' : 'A popup means you’re fixed. Still nothing means move on to the next guide.'
   }`,
   svg: last ? TEST_SCENE_FINAL : TEST_SCENE,
 });
@@ -312,11 +312,11 @@ export const NOTIFY_GUIDES: Guide[] = [
     tag: 'Most common',
     emoji: '⚙️',
     color: '#ef4444',
-    blurb: 'The 🔔 Popup button is off for that alert — or for all of them.',
+    blurb: 'The 🔔 Popup button is off for that alert, or for all of them.',
     steps: [
       {
         caption:
-          'Each alert only pops up while its 🔔 Popup button is GOLD. Open Settings ▸ Notifications and check the alert you’re missing — grey means it never fires.',
+          'Each alert only pops up while its 🔔 Popup button is GOLD. Open Settings ▸ Notifications and check the alert you’re missing. Grey means it never fires.',
         svg: scene(
           box(30, 40, 400, 60, PANEL, 10) +
             txt(46, 65, 12.5, TXT, 'Due-soon reminders', 650) +
@@ -324,14 +324,14 @@ export const NOTIFY_GUIDES: Guide[] = [
             chanBtn(272, 58, '🔔 Popup', 'turnsOn') +
             chanBtn(344, 58, '✉ Gmail', 'off') +
             txt(230, 150, 11, DIM, 'Grey = off · Gold = on', 500, 'middle') +
-            wsToast(125, 168, 'Due soon — Science lab', 'Due 3:00 PM (in 1 hour)') +
+            wsToast(125, 168, 'Due soon: Science lab', 'Due 3:00 PM (in 1 hour)') +
             hl(266, 52, 76, 34) +
             cursor(120, 190, 300, 74)
         ),
       },
       {
         caption:
-          '“All reminders” at the top is a master switch — one press turns Popup gold on EVERY alert below it at once.',
+          '“All reminders” at the top is a master switch. One press turns Popup gold on EVERY alert below it at once.',
         svg: scene(
           box(30, 30, 400, 52, PANEL, 10) +
             txt(46, 52, 12.5, TXT, 'All reminders', 700) +
@@ -353,7 +353,7 @@ export const NOTIFY_GUIDES: Guide[] = [
       },
       {
         caption:
-          'Press “Test out notification” on any open card. If a popup appears, WorkSpace can reach your screen — recheck each alert’s buttons. If NOTHING appears, work through the next guides: something outside WorkSpace is blocking.',
+          'Press “Test out notification” on any open card. If a popup appears, WorkSpace can reach your screen. Recheck each alert’s buttons. If NOTHING appears, work through the next guides: something outside WorkSpace is blocking.',
         svg: scene(
           box(30, 60, 190, 34, PANEL2, 9, `stroke="${LINE}"`) +
             txt(125, 81, 11, TXT, 'Test out notification', 600, 'middle') +
@@ -366,14 +366,14 @@ export const NOTIFY_GUIDES: Guide[] = [
       },
       {
         caption:
-          'One more thing: reminders fire while WorkSpace is OPEN in a tab (or installed as an app). Keep it open in the background — closed-app alerts arrive with the cloud update, coming soon.',
+          'One more thing: reminders fire while WorkSpace is OPEN in a tab (or installed as an app). Keep it open in the background. Closed-app alerts arrive with the cloud update, coming soon.',
         svg: scene(
           browser() +
             box(30, 92, 400, 110, PANEL, 10) +
             txt(230, 130, 13, TXT, 'Keep WorkSpace open in a tab', 650, 'middle') +
             txt(230, 152, 10.5, DIM, 'Minimized is fine · another window in front is fine', 500, 'middle') +
             txt(230, 172, 10.5, DIM, 'Fully closed = no reminders (for now)', 500, 'middle') +
-            wsToast(125, 210, 'Due soon — Math worksheet', 'Due 4:30 PM (in 30 minutes)', '')
+            wsToast(125, 210, 'Due soon: Math worksheet', 'Due 4:30 PM (in 30 minutes)', '')
         ),
       },
     ],
@@ -397,7 +397,7 @@ export const NOTIFY_GUIDES: Guide[] = [
       },
       {
         caption:
-          'Click the ⓘ icon at the LEFT end of the web address. In the menu that opens, flip the Notifications switch ON. (“Reset permissions” also works — the site asks fresh on reload.)',
+          'Click the ⓘ icon at the LEFT end of the web address. In the menu that opens, flip the Notifications switch ON. (“Reset permissions” also works. The site asks fresh on reload.)',
         svg: scene(
           browser() +
             hl(106, 46, 24, 20) +
@@ -426,7 +426,7 @@ export const NOTIFY_GUIDES: Guide[] = [
         caption:
           'No Notifications row? Open “Site settings” from that same menu. Under Permissions, find Notifications and switch its dropdown to ALLOW.',
         svg: scene(
-          winSettings('workspace.app — Site settings') +
+          winSettings('workspace.app - Site settings') +
             txt(30, 58, 10.5, DIM, 'Permissions', 650) +
             box(324, 44, 108, 22, PANEL2, 11, `stroke="${LINE}"`) +
             txt(378, 59, 9, DIM, 'Reset permissions', 500, 'middle') +
@@ -454,7 +454,7 @@ export const NOTIFY_GUIDES: Guide[] = [
       },
       {
         caption:
-          'Reload the tab afterwards — permission changes only apply on a fresh page load.',
+          'Reload the tab afterwards. Permission changes only apply on a fresh page load.',
         svg: scene(
           browser(txt(414, 61, 12, TXT, '🔔')) +
             txt(230, 150, 12, TXT, 'Press ⟳ (or Ctrl + R)', 650, 'middle') +
@@ -471,11 +471,11 @@ export const NOTIFY_GUIDES: Guide[] = [
     tag: 'Common',
     emoji: '🌙',
     color: '#e6a817',
-    blurb: 'DND (and Focus sessions) silently swallow every popup — and Windows often turns them on by itself.',
+    blurb: 'DND (and Focus sessions) silently swallow every popup, and Windows often turns them on by itself.',
     steps: [
       {
         caption:
-          'Click the CLOCK in the bottom-right corner of the taskbar (or press Win + N) — that opens this panel. If it says “Do not disturb is on”, click the sleeping-bell (zᶻ) button in the header so it turns OFF.',
+          'Click the CLOCK in the bottom-right corner of the taskbar (or press Win + N). That opens this panel. If it says “Do not disturb is on”, click the sleeping-bell (zᶻ) button in the header so it turns OFF.',
         svg: scene(
           box(230, 16, 214, 196, PANEL, 12) +
             txt(246, 38, 11.5, TXT, 'Notifications', 650) +
@@ -490,7 +490,7 @@ export const NOTIFY_GUIDES: Guide[] = [
             txt(256, 95, 8.5, DIM, 'notifications and alarms.') +
             txt(256, 120, 9.5, GOLD, 'Notification settings') +
             box(244, 130, 186, 42, PANEL2, 8) +
-            txt(256, 146, 9.5, TXT, '⏰ Due soon — Science lab') +
+            txt(256, 146, 9.5, TXT, '⏰ Due soon: Science lab') +
             txt(256, 160, 8.5, DIM, 'WorkSpace · missed while DND was on') +
             box(244, 180, 186, 26, PANEL2, 8) +
             txt(337, 197, 9.5, DIM, 'Wednesday, July 15', 500, 'middle') +
@@ -504,7 +504,7 @@ export const NOTIFY_GUIDES: Guide[] = [
       },
       {
         caption:
-          'Windows re-arms DND on its own! In Settings ▸ System ▸ Notifications, expand “Turn on do not disturb automatically” and untick the rules — especially full-screen apps, gaming, and duplicated displays.',
+          'Windows re-arms DND on its own! In Settings ▸ System ▸ Notifications, expand “Turn on do not disturb automatically” and untick the rules, especially full-screen apps, gaming, and duplicated displays.',
         svg: scene(
           winSettings('System › Notifications') +
             box(28, 42, 404, 26, PANEL2, 8) +
@@ -534,7 +534,7 @@ export const NOTIFY_GUIDES: Guide[] = [
       },
       {
         caption:
-          'Focus sessions block popups too — a running session keeps DND on for its whole length. If the bottom of the clock panel says “Focusing”, press End session (Focus also lives in Settings ▸ System ▸ Notifications ▸ Focus).',
+          'Focus sessions block popups too. A running session keeps DND on for its whole length. If the bottom of the clock panel says “Focusing”, press End session (Focus also lives in Settings ▸ System ▸ Notifications ▸ Focus).',
         svg: scene(
           box(230, 30, 214, 200, PANEL, 12) +
             txt(246, 52, 11.5, TXT, 'Notifications', 650) +
@@ -565,7 +565,7 @@ export const NOTIFY_GUIDES: Guide[] = [
     steps: [
       {
         caption:
-          'Open Settings ▸ System ▸ Notifications. The master “Notifications — get notifications from apps and other senders” switch at the very top must be ON (and “Do not disturb”, right under it, OFF).',
+          'Open Settings ▸ System ▸ Notifications. The master “Notifications” switch at the very top (“get notifications from apps and other senders”) must be ON (and “Do not disturb”, right under it, OFF).',
         svg: scene(
           winSettings('System › Notifications') +
             rowIco(40, icoBell(38, 50), 'Notifications', onOffToggle(376, 48, 'turnsOn') + txt(430, 62, 10, DIM, '⌄', 600, 'end'), 'Get notifications from apps and other senders') +
@@ -594,7 +594,7 @@ export const NOTIFY_GUIDES: Guide[] = [
       },
       {
         caption:
-          'Click the Google Chrome row itself and tick BOTH boxes — “Show notification banners” (the popup in the corner) and “Show notifications in notification center” (the Win + N list). Without banners, alerts arrive silently.',
+          'Click the Google Chrome row itself and tick BOTH boxes: “Show notification banners” (the popup in the corner) and “Show notifications in notification center” (the Win + N list). Without banners, alerts arrive silently.',
         svg: scene(
           winSettings('System › Notifications › Google Chrome') +
             row(38, 'Notifications', onOffToggle(384, 46, 'on')) +
@@ -639,7 +639,7 @@ export const NOTIFY_GUIDES: Guide[] = [
     steps: [
       {
         caption:
-          'Paste chrome://settings/content/notifications in the address bar. Under “Default behavior”, if “Don’t allow sites to send notifications” is selected, every site — WorkSpace included — is silenced. Choose “Sites can ask to send notifications”.',
+          'Paste chrome://settings/content/notifications in the address bar. Under “Default behavior”, if “Don’t allow sites to send notifications” is selected, every site, WorkSpace included, is silenced. Choose “Sites can ask to send notifications”.',
         svg: scene(
           browser('', 'chrome://settings/content/notifications') +
             txt(28, 96, 10.5, DIM, 'Default behavior', 650) +
@@ -690,7 +690,7 @@ export const NOTIFY_GUIDES: Guide[] = [
     steps: [
       {
         caption:
-          'Notification permission is PER BROWSER PROFILE. If you allowed WorkSpace on your school profile, your personal profile is still blocked — sign into the profile you actually use and allow it there too.',
+          'Notification permission is PER BROWSER PROFILE. If you allowed WorkSpace on your school profile, your personal profile is still blocked. Sign into the profile you actually use and allow it there too.',
         svg: scene(
           box(60, 60, 150, 130, PANEL, 12) +
             `<circle cx="135" cy="105" r="24" fill="${GOLD}"/>` +
@@ -703,12 +703,12 @@ export const NOTIFY_GUIDES: Guide[] = [
             txt(325, 150, 10.5, TXT, 'Personal profile', 600, 'middle') +
             txt(325, 168, 10, RED, '🔕 Blocked', 650, 'middle') +
             hl(295, 154, 60, 21) +
-            txt(230, 225, 10.5, DIM, 'Each profile keeps its own permission — allow WorkSpace in both.', 500, 'middle')
+            txt(230, 225, 10.5, DIM, 'Each profile keeps its own permission. Allow WorkSpace in both.', 500, 'middle')
         ),
       },
       {
         caption:
-          'Incognito windows never show site notifications — you can tell you’re in one by the “Incognito” chip at the TOP-RIGHT of the toolbar (and the dark “You’ve gone Incognito” new-tab page). Keep WorkSpace in a normal window.',
+          'Incognito windows never show site notifications. You can tell you’re in one by the “Incognito” chip at the TOP-RIGHT of the toolbar (and the dark “You’ve gone Incognito” new-tab page). Keep WorkSpace in a normal window.',
         svg: scene(
           box(16, 20, 428, 200, '#121722', 10) +
             box(28, 26, 110, 20, '#1f2430', 7) +
@@ -722,13 +722,13 @@ export const NOTIFY_GUIDES: Guide[] = [
             hl(336, 48, 100, 28) +
             txt(230, 122, 26, TXT, '🕶', 500, 'middle') +
             txt(230, 152, 13, TXT, 'You’ve gone Incognito', 650, 'middle') +
-            txt(230, 170, 9.5, DIM, 'Sites you visit here can’t send notifications — by design, in every browser.', 500, 'middle') +
+            txt(230, 170, 9.5, DIM, 'Sites you visit here can’t send notifications, by design, in every browser.', 500, 'middle') +
             txt(230, 240, 10.5, DIM, 'Open WorkSpace in a regular window instead.', 500, 'middle')
         ),
       },
       {
         caption:
-          'While you present or share your screen, Chrome AND Windows both hide notifications automatically — and some battery-saver / gaming modes do too. They come back on their own when you’re done.',
+          'While you present or share your screen, Chrome AND Windows both hide notifications automatically, and some battery-saver / gaming modes do too. They come back on their own when you’re done.',
         svg: scene(
           txt(110, 105, 30, TXT, '🖥️', 500, 'middle') +
             txt(110, 140, 10.5, DIM, 'Presenting / sharing', 600, 'middle') +
@@ -736,7 +736,7 @@ export const NOTIFY_GUIDES: Guide[] = [
             txt(230, 140, 10.5, DIM, 'Battery saver', 600, 'middle') +
             txt(350, 105, 30, TXT, '🎮', 500, 'middle') +
             txt(350, 140, 10.5, DIM, 'Game modes', 600, 'middle') +
-            txt(230, 190, 11, TXT, 'All three pause popups temporarily — nothing to fix,', 500, 'middle') +
+            txt(230, 190, 11, TXT, 'All three pause popups temporarily. Nothing to fix,', 500, 'middle') +
             txt(230, 208, 11, TXT, 'they return when the mode ends.', 500, 'middle')
         ),
       },

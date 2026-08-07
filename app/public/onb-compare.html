@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Onboarding A vs B — side by side</title>
+<style>
+  /* Temporary comparison rig for reviewing the two onboarding variants together.
+     Each variant runs in its own iframe, so each gets a real viewport and its
+     position:fixed layout behaves exactly as it would full-screen.
+     Delete this file (and onb-A/onb-B) once a direction is chosen. */
+  :root { --gold:#e6a817; --line:rgba(255,255,255,.14); --dim:rgba(255,255,255,.55); }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #070d20; color: rgba(255,255,255,.92);
+    font: 14px/1.4 Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .bar {
+    flex: none; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 9px 14px; border-bottom: 1px solid var(--line); background: #0b122a;
+  }
+  .bar h1 { font-size: 14px; margin: 0; font-weight: 750; letter-spacing: -.01em; }
+  .bar .hint { color: var(--dim); font-size: 12px; }
+  .bar button {
+    background: rgba(255,255,255,.06); border: 1px solid var(--line); color: inherit;
+    border-radius: 9px; padding: 6px 12px; font: inherit; font-size: 12.5px; font-weight: 650;
+    cursor: pointer;
+  }
+  .bar button:hover { border-color: var(--gold); color: var(--gold); }
+  .bar .spacer { flex: 1; }
+
+  .stage { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; }
+  .stage.stacked { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  .pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .cap {
+    flex: none; display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; border-radius: 10px 10px 0 0;
+    border: 1px solid var(--line); border-bottom: none; background: #101a36;
+    font-size: 12.5px; font-weight: 700;
+  }
+  .cap .tag {
+    font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 999px;
+  }
+  .cap.a .tag { background: rgba(255,255,255,.12); color: #fff; }
+  .cap.b .tag { background: rgba(230,168,23,.18); color: var(--gold); }
+  .cap .sub { font-weight: 500; color: var(--dim); font-size: 11.5px; }
+  iframe {
+    flex: 1; width: 100%; border: 1px solid var(--line); border-radius: 0 0 10px 10px;
+    background: #0a1430; display: block;
+  }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <h1>Onboarding · A vs B</h1>
+    <span class="hint">Click through each independently. Same screen number = same step.</span>
+    <span class="spacer"></span>
+    <button id="restart">↺ Restart both</button>
+    <button id="layout">Stack ⇅</button>
+  </div>
+  <div class="stage" id="stage">
+    <div class="pane">
+      <div class="cap a"><span class="tag">A</span> iCal <span class="sub">— courses first, then paste a calendar link</span></div>
+      <iframe id="fa" src="/onb-A.html" title="Onboarding variant A (iCal)"></iframe>
+    </div>
+    <div class="pane">
+      <div class="cap b"><span class="tag">B</span> Schoology integration <span class="sub">— connect first, courses auto-discovered</span></div>
+      <iframe id="fb" src="/onb-B.html" title="Onboarding variant B (integration)"></iframe>
+    </div>
+  </div>
+<script>
+  const fa = document.getElementById('fa'), fb = document.getElementById('fb');
+  document.getElementById('restart').onclick = () => {
+    fa.contentWindow.location.replace('/onb-A.html');
+    fb.contentWindow.location.replace('/onb-B.html');
+  };
+  document.getElementById('layout').onclick = (e) => {
+    const s = document.getElementById('stage');
+    s.classList.toggle('stacked');
+    e.currentTarget.textContent = s.classList.contains('stacked') ? 'Side by side ⇆' : 'Stack ⇅';
+  };
+</script>
+</body>
+</html>

@@ -113,7 +113,7 @@ function sampleTasks(): Record<string, Task> {
       source: 'schoology-ical',
       schoologyUrl: SCH,
       details:
-        'Complete page 16 in the workbook — the vocabulary matching and the two short-answer prompts. Review the new binyanim before Wednesday’s quiz.',
+        'Complete page 16 in the workbook: the vocabulary matching and the two short-answer prompts. Review the new binyanim before Wednesday’s quiz.',
       notes: [],
       translatedTitle: 'Complete page 16',
       translatedLang: 'iw',
@@ -132,7 +132,7 @@ function sampleTasks(): Record<string, Task> {
       source: 'schoology-ical',
       schoologyUrl: SCH,
       details:
-        'Unit 5 test on triangle congruence. Covers sections 5.1–5.4 — review the practice set and the proofs from class.',
+        'Unit 5 test on triangle congruence. Covers sections 5.1–5.4. Review the practice set and the proofs from class.',
       notes: [],
     },
     {

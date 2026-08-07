@@ -18,6 +18,9 @@ import { DashboardView } from '../dashboard/view';
 export interface LandingOpts {
   /** Fired by "Try now" — wired to Google sign-in by main.ts. */
   onTryNow: () => void;
+  /** "Already have an account? Log in" — same auth screen, different intent.
+   *  Optional: falls back to onTryNow when the caller doesn't distinguish them. */
+  onLogIn?: () => void;
 }
 
 // #region Feature showcase data -------------------------------------------------
@@ -169,8 +172,20 @@ function heroSection(opts: LandingOpts): HTMLElement {
     el('p', { class: 'lp-tagline', text: 'The best Schoology alternative for Heschel students' })
   );
 
-  inner.append(ctaButton('Try now', opts.onTryNow));
-  inner.append(el('p', { class: 'lp-cta-sub', text: 'Sign in with email or Google — it’s free.' }));
+  inner.append(ctaButton('Get started', opts.onTryNow));
+  inner.append(el('p', { class: 'lp-cta-sub', text: 'Free, and it takes about a minute.' }));
+
+  // A returning student who is signed out lands here too, and onboarding is not
+  // for them. This is their one-tap way to say so. Kept quiet (a link, not a
+  // second button) so it never competes with the primary path for a new user —
+  // the flow deliberately gives value before asking for commitment.
+  // Both routes open the same auth screen; the account's own `onboarded` flag is
+  // what actually decides whether onboarding runs (see main.ts).
+  const logIn = el('p', { class: 'lp-login-line' });
+  const logInBtn = el('button', { class: 'lp-login-link', text: 'Log in' });
+  logInBtn.addEventListener('click', opts.onLogIn ?? opts.onTryNow);
+  logIn.append(document.createTextNode('Already have an account? '), logInBtn);
+  inner.append(logIn);
 
   sec.append(inner);
   const hint = el('div', { class: 'lp-scroll-hint' });
@@ -232,7 +247,7 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
   const sec = el('section', { class: 'lp-section lp-features lp-reveal' });
   sec.append(
     el('h2', { class: 'lp-h2', text: 'See it in action' }),
-    el('p', { class: 'lp-sub', text: 'A real, playable sample — click around, it’s all live.' })
+    el('p', { class: 'lp-sub', text: 'A real, playable sample. Click around, it’s all live.' })
   );
 
   const tabs = el('div', { class: 'lp-tabs' });
@@ -400,7 +415,7 @@ function personalizeSection(): HTMLElement {
     el('h2', { class: 'lp-h2', text: 'Endless personalization' }),
     el('p', {
       class: 'lp-sub',
-      text: 'Make WorkSpace your own — set your name, greeting and clock, rename and recolor every course with your own parse words, and choose exactly which alerts reach you.',
+      text: 'Make WorkSpace your own: set your name, greeting and clock, rename and recolor every course with your own parse words, and choose exactly which alerts reach you.',
     })
   );
   // ONE settings window whose three columns read as a single screen — no separate

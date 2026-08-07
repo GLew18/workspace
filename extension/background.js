@@ -97,6 +97,195 @@ function handleSync(config, sendAck) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Schoology course labels (see schoology.js).
+//
+// The content script scrapes the student's OWN logged-in Schoology pages for the
+// one thing the iCal feed lacks: which course each assignment belongs to. We hold
+// the latest scrape here in chrome.storage.local ('sgy:data') and hand it to the
+// web app on request; the app then persists it to the cloud, which is what lets a
+// PHONE (where extensions cannot run) show the same true course names.
+//
+// Storage is MERGED, never replaced: any single page only reveals a slice of the
+// picture (the calendar shows this month, a course page shows that course), so
+// clobbering on each scrape would make labels flicker in and out.
+// ---------------------------------------------------------------------------
+const SGY_KEY = 'sgy:data';
+
+/** Union of the stored payload and a fresh one; newer values win per field. */
+function sgyMerge(prev, next) {
+  if (!prev || typeof prev !== 'object') return next;
+  const courses = new Map();
+  for (const c of Array.isArray(prev.courses) ? prev.courses : []) if (c && c.id) courses.set(c.id, c);
+  for (const c of Array.isArray(next.courses) ? next.courses : []) if (c && c.id) courses.set(c.id, c);
+  return {
+    host: next.host || prev.host || '',
+    // Keep a previously-found feed URL when this scrape happened not to see it.
+    icalUrl: next.icalUrl || prev.icalUrl || undefined,
+    courses: [...courses.values()],
+    labels: Object.assign({}, prev.labels, next.labels),
+    scrapedAt: next.scrapedAt || Date.now(),
+    diag: next.diag || prev.diag,
+  };
+}
+
+/** Shape-check a payload from a content script before it reaches storage. */
+function validSgyPayload(p) {
+  return !!p && typeof p === 'object' && typeof p.host === 'string' && !!p.labels && typeof p.labels === 'object';
+}
+
+function handleSgyCapture(payload) {
+  if (!validSgyPayload(payload)) return;
+  chrome.storage.local.get(SGY_KEY, (cur) => {
+    const merged = sgyMerge(cur && cur[SGY_KEY], payload);
+    // Remember the school's host: it is the ONLY way a later background sync knows
+    // which subdomain to visit (schools are <school>.schoology.com).
+    chrome.storage.local.set({ [SGY_KEY]: merged, 'sgy:host': merged.host || '' });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Background sync — the point of the whole feature.
+//
+// WorkSpace REPLACES Schoology, so requiring the student to go visit Schoology to
+// keep course names accurate would defeat the product. Instead: every 30 minutes,
+// if no Schoology tab happens to be open, open one INVISIBLY (a background tab the
+// student never sees), let the content script scrape, and close it again. Typical
+// life of that tab is a few seconds.
+//
+// Two things make this safe rather than creepy: it only ever visits the student's
+// own school host (learned from a previous scrape — never guessed), and it does
+// nothing at all until they have connected Schoology once.
+// ---------------------------------------------------------------------------
+const SGY_ALARM = 'ws-sgy-sync';
+const SGY_SYNC_MINUTES = 30;
+const SGY_TAB_WATCHDOG_MS = 45000; // force-close if the scrape never reports back
+
+/** Tabs WE opened for syncing → closed on capture, or by the watchdog. MV3 evicts
+ *  this worker, so the watchdog is what guarantees no tab is ever orphaned. */
+const sgySyncTabs = new Set();
+
+function closeSyncTab(tabId) {
+  if (!sgySyncTabs.has(tabId)) return;
+  sgySyncTabs.delete(tabId);
+  try {
+    chrome.tabs.remove(tabId, () => void chrome.runtime.lastError);
+  } catch (_e) {
+    /* already gone */
+  }
+}
+
+function openSyncTab(host) {
+  chrome.tabs.create({ url: 'https://' + host + '/home', active: false }, (tab) => {
+    if (chrome.runtime.lastError || !tab || typeof tab.id !== 'number') return;
+    const id = tab.id;
+    sgySyncTabs.add(id);
+    setTimeout(() => closeSyncTab(id), SGY_TAB_WATCHDOG_MS);
+  });
+}
+
+/** Refresh labels without the student lifting a finger. */
+function backgroundSgySync() {
+  chrome.storage.local.get(['sgy:host', SGY_KEY], (cur) => {
+    const host = (cur && cur['sgy:host']) || (cur && cur[SGY_KEY] && cur[SGY_KEY].host) || '';
+    // Never connected yet → nothing to sync and no host we could legitimately
+    // guess. The first scrape always comes from the student's own visit.
+    if (!host || !/^[\w.-]+\.schoology\.com$/i.test(host)) return;
+    chrome.tabs.query({ url: 'https://*.schoology.com/*' }, (tabs) => {
+      const open = (Array.isArray(tabs) ? tabs : []).filter((t) => typeof t.id === 'number');
+      if (open.length) {
+        // Already there — reuse it and stay invisible.
+        const t = open.find((x) => x.active) || open[0];
+        try {
+          chrome.tabs.sendMessage(t.id, { type: 'SGY_SCRAPE_NOW' }, () => void chrome.runtime.lastError);
+        } catch (_e) {
+          /* content script not injected yet; the alarm retries in 30 min */
+        }
+        return;
+      }
+      openSyncTab(host);
+    });
+  });
+}
+
+function ensureSgyAlarm() {
+  try {
+    chrome.alarms.create(SGY_ALARM, { periodInMinutes: SGY_SYNC_MINUTES, delayInMinutes: 1 });
+  } catch (_e) {
+    /* alarms unavailable — page-visit scraping still works */
+  }
+}
+chrome.runtime.onInstalled.addListener(ensureSgyAlarm);
+chrome.runtime.onStartup.addListener(ensureSgyAlarm);
+ensureSgyAlarm(); // also on cold start, since onInstalled/onStartup don't always fire
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a && a.name === SGY_ALARM) backgroundSgySync();
+});
+
+function sgyDataReply(payload, extra) {
+  return Object.assign(
+    { source: 'workspace-ext', v: PROTOCOL_VERSION, type: 'SGY_DATA', payload: payload || null },
+    extra || {}
+  );
+}
+
+function handleSgyGet(sendResponse) {
+  chrome.storage.local.get(SGY_KEY, (cur) => {
+    sendResponse(sgyDataReply(cur && cur[SGY_KEY]));
+  });
+}
+
+/**
+ * Ask ONE open Schoology tab to re-scrape, WAIT for it to finish, then answer with
+ * the merged storage.
+ *
+ * Two things this must not do. (1) Fan out to every Schoology tab: a student with
+ * five tabs open would fire five concurrent scrapes — ~75 credentialed requests in
+ * a burst, which is what a bot looks like. One tab produces the same data, since
+ * the scrape fetches its own pages regardless of which tab runs it. (2) Reply on a
+ * fixed timer: a real scrape takes ~5-10s (a dozen spaced fetches), so answering
+ * at 2.5s returned PRE-refresh data every time and made "Refresh" look broken. The
+ * content script deliberately holds the channel open until the scrape settles, so
+ * we settle on its callback instead, capped below the app's own timeout.
+ */
+const SGY_SCRAPE_WAIT_MS = 12000; // must stay under the app's REFRESH timeout
+const SGY_SETTLE_MS = 350; // let the tab's SGY_CAPTURE merge land before we read
+
+function handleSgyRefresh(sendResponse) {
+  chrome.tabs.query({ url: 'https://*.schoology.com/*' }, (tabs) => {
+    const list = (Array.isArray(tabs) ? tabs : []).filter((t) => typeof t.id === 'number');
+    const finish = (refreshed) => {
+      chrome.storage.local.get(SGY_KEY, (cur) => {
+        sendResponse(sgyDataReply(cur && cur[SGY_KEY], { refreshed, tabs: list.length }));
+      });
+    };
+    if (!list.length) {
+      finish(false); // nothing to refresh — hand back the last known data immediately
+      return;
+    }
+    // Prefer an active tab; the scrape runs the same either way.
+    const target = list.find((t) => t.active) || list[0];
+    let settled = false;
+    const done = (refreshed) => {
+      if (settled) return;
+      settled = true;
+      setTimeout(() => finish(refreshed), SGY_SETTLE_MS);
+    };
+    const timer = setTimeout(() => done(false), SGY_SCRAPE_WAIT_MS);
+    try {
+      chrome.tabs.sendMessage(target.id, { type: 'SGY_SCRAPE_NOW' }, (reply) => {
+        clearTimeout(timer);
+        // lastError = the content script isn't in that tab yet (installed while the
+        // tab was already open). Report refreshed:false so the app can say so.
+        done(!chrome.runtime.lastError && !!reply);
+      });
+    } catch (_e) {
+      clearTimeout(timer);
+      done(false);
+    }
+  });
+}
+
 function pongPayload() {
   return {
     source: 'workspace-ext',
@@ -125,6 +314,16 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
     return true; // keep the channel open for the async storage write
   }
 
+  if (msg.type === 'SGY_GET') {
+    handleSgyGet(sendResponse);
+    return true; // async storage read
+  }
+
+  if (msg.type === 'SGY_REFRESH') {
+    handleSgyRefresh(sendResponse);
+    return true; // async: tab round-trip + storage read
+  }
+
   // Unknown external message — ignore.
 });
 
@@ -142,6 +341,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return; // no response
   }
 
+  // A Schoology page just scraped its course labels (schoology.js). No response.
+  if (msg.type === 'SGY_CAPTURE') {
+    handleSgyCapture(msg.payload);
+    // If this came from a tab WE opened for a background sync, its job is done —
+    // close it immediately so the student never notices it existed. (The watchdog
+    // is the backstop for a scrape that never reports.)
+    const fromTab = _sender && _sender.tab && _sender.tab.id;
+    if (typeof fromTab === 'number') closeSyncTab(fromTab);
+    return;
+  }
+
   // The postMessage bridge relays app messages here when externally_connectable
   // is unavailable (dev / non-Chrome). Same handlers, internal transport.
   if (msg.source === 'workspace') {
@@ -151,6 +361,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
     if (msg.type === 'SYNC_SHORTCUTS') {
       handleSync(msg.config, sendResponse);
+      return true;
+    }
+    if (msg.type === 'SGY_GET') {
+      handleSgyGet(sendResponse);
+      return true;
+    }
+    if (msg.type === 'SGY_REFRESH') {
+      handleSgyRefresh(sendResponse);
       return true;
     }
   }
@@ -176,6 +394,20 @@ function injectContentScript(tabId, url) {
       void chrome.runtime.lastError; // some tabs still refuse; ignore quietly
     }
   );
+  // Same reasoning for the Schoology scraper: the manifest entry only fires on
+  // navigations AFTER the extension loads, so a Schoology tab that was already
+  // open at install time would have no scraper — and a "Refresh" from the app
+  // would silently find nothing to talk to. Top frame only, matching the manifest
+  // entry and schoology.js's own top-frame guard; its __wsSgyLoaded guard makes a
+  // double injection a no-op.
+  if (/^https:\/\/[^/]*\.schoology\.com\//i.test(url || '')) {
+    chrome.scripting.executeScript(
+      { target: { tabId, allFrames: false }, files: ['schoology.js'] },
+      () => {
+        void chrome.runtime.lastError;
+      }
+    );
+  }
 }
 
 function injectIntoOpenTabs() {

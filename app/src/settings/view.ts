@@ -9,7 +9,7 @@
 // #region Imports & types — dependencies, the draft model, the options object
 import type { Data } from '../db';
 import type { CourseConfig, SchoologySettings } from '../types';
-import { el, textInput, escapeHtml } from '../util/dom';
+import { el, textInput, escapeHtml, enterConfirms } from '../util/dom';
 import { genId } from '../util/ids';
 import { capitalizeName } from '../util/names';
 import { getCourses, replaceCourses } from '../courses/registry';
@@ -88,15 +88,15 @@ interface Draft {
 const HELP: Record<string, { title: string; text: string }> = {
   account: {
     title: 'Your account',
-    text: 'The login this WorkSpace belongs to. It’s set by how you signed in (Google, later) and can’t be changed here — your data is tied to it.',
+    text: 'The login this WorkSpace belongs to. It’s set by how you signed in (Google, later) and can’t be changed here. Your data is tied to it.',
   },
   name: {
     title: 'Your name',
-    text: 'What WorkSpace calls you — in your greeting and across the app. It’s always capitalized, and you can change it anytime.',
+    text: 'What WorkSpace calls you, in your greeting and across the app. It’s always capitalized, and you can change it anytime.',
   },
   ical: {
     title: 'Schoology calendar link',
-    text: 'Your personal Schoology calendar (iCal) link. WorkSpace uses it to import your assignments automatically. Find it in Schoology under Settings → your calendar feed, then paste it here.\n\nIt’s read-only and has no password in it — WorkSpace never sees your Schoology login, and you can reset the link in Schoology anytime.',
+    text: 'Your personal Schoology calendar (iCal) link. WorkSpace uses it to import your assignments automatically. Find it in Schoology under Settings → your calendar feed, then paste it here.\n\nIt’s read-only and has no password in it. WorkSpace never sees your Schoology login, and you can reset the link in Schoology anytime.',
   },
   course: {
     title: 'Course name',
@@ -104,7 +104,7 @@ const HELP: Record<string, { title: string; text: string }> = {
   },
   color: {
     title: 'Course color',
-    text: 'The color shown for this course — its dot and label in Tasks, the Dashboard, and Focus.',
+    text: 'The color shown for this course: its dot and label in Tasks, the Dashboard, and Focus.',
   },
   parseWords: {
     title: 'Parse words',
@@ -112,7 +112,7 @@ const HELP: Record<string, { title: string; text: string }> = {
   },
   endSound: {
     title: 'Focus end sound',
-    text: 'The sound that plays when a focus session finishes — a clear, several-seconds-long cue so you know the session is over. Drag Volume to set how loud it is. Tap ▶ to preview any option (tap again to stop), then tap a sound to choose it. Your choice saves the moment you make it.',
+    text: 'The sound that plays when a focus session finishes: a clear, several-seconds-long cue so you know the session is over. Drag Volume to set how loud it is. Tap ▶ to preview any option (tap again to stop), then tap a sound to choose it. Your choice saves the moment you make it.',
   },
 };
 // #endregion
@@ -198,7 +198,7 @@ export class SettingsView {
       Profile: 'Your account and how WorkSpace behaves for you.',
       Tasks: 'Where your assignments come from, what gets imported, and how the calendar looks.',
       Courses: "Name, color, and auto-file each class's assignments with parse words.",
-      Focus: 'Defaults for your focus sessions — sound, timer, and music.',
+      Focus: 'Defaults for your focus sessions: sound, timer, and music.',
       Notifications: 'Assignment reminders and daily digests, with a live preview of each.',
     };
     for (const [label, sec] of tabs) {
@@ -365,7 +365,7 @@ export class SettingsView {
         const r = await runSync(this.data);
         this.schoologyMeta = (await this.data.getProfile<SchoologySettings>('schoology')) || this.schoologyMeta;
         this.setSyncStatus(
-          `Synced — ${r.added} new${r.updated ? `, ${r.updated} updated` : ''}${r.skipped - r.updated > 0 ? `, ${r.skipped - r.updated} unchanged` : ''}.`
+          `Synced: ${r.added} new${r.updated ? `, ${r.updated} updated` : ''}${r.skipped - r.updated > 0 ? `, ${r.skipped - r.updated} unchanged` : ''}.`
         );
       } catch (err) {
         this.setSyncStatus('Sync failed: ' + (err as Error).message, true);
@@ -394,6 +394,7 @@ export class SettingsView {
     back.addEventListener('click', (e) => {
       if (e.target === back) back.remove();
     });
+    enterConfirms(back, () => yes); // Enter = Yes (the confirm's whole point)
     document.body.append(back);
   }
   // #endregion
@@ -517,7 +518,7 @@ export class SettingsView {
     sec.append(preview);
 
     const SAMPLE_QUOTES: Record<AppPrefs['dash']['quoteStyle'], [string, string]> = {
-      stoic: ['Begin — to begin is half the work.', 'Marcus Aurelius'],
+      stoic: ['Begin. To begin is half the work.', 'Marcus Aurelius'],
       modern: ['The way to get started is to quit talking and begin doing.', 'Walt Disney'],
       literary: ['It is our choices that show what we truly are.', 'J.K. Rowling'],
       science: ['Somewhere, something incredible is waiting to be known.', 'Carl Sagan'],
@@ -687,6 +688,19 @@ export class SettingsView {
       )
     );
 
+    // --- Editing (the intrinsic-field lock; see tasks/render.ts editingUnlocked) ---
+    sec.append(el('div', { class: 'settings-group-label', text: '✏️ Editing' }));
+    sec.append(
+      this.prefRow(
+        'Edit task details',
+        'Allow changing a task’s title, course, and due date (double-click them). Off keeps them exactly as posted; priority, folders, and attachments stay editable either way.',
+        this.prefSwitch(p.tasks.allowEdit, (on) => {
+          p.tasks.allowEdit = on;
+          save();
+        })
+      )
+    );
+
     // --- Calendar (the Tasks tab's calendar mode) ---
     sec.append(el('div', { class: 'settings-group-label', text: '🗓️ Calendar' }));
     sec.append(
@@ -787,7 +801,7 @@ export class SettingsView {
       for (const t of imported) await this.data.removeTask(t.id);
       btn.textContent = `Removed ${imported.length}`;
     } catch {
-      btn.textContent = 'Failed — try again';
+      btn.textContent = 'Failed, try again';
     } finally {
       btn.disabled = false;
       window.setTimeout(() => (btn.textContent = 'Remove all'), 2500);
@@ -1041,7 +1055,7 @@ export class SettingsView {
       });
       picker.append(opt);
     }
-    const clearOpt = el('button', { class: 'emoji-picker-clear', text: 'None — use the 🎵 default' });
+    const clearOpt = el('button', { class: 'emoji-picker-clear', text: 'None (use the 🎵 default)' });
     clearOpt.addEventListener('mousedown', (ev) => {
       ev.preventDefault();
       pick('');
@@ -1132,6 +1146,7 @@ export class SettingsView {
     back.addEventListener('click', (e) => {
       if (e.target === back) back.remove();
     });
+    enterConfirms(back, () => save); // Enter = Save (no-ops until name + a song exist)
     document.body.append(back);
   }
 
@@ -1162,7 +1177,7 @@ export class SettingsView {
         p === 'granted'
           ? 'Allowed by your browser ✓'
           : p === 'denied'
-            ? 'Blocked by your browser — allow notifications for this site, then reload.'
+            ? 'Blocked by your browser. Allow notifications for this site, then reload.'
             : p === 'unsupported'
               ? 'This browser doesn’t support notifications.'
               : 'Your browser will ask permission when you turn reminders on.';
@@ -1244,7 +1259,7 @@ export class SettingsView {
     // Deliberately no input: an editable address would let notifications be aimed at
     // someone else's inbox.
     const gmailNote = el('div', { class: 'ngmail-note' });
-    gmailNote.innerHTML = `✉ Gmail notifications go to <b>${escapeHtml(this.opts.email || 'your account email')}</b> — your sign-in email.`;
+    gmailNote.innerHTML = `✉ Gmail notifications go to <b>${escapeHtml(this.opts.email || 'your account email')}</b>, your sign-in email.`;
 
     // --- appearance checklist ---
     const appear = el('div', { class: 'nappear' });
@@ -1387,8 +1402,8 @@ export class SettingsView {
         { course: 'Science', priority: 'High', nowMs: now, dueMs: now + soonest * 60_000, leadMins: soonest },
         n.appearance
       );
-      dueToast.set('Due soon — Science lab writeup', body);
-      dueMail.set('Due soon — Science lab writeup', body);
+      dueToast.set('Due soon: Science lab writeup', body);
+      dueMail.set('Due soon: Science lab writeup', body);
       const names = [...n.dueSoon.leads].sort((a, b) => b - a).map((m) => leadLabel(m));
       dueCap.innerHTML = names.length ? `A reminder fires <b>${joinList(names)}</b> before it’s due.` : '';
     };
@@ -1526,8 +1541,8 @@ export class SettingsView {
         naMail.set('3 new assignments', `Imported in the last ${intervalLabel(n.newAssignment.intervalMins)}.`);
       } else {
         const body = taskInfoBody({ course: 'History', priority: 'Normal', dueMs: sampleDue }, n.appearance);
-        naToast.set('New assignment — Essay outline', body);
-        naMail.set('New assignment — Essay outline', body);
+        naToast.set('New assignment: Essay outline', body);
+        naMail.set('New assignment: Essay outline', body);
       }
       naCap.innerHTML = `Checks for new work every <b>${intervalLabel(n.newAssignment.intervalMins)}</b>.`;
     };
@@ -1578,7 +1593,7 @@ export class SettingsView {
       fsToast.set('⏰ Focus session complete!', '25 min focused • 3/4 tasks done');
       fsMail.set('⏰ Focus session complete!', '25 min focused • 3/4 tasks done');
     };
-    const fsCap = el('div', { class: 'nwheel-cap', text: 'Fires when your focus timer reaches zero. No setup — it just cheers you on.' });
+    const fsCap = el('div', { class: 'nwheel-cap', text: 'Fires when your focus timer reaches zero. No setup. It just cheers you on.' });
     const fsTest = buildTest(() => fsToast.get());
     const fsEmailTest = buildTest(() => fsToast.get(), 'gmail');
     fsInner.append(fsCap, fsToast.el, fsTest, fsMail.el, fsEmailTest);
@@ -1684,7 +1699,7 @@ export class SettingsView {
         // ---- index: every cause, most likely first ----
         card.append(
           el('div', { class: 'ngd-title', text: 'Notification not showing?' }),
-          el('div', { class: 'ngd-sub', text: 'Work down this list — it’s ordered by how often each cause is the culprit. Every guide plays the fix step by step.' })
+          el('div', { class: 'ngd-sub', text: 'Work down this list. It’s ordered by how often each cause is the culprit. Every guide plays the fix step by step.' })
         );
         const list = el('div', { class: 'ngd-list' });
         NOTIFY_GUIDES.forEach((g, i) => {
@@ -1725,7 +1740,7 @@ export class SettingsView {
       const prev = el('button', { class: 'ngd-btn', text: 'Back' }) as HTMLButtonElement;
       prev.style.visibility = si === 0 ? 'hidden' : 'visible';
       prev.addEventListener('click', () => go(-1));
-      const next = el('button', { class: 'ngd-btn ngd-next', text: si === g.steps.length - 1 ? 'Done — next cause' : 'Next' }) as HTMLButtonElement;
+      const next = el('button', { class: 'ngd-btn ngd-next', text: si === g.steps.length - 1 ? 'Done, next cause' : 'Next' }) as HTMLButtonElement;
       next.addEventListener('click', () => {
         if (si < g.steps.length - 1) go(1);
         else {

@@ -35,7 +35,7 @@ const STOIC: Quote[] = [
   { text: "The two most powerful warriors are patience and time.", author: "Epictetus" },
   { text: "The key is to keep company only with people who uplift you, whose presence calls forth your best.", author: "Epictetus" },
   { text: "Don't just say you have read books. Show that through them you have learned to think better.", author: "Epictetus" },
-  { text: "Curb your desire — don't set your heart on so many things and you will get what you need.", author: "Epictetus" },
+  { text: "Curb your desire: don't set your heart on so many things and you will get what you need.", author: "Epictetus" },
   { text: "He who is not satisfied with little is satisfied with nothing.", author: "Epictetus" },
   { text: "If your choices are beautiful, so too will you be.", author: "Epictetus" },
   { text: "It is impossible for a man to learn what he thinks he already knows.", author: "Epictetus" },
@@ -43,13 +43,13 @@ const STOIC: Quote[] = [
 
   // ===== MARCUS AURELIUS =====
   { text: "The impediment to action advances action. What stands in the way becomes the way.", author: "Marcus Aurelius" },
-  { text: "You have power over your mind — not outside events. Realize this, and you will find strength.", author: "Marcus Aurelius" },
+  { text: "You have power over your mind, not outside events. Realize this, and you will find strength.", author: "Marcus Aurelius" },
   { text: "Reject your sense of injury and the injury itself disappears.", author: "Marcus Aurelius" },
   { text: "Waste no more time arguing what a good man should be. Be one.", author: "Marcus Aurelius" },
   { text: "The best revenge is to be unlike him who performed the injury.", author: "Marcus Aurelius" },
   { text: "Confine yourself to the present.", author: "Marcus Aurelius" },
   { text: "Everything we hear is an opinion, not a fact. Everything we see is a perspective, not the truth.", author: "Marcus Aurelius" },
-  { text: "When you arise in the morning, think of what a precious privilege it is to be alive — to breathe, to think, to enjoy, to love.", author: "Marcus Aurelius" },
+  { text: "When you arise in the morning, think of what a precious privilege it is to be alive: to breathe, to think, to enjoy, to love.", author: "Marcus Aurelius" },
   { text: "Dwell on the beauty of life. Watch the stars, and see yourself running with them.", author: "Marcus Aurelius" },
   { text: "If it is not right, do not do it; if it is not true, do not say it.", author: "Marcus Aurelius" },
   { text: "The happiness of your life depends upon the quality of your thoughts.", author: "Marcus Aurelius" },
@@ -59,7 +59,7 @@ const STOIC: Quote[] = [
   { text: "The soul becomes dyed with the color of its thoughts.", author: "Marcus Aurelius" },
   { text: "Anywhere you can lead your life, you can lead a good one.", author: "Marcus Aurelius" },
   { text: "Be tolerant with others and strict with yourself.", author: "Marcus Aurelius" },
-  { text: "Choose not to be harmed — and you won't feel harmed. Don't feel harmed — and you haven't been.", author: "Marcus Aurelius" },
+  { text: "Choose not to be harmed, and you won't feel harmed. Don't feel harmed, and you haven't been.", author: "Marcus Aurelius" },
   { text: "External things are not the problem. It's your assessment of them. Which you can erase right now.", author: "Marcus Aurelius" },
   { text: "It is in your power to withdraw yourself whenever you desire.", author: "Marcus Aurelius" },
   { text: "The universe is change; our life is what our thoughts make it.", author: "Marcus Aurelius" },
@@ -67,10 +67,10 @@ const STOIC: Quote[] = [
   { text: "He who lives in harmony with himself lives in harmony with the universe.", author: "Marcus Aurelius" },
   { text: "Do not act as if you had ten thousand years to throw away. Be good for something while you live and it is in your power.", author: "Marcus Aurelius" },
   { text: "A man's worth is no greater than the worth of his ambitions.", author: "Marcus Aurelius" },
-  { text: "Begin — to begin is half the work.", author: "Marcus Aurelius" },
+  { text: "Begin. To begin is half the work.", author: "Marcus Aurelius" },
   { text: "The art of living is more like wrestling than dancing.", author: "Marcus Aurelius" },
   { text: "The mind is everything; what you think, you become.", author: "Marcus Aurelius" },
-  { text: "Stop drifting — start living.", author: "Marcus Aurelius" },
+  { text: "Stop drifting. Start living.", author: "Marcus Aurelius" },
   { text: "Do not waste the remainder of your life thinking about other people.", author: "Marcus Aurelius" },
   { text: "Each of us lives only now, this brief instant.", author: "Marcus Aurelius" },
   { text: "Death? Necessary. Fear of it? Foolish.", author: "Marcus Aurelius" },
@@ -215,7 +215,7 @@ const MODERN: Quote[] = [
 
   // ===== KOBE BRYANT =====
   { text: "The moment you give up is the moment you let someone else win.", author: "Kobe Bryant" },
-  { text: "Everything negative — pressure, challenges — is all an opportunity for me to rise.", author: "Kobe Bryant" },
+  { text: "Everything negative, pressure, challenges, is all an opportunity for me to rise.", author: "Kobe Bryant" },
   { text: "Great things come from hard work and perseverance. No excuses.", author: "Kobe Bryant" },
   { text: "I have self-doubt. I have insecurity. I have fear of failure. We all have self-doubt. You don't deny it, but you also don't capitulate to it.", author: "Kobe Bryant" },
   { text: "Once you know what failure feels like, determination chases success.", author: "Kobe Bryant" },
@@ -242,7 +242,7 @@ const MODERN: Quote[] = [
   { text: "Success is not final, failure is not fatal: it is the courage to continue that counts.", author: "Winston Churchill" },
   { text: "Never, never, never give up.", author: "Winston Churchill" },
   { text: "Attitude is a little thing that makes a big difference.", author: "Winston Churchill" },
-  { text: "Continuous effort — not strength or intelligence — is the key to unlocking our potential.", author: "Winston Churchill" },
+  { text: "Continuous effort, not strength or intelligence, is the key to unlocking our potential.", author: "Winston Churchill" },
   { text: "A pessimist sees the difficulty in every opportunity; an optimist sees the opportunity in every difficulty.", author: "Winston Churchill" },
   { text: "If you're going through hell, keep going.", author: "Winston Churchill" },
   { text: "Courage is what it takes to stand up and speak; courage is also what it takes to sit down and listen.", author: "Winston Churchill" },
@@ -268,7 +268,7 @@ const MODERN: Quote[] = [
   { text: "Life's most persistent and urgent question is, 'What are you doing for others?'", author: "Martin Luther King Jr." },
   { text: "We must accept finite disappointment, but never lose infinite hope.", author: "Martin Luther King Jr." },
   { text: "The ultimate measure of a man is not where he stands in moments of comfort, but where he stands at times of challenge.", author: "Martin Luther King Jr." },
-  { text: "Intelligence plus character — that is the goal of true education.", author: "Martin Luther King Jr." },
+  { text: "Intelligence plus character: that is the goal of true education.", author: "Martin Luther King Jr." },
 
   // ===== FRED ROGERS =====
   { text: "Often when you think you're at the end of something, you're at the beginning of something else.", author: "Fred Rogers" },
@@ -318,7 +318,7 @@ const MODERN: Quote[] = [
   { text: "The only place success comes before work is in the dictionary.", author: "Vince Lombardi" },
   { text: "Winners never quit and quitters never win.", author: "Vince Lombardi" },
   { text: "The measure of who we are is what we do with what we have.", author: "Vince Lombardi" },
-  { text: "Individual commitment to a group effort — that is what makes a team work.", author: "Vince Lombardi" },
+  { text: "Individual commitment to a group effort: that is what makes a team work.", author: "Vince Lombardi" },
   { text: "Once you learn to quit, it becomes a habit.", author: "Vince Lombardi" },
 
   // ===== AMELIA EARHART =====
@@ -334,10 +334,10 @@ const MODERN: Quote[] = [
   { text: "Keep your face to the sunshine and you cannot see a shadow.", author: "Helen Keller" },
   { text: "Life is either a daring adventure or nothing at all.", author: "Helen Keller" },
   { text: "Character cannot be developed in ease and quiet. Only through experience of trial and suffering can the soul be strengthened.", author: "Helen Keller" },
-  { text: "The best and most beautiful things in the world cannot be seen or even touched — they must be felt with the heart.", author: "Helen Keller" },
+  { text: "The best and most beautiful things in the world cannot be seen or even touched. They must be felt with the heart.", author: "Helen Keller" },
 
   // ===== HENRY FORD =====
-  { text: "Whether you think you can, or you think you can't — you're right.", author: "Henry Ford" },
+  { text: "Whether you think you can, or you think you can't, you're right.", author: "Henry Ford" },
   { text: "Nothing is particularly hard if you divide it into small jobs.", author: "Henry Ford" },
   { text: "When everything seems to be going against you, remember that the airplane takes off against the wind, not with it.", author: "Henry Ford" },
   { text: "Quality means doing it right when no one is looking.", author: "Henry Ford" },
@@ -365,7 +365,7 @@ const LITERARY: Quote[] = [
   // ===== MARK TWAIN =====
   { text: "The secret of getting ahead is getting started.", author: "Mark Twain" },
   { text: "Continuous improvement is better than delayed perfection.", author: "Mark Twain" },
-  { text: "Courage is resistance to fear, mastery of fear — not absence of fear.", author: "Mark Twain" },
+  { text: "Courage is resistance to fear, mastery of fear, not absence of fear.", author: "Mark Twain" },
   { text: "The two most important days in your life are the day you are born and the day you find out why.", author: "Mark Twain" },
   { text: "Twenty years from now you will be more disappointed by the things you didn't do than by the ones you did do.", author: "Mark Twain" },
   { text: "Kindness is the language which the deaf can hear and the blind can see.", author: "Mark Twain" },
@@ -428,12 +428,12 @@ const LITERARY: Quote[] = [
   { text: "The sum of the whole is this: walk and be happy; walk and be healthy.", author: "Charles Dickens" },
   { text: "A very little key will open a very heavy door.", author: "Charles Dickens" },
   { text: "I will honour Christmas in my heart, and try to keep it all the year.", author: "Charles Dickens" },
-  { text: "Procrastination is the thief of time — collar him.", author: "Charles Dickens" },
+  { text: "Procrastination is the thief of time. Collar him.", author: "Charles Dickens" },
 
   // ===== JANE AUSTEN =====
   { text: "It isn't what we say or think that defines us, but what we do.", author: "Jane Austen" },
   { text: "There is no charm equal to tenderness of heart.", author: "Jane Austen" },
-  { text: "Know your own happiness. Want for nothing but patience — or give it a more fascinating name: call it hope.", author: "Jane Austen" },
+  { text: "Know your own happiness. Want for nothing but patience, or give it a more fascinating name: call it hope.", author: "Jane Austen" },
   { text: "I hate to hear you talk about all women as if they were fine ladies instead of rational creatures.", author: "Jane Austen" },
   { text: "We have all a better guide in ourselves, if we would attend to it, than any other person can be.", author: "Jane Austen" },
 
@@ -456,7 +456,7 @@ const LITERARY: Quote[] = [
   { text: "Courage is grace under pressure.", author: "Ernest Hemingway" },
   { text: "The world breaks everyone, and afterward, many are strong at the broken places.", author: "Ernest Hemingway" },
   { text: "Now is no time to think of what you do not have. Think of what you can do with what there is.", author: "Ernest Hemingway" },
-  { text: "The first draft of anything is rubbish — rewrite it.", author: "Ernest Hemingway" },
+  { text: "The first draft of anything is rubbish. Rewrite it.", author: "Ernest Hemingway" },
   { text: "Never mistake motion for action.", author: "Ernest Hemingway" },
 
   // ===== F. SCOTT FITZGERALD =====
@@ -560,7 +560,7 @@ const SCIENCE: Quote[] = [
 
   // ===== RICHARD FEYNMAN =====
   { text: "I would rather have questions that can't be answered than answers that can't be questioned.", author: "Richard Feynman" },
-  { text: "The first principle is that you must not fool yourself — and you are the easiest person to fool.", author: "Richard Feynman" },
+  { text: "The first principle is that you must not fool yourself, and you are the easiest person to fool.", author: "Richard Feynman" },
   { text: "Study hard what interests you the most in the most undisciplined, irreverent and original manner possible.", author: "Richard Feynman" },
   { text: "Fall in love with some activity, and do it!", author: "Richard Feynman" },
   { text: "Nature uses only the longest threads to weave her patterns, so each small piece of her fabric reveals the organization of the entire tapestry.", author: "Richard Feynman" },

@@ -1,17 +1,22 @@
-// WorkSpace — sign-in screen (the "Try now" front door).
+// WorkSpace — sign-in screen (the landing page's "Get started" / "Log in" door).
 //
-// A centered, WorkSpace-branded card (wordmark + email/password + Google), shown
-// as an overlay over the landing page instead of signing the visitor in directly.
-// Only two methods, by design: manual email/password and Continue with Google.
+// Visually IDENTICAL to the final slide of the onboarding deck: big app mark, a
+// white Google pill first, an "or" rule, then email + password and a gold pill.
+// It is a full-screen takeover rather than a floating card — a bordered box over
+// the landing read as a separate widget instead of the next step of the journey.
 //
-// On a successful sign-in the overlay removes itself; onAuthStateChanged (see
-// main.ts) then swaps the landing for the app. The overlay lives on document.body,
-// so it must tear itself down explicitly — a re-render of the app root wouldn't
-// clear it.
+// Two modes on one screen. "Get started" opens SIGNUP, "Log in" opens LOGIN, and
+// a footer link swaps between them, so neither audience is asked to pick a door
+// before they see anything. Both call the same auth, and whether onboarding then
+// runs is decided by the ACCOUNT's `onboarded` flag (see main.ts), never here.
+//
+// On success the overlay removes itself; onAuthStateChanged swaps in the app. It
+// lives on document.body, so it must tear itself down explicitly.
 
 import { el } from '../util/dom';
-import { createWordmark } from './laurel';
 import { signInWithGoogle, continueWithEmail } from '../auth';
+
+export type AuthMode = 'signup' | 'login';
 
 // Google's "G" mark, inline so it needs no network (the CSP/offline-safe way).
 const GOOGLE_G =
@@ -23,7 +28,7 @@ const GOOGLE_G =
   '</svg>';
 
 /** Show the sign-in overlay. Idempotent: a second call focuses the existing one. */
-export function openAuthScreen(): void {
+export function openAuthScreen(mode: AuthMode = 'signup'): void {
   if (document.querySelector('.auth-overlay')) {
     document.querySelector<HTMLInputElement>('.auth-input')?.focus();
     return;
@@ -42,97 +47,143 @@ export function openAuthScreen(): void {
   };
   close.addEventListener('click', teardown);
   overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) teardown(); // click the dim backdrop to dismiss
+    if (e.target === overlay) teardown(); // click the backdrop to dismiss
   });
   document.addEventListener('keydown', onKey);
 
-  // Brand: the real WorkSpace wordmark (the monitor-"o").
-  const logo = el('div', { class: 'auth-logo' });
-  logo.append(createWordmark().el);
+  // The whole screen is rebuilt on a mode swap — simpler than toggling a dozen
+  // strings, and it re-runs the entrance animation, which reads as intentional.
+  const render = (m: AuthMode): void => {
+    const isNew = m === 'signup';
+    card.replaceChildren();
 
-  const title = el('h1', { class: 'auth-title', text: 'Log in or sign up' });
+    const logo = el('img', {
+      class: 'auth-logo',
+      src: '/icons/icon.svg',
+      alt: 'WorkSpace',
+    }) as HTMLImageElement;
 
-  // --- manual email + password -------------------------------------------
-  // Native inputs here (not the wrapping textInput): auth fields need Enter-to-submit
-  // and password masking, and they're short/single-line by nature.
-  const form = el('form', { class: 'auth-form' }) as HTMLFormElement;
-  const email = el('input', {
-    type: 'email',
-    class: 'auth-input',
-    placeholder: 'you@email.com',
-    autocomplete: 'email',
-    inputmode: 'email',
-  }) as HTMLInputElement;
-  const password = el('input', {
-    type: 'password',
-    class: 'auth-input',
-    placeholder: 'Password',
-    autocomplete: 'current-password',
-  }) as HTMLInputElement;
-  const error = el('div', { class: 'auth-error' });
-  const submit = el('button', { class: 'auth-continue', type: 'submit', text: 'Continue' }) as HTMLButtonElement;
+    const title = el('h1', {
+      class: 'auth-title',
+      text: isNew ? 'Create your account' : 'Log in to WorkSpace',
+    });
+    const sub = el('p', {
+      class: 'auth-sub',
+      text: isNew
+        ? 'Your assignments, sorted by class, in one calm place.'
+        : 'Welcome back. Everything is where you left it.',
+    });
 
-  const setError = (msg: string) => {
-    error.textContent = msg;
+    // --- provider first ----------------------------------------------------
+    const googleBtn = el('button', { class: 'auth-google' }) as HTMLButtonElement;
+    const gIcon = el('span', { class: 'auth-google-ico' });
+    gIcon.innerHTML = GOOGLE_G;
+    const gLabel = el('span', { text: 'Continue with Google' });
+    googleBtn.append(gIcon, gLabel);
+
+    const or = el('div', { class: 'auth-or' });
+    or.append(el('span', { text: 'or' }));
+
+    // --- manual email + password -------------------------------------------
+    // Native inputs (not the wrapping textInput): auth fields need Enter-to-submit
+    // and password masking, and they're short and single-line by nature.
+    const form = el('form', { class: 'auth-form' }) as HTMLFormElement;
+    const email = el('input', {
+      type: 'email',
+      class: 'auth-input',
+      placeholder: 'Email',
+      autocomplete: 'email',
+      inputmode: 'email',
+    }) as HTMLInputElement;
+    const password = el('input', {
+      type: 'password',
+      class: 'auth-input',
+      placeholder: 'Password',
+      autocomplete: isNew ? 'new-password' : 'current-password',
+    }) as HTMLInputElement;
+    const error = el('div', { class: 'auth-error' });
+    // gold-sheen = the periodic shine every primary gold button in the product wears.
+    const submit = el('button', {
+      class: 'auth-continue gold-sheen',
+      type: 'submit',
+      text: isNew ? 'Create account' : 'Log in',
+    }) as HTMLButtonElement;
+
+    const setError = (msg: string) => {
+      error.textContent = msg;
+    };
+
+    let busy = false;
+    const setBusy = (on: boolean, activeBtn?: HTMLButtonElement, label?: string) => {
+      busy = on;
+      submit.disabled = on;
+      googleBtn.disabled = on;
+      if (activeBtn && label !== undefined) activeBtn.textContent = label;
+    };
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (busy) return;
+      setError('');
+      const mail = email.value.trim();
+      const pass = password.value;
+      if (!mail) return setError('Enter your email.');
+      if (!pass) return setError('Enter a password.');
+      setBusy(true, submit, isNew ? 'Creating account…' : 'Signing in…');
+      continueWithEmail(mail, pass)
+        .then(teardown) // success → onAuthStateChanged swaps in the app
+        .catch((err: Error) => {
+          setBusy(false, submit, isNew ? 'Create account' : 'Log in');
+          setError(err.message);
+        });
+    });
+    form.append(email, password, error, submit);
+
+    googleBtn.addEventListener('click', () => {
+      if (busy) return;
+      setError('');
+      setBusy(true, undefined);
+      gLabel.textContent = 'Opening Google…';
+      signInWithGoogle()
+        .then(teardown)
+        .catch((err: Error) => {
+          setBusy(false);
+          gLabel.textContent = 'Continue with Google';
+          // A closed/cancelled popup isn't a real error — stay quiet for that one.
+          const code = (err as unknown as { code?: string }).code || '';
+          if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
+            setError('Google sign-in failed. Please try again.');
+          }
+        });
+    });
+
+    // --- footer: swap modes, and the login-only reset link ------------------
+    const foot = el('div', { class: 'auth-foot' });
+    const swap = el('button', { text: isNew ? 'Log in' : 'Create an account' });
+    swap.addEventListener('click', () => render(isNew ? 'login' : 'signup'));
+    foot.append(document.createTextNode(isNew ? 'Already have an account? ' : 'New here? '), swap);
+
+    card.append(close, logo, title, sub, googleBtn, or, form);
+    if (!isNew) {
+      const forgot = el('button', { class: 'auth-mini', text: 'Forgot password?' });
+      forgot.addEventListener('click', () =>
+        setError('Enter your email above, then contact support to reset.')
+      );
+      card.append(forgot);
+    }
+    card.append(foot);
+    if (isNew) {
+      card.append(
+        el('div', {
+          class: 'auth-legal',
+          text: 'By continuing you agree to the Terms and Privacy Policy.',
+        })
+      );
+    }
+    email.focus();
   };
 
-  // A sign-in attempt is in flight → lock the buttons and show progress.
-  let busy = false;
-  const setBusy = (on: boolean, activeBtn?: HTMLButtonElement, label?: string) => {
-    busy = on;
-    submit.disabled = on;
-    googleBtn.disabled = on;
-    if (activeBtn && label !== undefined) activeBtn.textContent = label;
-  };
-
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    if (busy) return;
-    setError('');
-    const mail = email.value.trim();
-    const pass = password.value;
-    if (!mail) return setError('Enter your email.');
-    if (!pass) return setError('Enter a password.');
-    setBusy(true, submit, 'Signing in…');
-    continueWithEmail(mail, pass)
-      .then(teardown) // success → onAuthStateChanged swaps in the app
-      .catch((err: Error) => {
-        setBusy(false, submit, 'Continue');
-        setError(err.message);
-      });
-  });
-
-  form.append(email, password, error, submit);
-
-  // --- divider + Google ---------------------------------------------------
-  const or = el('div', { class: 'auth-or' });
-  or.append(el('span', { text: 'or' }));
-
-  const googleBtn = el('button', { class: 'auth-google' }) as HTMLButtonElement;
-  const gIcon = el('span', { class: 'auth-google-ico' });
-  gIcon.innerHTML = GOOGLE_G;
-  const gLabel = el('span', { text: 'Continue with Google' });
-  googleBtn.append(gIcon, gLabel);
-  googleBtn.addEventListener('click', () => {
-    if (busy) return;
-    setError('');
-    setBusy(true, undefined);
-    gLabel.textContent = 'Opening Google…';
-    signInWithGoogle()
-      .then(teardown)
-      .catch((err: Error) => {
-        setBusy(false);
-        gLabel.textContent = 'Continue with Google';
-        // A closed/cancelled popup isn't a real error — stay quiet for that one.
-        const code = (err as unknown as { code?: string }).code || '';
-        if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
-          setError('Google sign-in failed. Please try again.');
-        }
-      });
-  });
-
-  card.append(close, logo, title, form, or, googleBtn);
+  render(mode);
   overlay.append(card);
   document.body.append(overlay);
-  email.focus();
 }
