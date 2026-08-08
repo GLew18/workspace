@@ -6,13 +6,21 @@ import './ui/components.css';
 import './ui/focus.css';
 import './ui/dashboard.css';
 import './ui/settings.css';
+import './ui/notifylog.css';
 import './ui/bookmarks.css';
 import './ui/landing.css';
 import './ui/auth.css';
 import './ui/onboarding.css';
 
 import type { AuthUser } from './auth';
-import { onAuth, signInLocal, signOut, isLocalMode } from './auth';
+import {
+  onAuth,
+  signInLocal,
+  isLocalMode,
+  needsEmailVerification,
+  resendEmailVerification,
+  refreshVerificationState,
+} from './auth';
 import { openAuthScreen } from './ui/authScreen';
 import { Data } from './db';
 import { mountTabs, type TabController } from './ui/tabs';
@@ -25,12 +33,15 @@ import { initRegistry } from './courses/registry';
 import { initLearn } from './courses/learn';
 import { SettingsView } from './settings/view';
 import { BookmarksView } from './bookmarks/view';
+import { detectExtension } from './bookmarks/shortcuts';
 import { runOnboarding } from './onboarding/view';
 import { renderLanding } from './landing/view';
 import { runSync } from './schoology/sync';
 import { detectSchoologyExtension, requestSgyData, applySgyPayload } from './schoology/extension';
 import { startNotificationScheduler } from './notify/scheduler';
 import { setEmailSink } from './notify/notify';
+import { NotificationLogView } from './notify/logView';
+import { unreadNotifyCount, NOTIFY_LOG_EVENT } from './notify/log';
 import { queueEmail } from './notify/email';
 import { enablePush } from './notify/push';
 import { capitalizeName } from './util/names';
@@ -173,7 +184,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   headerLeft.append(menuBtn, brand);
 
   const userBox = el('div', { class: 'app-user' });
-  const nameSpan = el('span', { text: displayName });
+  const nameSpan = el('span', { class: 'app-user-name', text: displayName });
   const settingsView = new SettingsView(data, {
     displayName,
     email: user.email,
@@ -187,9 +198,30 @@ async function renderApp(user: AuthUser): Promise<void> {
   settingsBtn.innerHTML =
     '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
   settingsBtn.addEventListener('click', () => controller.goToTab('settings'));
-  const out = el('button', { text: 'Sign out' });
-  out.addEventListener('click', () => void signOut());
-  userBox.append(nameSpan, settingsBtn, out);
+
+  // 🔔 Notifications — opens the log screen (a tab, like Settings). The dot on the
+  // bell counts reminders that arrived since the screen was last opened, so a
+  // notification missed while the tab was in the background still gets noticed.
+  const bellBtn = el('button', { class: 'icon-btn', 'aria-label': 'Notifications', title: 'Notifications' });
+  bellBtn.innerHTML =
+    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>';
+  const bellDot = el('span', { class: 'bell-dot' });
+  bellBtn.append(bellDot);
+  const paintBell = (): void => {
+    const n = unreadNotifyCount();
+    bellDot.textContent = n > 9 ? '9+' : String(n);
+    bellDot.classList.toggle('on', n > 0);
+  };
+  paintBell();
+  window.addEventListener(NOTIFY_LOG_EVENT, paintBell);
+  bellBtn.addEventListener('click', () => controller.goToTab('notifications'));
+
+  // No sign-out pill up here on purpose (per Gabe): the only way to sign out is
+  // Settings → Sign out, behind its confirm dialog. One easy top-bar button made
+  // it too casual to leave; this adds the friction back.
+  // Icons first, name last (per Gabe): the two controls sit together as a pair on
+  // the left, with the name reading as the label at the end of the cluster.
+  userBox.append(bellBtn, settingsBtn, nameSpan);
   header.append(headerLeft, userBox);
 
   // --- Sidebar: the slide-out nav drawer (Dashboard / Tasks / Focus / Bookmarks) ---
@@ -207,16 +239,28 @@ async function renderApp(user: AuthUser): Promise<void> {
     navBtns.set(it.id, b);
     sidebar.append(b);
   }
-  // Settings is in the header now, but still register its button so it picks up
-  // the "active" highlight when the settings tab is showing.
+  // Settings and the bell live in the header, not the drawer, but both still
+  // register so they pick up the "active" highlight when their tab is showing.
   navBtns.set('settings', settingsBtn);
+  navBtns.set('notifications', bellBtn);
 
   const tabsHost = el('div', { class: 'app' }); // centered content column
   below.append(sidebar, tabsHost);
   root.append(header, below);
 
+  // Verify-your-email nudge. Mounted in .app-below, NOT inside .app: the .app
+  // column is capped at 1180px on every tab except Settings (which removes the
+  // cap), so a banner inside it would change width tab to tab. Out here it always
+  // spans the full content area, matching Settings. It shows on every tab, is
+  // dismissible, and never blocks anything: this is a study app a friend
+  // recommended at lunch, not a bank. See signUpWithEmail for the stake, an
+  // unverified password is silently dropped the first time the same student uses
+  // "Continue with Google", and verifying is what prevents that.
+  void mountVerifyNudge(below, tabsHost);
+
   // --- Tabs + their views: each tab's content is built by its own module ---
   let controller: TabController;
+  const notifyLogView = new NotificationLogView();
   const dashboardView = new DashboardView(data, displayName, (id) => controller.goToTab(id));
   const tasksView = new TasksView(data);
   const focusView = new FocusView(data);
@@ -230,6 +274,8 @@ async function renderApp(user: AuthUser): Promise<void> {
       { id: 'bookmarks', label: 'Bookmarks', render: (p) => void new BookmarksView(data).mount(p) },
       // Re-mount every visit so unsaved edits revert to the last-saved version.
       { id: 'settings', label: 'Settings', onShow: (p) => void settingsView.mount(p) },
+      // Same deal: re-mount so the log is current every time the bell is pressed.
+      { id: 'notifications', label: 'Notifications', onShow: (p) => notifyLogView.mount(p) },
     ],
     (id) => navBtns.forEach((b, k) => b.classList.toggle('active', k === id))
   );
@@ -237,6 +283,12 @@ async function renderApp(user: AuthUser): Promise<void> {
   // Restore an in-progress focus session (e.g. after a mid-session reload),
   // regardless of which tab is showing.
   void focusView.bootRestore();
+
+  // Warm the extension-detect cache once at boot. "Open all" has to decide
+  // synchronously whether tab-grouping is available (awaiting a detect inside the
+  // click would spend the user gesture and get the fallback popup-blocked), so it
+  // reads this cached answer — which needs to already exist by the first click.
+  void detectExtension();
 
   // Background sync — driven by Settings ▸ Tasks ▸ Syncing: an on-open sync
   // (optional) plus a background re-sync at the chosen interval while the app
@@ -311,7 +363,63 @@ async function renderApp(user: AuthUser): Promise<void> {
 }
 // #endregion
 
+/**
+ * The "verify your email" nudge: shown only to accounts that actually have an
+ * unverified PASSWORD credential (a Google-only account has no password to lose).
+ *
+ * Dismissal lasts the session, not forever, so ignoring it once doesn't hide the
+ * warning permanently. It also re-checks whenever the tab regains focus, since
+ * clicking the link happens in a DIFFERENT tab and `emailVerified` is cached here
+ * until we explicitly reload the user.
+ */
+const VERIFY_DISMISS_KEY = 'ws:verifyNudgeDismissed';
+
+async function mountVerifyNudge(host: HTMLElement, before: HTMLElement): Promise<void> {
+  if (sessionStorage.getItem(VERIFY_DISMISS_KEY) === '1') return;
+  if (!(await needsEmailVerification())) return;
+
+  const bar = el('div', { class: 'verify-bar' });
+  const text = el('div', {
+    class: 'verify-text',
+    text: 'Verify your email so your password keeps working. Check your inbox for the link.',
+  });
+  const resend = el('button', { class: 'verify-btn', text: 'Resend email' });
+  const dismiss = el('button', { class: 'verify-x', text: '✕', title: 'Hide for now' });
+
+  resend.addEventListener('click', () => {
+    resend.disabled = true;
+    resend.textContent = 'Sending…';
+    void resendEmailVerification()
+      .then(() => {
+        text.textContent = 'Sent. Click the link in your inbox, then come back to this tab.';
+        resend.textContent = 'Sent ✓';
+      })
+      .catch((err: Error) => {
+        text.textContent = err.message;
+        resend.disabled = false;
+        resend.textContent = 'Resend email';
+      });
+  });
+  dismiss.addEventListener('click', () => {
+    sessionStorage.setItem(VERIFY_DISMISS_KEY, '1');
+    bar.remove();
+  });
+
+  bar.append(text, resend, dismiss);
+  host.insertBefore(bar, before); // above the tab column, inside the scrolling area
+
+  // They click the link in another tab; this one only finds out if it asks.
+  const recheck = (): void => {
+    if (!bar.isConnected) return;
+    void refreshVerificationState().then((verified) => {
+      if (verified) bar.remove();
+    });
+  };
+  window.addEventListener('focus', recheck);
+}
+
 // #region Auth wiring — render the app on sign-in, the sign-in screen on sign-out
+
 let currentUid: string | null = null;
 onAuth((user) => {
   if (user) {

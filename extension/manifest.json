@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "WorkSpace Shortcuts",
-  "description": "Companion extension for WorkSpace: makes your link keyboard shortcuts fire from any tab in the browser, not just while WorkSpace is focused.",
+  "name": "WorkSpace Premium",
+  "description": "Premium companion for WorkSpace: global link shortcuts from any tab, real course names from Schoology, and Open all launching into named Chrome tab groups.",
   "version": "1.0.0",
   "minimum_chrome_version": "102",
-  "permissions": ["storage", "tabs", "scripting", "alarms"],
+  "permissions": ["storage", "tabs", "tabGroups", "scripting", "alarms"],
   "host_permissions": ["<all_urls>"],
   "externally_connectable": {
     "matches": [
@@ -41,7 +41,7 @@
   ],
   "options_page": "options.html",
   "action": {
-    "default_title": "WorkSpace Shortcuts",
+    "default_title": "WorkSpace Premium",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",

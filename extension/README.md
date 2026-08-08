@@ -1,4 +1,4 @@
-# WorkSpace Shortcuts (companion extension)
+# WorkSpace Premium (companion extension)
 
 A small MV3 Chrome/Edge extension that makes the keyboard shortcuts you set on
 the **Links** tab of the WorkSpace web app fire from **any tab in the browser**,
@@ -60,7 +60,7 @@ WorkSpace web app  ──(externally_connectable / postMessage bridge)──▶ 
 3. Toggle **Developer mode** on (top-right).
 4. Click **Load unpacked**.
 5. Select this **`extension/`** folder (the one containing `manifest.json`).
-6. The card shows **WorkSpace Shortcuts** with an **ID** like
+6. The card shows **WorkSpace Premium** with an **ID** like
    `abcdefghijklmnopabcdefghijklmnop`. **Copy that ID.**
 7. Tell the web app which extension you loaded, one of:
    - In the WorkSpace tab's DevTools console:
@@ -69,7 +69,7 @@ WorkSpace web app  ──(externally_connectable / postMessage bridge)──▶ 
      automatically on localhost, so the app can detect + learn the id without you
      pasting anything.
 8. Open WorkSpace → **Links** tab → add a shortcut on a card. The banner should
-   read **"WorkSpace Shortcuts extension connected."** Switch to another tab,
+   read **"WorkSpace Premium extension connected."** Switch to another tab,
    press the combo, and the link opens.
 
 Verify on the extension's **Details → Extension options** page (or the puzzle-piece

@@ -1,4 +1,4 @@
-// WorkSpace Shortcuts — Schoology course-labeling content script.
+// WorkSpace Premium — Schoology course-labeling content script.
 //
 // Runs on https://*.schoology.com/* at document_idle. The iCal feed the app
 // imports has NO course names, so the app guesses courses heuristically. This

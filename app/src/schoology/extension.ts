@@ -32,6 +32,7 @@ import { getCourses, addCourse, registryHydratedFromStore } from '../courses/reg
 import { DEFAULT_COURSE_COLOR } from '../courses/maps';
 import { detectExtension, EXTENSION_ID, PROTOCOL_VERSION, PING_TIMEOUT_MS } from '../bookmarks/shortcuts';
 import { genId } from '../util/ids';
+import { isSchoologyIcalUrl } from './ical';
 
 // #region Public types — mirrored field-for-field in the extension (plain JS side)
 export interface SgyCourse {
@@ -109,17 +110,10 @@ export async function detectSchoologyExtension(timeoutMs?: number): Promise<bool
 }
 
 /** Is this the student's own Schoology personal-calendar feed? Anything else must
- *  never reach account settings (see the icalUrl note in coercePayload). */
-function isSchoologyFeedUrl(url: string): boolean {
-  try {
-    const u = new URL(url.replace(/^webcal:/i, 'https:'));
-    const host = u.hostname.toLowerCase();
-    const onSchoology = host === 'schoology.com' || host.endsWith('.schoology.com');
-    return onSchoology && /\/calendar\/feed\//i.test(u.pathname);
-  } catch {
-    return false;
-  }
-}
+ *  never reach account settings (see the icalUrl note in coercePayload).
+ *  The check itself now lives in schoology/ical.ts (isSchoologyIcalUrl) so
+ *  onboarding, Settings, and this wire-payload guard all share ONE validator. */
+const isSchoologyFeedUrl = isSchoologyIcalUrl;
 
 /** Runtime validation of whatever came over the wire. The extension is plain JS
  *  and a version ahead/behind of the app is normal, so never trust the shape —

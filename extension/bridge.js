@@ -1,4 +1,4 @@
-// WorkSpace Shortcuts — postMessage bridge content script.
+// WorkSpace Premium — postMessage bridge content script.
 //
 // Injected ONLY on the WorkSpace origin(s) + localhost (see manifest
 // content_scripts[1].matches). It is the dev + cross-browser-portable fallback

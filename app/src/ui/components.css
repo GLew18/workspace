@@ -202,12 +202,19 @@ body.app-mode .app-below {
   transform: translateY(0.2em);
   color: #e6a817; /* fixed brand gold */
 }
+/* Top-right cluster: [bell] [gear]      [name]
+   The two icon buttons are a PAIR, so they sit tight together (4px), while the
+   name is a separate thing and gets pushed well clear of them (22px). One `gap`
+   can't say both, so the gap is the tight one and the name adds its own margin. */
 .app-user {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   font-size: 13px;
   color: var(--text-dim);
+}
+.app-user-name {
+  margin-left: 22px;
 }
 .app-user button {
   background: none;
@@ -221,8 +228,10 @@ body.app-mode .app-below {
   color: var(--text);
   border-color: var(--border-strong);
 }
-/* The settings gear is an icon button, not a pill like "Sign out". */
+/* The bell + settings gear are icon buttons, not pills. `position: relative` is
+   what the unread badge below anchors itself to. */
 .app-user .icon-btn {
+  position: relative;
   padding: 0;
   border-radius: 9px;
   border-color: transparent;
@@ -234,6 +243,31 @@ body.app-mode .app-below {
 .app-user .icon-btn.active {
   background: rgba(230, 168, 23, 0.16);
   border-color: rgba(230, 168, 23, 0.3);
+}
+
+/* 🔔 unread badge — rides the bell's top-right corner. Hidden at zero (never a
+   "0" chip), so the bell is quiet until something has actually arrived. */
+.bell-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  /* Gold, not red: nothing here is an error, it's WorkSpace with something for
+     you. The dark-on-gold pair is the same one every filled gold control uses. */
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 9.5px;
+  font-weight: 800;
+  line-height: 15px;
+  text-align: center;
+  display: none;
+  box-shadow: 0 0 0 2px #0f1a34, 0 0 10px var(--gold-glow);
+}
+.bell-dot.on {
+  display: block;
 }
 
 /* ---- Tabs ----
@@ -1468,6 +1502,63 @@ body.app-mode .app-below {
 }
 
 /* ---- Wipe-guard banner ---- */
+/* "Verify your email" nudge (main.ts mountVerifyNudge). Gold, not red: nothing is
+   broken yet, and a red bar over a study app every morning would just get tuned
+   out. One row, dismissible, never blocking. */
+.verify-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(230, 168, 23, 0.1);
+  border: 1px solid rgba(230, 168, 23, 0.35);
+  border-radius: 12px;
+  padding: 11px 14px;
+  font-size: 13.5px;
+  /* Lives in .app-below, so it supplies the gutters .app would have given it.
+     These MATCH .app's own padding (theme.css), which is what lines the banner up
+     with Settings, the one tab that spans the full width. */
+  margin: 16px 14px 0;
+}
+@media (min-width: 700px) {
+  .verify-bar {
+    margin: 24px 48px 0;
+  }
+}
+.verify-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere; /* the WRAP RULE */
+}
+.verify-btn {
+  flex: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 9px;
+  padding: 7px 13px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.verify-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+.verify-x {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 7px;
+}
+.verify-x:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .wipe-banner {
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.4);
@@ -1521,6 +1612,19 @@ body.app-mode .app-below {
 .popup h3 {
   margin: 0 0 12px;
   font-size: 15px;
+}
+/* "Applies to all N selected tasks." — shown at the top of a popup opened from a
+   multi-selection, so a bulk edit is never a surprise. Gold, because it is a
+   heads-up about scope rather than an error. */
+.popup-bulk-note {
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
 }
 .priority-option {
   display: flex;
@@ -1718,6 +1822,31 @@ body.app-mode .app-below {
 }
 .attach-footer .btn-primary {
   flex: 1;
+}
+/* The premium launcher: VIOLET on purpose, a color no free control wears, so
+   the tier difference is visible before reading. The MAIN "Open all" line stays
+   in normal flow, so it centers at exactly the same height as the yellow
+   sibling's text; the small "(in a Chrome group)" qualifier is absolutely
+   positioned BELOW that center line, where it hangs without pushing the main
+   line up (per Gabe: the two "Open all"s must sit level). */
+.attach-open-group {
+  
+  background: linear-gradient(180deg, #9b79ee, #7c56dd);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  line-height: 1.15;
+}
+.attach-open-group:hover {
+  filter: brightness(1.07);
+}
+.attach-open-group-sub {
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.85;
 }
 .attach-badge {
   font-size: 9px;

@@ -1,26 +1,26 @@
-// WorkSpace — first-run onboarding deck.
+// WorkSpace: first-run onboarding deck.
 //
 // Ported from the onb-A prototype (app/public/onb-A.html). Six full-screen
 // slides over the branded gradient field, with a progress rail that only ever
 // climbs:
 //
-//   1. WELCOME   — the app mark, the wordmark, one button.
-//   2. IMPORT    — what the product actually does, shown rather than described.
-//   3. CONNECT   — the Schoology mark + the iCal link. Pressing Connect plays the
-//                  scan animation IN PLACE (it is not a separate slide), then the
-//                  button becomes Continue. There is deliberately NO skip: a
-//                  student who skips forgets, opens an empty app, and concludes
-//                  the product is bad. The connection IS the product.
-//   4. COURSES   — the Settings ▸ Courses editor, verbatim (same classes, from
-//                  settings.css), because onboarding is where courses are BORN
-//                  and Settings is where they're edited later.
-//   5. NAME      — pre-filled from the signed-in account's email, so the student
-//                  confirms a guess instead of answering a blank prompt.
-//   6. PAYOFF    — everything commits here, the first sync runs live, and the
-//                  real imported assignments are listed (not a teaser count).
+//   1. WELCOME:  the app mark, the wordmark, one button.
+//   2. IMPORT:   what the product actually does, shown rather than described.
+//   3. CONNECT:  the Schoology mark + the iCal link. Pressing Connect plays the
+//                scan animation IN PLACE (it is not a separate slide), then the
+//                button becomes Continue. There is deliberately NO skip: a
+//                student who skips forgets, opens an empty app, and concludes
+//                the product is bad. The connection IS the product.
+//   4. COURSES:  the Settings ▸ Courses editor, verbatim (same classes, from
+//                settings.css), because onboarding is where courses are BORN
+//                and Settings is where they're edited later.
+//   5. NAME:     pre-filled from the signed-in account's email, so the student
+//                confirms a guess instead of answering a blank prompt.
+//   6. PAYOFF:   everything commits here, the first sync runs live, and the
+//                real imported assignments are listed (not a teaser count).
 //
 // WHERE AUTH SITS: main.ts signs the user in BEFORE calling this (it passes
-// `user.email`), so the prototype's sign-in slide has no equivalent here — by the
+// `user.email`), so the prototype's sign-in slide has no equivalent here. By the
 // time this runs, the account already exists. That is also why the name screen
 // can pre-fill: the email is already known.
 //
@@ -31,9 +31,15 @@
 import type { Data } from '../db';
 import { el, textInput } from '../util/dom';
 import { capitalizeName, nameFromEmail } from '../util/names';
-import { runSync } from '../schoology/sync';
-import { getCourses, replaceCourses, getCourseColor } from '../courses/registry';
-import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
+import { runSync, fetchIcal } from '../schoology/sync';
+import { replaceCourses, getCourseColor } from '../courses/registry';
+import { recommendParseWords } from '../courses/recommend';
+import { BADGE_ASSESSMENT_RE, isSchoologyIcalUrl, parseIcal, taskEvents } from '../schoology/ical';
+import { detectSchoologyExtension, requestSgyData } from '../schoology/extension';
+import { todayStr } from '../util/dates';
+import { genId } from '../util/ids';
+import { openIcalGuide } from './icalGuide';
+import { signOut } from '../auth'; // TEMPORARY: powers the "‹ Landing page" escape hatch
 import type { CourseConfig, Task } from '../types';
 
 interface OnboardingOpts {
@@ -52,67 +58,38 @@ const SGY_LOGO =
   'font-family="Inter, Helvetica, Arial, sans-serif" font-size="56" font-weight="700" fill="#38383B">S</text>' +
   '</svg>';
 
-/** Soft link check — catches "I pasted my password" mistakes, never blocks a real
- *  feed URL (Schoology's come as webcal://… or https://…/ical/…). */
-function looksLikeIcalLink(v: string): boolean {
-  return /^(webcal|https?):\/\/\S+/i.test(v.trim());
-}
-
-/** Titles shown flying in during the scan — illustrative of ASSIGNMENTS landing,
- *  never course names, because the calendar feed genuinely carries none. That gap
- *  is exactly what makes the courses screen necessary. */
-const SCAN_SAMPLE = [
-  'Read Ch. 7 & annotate',
-  'Unit 5 Test',
-  'Finish lab write-up',
-  'Essay draft',
-  'Problem set 4',
-  'השלם את עמוד 16',
-];
-
-/**
- * Up to 3 parse-word suggestions for a course name. Ported from the real
- * Settings implementation (settings/view.ts recommendParseWords) so this screen
- * recommends exactly what Settings would:
- *   "English Language Arts" → ela, english, language
- *   "Computer Science"      → cs, computer, science
- *   "Mathematics"           → math, mat
- * The course NAME is never recommended: the parser matches an exact course name
- * outright, so suggesting it would do nothing.
- */
-const STOP_WORDS = new Set(['of', 'the', 'and', 'a', 'an', 'for', 'to', 'in', 'on', '&']);
-function recommendParseWords(name: string, exclude: Set<string>): string[] {
-  const words = name
-    .toLowerCase()
-    .split(/\s+/)
-    .map((w) => w.replace(/[^a-z0-9]/g, ''))
-    .filter((w) => w && !STOP_WORDS.has(w));
-  if (!words.length) return [];
-
-  const candidates: string[] = [];
-  if (words.length >= 2) {
-    candidates.push(words.map((w) => w[0]).join('')); // acronym, e.g. "ela"
-    for (const w of words) if (w.length >= 3) candidates.push(w);
-  } else {
-    const w = words[0];
-    candidates.push(w);
-    if (w.length > 4) candidates.push(w.slice(0, 4));
-    if (w.length > 3) candidates.push(w.slice(0, 3));
-  }
-
-  const nameKey = name.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const w of candidates) {
-    if (w.length < 2 || w === nameKey || seen.has(w) || exclude.has(w)) continue;
-    seen.add(w);
-    out.push(w);
-    if (out.length === 3) break;
-  }
-  return out;
-}
+// Link validation: isSchoologyIcalUrl (schoology/ical.ts), the same strict check
+// Settings and the extension use. Any-URL was not enough: a YouTube link is a
+// perfectly valid URL and a perfectly useless calendar feed.
 
 const NEW_COURSE_COLOR = '#e6a817';
+
+/**
+ * The student's REAL courses, or nothing.
+ *
+ * The iCal feed carries no course field at all (verified against Heschel's feed:
+ * UID, DTSTART, SUMMARY, DESCRIPTION, URL, and nothing else), so the only honest
+ * source is the companion extension, which reads the course names off the
+ * student's own logged-in Schoology pages. No extension, no Chrome, or nothing
+ * scraped yet returns an empty list, and the courses screen then shows an empty
+ * editor instead of a fabricated schedule.
+ */
+async function discoverCourses(): Promise<CourseConfig[]> {
+  try {
+    if (!(await detectSchoologyExtension())) return [];
+    const payload = await requestSgyData();
+    const names = (payload?.courses ?? []).map((c) => c.name.trim()).filter(Boolean);
+    // A section can appear more than once across scraped pages.
+    return [...new Set(names)].map((name) => ({
+      id: 'course_' + genId(),
+      name,
+      color: getCourseColor(name),
+      parseWords: [],
+    }));
+  } catch {
+    return []; // a scrape problem must never block onboarding
+  }
+}
 
 export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingOpts): void {
   // Draft state. NOTHING is written until the payoff screen commits it, so a
@@ -122,8 +99,17 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
     name: capitalizeName(nameFromEmail(email) || fallbackName || ''),
     ical: '',
     connected: false,
-    // A working copy of the real registry — edited freely here, committed once.
-    courses: getCourses().map((c) => ({ ...c, parseWords: [...c.parseWords] })) as CourseConfig[],
+    // Courses start EMPTY, and stay empty unless the connection actually finds
+    // some (per Gabe). The old code seeded this from getCourses(), which on a
+    // fresh account is the generic catalog in courses/maps.ts, so every student
+    // was shown English/Math/Science/… as if WorkSpace had discovered their real
+    // schedule. It had not. Presenting a guess as a finding is the one thing this
+    // screen must never do.
+    courses: [] as CourseConfig[],
+    // Real assignment titles pulled from the student's own feed, shown flying in
+    // during the scan. Empty feed means an empty animation, honestly.
+    found: [] as string[],
+    foundCount: 0,
   };
 
   // --- shell ------------------------------------------------------------------
@@ -133,12 +119,22 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
   deck.append(el('div', { class: 'onb-rail' }, [fill]));
   const backBtn = el('button', { class: 'onb-back hide', 'aria-label': 'Back', text: '‹ Back' });
   deck.append(backBtn);
+  // TEMPORARY (Gabe, 8/7): an escape hatch on screen 1 back to the landing page,
+  // purely so onboarding can be re-entered quickly while it's being built. It
+  // signs out (the landing page is what a signed-out visitor sees) and reloads.
+  // It sits in the Back button's slot and only ever shows where Back cannot, so
+  // the two never collide. DELETE THIS BLOCK when the flow is done.
+  const exitBtn = el('button', { class: 'onb-back onb-exit', text: '‹ Landing page' });
+  exitBtn.addEventListener('click', () => {
+    void signOut().then(() => location.reload());
+  });
+  deck.append(exitBtn);
   const stageEl = el('div');
   deck.append(stageEl);
   document.body.append(deck);
 
   // Per-screen bar targets. The LAST entry is 92, not 100, ON PURPOSE: arriving
-  // at the setup screen must not complete the bar — the payoff pushes it to 100
+  // at the setup screen must not complete the bar. The payoff pushes it to 100
   // so finishing and the reward land as one moment.
   const PCT = [15, 32, 50, 68, 84, 92];
   let lastPct = 15;
@@ -164,6 +160,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       fill.style.width = `${lastPct}%`;
     }, 30);
     backBtn.classList.toggle('hide', i === 0 || i === SCREENS.length - 1);
+    exitBtn.classList.toggle('hide', i !== 0); // TEMPORARY: screen 1 only
     SCREENS[i].enter?.(screen);
   }
   backBtn.addEventListener('click', () => go(index - 1));
@@ -182,7 +179,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
   /** Shared: the white Schoology tile. */
   const sgyTile = (big = false): HTMLElement => {
     const tile = el('div', { class: `onb-tile${big ? ' lg' : ''}` });
-    tile.innerHTML = SGY_LOGO; // static, authored above — no user input reaches this
+    tile.innerHTML = SGY_LOGO; // static, authored above, no user input reaches this
     return tile;
   };
 
@@ -283,26 +280,25 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
         class: 'rise d2',
         style: 'width:100%;max-width:420px;margin-top:22px',
       });
-      const help = el('details', { class: 'onb-help-wrap' });
-      const helpBtn = el('summary', { class: 'onb-help', text: 'Where do I find this link?' });
-      const steps = el('ol', { class: 'onb-help-steps' });
-      for (const s of [
-        'Open Schoology and click Calendar in the left sidebar.',
-        'Look for the calendar’s settings or export option.',
-        'Choose “Enable iCal feed” and copy the link it shows.',
-        'Come back here and paste it below.',
-      ]) {
-        steps.append(el('li', { text: s }));
-      }
-      help.append(helpBtn, steps);
+      // The animated walkthrough (icalGuide.ts): Schoology-accurate slides of the
+      // REAL route (your name → Settings → scroll → copy). It replaced a text
+      // list that described a route Schoology doesn't actually have.
+      const helpBtn = el('button', { class: 'onb-help', type: 'button' });
+      helpBtn.append(
+        el('span', { class: 'onb-help-play', text: '▶' }),
+        el('span', { text: 'Show me where the link is' }),
+        el('span', { class: 'onb-help-mins', text: '4 slides · 15 sec' })
+      );
 
       const input = textInput({
         class: 'onb-field',
         placeholder: 'webcal://… or https://…/ical.ics',
         value: draft.ical,
       });
+      // Closing the guide (any way) puts the caret back in the link field.
+      helpBtn.addEventListener('click', () => openIcalGuide(() => input.focus()));
       const err = el('div', { class: 'onb-err' });
-      fieldWrap.append(help, input, err);
+      fieldWrap.append(helpBtn, input, err);
 
       const btn = cta('Connect');
       sc.append(visual, h1, sub, fieldWrap, btn);
@@ -319,34 +315,81 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
           input.focus();
           return;
         }
-        if (!looksLikeIcalLink(v)) {
-          err.textContent = 'That doesn’t look like a link. It should start with webcal:// or https://.';
+        if (!isSchoologyIcalUrl(v)) {
+          err.textContent =
+            'That is not your Schoology calendar link. It looks like webcal://heschel.schoology.com/calendar/feed/ical/…';
           input.focus();
           input.select();
           return;
         }
-        draft.ical = v;
-        draft.connected = true;
         const mine = index; // only touch this screen if the student is still on it
-        fieldWrap.style.display = 'none';
+        const alive = (): boolean => index === mine;
         btn.disabled = true;
         btn.textContent = 'Connecting…';
         sub.textContent = 'Reading your calendar feed…';
-        stage.classList.add('scanning');
-        SCAN_SAMPLE.forEach((t, i) =>
+
+        // THE REAL CONNECTION. This used to validate the URL's shape and then play
+        // a canned animation over six invented titles, which meant a student with
+        // an empty Schoology watched WorkSpace "find" six assignments that do not
+        // exist. Now the feed is actually downloaded and parsed, and what flies in
+        // is what is genuinely in it.
+        void (async () => {
+          let titles: string[] = [];
+          let total = 0;
+          try {
+            const text = await fetchIcal(v);
+            const today = todayStr();
+            // The same rule the importer uses: future items only, no past backlog.
+            const upcoming = taskEvents(parseIcal(text)).filter((e) => e.date >= today);
+            total = upcoming.length;
+            titles = upcoming
+              .sort((a, b) => a.date.localeCompare(b.date))
+              .slice(0, 6)
+              .map((e) => e.summary);
+          } catch (e) {
+            if (!alive()) return;
+            // fetchIcal throws sentences meant for a student, so show them as-is.
+            fieldWrap.style.display = '';
+            err.textContent = e instanceof Error ? e.message : 'Couldn’t read that link.';
+            btn.disabled = false;
+            btn.textContent = 'Connect';
+            input.focus();
+            return;
+          }
+          if (!alive()) return;
+
+          // The link works. Commit it to the draft and reveal what was found.
+          draft.ical = v;
+          draft.connected = true;
+          draft.found = titles;
+          draft.foundCount = total;
+          fieldWrap.style.display = 'none';
+          stage.classList.add('scanning');
+          titles.forEach((t, i) =>
+            setTimeout(() => {
+              if (!alive()) return;
+              chips.append(el('span', { class: 'onb-chip', text: t }));
+            }, 350 + i * 230)
+          );
+
+          // Real course names, when they exist at all, come from the companion
+          // extension: the calendar feed carries none. No extension, or nothing
+          // scraped, means the courses screen stays empty rather than inventing.
+          void discoverCourses().then((found) => {
+            if (found.length) draft.courses = found;
+          });
+
           setTimeout(() => {
-            if (index !== mine) return;
-            chips.append(el('span', { class: 'onb-chip', text: t }));
-          }, 350 + i * 230)
-        );
-        setTimeout(() => {
-          if (index !== mine) return;
-          stage.classList.remove('scanning');
-          stage.classList.add('done');
-          sub.textContent = 'Connected. Your assignments are ready to import.';
-          btn.disabled = false;
-          btn.textContent = 'Continue';
-        }, 350 + SCAN_SAMPLE.length * 230 + 250);
+            if (!alive()) return;
+            stage.classList.remove('scanning');
+            stage.classList.add('done');
+            sub.textContent = total
+              ? `Connected. Found ${total} upcoming assignment${total === 1 ? '' : 's'}.`
+              : 'Connected. No upcoming assignments yet, new ones will import automatically.';
+            btn.disabled = false;
+            btn.textContent = 'Continue';
+          }, 350 + titles.length * 230 + 250);
+        })();
       };
       btn.addEventListener('click', submit);
       input.addEventListener('keydown', (e) => {
@@ -363,12 +406,18 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
     build(host) {
       const sc = pane(host, 'wide tight');
       const h1 = el('h1', { class: 'rise' });
-      h1.append('Your ', el('span', { class: 'g', text: 'courses' }));
+      const discovered = draft.courses.length > 0; // filled only by a real scrape
+      h1.append(discovered ? 'We found your ' : 'Your ', el('span', { class: 'g', text: 'courses' }));
+      // Two honest subtitles: one for "we really did find these", one for "we have
+      // nothing, so this is yours to type". Never claim a discovery that didn't
+      // happen.
       sc.append(
         h1,
         el('p', {
           class: 'onb-sub rise d1',
-          text: 'Your calendar feed has no course names, so name them here.',
+          text: discovered
+            ? 'Pulled from Schoology. Fix anything that looks wrong, and add what’s missing.'
+            : 'Your calendar feed carries no course names, so add your courses here. You can also do this later in Settings.',
         })
       );
 
@@ -656,7 +705,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
         fill.style.width = '100%';
         lastPct = 100;
 
-        // confetti — completion and reward land as one moment
+        // confetti: completion and reward land as one moment
         const burst = el('div', { class: 'onb-confetti' });
         const colors = ['#e6a817', '#f2bb33', '#4098d7', '#27ae60', '#fff'];
         for (let i = 0; i < 28; i++) {

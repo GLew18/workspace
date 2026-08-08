@@ -1,4 +1,4 @@
-// WorkSpace Shortcuts — background service worker (MV3).
+// WorkSpace Premium — background service worker (MV3).
 //
 // Holds NO in-memory source of truth: the MV3 SW is evicted after ~30s idle, so
 // chrome.storage.local is authoritative. Every listener below is registered
@@ -297,6 +297,118 @@ function pongPayload() {
 }
 
 // ---------------------------------------------------------------------------
+// OPEN_GROUP — open a set of links as a NAMED, COLORED Chrome tab group.
+//
+// The premium payoff for bookmark groups and task attachments: instead of N loose
+// tabs, the browser shows one labelled bundle ("Chem Lab", purple) the student can
+// collapse or close in a single click. Only the extension can do this — the web
+// app has no access to chrome.tabs / chrome.tabGroups.
+//
+// The app sends an already-validated Chrome color name; anything else falls back
+// to grey rather than throwing. URL and count limits are enforced HERE too (the
+// SW never trusts the page): http(s) only, and a hard cap so a corrupt payload
+// can't spawn hundreds of tabs.
+// ---------------------------------------------------------------------------
+const GROUP_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+const MAX_GROUP_TABS = 25;
+
+// Open urls as PLAIN background tabs, no group. Exists because the page's
+// window.open hits Chrome's popup blocker (ONE popup per click), so "Open all"
+// from WorkSpace could only ever open the first link. chrome.tabs.create has no
+// such limit. Same URL hygiene and window pinning as handleOpenGroup.
+async function handleOpenTabs(payload, sendAck) {
+  const ack = (ok, count) => sendAck({ source: 'workspace-ext', v: PROTOCOL_VERSION, type: 'OPEN_TABS_ACK', ok, count });
+  const p = payload && typeof payload === 'object' ? payload : {};
+  const urls = (Array.isArray(p.urls) ? p.urls : [])
+    .filter((u) => typeof u === 'string' && /^https?:\/\//i.test(u))
+    .slice(0, MAX_GROUP_TABS);
+  if (!urls.length) {
+    ack(false, 0);
+    return;
+  }
+  try {
+    // Pin every tab to the CURRENT window (a service worker has no window of its
+    // own; without this, tabs can land wherever Chrome last had focus).
+    let windowId;
+    try {
+      const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
+      if (win && typeof win.id === 'number') windowId = win.id;
+    } catch (_e) {
+      /* no focused window: let Chrome choose */
+    }
+    let count = 0;
+    for (const url of urls) {
+      const tab = await chrome.tabs.create(windowId ? { url, active: false, windowId } : { url, active: false });
+      if (typeof tab.id === 'number') count++;
+    }
+    ack(count > 0, count);
+  } catch (e) {
+    console.error('[WorkSpace] open tabs failed:', e);
+    ack(false, 0);
+  }
+}
+
+async function handleOpenGroup(payload, sendAck) {
+  const ack = (ok, count) => sendAck({ source: 'workspace-ext', v: PROTOCOL_VERSION, type: 'OPEN_GROUP_ACK', ok, count });
+  const p = payload && typeof payload === 'object' ? payload : {};
+  const urls = (Array.isArray(p.urls) ? p.urls : [])
+    .filter((u) => typeof u === 'string' && /^https?:\/\//i.test(u))
+    .slice(0, MAX_GROUP_TABS);
+  if (!urls.length) {
+    ack(false, 0);
+    return;
+  }
+  // Chrome truncates long group titles to a chip anyway; keep it sane.
+  const title = (typeof p.name === 'string' ? p.name : '').trim().slice(0, 60);
+  const color = GROUP_COLORS.includes(p.color) ? p.color : 'grey';
+
+  // Fail LOUDLY in the service worker console (chrome://extensions → "service
+  // worker"), because from the page side a failure is indistinguishable from the
+  // extension not being installed at all.
+  if (!chrome.tabGroups || !chrome.tabs.group) {
+    console.error('[WorkSpace] tab grouping unavailable. The extension needs a RELOAD after the manifest gained the "tabGroups" permission (chrome://extensions → Reload).');
+    ack(false, 0);
+    return;
+  }
+
+  try {
+    // Open every tab in the background first, then bundle them. Grouping after
+    // creation (rather than per-tab) means Chrome draws the group once, so the
+    // strip doesn't visibly reshuffle as each tab lands.
+    //
+    // windowId is pinned to the CURRENT window: a service worker has no window of
+    // its own, so without this each tabs.create can land wherever Chrome last had
+    // focus, and tabs.group then refuses a set that spans two windows.
+    let windowId;
+    try {
+      const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
+      if (win && typeof win.id === 'number') windowId = win.id;
+    } catch (_e) {
+      /* no focused window: let Chrome choose */
+    }
+
+    const ids = [];
+    for (const url of urls) {
+      const tab = await chrome.tabs.create(windowId ? { url, active: false, windowId } : { url, active: false });
+      if (typeof tab.id === 'number') ids.push(tab.id);
+    }
+    if (!ids.length) {
+      console.error('[WorkSpace] no tabs were created for', title);
+      ack(false, 0);
+      return;
+    }
+    const groupId = await chrome.tabs.group({ tabIds: ids });
+    await chrome.tabGroups.update(groupId, { title, color });
+    await chrome.tabs.update(ids[0], { active: true }); // land the user on the first link
+    console.info('[WorkSpace] grouped', ids.length, 'tabs as', JSON.stringify(title), color);
+    ack(true, ids.length);
+  } catch (e) {
+    console.error('[WorkSpace] tab grouping failed:', e && e.message ? e.message : e);
+    ack(false, 0);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // External channel: WorkSpace web app -> SW (externally_connectable)
 // ---------------------------------------------------------------------------
 chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
@@ -322,6 +434,16 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'SGY_REFRESH') {
     handleSgyRefresh(sendResponse);
     return true; // async: tab round-trip + storage read
+  }
+
+  if (msg.type === 'OPEN_GROUP') {
+    handleOpenGroup(msg.payload, sendResponse);
+    return true; // async: one tabs.create per link, then group + colorize
+  }
+
+  if (msg.type === 'OPEN_TABS') {
+    handleOpenTabs(msg.payload, sendResponse);
+    return true; // async: one tabs.create per link
   }
 
   // Unknown external message — ignore.
@@ -369,6 +491,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
     if (msg.type === 'SGY_REFRESH') {
       handleSgyRefresh(sendResponse);
+      return true;
+    }
+    if (msg.type === 'OPEN_GROUP') {
+      handleOpenGroup(msg.payload, sendResponse);
+      return true;
+    }
+    if (msg.type === 'OPEN_TABS') {
+      handleOpenTabs(msg.payload, sendResponse);
       return true;
     }
   }

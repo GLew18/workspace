@@ -1,6 +1,7 @@
 // WorkSpace — link attachments (spec §6.5). URLs only.
 
 import type { Note } from '../types';
+import { extensionActive, openUrlsInGroup, openTabs } from '../bookmarks/shortcuts';
 
 export interface AttachmentType {
   label: string;
@@ -55,14 +56,32 @@ export function openAttachment(rawUrl: string): void {
   window.open(url, '_blank', 'noopener');
 }
 
-/** Open every attachment (desktop: sequential tabs with popup-blocker fallback). */
-export function openAll(notes: Note[]): void {
+/** Open the links as plain tabs (the no-extension path). */
+// Plain-tab opening now lives in bookmarks/shortcuts.ts openTabs(): it routes
+// through the extension when present (chrome.tabs.create has no popup-blocker
+// limit, window.open gets ONE popup per click) and toasts about anything the
+// blocker ate when it has to fall back.
+
+/**
+ * Open every attachment.
+ *
+ * PREMIUM (needs the companion extension): pass `group` and the links arrive as one
+ * named, colored Chrome tab group — the task's title on the chip, its course color
+ * on the group — instead of a spray of anonymous tabs. Without the extension it
+ * falls back to plain tabs, unchanged.
+ *
+ * The extension check is the SYNCHRONOUS cached one on purpose: awaiting a fresh
+ * detect would spend the click's user-gesture, and the browser would then block the
+ * window.open fallback. Cold cache simply means plain tabs this once.
+ */
+export function openAll(notes: Note[], group?: { name: string; color: string }): void {
   const valid = notes.map((n) => normalizeUrl(n.url)).filter(Boolean);
   if (!valid.length) return;
-  let opened = 0;
-  for (const url of valid) {
-    const w = window.open(url, '_blank', 'noopener');
-    if (w) opened++;
+  if (group && extensionActive()) {
+    void openUrlsInGroup(group.name, group.color, valid).then((ok) => {
+      if (!ok) openTabs(valid); // grouping failed (old Chrome, revoked permission)
+    });
+    return;
   }
-  if (opened === 0) openAttachment(valid[0]); // popup blocked — open at least the first
+  openTabs(valid);
 }

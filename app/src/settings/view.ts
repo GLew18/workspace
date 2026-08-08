@@ -13,7 +13,9 @@ import { el, textInput, escapeHtml, enterConfirms } from '../util/dom';
 import { genId } from '../util/ids';
 import { capitalizeName } from '../util/names';
 import { getCourses, replaceCourses } from '../courses/registry';
+import { recommendParseWords } from '../courses/recommend';
 import { runSync } from '../schoology/sync';
+import { isSchoologyIcalUrl } from '../schoology/ical';
 import { signOut } from '../auth';
 import { getPrefs, setPrefsCache, PREFS_EVENT, type AppPrefs } from '../prefs';
 import { END_SOUNDS, DEFAULT_END_SOUND, DEFAULT_END_VOLUME, playEndSound } from '../focus/sounds';
@@ -330,8 +332,10 @@ export class SettingsView {
     const prev = (this.schoologyMeta?.icalUrl || '').trim();
     const next = this.draft.icalUrl.trim().replace(/^webcal:\/\//i, 'https://');
 
-    // Reject non-calendar syntax before anything persists. Empty = removing the link.
-    if (next && !isValidIcalUrl(next)) {
+    // Reject anything that is not a real Schoology calendar feed before anything
+    // persists. A YouTube link is a valid URL, which is exactly why the old
+    // syntax-only check was not enough. Empty = removing the link.
+    if (next && !isSchoologyIcalUrl(next)) {
       this.setIcalError(true);
       return;
     }
@@ -377,6 +381,13 @@ export class SettingsView {
 
   /** A red, can't-miss confirmation for destructive/sensitive changes. */
   private confirmDanger(title: string, onYes: () => void): void {
+    // Only one confirm can exist. Without this, pressing Enter used to stack a
+    // SECOND dialog: focus stayed on the button that opened the first one (e.g.
+    // the Sign out row), so the browser's native Enter-activation clicked that
+    // button again. Two backdrops darkened the screen, and after Yes signed the
+    // user out, the orphaned first dialog survived on <body> over the landing
+    // page. The focus move below kills the re-fire; this guard is the backstop.
+    if (document.querySelector('.confirm-backdrop')) return;
     const back = el('div', { class: 'confirm-backdrop' });
     const box = el('div', { class: 'confirm-box' });
     box.append(el('h3', { class: 'confirm-title', text: title }));
@@ -394,8 +405,23 @@ export class SettingsView {
     back.addEventListener('click', (e) => {
       if (e.target === back) back.remove();
     });
-    enterConfirms(back, () => yes); // Enter = Yes (the confirm's whole point)
+    // Escape = Cancel, self-cleaning the same way enterConfirms does.
+    const onEsc = (e: KeyboardEvent) => {
+      if (!back.isConnected) {
+        document.removeEventListener('keydown', onEsc);
+        return;
+      }
+      if (e.key === 'Escape') back.remove();
+    };
+    document.addEventListener('keydown', onEsc);
+    // Enter deliberately does NOT confirm here (Gabe, 8/7/26): these dialogs are
+    // the consequential ones (sign out, change the calendar link, delete a
+    // playlist), so confirming must be a deliberate CLICK on Yes, never a
+    // reflexive keystroke. Focus lands on Cancel instead: it pulls focus off the
+    // button that opened the dialog (whose native Enter re-fire was the stacking
+    // bug), and if Enter is pressed anyway, the harmless thing happens.
     document.body.append(back);
+    cancel.focus();
   }
   // #endregion
 
@@ -817,7 +843,10 @@ export class SettingsView {
 
   /** Toggle the inline "invalid iCal link" warning on the link field. */
   private setIcalError(on: boolean): void {
-    if (this.icalErr) this.icalErr.textContent = on ? 'Invalid iCal link.' : '';
+    if (this.icalErr)
+      this.icalErr.textContent = on
+        ? 'That is not a Schoology calendar link. It looks like webcal://yourschool.schoology.com/calendar/feed/ical/…'
+        : '';
     this.icalInput?.classList.toggle('invalid', on);
   }
 
@@ -2042,18 +2071,6 @@ const NICONS = {
     '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
 } as const;
 
-/** A syntactic check that a string is a calendar feed URL (http/https/webcal
- *  scheme + a real domain). Catches non-links like "johnny". It does NOT fetch
- *  — a well-formed link that 404s is caught later by Sync. */
-function isValidIcalUrl(raw: string): boolean {
-  const s = raw.trim().replace(/^webcal:\/\//i, 'https://');
-  try {
-    const u = new URL(s);
-    return (u.protocol === 'http:' || u.protocol === 'https:') && u.hostname.includes('.');
-  } catch {
-    return false;
-  }
-}
 
 /** "M/D/YYYY h:mm am/pm" — exact date + time of the last sync. */
 function formatSyncTime(iso: string): string {
@@ -2080,45 +2097,5 @@ function toHex(color: string): string {
   return '#9ca3af';
 }
 
-/**
- * Up to 3 sensible parse-word suggestions for a course name — an acronym plus
- * abbreviations / significant words — skipping any already in use. Examples:
- *   "English Language Arts" → ela, english, language
- *   "Mathematics"           → mathematics, math, mat
- *   "Social Studies"        → ss, social, studies
- */
-function recommendParseWords(name: string, exclude: Set<string>): string[] {
-  const STOP = new Set(['of', 'the', 'and', 'a', 'an', 'for', 'to', 'in', 'on', '&']);
-  const words = name
-    .toLowerCase()
-    .split(/\s+/)
-    .map((w) => w.replace(/[^a-z0-9]/g, ''))
-    .filter((w) => w && !STOP.has(w));
-  if (!words.length) return [];
 
-  const candidates: string[] = [];
-  if (words.length >= 2) {
-    candidates.push(words.map((w) => w[0]).join('')); // acronym, e.g. "ela"
-    for (const w of words) if (w.length >= 3) candidates.push(w); // each significant word
-  } else {
-    const w = words[0];
-    candidates.push(w); // the word itself
-    if (w.length > 4) candidates.push(w.slice(0, 4)); // 4-letter abbreviation
-    if (w.length > 3) candidates.push(w.slice(0, 3)); // 3-letter abbreviation
-  }
-
-  // The course NAME is already an implicit parse word (the parser matches an exact
-  // course name outright), so never recommend it — that'd be redundant/obvious.
-  const nameKey = name.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const w of candidates) {
-    if (w.length < 2 || w === nameKey || seen.has(w) || exclude.has(w)) continue;
-    seen.add(w);
-    out.push(w);
-    if (out.length === 3) break;
-  }
-  return out;
-}
 // #endregion

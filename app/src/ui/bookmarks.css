@@ -52,6 +52,96 @@
   gap: 12px;
   margin-bottom: 16px;
 }
+/* A group owns a whole row of the outer grid and re-grids its own cards inside.
+   That containment is what SEPARATES a group from the loose bookmarks after it:
+   as plain siblings, the next ungrouped card would fill the leftover slot on the
+   group's last row and look like it belonged to the group. The tint and the
+   group-colored edge then make the bundle obvious at a glance. */
+.bm-group-block {
+  grid-column: 1 / -1;
+  background: color-mix(in srgb, var(--group-color) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--group-color) 26%, transparent);
+  border-left: 3px solid var(--group-color);
+  border-radius: var(--radius);
+  padding: 10px 12px 12px;
+  margin: 4px 0;
+}
+.bm-group-cards {
+  display: grid;
+  /* Slightly narrower minimum than the outer grid: the block's own padding eats
+     ~26px, and matching 260px exactly would drop a column at some widths. */
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+/* Group header — the strip above a group's cards. */
+.bm-group-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 2px;
+  margin-bottom: 9px;
+}
+.bm-group-head-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.bm-group-head-name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.bm-group-head-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+/* "Open all" is ALWAYS visible. It used to fade in on hover, which hid the whole
+   feature: you cannot use a launcher you never see. */
+.bm-group-head-open {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 11px;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.bm-group-head:hover .bm-group-head-open {
+  color: var(--text);
+}
+.bm-group-head-open:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(230, 168, 23, 0.1);
+}
+/* The premium sibling (⭐ Open as group): VIOLET, a color nothing free in the
+   app wears, so it reads as a different tier at a glance. Sits right of the
+   free button; only the free one carries the auto push-right margin. */
+.bm-group-head-gopen {
+  margin-left: 6px;
+  color: #b9a6f2;
+  border-color: rgba(139, 92, 246, 0.55);
+}
+.bm-group-head:hover .bm-group-head-gopen {
+  color: #cdbdf8;
+  border-color: rgba(139, 92, 246, 0.75);
+}
+.bm-group-head-gopen:hover {
+  color: #fff;
+  border-color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.18);
+}
+
 .bm-empty {
   grid-column: 1 / -1;
   text-align: center;

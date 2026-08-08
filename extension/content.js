@@ -1,4 +1,4 @@
-// WorkSpace Shortcuts — content script.
+// WorkSpace Premium — content script.
 //
 // Runs at document_start on <all_urls>, all frames. This is the keydown hot path
 // and it must work COLD (the MV3 service worker may be asleep), so matching is

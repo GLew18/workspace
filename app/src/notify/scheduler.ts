@@ -34,7 +34,9 @@ import {
 } from './notify';
 
 const EVAL_MS = 30_000; // re-check twice a minute — plenty for minute-granular times
-const CATCHUP_MS = 60 * 60_000; // a due-soon lead fires only within ~1h of its moment; older misses are the closed-app push's job
+// (A due-soon "catch-up window" used to live here, capping how late a lead could
+//  still fire. It's gone: a lead is a window, so being deep inside it is normal,
+//  not a miss. See the due-soon rule below.)
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 const cap = (s?: string): string | undefined => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
@@ -108,22 +110,44 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
     const now = Date.now();
     const open = Object.values(tasks).filter((t) => !t.completed);
 
-    // --- 1. due-soon reminders — one per selected lead, across days ----------
+    // --- 1. due-soon reminders (the rule, per Gabe) -------------------------
+    //
+    //   A lead is a WINDOW, not an instant: "72 hours" means "72 hours or less
+    //   away". If a task sits inside a window, it reminds — full stop.
+    //
+    //   When several enabled windows contain it at once, only the SMALLEST fires,
+    //   so two reminders never arrive together. Worked example, leads 48 + 72:
+    //     • due in 50h → only 72 contains it        → fire 72 now.
+    //     • time passes to exactly 48h              → fire 48.
+    //     • task created 24h out → BOTH contain it  → fire 48 only, never 72.
+    //   Each (task, lead) is ledgered, so every window fires at most once and the
+    //   task then goes quiet until a tighter window catches it.
     if (anyOn(settings.dueSoon.channels) && settings.dueSoon.leads.length) {
+      const leads = [...settings.dueSoon.leads].sort((a, b) => a - b); // tightest first
       for (const t of open) {
-        if (!t.dueDate || !t.dueTime) continue; // untimed tasks are the agenda's job
-        const dueMs = new Date(`${t.dueDate}T${t.dueTime}:00`).getTime();
-        if (Number.isNaN(dueMs)) continue; // malformed time — never crash the loop
-        for (const lead of settings.dueSoon.leads) {
-          const fireAt = dueMs - lead * 60_000;
-          if (now < fireAt || now >= dueMs) continue; // not yet, or already due
-          if (now - fireAt > CATCHUP_MS) continue; // missed by too much — don't fire a stale reminder
-          const body = reminderBody(
-            { course: t.course, priority: cap(t.priority), nowMs: now, dueMs, leadMins: lead },
-            settings.appearance
-          );
-          fire(`rem|${t.id}|${t.dueDate}|${t.dueTime}|${lead}`, `Due soon: ${t.title}`, body, settings.dueSoon.channels);
-        }
+        if (!t.dueDate) continue; // no date at all: that's the daily agenda's job
+        // No due time means MIDNIGHT that day (per Gabe): "due Saturday" is due as
+        // Saturday begins. The exact hour barely matters for the window test, and
+        // the earlier reading is the safe one.
+        const dueMs = new Date(`${t.dueDate}T${t.dueTime || '00:00'}:00`).getTime();
+        if (Number.isNaN(dueMs)) continue; // malformed date — never crash the loop
+        // THE ONE EXCEPTION (per Gabe): an untimed task due TODAY. Its midnight is
+        // already behind us, so by the letter of the rule it would be "overdue" and
+        // silent — backwards for the task that matters most today. It stays in play
+        // and, having negative time remaining, naturally falls into the tightest
+        // enabled window via the find() below. Genuinely overdue tasks (untimed
+        // yesterday, or any timed task past its time) still go quiet.
+        const untimed = !t.dueTime;
+        const dueTodayUntimed = untimed && t.dueDate === today;
+        if (now >= dueMs && !dueTodayUntimed) continue;
+        const remainingMins = (dueMs - now) / 60_000;
+        const lead = leads.find((l) => remainingMins <= l);
+        if (lead === undefined) continue; // still outside every window
+        const body = reminderBody(
+          { course: t.course, priority: cap(t.priority), nowMs: now, dueMs, leadMins: lead, untimed: !t.dueTime },
+          settings.appearance
+        );
+        fire(`rem|${t.id}|${t.dueDate}|${t.dueTime}|${lead}`, `Due soon: ${t.title}`, body, settings.dueSoon.channels);
       }
     }
 

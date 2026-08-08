@@ -9,6 +9,8 @@
 // never fire the same reminder twice. Entries are date-stamped and pruned after a
 // few days so the ledger can't grow forever.
 
+import { logNotification } from './log';
+
 /** What details each task-notification includes (one setting, applied to every
  *  independent-task notification). */
 export interface NotifyAppearance {
@@ -151,8 +153,13 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
 /** "1 hour", "30 minutes", "24 hours" — friendly lead-time label. */
 export function leadLabel(mins: number): string {
   if (mins < 60) return `${mins} minutes`;
-  const h = mins / 60;
-  return `${h} hour${h === 1 ? '' : 's'}`;
+  // Round to whole hours/days: this now also renders REAL remaining time (see
+  // reminderBody), which is rarely a clean multiple, and "in 35.65 hours" reads
+  // like a machine talking.
+  const h = Math.round(mins / 60);
+  if (h < 48) return `${h} hour${h === 1 ? '' : 's'}`;
+  const d = Math.round(h / 24);
+  return `${d} day${d === 1 ? '' : 's'}`;
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -171,19 +178,35 @@ function sameDay(a: Date, b: Date): boolean {
  *  "Science · Due Fri 3:00 PM (in 24 hours)". The due date is named only when the
  *  reminder fires on an earlier calendar day than the due time. */
 export function reminderBody(
-  opts: { course?: string; priority?: string; nowMs: number; dueMs: number; leadMins: number },
+  opts: {
+    course?: string;
+    priority?: string;
+    nowMs: number;
+    dueMs: number;
+    leadMins: number;
+    /** The task has a due DATE but no due time (dueMs is a synthetic end-of-day).
+     *  Then the clock is ours, not the user's, so it is never shown. */
+    untimed?: boolean;
+  },
   a: NotifyAppearance
 ): string {
   const parts: string[] = [];
   if (a.course && opts.course) parts.push(opts.course);
   if (a.priority && opts.priority) parts.push(`${opts.priority} priority`);
+  // The countdown is measured from the ACTUAL time left, not from the lead
+  // setting. A lead is a window now, so a 72h lead can fire on a task due in 36
+  // hours — printing "in 72 hours" there would simply be false.
+  const remaining = Math.round((opts.dueMs - opts.nowMs) / 60_000);
   if (a.dueTime) {
     const now = new Date(opts.nowMs);
     const due = new Date(opts.dueMs);
-    const when = sameDay(now, due) ? fmtClock(due) : `${WEEKDAYS[due.getDay()]} ${fmtClock(due)}`;
-    parts.push(`Due ${when} (in ${leadLabel(opts.leadMins)})`);
+    const day = sameDay(now, due) ? '' : WEEKDAYS[due.getDay()];
+    const when = opts.untimed ? day || 'today' : [day, fmtClock(due)].filter(Boolean).join(' ');
+    // An untimed task due today is past its own midnight, so a countdown would
+    // read "in 0 minutes". The date alone says everything that's true.
+    parts.push(remaining > 0 ? `Due ${when} (in ${leadLabel(remaining)})` : `Due ${when}`);
   } else {
-    parts.push(`Due in ${leadLabel(opts.leadMins)}`);
+    parts.push(remaining > 0 ? `Due in ${leadLabel(remaining)}` : 'Due today');
   }
   return parts.join(' · ');
 }
@@ -279,13 +302,21 @@ export function sendNotification(
       /* Notification constructor can throw (e.g. some Android webviews) — never fatal */
     }
   }
+  let emailed = false;
   if (opts.gmail && emailAddress && emailSink) {
     try {
       emailSink(emailAddress, title, body);
+      emailed = true;
     } catch {
       /* email is best-effort; never break the notification path */
     }
   }
+  // Record it for the 🔔 log — ONE entry per notification, carrying which routes
+  // actually delivered. This is the single choke point every notification in the
+  // app (scheduler reminders and focus-session cues alike) passes through, so
+  // logging here can't miss one or double-count a pop-up + email pair.
+  const shown = !!opts.popup && notificationsSupported() && Notification.permission === 'granted';
+  if (shown || emailed) logNotification({ title, body, popup: shown, gmail: emailed });
 }
 
 // --- sent-ledger (per device) ----------------------------------------------

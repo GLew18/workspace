@@ -14,7 +14,8 @@
 // for shortcuts that fire even when WorkSpace isn't focused.
 
 import type { Data } from '../db';
-import { el, textInput, enterConfirms } from '../util/dom';
+import { el, textInput, enterConfirms, showToast } from '../util/dom';
+import { popupGuideButton } from '../ui/popupGuide';
 import { genId } from '../util/ids';
 import { normalizeUrl } from './url';
 import {
@@ -24,6 +25,9 @@ import {
   openShortcutModal,
   prettyCombo,
   normalizeCombo,
+  extensionActive,
+  openUrlsInGroup,
+  openTabs,
   type ShortcutBookmark,
 } from './shortcuts';
 
@@ -46,15 +50,15 @@ interface BookmarksData {
   groups: BookmarkGroup[];
 }
 
+/* What a NEW account starts with (Gabe's pick, 8/7/26): the five links a Heschel
+ * student actually lives in, school stack only. Existing accounts are untouched;
+ * this list is only read when profile 'bookmarks' is empty (see load()). */
 const DEFAULT_BOOKMARKS: Bookmark[] = [
-  { id: 'bm1', name: 'YouTube', url: 'https://youtube.com' },
-  { id: 'bm2', name: 'Schoology', url: 'https://heschel.schoology.com' },
-  { id: 'bm3', name: 'Google Drive', url: 'https://drive.google.com' },
-  { id: 'bm4', name: 'Gmail', url: 'https://gmail.com' },
-  { id: 'bm5', name: 'Google Docs', url: 'https://docs.google.com' },
-  { id: 'bm6', name: 'Google Classroom', url: 'https://classroom.google.com' },
-  { id: 'bm7', name: 'ChatGPT', url: 'https://chat.openai.com' },
-  { id: 'bm8', name: 'Claude', url: 'https://claude.ai' },
+  { id: 'bm1', name: 'Schoology', url: 'https://heschel.schoology.com' },
+  { id: 'bm2', name: 'Google Docs', url: 'https://docs.google.com' },
+  { id: 'bm3', name: 'Google Slides', url: 'https://slides.google.com' },
+  { id: 'bm4', name: 'Google Drive', url: 'https://drive.google.com' },
+  { id: 'bm5', name: 'Gmail', url: 'https://gmail.com' },
 ];
 
 const FAVICON_OVERRIDES: Record<string, string> = {
@@ -177,6 +181,10 @@ export class BookmarksView {
   // id of the card being dragged (⋮⋮ handle reorder), null when idle.
   private dragFromId: string | null = null;
 
+  // The pop-up fix-it guide. Created once, shown only once an "Open all" button
+  // exists to explain (see renderGrid). Absent in the landing preview.
+  private guideBtn?: HTMLButtonElement;
+
   constructor(data: Data, sample?: { host: HTMLElement }) {
     this.data = data;
     this.sample = sample;
@@ -193,6 +201,19 @@ export class BookmarksView {
     void detectExtension();
 
     const page = el('div', { class: 'bm-page' });
+
+    // The pop-up blocker fix-it guide, ABOVE the search box. It explains why
+    // "Open all" might open only one tab, so it belongs next to the problem, not
+    // at the bottom of the page. It also stays hidden until at least one group
+    // actually HAS an "Open all" button (see renderGrid): a guide to fixing a
+    // button you have never seen is just noise on an empty Bookmarks tab.
+    // Skipped in the landing preview, which opens no real tabs anyway.
+    if (!this.sample) {
+      this.guideBtn = popupGuideButton();
+      this.guideBtn.style.margin = '0 0 14px';
+      this.guideBtn.hidden = true;
+      page.append(this.guideBtn);
+    }
 
     const searchWrap = el('div', { class: 'bm-search-wrap' });
     const searchInput = textInput({
@@ -256,20 +277,105 @@ export class BookmarksView {
 
   private renderGrid(): void {
     this.grid.replaceChildren();
+    // Show the fix-it guide only once an "Open all" button exists to be fixed,
+    // which means a group that actually holds links. A group with no members
+    // renders no header (see blocks()), so membership is the honest test, not
+    // "a group record exists". Re-evaluated on every draw, so the guide appears
+    // the moment the first group is created, with no reload.
+    if (this.guideBtn) {
+      const grouped = new Set(this.state.groups.map((g) => g.id));
+      this.guideBtn.hidden = !this.state.list.some((b) => b.groupId && grouped.has(b.groupId));
+    }
     const q = this.search.trim().toLowerCase();
-    const matches = this.blocks()
-      .flat()
-      .filter((b) => b.name.toLowerCase().includes(q) || b.url.toLowerCase().includes(q));
-    if (matches.length === 0) {
+    const hit = (b: Bookmark) => b.name.toLowerCase().includes(q) || b.url.toLowerCase().includes(q);
+    // Walk BLOCKS (not the flat list) so a group can announce itself with a header
+    // row above its cards; search filters within each block, and a block whose
+    // every card is filtered out disappears header and all.
+    let shown = 0;
+    for (const blk of this.blocks()) {
+      const cards = blk.filter(hit);
+      if (!cards.length) continue;
+      shown += cards.length;
+      const group = blk[0].groupId ? this.state.groups.find((g) => g.id === blk[0].groupId) : undefined;
+      if (group) {
+        // A group is its OWN full-width block with its own inner grid, not a run of
+        // loose cards. Without that, the grid keeps flowing: the first ungrouped
+        // bookmark lands in whatever slot is left on the group's last row and reads
+        // as a member of it. Owning a whole row makes the boundary real.
+        const box = el('div', { class: 'bm-group-block' });
+        box.style.setProperty('--group-color', group.color);
+        box.append(this.groupHeader(group, cards));
+        const inner = el('div', { class: 'bm-group-cards' });
+        for (const bm of cards) inner.append(this.card(bm));
+        box.append(inner);
+        this.grid.append(box);
+        continue;
+      }
+      for (const bm of cards) this.grid.append(this.card(bm));
+    }
+    if (shown === 0) {
       this.grid.append(
         el('div', {
           class: 'bm-empty',
           text: this.state.list.length === 0 ? 'No links yet. Add your first one below.' : 'No links match your search.',
         })
       );
-      return;
     }
-    for (const bm of matches) this.grid.append(this.card(bm));
+  }
+
+  /** The strip above a group's cards: its dot, its name, and TWO launchers
+   *  (Gabe, 8/7/26), so the user picks:
+   *    Open all  = free, every link in its own tab, always.
+   *    ⭐ group  = the PREMIUM one (violet): the whole group opens as ONE named,
+   *                colored Chrome tab group via the extension. Falls back to
+   *                plain tabs if the extension isn't there, never a dead end. */
+  private groupHeader(group: BookmarkGroup, members: Bookmark[]): HTMLElement {
+    const row = el('div', { class: 'bm-group-head' });
+    const dot = el('span', { class: 'bm-group-head-dot' });
+    dot.style.background = group.color;
+    const name = el('span', { class: 'bm-group-head-name', text: group.name });
+    const count = el('span', { class: 'bm-group-head-count', text: String(members.length) });
+
+    const urlsOf = () => members.map((b) => normalizeUrl(b.url)).filter(Boolean);
+
+    const openAll = el('button', {
+      class: 'bm-group-head-open',
+      text: 'Open all',
+      title: `Open all ${members.length} links in tabs`,
+    });
+    openAll.addEventListener('click', () => {
+      if (this.sample) return; // the landing preview never opens real tabs
+      // openTabs routes through the extension when present: window.open gets ONE
+      // popup per click (the blocker eats the rest), chrome.tabs.create gets all.
+      openTabs(urlsOf());
+    });
+
+    const openGroup = el('button', {
+      class: 'bm-group-head-open bm-group-head-gopen',
+      text: 'Open all as group',
+      title: `Premium: open all ${members.length} links as one “${group.name}” Chrome tab group (needs the WorkSpace extension)`,
+    });
+    openGroup.addEventListener('click', () => {
+      if (this.sample) return;
+      const urls = urlsOf();
+      if (!urls.length) return;
+      // One line in the console on every launch, saying which path ran and why.
+      // Silent fallback was impossible to tell apart from a broken extension.
+      const active = extensionActive();
+      console.info('[WorkSpace] Open as group:', { group: group.name, links: urls.length, extensionDetected: active });
+      if (!active) {
+        // No silent fallback to plain tabs: a missing extension gets told WHY.
+        showToast('Install the WorkSpace extension to open links as one Chrome tab group.');
+        return;
+      }
+      void openUrlsInGroup(group.name, group.color, urls).then((ok) => {
+        console.info('[WorkSpace] tab group created:', ok);
+        if (!ok) openTabs(urls); // extension answered "no" (old Chrome, missing permission)
+      });
+    });
+
+    row.append(dot, name, count, openAll, openGroup);
+    return row;
   }
 
   private card(bm: Bookmark): HTMLElement {
@@ -641,8 +747,12 @@ export class BookmarksView {
     back.addEventListener('click', (e) => {
       if (e.target === back) back.remove();
     });
-    enterConfirms(back, () => yes); // Enter = confirm the delete
     (this.sample?.host ?? document.body).append(back);
+    // Same policy as Settings' confirmDanger (Gabe, 8/7/26): deleting is
+    // consequential, so Enter must never confirm it. Focus moves INTO the dialog
+    // (onto Cancel) so Enter can't re-activate the still-focused Delete button
+    // that opened it, and a stray Enter just dismisses harmlessly.
+    cancel.focus();
   }
   // #endregion
 }

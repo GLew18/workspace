@@ -2,7 +2,9 @@
 
 import type { Task, TaskMap, Priority, ParsedTask, TaskFolder } from '../types';
 import type { Data, TasksUpdate } from '../db';
-import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms } from '../util/dom';
+import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToast } from '../util/dom';
+import { extensionActive } from '../bookmarks/shortcuts';
+import { popupGuideButton } from '../ui/popupGuide';
 import { formatMetaDate, formatShortDate, formatTimeOfDay, formatDate, todayStr } from '../util/dates';
 import { getPrefs, PREFS_EVENT, type AppPrefs } from '../prefs';
 import { makeWidthGrip } from '../util/resize';
@@ -625,7 +627,6 @@ export class TasksView {
     this.listEl.append(el('div', { class: 'task-folders-label', text: 'Folders' }));
     for (const f of this.folders) {
       const members = folderMembers(f, this.map);
-      const done = members.filter((t) => t.completed).length;
       const open = this.openFolders.has(f.id);
       const row = el('div', { class: `task-folder${open ? ' open' : ''}`, 'data-folder-id': f.id });
       const head = el('button', { class: 'task-folder-head' });
@@ -660,7 +661,13 @@ export class TasksView {
       });
       head.append(
         nameEl,
-        el('span', { class: 'task-folder-count', text: `${done}/${members.length}` }),
+        // Total only, never done/total (Gabe, 8/7/26): a folder is a container
+        // you keep adding to, so "2/5" read like progress toward a fixed goal
+        // that does not exist. "5 tasks" just states what is inside.
+        el('span', {
+          class: 'task-folder-count',
+          text: `${members.length} task${members.length === 1 ? '' : 's'}`,
+        }),
         el('span', { class: 'task-folder-arrow', text: '▶' }),
         colorIn
       );
@@ -715,11 +722,10 @@ export class TasksView {
    *  here applies to the whole selection (the File-Explorer rule). */
   private openFolderPicker(task: Task): void {
     const targets = this.selTargets(task);
-    const applyAll = (mutate: (t: Task) => Task): void => {
-      if (targets.length > 1) void this.data.putTasksBulk(targets.map(mutate));
-      else this.save(mutate(task));
-    };
+    const applyAll = (mutate: (t: Task) => Task): void => this.applyToSelection(task, mutate);
     this.popup('Add to folder', (body, close) => {
+      const note = this.bulkNote(task);
+      if (note) body.append(note);
       const wrap = el('div', { class: 'folder-pick' });
       for (const f of this.folders) {
         const b = el('button', { class: `folder-pick-row${task.folderId === f.id ? ' on' : ''}` });
@@ -851,14 +857,7 @@ export class TasksView {
 
   /** A plain auto-expiring notice using the app's .toast styling (no Undo). */
   private notice(msg: string): void {
-    const t = el('div', { class: 'toast', text: msg });
-    (this.sample?.host ?? document.body).append(t);
-    void t.offsetHeight;
-    t.classList.add('show');
-    window.setTimeout(() => {
-      t.classList.remove('show');
-      window.setTimeout(() => t.remove(), 350);
-    }, 2600);
+    showToast(msg, this.sample?.host ?? document.body);
   }
 
   private renderTask(task: Task, group: TaskGroup): HTMLElement {
@@ -934,9 +933,11 @@ export class TasksView {
       });
       upd.addEventListener('click', (ev) => {
         ev.stopPropagation(); // the row itself has click/dblclick behaviors
-        const next = { ...task };
-        delete next.feedUpdated; // delete, not undefined — Firebase rejects undefined
-        this.save(next);
+        this.applyToSelection(task, (t) => {
+          const next = { ...t };
+          delete next.feedUpdated; // delete, not undefined — Firebase rejects undefined
+          return next;
+        });
       });
       title.append(upd);
     }
@@ -1011,7 +1012,7 @@ export class TasksView {
       const x = el('button', { class: 'task-test-badge-x', text: '✕', title: 'Not actually a ' + label.toLowerCase() + '? Remove this badge' });
       x.addEventListener('click', (ev) => {
         ev.stopPropagation(); // the row itself has click/dblclick behaviors
-        this.save({ ...task, assessmentDismissed: true });
+        this.applyToSelection(task, (t) => ({ ...t, assessmentDismissed: true }));
       });
       pill.append(x);
       metaWrap.append(pill);
@@ -1043,9 +1044,13 @@ export class TasksView {
         title: task.translationHidden ? 'Show translation' : 'Hide translation',
         text: '🌐',
       }) as HTMLButtonElement;
-      trBtn.addEventListener('click', () =>
-        this.save({ ...task, translationHidden: !task.translationHidden })
-      );
+      trBtn.addEventListener('click', () => {
+        // Note the target state is computed ONCE from the clicked row and then
+        // written to all of them. Flipping each task's own flag would leave a
+        // mixed selection mixed, just inverted, which is not what a toggle means.
+        const hidden = !task.translationHidden;
+        this.applyToSelection(task, (t) => ({ ...t, translationHidden: hidden }));
+      });
       actions.append(trBtn);
     }
 
@@ -1075,9 +1080,7 @@ export class TasksView {
     const dupBtn = el('button', { title: 'Duplicate', text: '⎘' });
     dupBtn.addEventListener('click', () => {
       // Duplicating a selected row duplicates the whole selection.
-      const targets = this.selTargets(task);
-      if (targets.length > 1) void this.data.putTasksBulk(targets.map((t) => duplicateTask(t)));
-      else this.save(duplicateTask(task));
+      this.applyToSelection(task, (t) => duplicateTask(t));
     });
     actions.append(dupBtn);
 
@@ -1149,6 +1152,37 @@ export class TasksView {
     return [task];
   }
 
+  /**
+   * THE bulk-edit primitive: apply `mutate` to the acted-on task, or to the whole
+   * selection when that row is part of one. EVERY task action routes through this,
+   * so "it applies to the selection" is one rule, not a per-feature decision.
+   *
+   * A batch is ONE write (putTasksBulk), which matters: N separate writes would
+   * fire N re-render notifications and make a 20-task edit crawl.
+   *
+   * The selection deliberately SURVIVES, so several edits can be made to the same
+   * group in a row (set the course, then the priority, then the folder). Only
+   * completion clears it, because those rows leave the list.
+   */
+  private applyToSelection(task: Task, mutate: (t: Task) => Task): void {
+    const targets = this.selTargets(task);
+    if (targets.length > 1) void this.data.putTasksBulk(targets.map(mutate));
+    else this.save(mutate(task));
+  }
+
+  /** How many tasks the next action will hit. Popups show this so a bulk edit is
+   *  never a surprise. */
+  private selCount(task: Task): number {
+    return this.selTargets(task).length;
+  }
+
+  /** A "Applies to N tasks" line for a popup, or nothing when it's a single task. */
+  private bulkNote(task: Task): HTMLElement | null {
+    const n = this.selCount(task);
+    if (n < 2) return null;
+    return el('div', { class: 'popup-bulk-note', text: `Applies to all ${n} selected tasks.` });
+  }
+
   /** Complete every selected task in ONE write, with ONE undo for the batch. */
   private async bulkComplete(): Promise<void> {
     const tasks = [...this.selectedIds]
@@ -1160,7 +1194,10 @@ export class TasksView {
     const now = new Date().toISOString();
     await this.data.putTasksBulk(tasks.map((t) => ({ ...t, completed: true, completedAt: now })));
     showUndoToast(
-      `${tasks.length} task${tasks.length === 1 ? '' : 's'} completed`,
+      // Same vocabulary as the single-task toast above ("Task Deleted"): checking
+      // the box IS the delete in this app, so the batch shouldn't call it
+      // something else.
+      `${tasks.length} Task${tasks.length === 1 ? '' : 's'} Deleted`,
       () => void this.data.putTasksBulk(tasks.map((t) => ({ ...t, completed: false, completedAt: null }))),
       () => {},
       this.sample?.host
@@ -1324,14 +1361,17 @@ export class TasksView {
     this.inlineEdit(host, task.title, (v) => {
       if (!v) return;
       // New title → drop the old translation and re-check it on the next pass.
-      this.save({
-        ...task,
+      // Retyping the title of a selected row renames the WHOLE selection, which
+      // is the one bulk edit worth pausing on: it is how you fix a batch of
+      // badly-named imports in one move, and undo is a re-edit away.
+      this.applyToSelection(task, (t) => ({
+        ...t,
         title: v,
         _manualTitle: true,
         translatedTitle: '',
         translatedLang: '',
         translationChecked: false,
-      });
+      }));
     });
   }
 
@@ -1347,7 +1387,14 @@ export class TasksView {
       : '';
     this.inlineEdit(host, initial, (v) => {
       const { date, time } = parseDateTime(v);
-      this.save({ ...task, dueDate: date, dueTime: time, timeLabel: '', _manualDueDate: true });
+      // One due date onto every selected task: "these five are all due Friday".
+      this.applyToSelection(task, (t) => ({
+        ...t,
+        dueDate: date,
+        dueTime: time,
+        timeLabel: '',
+        _manualDueDate: true,
+      }));
     });
   }
 
@@ -1355,14 +1402,19 @@ export class TasksView {
     if (!this.editingUnlocked()) return;
     this.inlineEdit(host, task.course, (v) => {
       const course = v ? matchCourseStrict(v) : ''; // '' → renders "+ course"
-      this.save({ ...task, course, _manualCourse: true });
-      // Remember the correction as GROUND TRUTH in the cloud label store, not just
-      // on this task: it outranks anything the extension later scrapes, and it
-      // reaches this student's other devices (a phone can fix a label too).
-      void recordManualLabelForTask(this.data, task, course);
-      // Layer 3 "Help our AI": reinforce the learned model with the words/phrases
-      // of this assignment so the same kind auto-tags (confidently) next time.
-      if (course) void learnCorrection(task.title, task.details || '', course);
+      this.applyToSelection(task, (t) => ({ ...t, course, _manualCourse: true }));
+      // The two learning side effects are PER TASK, so they run over the whole
+      // selection: labelling ten assignments at once should teach ten times, not
+      // once. (The write above is a single batch; only the teaching fans out.)
+      for (const t of this.selTargets(task)) {
+        // Remember the correction as GROUND TRUTH in the cloud label store, not just
+        // on this task: it outranks anything the extension later scrapes, and it
+        // reaches this student's other devices (a phone can fix a label too).
+        void recordManualLabelForTask(this.data, t, course);
+        // Layer 3 "Help our AI": reinforce the learned model with the words/phrases
+        // of this assignment so the same kind auto-tags (confidently) next time.
+        if (course) void learnCorrection(t.title, t.details || '', course);
+      }
     });
   }
 
@@ -1457,18 +1509,15 @@ export class TasksView {
 
   private openPriority(task: Task): void {
     this.popup('Priority', (body, close) => {
+      const note = this.bulkNote(task);
+      if (note) body.append(note);
       for (const p of PRIORITIES) {
         const opt = el('button', { class: 'priority-option' });
         opt.append(el('span', { class: 'arrow', text: p.arrow }), el('span', { text: p.label }));
         (opt.firstChild as HTMLElement).style.color = p.color;
         opt.addEventListener('click', () => {
           // Acting on a selected row sets the priority on the WHOLE selection.
-          const targets = this.selTargets(task);
-          if (targets.length > 1) {
-            void this.data.putTasksBulk(targets.map((t) => ({ ...t, priority: p.key as Priority })));
-          } else {
-            this.save({ ...task, priority: p.key as Priority });
-          }
+          this.applyToSelection(task, (t) => ({ ...t, priority: p.key as Priority }));
           close();
         });
         body.append(opt);
@@ -1477,10 +1526,55 @@ export class TasksView {
   }
 
   private openAttachments(task: Task): void {
-    this.popup('Attachments', (body, close) => {
+    this.popup('Attachments', (body) => {
       const notes = (task.notes ?? []).map((n) => ({ ...n }));
       const editing = new Set<string>(); // note ids currently shown as editable inputs
       const list = el('div', { class: 'attach-list' });
+
+      // BULK ATTACHMENTS APPEND, THEY DO NOT REPLACE (deliberate).
+      //
+      // Every other bulk action overwrites one field, so "apply to all" is
+      // obvious. Attachments are different: each task owns a LIST, and each list
+      // is usually different. Writing this popup's list onto ten tasks would
+      // silently delete nine tasks' worth of links. So instead:
+      //   • the popup shows and edits the CLICKED task's links, as always;
+      //   • links ADDED here are copied onto the rest of the selection (fresh
+      //     ids, since ids must be unique per task);
+      //   • edits and deletes touch only the task whose row was opened, because
+      //     the other tasks never had that link in the first place.
+      const others = this.selTargets(task).filter((t) => t.id !== task.id);
+      const startIds = new Set(notes.map((n) => n.id)); // what existed on open
+
+      // AUTO-SAVE (Gabe, 8/7/26): attachments persist the moment they change,
+      // the way Settings does. There is no Save button; every mutation (Done,
+      // Remove, Delete, or blurring an edited field) writes through. Rows whose
+      // URL is still empty are kept locally for editing but never persisted.
+      const persist = (): void => {
+        const cleaned = notes
+          .filter((n) => n.url.trim())
+          .map((n) => ({ ...n, url: normalizeUrl(n.url), title: n.title.trim() || n.url }));
+        if (!others.length) {
+          this.save({ ...task, notes: cleaned });
+          return;
+        }
+        // Bulk: this task takes the edited list; the others take their own list
+        // plus whatever was added here. `startIds` is what makes that split.
+        const added = cleaned.filter((n) => !startIds.has(n.id));
+        void this.data.putTasksBulk([
+          { ...task, notes: cleaned },
+          ...others.map((t) => ({
+            ...t,
+            notes: [
+              ...(t.notes ?? []),
+              // A fresh id per copy, and skip links that task already has, so
+              // pressing Done twice doesn't attach the same URL twice.
+              ...added
+                .filter((n) => !(t.notes ?? []).some((e) => e.url === n.url))
+                .map((n) => ({ ...n, id: 'n_' + genId() })),
+            ],
+          })),
+        ]);
+      };
 
       // Display: a compact bookmark-style card — badge + title + domain, click to
       // open. Edit/delete icons sit to the right.
@@ -1509,6 +1603,7 @@ export class TasksView {
         const del = el('button', { class: 'attach-iconbtn danger', text: '✕', title: 'Delete' });
         del.addEventListener('click', () => {
           notes.splice(idx, 1);
+          persist();
           draw();
         });
 
@@ -1525,10 +1620,12 @@ export class TasksView {
         const urlI = textInput({ class: 'attach-input', placeholder: 'URL', value: n.url });
         titleI.addEventListener('input', () => (notes[idx].title = titleI.value));
         urlI.addEventListener('input', () => (notes[idx].url = urlI.value));
-        // Enter in either field = Done for THIS card (data-enter-own keeps the
-        // popup-level Enter-to-Save out of it); a second Enter then saves.
+        // Enter in either field = Done for THIS card. `change` fires on blur, so
+        // even closing the popup mid-edit still writes the field through first
+        // (clicking anything else blurs the field): true auto-save, no Save button.
         for (const inp of [titleI, urlI]) {
           inp.setAttribute('data-enter-own', '1');
+          inp.addEventListener('change', () => persist());
           inp.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter' || e.shiftKey) return;
             e.preventDefault();
@@ -1547,11 +1644,13 @@ export class TasksView {
         remove.addEventListener('click', () => {
           notes.splice(idx, 1);
           editing.delete(n.id);
+          persist();
           draw();
         });
         const done = el('button', { class: 'attach-done', text: 'Done' });
         done.addEventListener('click', () => {
           editing.delete(n.id);
+          persist();
           draw();
         });
         actions.append(remove, done);
@@ -1560,6 +1659,14 @@ export class TasksView {
         requestAnimationFrame(() => titleI.focus());
         return item;
       };
+
+      if (others.length)
+        body.append(
+          el('div', {
+            class: 'popup-bulk-note',
+            text: `Links you add here are copied to all ${others.length + 1} selected tasks.`,
+          })
+        );
 
       const draw = () => {
         list.replaceChildren();
@@ -1576,22 +1683,48 @@ export class TasksView {
         draw();
       });
 
+      // Two DELIBERATELY separate launchers (Gabe, 8/7/26), so the user picks:
+      //   Open all       = free, plain tabs, always.
+      //   Open as group  = the PREMIUM one (violet + star): one named Chrome tab
+      //                    group wearing the task's course color, via the
+      //                    extension. Falls back to plain tabs if the extension
+      //                    isn't there, so the button is never a dead end.
+      // No Save button anymore: attachments auto-save (see persist above).
       const footer = el('div', { class: 'attach-footer' });
-      const openAllBtn = el('button', { class: 'btn-primary', text: 'Open all' });
+      const openAllBtn = el('button', {
+        class: 'btn-primary',
+        text: 'Open all',
+        title: 'Open every link in its own tab',
+      });
       openAllBtn.addEventListener('click', () => {
         if (!this.sample) openAll(notes);
       });
-      const saveBtn = el('button', { class: 'btn-primary', text: 'Save', 'data-enter-primary': '1' });
-      saveBtn.addEventListener('click', () => {
-        const cleaned = notes
-          .filter((n) => n.url.trim())
-          .map((n) => ({ ...n, url: normalizeUrl(n.url), title: n.title.trim() || n.url }));
-        this.save({ ...task, notes: cleaned });
-        close();
+      // Stacked label (Gabe, 8/7/26): main line + a small qualifier, no star.
+      const openGroupBtn = el('button', {
+        class: 'btn-primary attach-open-group',
+        title: 'Premium: opens every link as one named, colored Chrome tab group (needs the WorkSpace extension)',
       });
-      footer.append(openAllBtn, saveBtn);
+      openGroupBtn.append(
+        el('span', { text: 'Open all' }),
+        el('span', { class: 'attach-open-group-sub', text: '(in a Chrome group)' })
+      );
+      openGroupBtn.addEventListener('click', () => {
+        if (this.sample) return;
+        // No silent fallback to plain tabs: a missing extension gets told WHY.
+        if (!extensionActive()) {
+          this.notice('Install the WorkSpace extension to open links as one Chrome tab group.');
+          return;
+        }
+        openAll(notes, { name: task.title, color: getCourseColor(task.course) });
+      });
+      footer.append(openAllBtn, openGroupBtn);
 
-      body.append(list, addBtn, footer);
+      // The pop-up blocker makes "Open all" look broken (one tab, silence), so
+      // the fix-it guide lives right where the confusion happens.
+      const guideBtn = popupGuideButton();
+      guideBtn.style.margin = '12px 0 0';
+
+      body.append(list, addBtn, footer, guideBtn);
     });
   }
 }

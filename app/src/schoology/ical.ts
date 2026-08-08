@@ -25,6 +25,26 @@ export interface IcalEvent {
 // #region Matchers & helpers — regexes + raw-ICS text/date parsing
 // Events that aren't assignments still become tasks if their title looks like a graded
 // assessment. Word-boundary matched so "contest"/"testing"/"protest" don't trigger.
+/** True only for a REAL Schoology calendar feed URL, like
+ *    webcal://heschel.schoology.com/calendar/feed/ical/1781354425/….ics
+ *  Host must be schoology.com (or a school subdomain of it) and the path must be
+ *  the calendar-feed route. This is the ONE validator for every place a student
+ *  can enter the link (onboarding, Settings) and for links arriving from the
+ *  extension, so "any URL pastes fine" (a YouTube link, a Schoology COURSE page)
+ *  can never reach the sync. Syntax only; a well-formed link that 404s is
+ *  caught later by Sync itself. */
+export function isSchoologyIcalUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw.trim().replace(/^webcal:/i, 'https:'));
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+    const host = u.hostname.toLowerCase();
+    const onSchoology = host === 'schoology.com' || host.endsWith('.schoology.com');
+    return onSchoology && /\/calendar\/feed\//i.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
 export const ASSESSMENT_RE = /\b(quiz|quizzes|test|exam|exams|midterm|final|finals)\b/i;
 
 // The Tasks view's BADGE matcher is narrower ON PURPOSE (per Gabe): quiz/test/exam

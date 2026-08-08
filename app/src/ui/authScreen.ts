@@ -14,7 +14,7 @@
 // lives on document.body, so it must tear itself down explicitly.
 
 import { el } from '../util/dom';
-import { signInWithGoogle, continueWithEmail } from '../auth';
+import { signInWithGoogle, signUpWithEmail, logInWithEmail, sendPasswordReset, AuthProblem } from '../auth';
 
 export type AuthMode = 'signup' | 'login';
 
@@ -37,6 +37,14 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
   const overlay = el('div', { class: 'auth-overlay' });
   const card = el('div', { class: 'auth-card' });
 
+  // The ✕ lives on the OVERLAY, not inside the card, for two reasons:
+  //   1. .auth-card runs a transform animation (auth-rise), and a transformed
+  //      ancestor becomes the containing block for position:fixed children. That
+  //      made the ✕ render at the CARD's corner for 0.28s, then snap to the
+  //      screen corner when the transform cleared. Parenting it to the untransformed
+  //      overlay puts it in the screen corner from the first frame.
+  //   2. render() calls card.replaceChildren() on every mode swap. Out here the
+  //      button is built once and never torn down, so it cannot flicker.
   const close = el('button', { class: 'auth-close', 'aria-label': 'Close', text: '✕' });
   const teardown = () => {
     document.removeEventListener('keydown', onKey);
@@ -46,14 +54,19 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
     if (e.key === 'Escape') teardown();
   };
   close.addEventListener('click', teardown);
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) teardown(); // click the backdrop to dismiss
-  });
+  // NO backdrop click-to-dismiss, on purpose: this screen fills the window, so a
+  // stray tap anywhere read as "go back to the landing page" and lost whatever
+  // was typed. The ✕ (and Escape) are the only ways out.
   document.addEventListener('keydown', onKey);
+  overlay.append(close);
 
   // The whole screen is rebuilt on a mode swap — simpler than toggling a dozen
   // strings, and it re-runs the entrance animation, which reads as intentional.
-  const render = (m: AuthMode): void => {
+  // `carry` moves what the user already typed across a mode swap, plus an optional
+  // explanation of why they were moved. Nothing they entered is ever cleared by a
+  // swap: re-typing an email and password because you picked the wrong door is the
+  // whole frustration this screen is meant to remove.
+  const render = (m: AuthMode, carry?: { email?: string; password?: string; notice?: string }): void => {
     const isNew = m === 'signup';
     card.replaceChildren();
 
@@ -81,6 +94,16 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
     const gLabel = el('span', { text: 'Continue with Google' });
     googleBtn.append(gIcon, gLabel);
 
+    // The one thing worth saying before the buttons: Heschel's Google Workspace
+    // blocks unreviewed third-party apps (verified 8/7/26, "Access blocked"), so
+    // the school account dead-ends here. A personal account works fully, and the
+    // same-account-every-time line heads off the "my stuff is gone" second
+    // account: the data lives under whichever account signs in.
+    const hint = el('p', {
+      class: 'auth-hint',
+      text: 'School Google accounts can be blocked by your school. Use a personal account, and always sign in with the same one.',
+    });
+
     const or = el('div', { class: 'auth-or' });
     or.append(el('span', { text: 'or' }));
 
@@ -101,6 +124,8 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
       placeholder: 'Password',
       autocomplete: isNew ? 'new-password' : 'current-password',
     }) as HTMLInputElement;
+    // One line for both problems and explanations. `.info` recolors it gold: being
+    // handed to the other door is not an error, and red would say it was.
     const error = el('div', { class: 'auth-error' });
     // gold-sheen = the periodic shine every primary gold button in the product wears.
     const submit = el('button', {
@@ -111,6 +136,11 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
 
     const setError = (msg: string) => {
       error.textContent = msg;
+      error.classList.remove('info');
+    };
+    const setNotice = (msg: string) => {
+      error.textContent = msg;
+      error.classList.add('info');
     };
 
     let busy = false;
@@ -130,10 +160,20 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
       if (!mail) return setError('Enter your email.');
       if (!pass) return setError('Enter a password.');
       setBusy(true, submit, isNew ? 'Creating account…' : 'Signing in…');
-      continueWithEmail(mail, pass)
+      // Each door does ONLY its own job: signup creates, login signs in. Neither
+      // quietly does the other's.
+      (isNew ? signUpWithEmail(mail, pass) : logInWithEmail(mail, pass))
         .then(teardown) // success → onAuthStateChanged swaps in the app
         .catch((err: Error) => {
           setBusy(false, submit, isNew ? 'Create account' : 'Log in');
+          const kind = err instanceof AuthProblem ? err.kind : 'other';
+          if (kind === 'account-exists') {
+            // They already have an account. Move them to the login door with both
+            // fields intact: right password = one click in, wrong password = they
+            // are already standing next to "Forgot password?".
+            render('login', { email: mail, password: pass, notice: err.message });
+            return;
+          }
           setError(err.message);
         });
     });
@@ -160,15 +200,30 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
     // --- footer: swap modes, and the login-only reset link ------------------
     const foot = el('div', { class: 'auth-foot' });
     const swap = el('button', { text: isNew ? 'Log in' : 'Create an account' });
-    swap.addEventListener('click', () => render(isNew ? 'login' : 'signup'));
+    // Carry the typing across, so switching doors never costs a retype.
+    swap.addEventListener('click', () =>
+      render(isNew ? 'login' : 'signup', { email: email.value, password: password.value })
+    );
     foot.append(document.createTextNode(isNew ? 'Already have an account? ' : 'New here? '), swap);
 
-    card.append(close, logo, title, sub, googleBtn, or, form);
+    card.append(logo, title, sub, googleBtn, hint, or, form);
     if (!isNew) {
       const forgot = el('button', { class: 'auth-mini', text: 'Forgot password?' });
-      forgot.addEventListener('click', () =>
-        setError('Enter your email above, then contact support to reset.')
-      );
+      forgot.addEventListener('click', () => {
+        const mail = email.value.trim();
+        if (!mail) return setError('Enter your email above first.');
+        forgot.disabled = true;
+        void sendPasswordReset(mail)
+          .then(() => {
+            // Deliberately the same words whether or not that address has an
+            // account: anything else would reveal which emails are registered.
+            setNotice('If that email has an account, a reset link is on its way.');
+          })
+          .catch((err: Error) => setError(err.message))
+          .finally(() => {
+            forgot.disabled = false;
+          });
+      });
       card.append(forgot);
     }
     card.append(foot);
@@ -180,7 +235,14 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
         })
       );
     }
-    email.focus();
+    // Restore what was typed before the swap, then explain the swap (if any) and
+    // land the cursor where the user still has work to do.
+    if (carry?.email) email.value = carry.email;
+    if (carry?.password) password.value = carry.password;
+    if (carry?.notice) setNotice(carry.notice);
+    if (carry?.email && !carry.password) password.focus();
+    else if (carry?.email) password.select();
+    else email.focus();
   };
 
   render(mode);

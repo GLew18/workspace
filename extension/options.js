@@ -1,4 +1,4 @@
-// WorkSpace Shortcuts — options page logic.
+// WorkSpace Premium — options page logic.
 //
 // Read-only dashboard: reflects the authoritative state in chrome.storage.local
 // (written by the background SW on every SYNC_SHORTCUTS) and shows whether the

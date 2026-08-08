@@ -1,4 +1,4 @@
-/* WorkSpace — first-run onboarding deck.
+/* WorkSpace: first-run onboarding deck.
  *
  * Ported from the onb-A prototype (app/public/onb-A.html). Everything here is
  * scoped under `.onb-deck` so the deck's generic names (.sc, .cta, .visual…)
@@ -93,7 +93,7 @@
   position: relative;
   overflow: hidden;
 }
-/* a soft light sweep riding the fill — the bar reads alive, not static */
+/* a soft light sweep riding the fill: the bar reads alive, not static */
 .onb-fill::after {
   content: '';
   position: absolute;
@@ -159,13 +159,13 @@
 
 /* =========================== the content pane ===========================
    Three parts, outermost first:
-     1. the MAT — a spread-only shadow painting a translucent ring OUTSIDE the
+     1. the MAT: a spread-only shadow painting a translucent ring OUTSIDE the
         border, like the matting around a framed print. This is what makes the
         pane look placed rather than dropped onto the background.
-     2. the HAIRLINE — a real gold-to-blue gradient border via the two-layer
+     2. the HAIRLINE: a real gold-to-blue gradient border via the two-layer
         background-clip trick: fill clipped to padding-box, gradient to
         border-box, border itself transparent so the gradient shows through.
-     3. the FILL — translucent navy over a backdrop blur.
+     3. the FILL: translucent navy over a backdrop blur.
    Never add overflow:hidden here; nested popovers depend on it staying visible. */
 .onb-sc {
   width: 100%;
@@ -268,7 +268,7 @@
   opacity: 0.7;
 }
 
-/* entrance cascade — each element rises a beat after the one above it */
+/* entrance cascade: each element rises a beat after the one above it */
 .onb-screen.on .rise {
   opacity: 0;
   transform: translateY(14px);
@@ -556,17 +556,8 @@
   outline: none;
   border-color: var(--gold);
 }
-.onb-help-wrap {
-  width: 100%;
-}
-/* .onb-help is the <summary>. Kill the default disclosure triangle in both
-   engines so it reads as the button it looks like. */
-.onb-help::-webkit-details-marker {
-  display: none;
-}
+/* "Show me where the link is": the button that opens the slideshow. */
 .onb-help {
-  list-style: none;
-  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -586,13 +577,152 @@
   border-color: var(--gold);
   box-shadow: 0 6px 24px rgba(230, 168, 23, 0.15);
 }
-.onb-help-steps {
-  margin: 0;
-  padding: 0 0 0 18px;
-  text-align: left;
-  font-size: 13px;
+.onb-help-play {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--gold);
+  color: var(--on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex: none;
+  box-shadow: 0 4px 14px rgba(230, 168, 23, 0.4);
+}
+.onb-help-mins {
+  margin-left: auto;
   color: var(--text-dim);
-  line-height: 1.7;
+  font-weight: 500;
+  font-size: 11.5px;
+  flex: none;
+}
+
+/* ==================== the iCal slideshow (icalGuide.ts) ====================
+   The player chrome is WorkSpace-dark; the SCENES inside are Schoology-light
+   on purpose (see the fidelity note at the top of icalGuide.ts). Sits above
+   the deck (z 200). */
+.onb-sso {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  background: rgba(4, 8, 20, 0.78);
+  backdrop-filter: blur(4px);
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+.onb-sso-card {
+  width: min(560px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 18px;
+  position: relative;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+.onb-sso-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 15px;
+  padding: 6px 9px;
+  border-radius: 8px;
+}
+.onb-sso-close:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+.onb-sso-title {
+  font-size: 15px;
+  font-weight: 800;
+  margin: 0 26px 2px 0;
+}
+.onb-sso-sub {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+.onb-sso-scene {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.onb-sso-scene svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.onb-sso-cap {
+  min-height: 58px;
+  font-size: 13px;
+  padding: 11px 2px 0;
+}
+.onb-sso-cap b {
+  color: var(--gold);
+}
+.onb-sso-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+.onb-sso-arrow {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 16px;
+}
+.onb-sso-arrow:hover:not(:disabled) {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.onb-sso-arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.onb-sso-dots {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+}
+.onb-sso-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  border: none;
+  padding: 0;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+.onb-sso-dot.on {
+  background: var(--gold);
+  transform: scale(1.25);
+}
+.onb-sso-count {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+  text-align: right;
+}
+.onb-sso-done {
+  background: var(--gold);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 11px;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 11px 16px;
+  white-space: nowrap;
 }
 .onb-err {
   min-height: 17px;
@@ -707,7 +837,7 @@
 /* The imported-assignment list. GRID, not flex: grid-auto-rows pins every row
    to the same height whatever it holds, so the box is a predetermined shape
    instead of one that grows with its longest title. Three rows show, then a
-   14px sliver of the fourth — the only affordance that this list scrolls, now
+   14px sliver of the fourth: the only affordance that this list scrolls, now
    that the scrollbar is hidden. */
 .onb-imp-wrap {
   width: 100%;
@@ -767,7 +897,7 @@
   font-size: 11.5px;
   font-weight: 700;
 }
-/* matches the real app's .task-test-badge exactly — one treatment for every
+/* matches the real app's .task-test-badge exactly: one treatment for every
    assessment word, never a separate quiz color */
 .onb-imp-row .badge {
   font-size: 10.5px;
@@ -834,6 +964,10 @@
   .onb-cta::after,
   .onb-fill::after,
   .onb-confetti i {
+    animation: none !important;
+  }
+  /* freeze the slideshow scenes too (the cursor/ripple loops inside the SVGs) */
+  .onb-sso-scene svg * {
     animation: none !important;
   }
   .onb-screen {

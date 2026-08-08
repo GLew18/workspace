@@ -159,6 +159,20 @@ export const $ = <T extends Element = HTMLElement>(sel: string, root: ParentNode
  * `primary` resolves at press time so a button that only becomes valid later (a
  * staged shortcut) works naturally; return null to swallow nothing.
  */
+/** A plain auto-expiring notice using the app's .toast styling (no Undo button).
+ *  Extracted from TasksView.notice so any view (Bookmarks, Focus, …) can toast
+ *  without owning a copy of the show/expire choreography. */
+export function showToast(msg: string, host: HTMLElement = document.body): void {
+  const t = el('div', { class: 'toast', text: msg });
+  host.append(t);
+  void t.offsetHeight; // commit the un-shown state so the .show transition runs
+  t.classList.add('show');
+  window.setTimeout(() => {
+    t.classList.remove('show');
+    window.setTimeout(() => t.remove(), 350);
+  }, 2600);
+}
+
 export function enterConfirms(back: HTMLElement, primary: () => HTMLElement | null): void {
   const onKey = (e: KeyboardEvent) => {
     if (!back.isConnected) {

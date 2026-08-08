@@ -533,8 +533,9 @@
   border-color: var(--red);
 }
 
-/* editor modal — its OWN neutral backdrop, NOT the red .confirm-backdrop the
-   danger dialog uses (that one tints everything red). */
+/* editor modal: the same neutral dim as every other backdrop in the app.
+   (This used to be called out as "not the red one", back when .confirm-backdrop
+   tinted the whole screen red. It no longer does, so they now match.) */
 .editor-backdrop {
   position: fixed;
   inset: 0;
@@ -833,11 +834,15 @@
   white-space: pre-wrap;
 }
 
-/* red, can't-miss confirmation (e.g. changing the Schoology link) */
+/* Can't-miss confirmation (e.g. changing the Schoology link, signing out).
+   The RED lives on the box itself: red border, red glow, red title. The backdrop
+   is the same neutral dim every other modal uses, on purpose. Tinting the whole
+   screen red read as an error state rather than a question, and it made the
+   dialog harder to read, not easier to notice. */
 .confirm-backdrop {
   position: fixed;
   inset: 0;
-  background: radial-gradient(circle at center, rgba(120, 12, 12, 0.62), rgba(40, 4, 4, 0.78));
+  background: rgba(4, 8, 16, 0.66);
   backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
@@ -1235,8 +1240,12 @@
 .ngroups { display: flex; flex-direction: column; gap: 20px; }
 
 /* Notification troubleshooting guides — index of causes + animated slideshow player */
+/* z-index 1200 puts a fix-it guide ABOVE .popup-backdrop (1100): the pop-up
+   blocker guide is launched FROM the attachments popup, and at 1000 it opened
+   behind the very popup that spawned it. Guides are always the topmost thing on
+   screen, because they are what you read while doing something else. */
 .ngd {
-  position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center;
+  position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center;
   background: rgba(6, 10, 20, 0.62); backdrop-filter: blur(3px); padding: 20px;
   animation: ngd-fade 0.18s ease;
 }

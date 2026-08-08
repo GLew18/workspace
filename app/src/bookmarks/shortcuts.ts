@@ -17,7 +17,7 @@
 // known EXTENSION_ID exist; otherwise fall back to a window.postMessage handshake
 // with the extension's bridge content script (dev/localhost + Firefox/Safari).
 
-import { el, enterConfirms } from '../util/dom';
+import { el, enterConfirms, showToast } from '../util/dom';
 import { normalizeUrl } from './url';
 
 // #region Minimal chrome typings (no @types/chrome in this project)
@@ -292,6 +292,12 @@ let _detectCache: { result: DetectResult; at: number } | null = null;
 const DETECT_CACHE_MS = 5000;
 // Resolvers for in-flight detectExtension() calls, settled by an ANNOUNCE or PONG.
 const _detectWaiters = new Set<(r: DetectResult) => void>();
+// Resolvers for bridge-relayed REQUESTS, keyed by reqId. bridge.js echoes the
+// reqId back on the SW's reply, which is what lets a postMessage round-trip carry
+// a real answer instead of being fire-and-forget.
+const _replyWaiters = new Map<string, (reply: Record<string, unknown>) => void>();
+let _reqSeq = 0;
+const nextReqId = (): string => `ws${Date.now().toString(36)}${(_reqSeq++).toString(36)}`;
 
 /** Listen for the extension's postMessage signals: ANNOUNCE (posted on page load)
  *  AND PONG (the reply to our PING). Either means "installed", and either resolves
@@ -305,6 +311,14 @@ function ensureBridgeListener(): void {
       | { source?: string; v?: number; type?: string; extId?: string; extVersion?: string }
       | undefined;
     if (!d || d.source !== 'workspace-ext') return;
+    // A reply to a specific bridge-relayed request (it carries our reqId back).
+    const rid = (d as { reqId?: string }).reqId;
+    if (rid && _replyWaiters.has(rid)) {
+      const w = _replyWaiters.get(rid)!;
+      _replyWaiters.delete(rid);
+      w(d as unknown as Record<string, unknown>);
+      return;
+    }
     if (d.type === 'ANNOUNCE' || d.type === 'PONG') {
       if (d.extId) _announcedExtId = d.extId;
       const r: DetectResult = { installed: true, version: d.extVersion };
@@ -451,6 +465,184 @@ export function syncShortcutsToExtension(list: ShortcutBookmark[]): Promise<bool
     } catch {
       window.clearTimeout(timer);
       done(false);
+    }
+  });
+}
+// #endregion
+
+/** Synchronous "did a PING already answer?" — the async detectExtension caches its
+ *  result here. Callers that must decide INSIDE a click handler use this: awaiting
+ *  a fresh detect would spend the user gesture, and browsers block the window.open
+ *  fallback once that's gone. False when the cache is cold (never detected yet), so
+ *  the caller simply takes the plain-tabs path. */
+export function extensionActive(): boolean {
+  return _extActive;
+}
+
+// #region Chrome tab groups (premium) — open a set of links as one named bundle
+/** Chrome's tab-group palette. `chrome.tabGroups.update` accepts only these nine
+ *  names, so a WorkSpace hex has to be snapped to the closest one. */
+const CHROME_GROUP_COLORS: [string, [number, number, number]][] = [
+  ['grey', [95, 99, 104]],
+  ['blue', [26, 115, 232]],
+  ['red', [217, 48, 37]],
+  ['yellow', [249, 171, 0]],
+  ['green', [30, 142, 62]],
+  ['pink', [208, 24, 132]],
+  ['purple', [147, 52, 230]],
+  ['cyan', [0, 123, 131]],
+  ['orange', [250, 144, 62]],
+];
+
+/** Nearest Chrome group color to an arbitrary hex, by squared RGB distance. A
+ *  group's gold, a course's purple: each lands on the palette entry that reads
+ *  closest, so the browser strip echoes the color used inside WorkSpace. */
+export function toChromeGroupColor(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim());
+  if (!m) return 'grey';
+  const n = parseInt(m[1], 16);
+  const rgb = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  let best = 'grey';
+  let bestD = Infinity;
+  for (const [name, c] of CHROME_GROUP_COLORS) {
+    const d = (rgb[0] - c[0]) ** 2 + (rgb[1] - c[1]) ** 2 + (rgb[2] - c[2]) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = name;
+    }
+  }
+  return best;
+}
+
+/**
+ * Open `urls` as a named, colored Chrome tab group (premium; needs the extension).
+ * Resolves false when the extension is absent or grouping fails, so every caller
+ * can fall back to opening plain tabs. NEVER throws.
+ */
+export function openUrlsInGroup(name: string, colorHex: string, urls: string[]): Promise<boolean> {
+  return sendTabRequest('OPEN_GROUP', 'OPEN_GROUP_ACK', { name, color: toChromeGroupColor(colorHex), urls });
+}
+
+/**
+ * Open `urls` as PLAIN tabs through the extension (chrome.tabs.create), no group.
+ * Exists because window.open hits the popup blocker: Chrome allows ONE popup per
+ * click, so "Open all" from the page could only ever open the first link. The
+ * extension has no such limit. Resolves false when the extension is absent, old
+ * (no OPEN_TABS handler yet), or refuses.
+ */
+export function openUrlsPlain(urls: string[]): Promise<boolean> {
+  return sendTabRequest('OPEN_TABS', 'OPEN_TABS_ACK', { urls });
+}
+
+/**
+ * THE one entry point for "open these links in tabs" (bookmarks Open all,
+ * attachments Open all, and both premium buttons' failure fallbacks). Extension
+ * first, because it dodges the popup blocker; otherwise window.open per link,
+ * counting what the blocker ate and saying so in a toast instead of silently
+ * opening one tab and looking broken.
+ */
+export function openTabs(urls: string[]): void {
+  const clean = urls.filter(Boolean);
+  if (!clean.length) return;
+  const plainLoop = (): void => {
+    let blocked = 0;
+    for (const u of clean) {
+      const w = window.open(u, '_blank', 'noopener');
+      if (!w) blocked++;
+    }
+    if (blocked > 0) {
+      showToast(
+        `Chrome blocked ${blocked} of ${clean.length} tabs. Allow pop-ups for WorkSpace to open them all.`
+      );
+    }
+  };
+  if (!extensionActive()) {
+    plainLoop();
+    return;
+  }
+  void openUrlsPlain(clean).then((ok) => {
+    if (!ok) plainLoop(); // late fallback: the blocker will likely eat the extras, but the toast explains
+  });
+}
+
+/** The shared request/ack plumbing both tab openers ride: direct channel when the
+ *  origin is in externally_connectable, the postMessage bridge everywhere else. */
+function sendTabRequest(
+  type: 'OPEN_GROUP' | 'OPEN_TABS',
+  ackType: 'OPEN_GROUP_ACK' | 'OPEN_TABS_ACK',
+  payload: Record<string, unknown>
+): Promise<boolean> {
+  ensureBridgeListener();
+  const chrome = getChrome();
+  const extId = knownExtId();
+
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const done = (ok: boolean, how: string) => {
+      if (settled) return;
+      settled = true;
+      if (!ok) console.warn('[WorkSpace]', type, 'did not run:', how);
+      resolve(ok);
+    };
+
+    /**
+     * Relay through the postMessage bridge (content script → SW) and WAIT for the
+     * real ACK, matched by reqId. This is the path that must work everywhere: the
+     * direct channel only exists for origins listed in the manifest's
+     * externally_connectable, so on any other host (a LAN IP, a different port,
+     * the deployed site) it is simply unavailable, and giving up there was why
+     * grouping silently fell back to plain tabs.
+     */
+    const viaBridge = (): void => {
+      const reqId = nextReqId();
+      const timer = window.setTimeout(() => {
+        _replyWaiters.delete(reqId);
+        done(false, 'no reply from the extension (is it loaded, and reloaded since the manifest changed?)');
+      }, 8000); // one tabs.create per link, then the group call
+      _replyWaiters.set(reqId, (reply) => {
+        window.clearTimeout(timer);
+        done(reply.type === ackType && !!reply.ok, `extension replied ok=${String(reply.ok)}`);
+      });
+      try {
+        window.postMessage({ source: 'workspace', v: PROTOCOL_VERSION, type, payload, reqId }, location.origin);
+      } catch {
+        window.clearTimeout(timer);
+        _replyWaiters.delete(reqId);
+        done(false, 'postMessage blocked');
+      }
+    };
+
+    const canDirect = !!(chrome && chrome.runtime && chrome.runtime.sendMessage && extId);
+    if (!canDirect) {
+      viaBridge();
+      return;
+    }
+
+    const msg = { source: 'workspace', v: PROTOCOL_VERSION, type, payload };
+    let directFailed = false;
+    const timer = window.setTimeout(() => {
+      if (!settled && !directFailed) viaBridge(); // direct went quiet: try the relay
+    }, 4000);
+    try {
+      chrome!.runtime!.sendMessage!(extId, msg, (response: unknown) => {
+        window.clearTimeout(timer);
+        if (chrome!.runtime!.lastError) {
+          // Almost always "Could not establish connection": this page's origin is
+          // not in externally_connectable. The bridge does not care about origin.
+          directFailed = true;
+          viaBridge();
+          return;
+        }
+        // The service worker ANSWERED, so its verdict is final. Never retry over
+        // the bridge here: both channels run the same handler, so a second attempt
+        // would open every link a second time.
+        const r = response as { source?: string; type?: string; ok?: boolean } | undefined;
+        directFailed = true;
+        done(!!(r && r.type === ackType && r.ok), 'the extension refused (see its service-worker console)');
+      });
+    } catch {
+      window.clearTimeout(timer);
+      viaBridge();
     }
   });
 }
