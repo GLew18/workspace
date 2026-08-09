@@ -206,3 +206,16 @@ a {
     scrollbar-color: var(--accent) transparent;
   }
 }
+
+/* THE `hidden` TRAP (found 8/9: an empty red bar in Settings ▸ Notifications, and
+   the same latent bug on Bookmarks' guide button).
+   `el.hidden = true` relies on the browser's default `[hidden] { display: none }`,
+   which is a LOW-PRIORITY rule any author `display` beats. So a class with
+   `display:flex` / `display:block` renders its element anyway — as an empty
+   coloured box, since the content was never filled in.
+   This restores the intent globally: hidden means hidden, whatever the class says.
+   `!important` is deliberate and correct here — it is the ONE place in the app
+   that should outrank a component's own display. */
+[hidden] {
+  display: none !important;
+}

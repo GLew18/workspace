@@ -1855,3 +1855,12 @@ body.app-mode .app-below {
   color: #fff;
   letter-spacing: 0.03em;
 }
+
+/* The "your password stopped working" banner. Same shape as .verify-bar, but a
+   colder tone on purpose: .verify-bar is a nudge about something you SHOULD do,
+   this reports something that ALREADY happened. Reusing the gold would make them
+   read as the same nag. */
+.verify-bar.pw-dropped {
+  background: rgba(120, 145, 200, 0.1);
+  border-color: rgba(120, 145, 200, 0.38);
+}

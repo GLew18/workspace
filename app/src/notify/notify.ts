@@ -10,6 +10,7 @@
 // few days so the ledger can't grow forever.
 
 import { logNotification } from './log';
+import { scopedKey } from '../util/userScope';
 
 /** What details each task-notification includes (one setting, applied to every
  *  independent-task notification). */
@@ -343,7 +344,9 @@ export function sendNotification(
 // lands. Entries are mirrored to localStorage too, so a reload mid-session can't
 // re-fire a reminder while the cloud copy is still loading.
 
-const LEDGER_KEY = 'notify:sent:v1';
+// Per-account (see util/userScope.ts): the keys embed task ids, and two accounts
+// sharing one ledger would suppress each other's reminders.
+const LEDGER_KEY = () => scopedKey('notify:sent:v1');
 const LEDGER_KEEP_DAYS = 7;
 
 interface Ledger {
@@ -357,7 +360,7 @@ let ledger: Ledger = loadLocal();
 
 function loadLocal(): Ledger {
   try {
-    return JSON.parse(localStorage.getItem(LEDGER_KEY) || '{}');
+    return JSON.parse(localStorage.getItem(LEDGER_KEY()) || '{}');
   } catch {
     return {};
   }
@@ -365,7 +368,7 @@ function loadLocal(): Ledger {
 
 function saveLocal(l: Ledger): void {
   try {
-    localStorage.setItem(LEDGER_KEY, JSON.stringify(l));
+    localStorage.setItem(LEDGER_KEY(), JSON.stringify(l));
   } catch {
     /* quota — worst case a reminder repeats after a reload */
   }

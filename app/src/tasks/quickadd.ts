@@ -109,11 +109,25 @@ export function buildQuickAdd(
   };
 
   input.addEventListener('keydown', (e) => {
-    // The open dropdown owns Tab / Enter / Esc.
+    // The open dropdown owns ↑ / ↓ / Tab / Enter / Esc.
     if (matches.length) {
+      // ↑/↓ move the highlight and WRAP (per Gabe): past the bottom lands on the
+      // first row, before the top lands on the last. The modulo below is written
+      // `(i + n) % n` rather than a plain `%` because JS keeps the sign on a
+      // negative remainder, so -1 % 3 is -1, not 2.
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault(); // don't let the caret jump to the start/end of the input
+        const step = e.key === 'ArrowDown' ? 1 : -1;
+        hi = (hi + step + matches.length) % matches.length;
+        renderDrop();
+        // Keep the highlight visible when the list is scrolled (it's resizable, so
+        // the matches can outrun the visible box).
+        drop.querySelector('.qa-folder-opt.active')?.scrollIntoView({ block: 'nearest' });
+        return;
+      }
       // Tab COMPLETES the highlighted folder, shell-style — it never cycles
-      // through them (per Gabe). Clicking a row is how you pick a different one,
-      // and a click accepts it outright, so there's no "move the highlight" step.
+      // through them (per Gabe). Arrow keys are what move the highlight now;
+      // clicking a row still accepts it outright.
       if (e.key === 'Tab' || e.key === 'Enter') {
         e.preventDefault();
         accept(matches[hi]);

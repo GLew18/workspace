@@ -10,6 +10,7 @@
 // device-local thing (they fire from whichever device had WorkSpace open), so a
 // per-device history is the honest record, and it costs no cloud writes.
 
+import { scopedKey } from '../util/userScope';
 /** One delivered notification. */
 export interface NotifyLogEntry {
   id: string;
@@ -20,8 +21,10 @@ export interface NotifyLogEntry {
   gmail: boolean; // sent to the account email
 }
 
-const LOG_KEY = 'notify:log:v1';
-const SEEN_KEY = 'notify:log:seen:v1';
+// Per-account (see util/userScope.ts). The log holds notification TITLES, which
+// are task titles — one account must never read another's.
+const LOG_KEY = () => scopedKey('notify:log:v1');
+const SEEN_KEY = () => scopedKey('notify:log:seen:v1');
 /** Keep the log bounded. Old entries fall off the end; nobody scrolls past ~200. */
 const MAX_ENTRIES = 200;
 
@@ -31,7 +34,7 @@ export const NOTIFY_LOG_EVENT = 'ws:notify-log-changed';
 
 function read(): NotifyLogEntry[] {
   try {
-    const raw = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+    const raw = JSON.parse(localStorage.getItem(LOG_KEY()) || '[]');
     if (!Array.isArray(raw)) return [];
     // Tolerate anything malformed rather than throwing away the whole log.
     return raw.filter(
@@ -45,7 +48,7 @@ function read(): NotifyLogEntry[] {
 
 function write(list: NotifyLogEntry[]): void {
   try {
-    localStorage.setItem(LOG_KEY, JSON.stringify(list.slice(0, MAX_ENTRIES)));
+    localStorage.setItem(LOG_KEY(), JSON.stringify(list.slice(0, MAX_ENTRIES)));
   } catch {
     /* quota / private mode — the log is a nicety, never break delivery for it */
   }
@@ -78,7 +81,7 @@ export function clearNotifyLog(): void {
 
 /** Timestamp of the last time the log screen was opened (for the unread dot). */
 function lastSeen(): number {
-  const n = Number(localStorage.getItem(SEEN_KEY) || 0);
+  const n = Number(localStorage.getItem(SEEN_KEY()) || 0);
   return Number.isFinite(n) ? n : 0;
 }
 
@@ -91,7 +94,7 @@ export function unreadNotifyCount(): number {
 /** Mark everything read (the screen calls this when it opens). */
 export function markNotifyLogSeen(): void {
   try {
-    localStorage.setItem(SEEN_KEY, String(Date.now()));
+    localStorage.setItem(SEEN_KEY(), String(Date.now()));
   } catch {
     /* ignore */
   }

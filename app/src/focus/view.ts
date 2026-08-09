@@ -93,7 +93,7 @@ import {
   clearFocusState,
   getTabId,
   ownsSession,
-  FOCUS_STATE_KEY,
+  focusStateKey,
 } from './persist';
 
 // Default session-length presets, in minutes. Their labels are DERIVED by
@@ -1784,7 +1784,9 @@ export class FocusView {
   /** Cross-tab coordination via the localStorage 'storage' event (fires in every
    *  tab EXCEPT the one that wrote — perfect for ownership handoffs). */
   private onStorage = (e: StorageEvent): void => {
-    if (e.key !== FOCUS_STATE_KEY) return;
+    // Compare against THIS ACCOUNT's key: focus state is uid-scoped, so another
+    // signed-in account's session in another tab must not steer this one.
+    if (e.key !== focusStateKey()) return;
     let s: FocusState | null = null;
     try {
       s = e.newValue ? (JSON.parse(e.newValue) as FocusState) : null;

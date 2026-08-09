@@ -201,12 +201,21 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
     // ONLY to the account's own email, read from Firebase AUTH — never from the
     // user-writable profile, so notifications can't be aimed at someone else's
     // inbox. Looked up only when some gmail channel is actually on.
+    // VERIFIED ONLY (Gabe, 8/9). These emails carry TASK TITLES. If a student
+    // typo'd their address at signup, an unverified send mails their assignments
+    // to a stranger who never asked for them, and nothing would ever surface the
+    // mistake. Verification is the only proof the inbox is actually theirs, so it
+    // is a precondition for the gmail channel — not merely a nag in the UI.
+    //
+    // Pop-ups are unaffected: they go to an enrolled device, which is already
+    // proof of possession.
     const tokens = Object.keys((u.profile && u.profile.pushTokens) || {});
     const canPopup = tokens.length > 0;
     const anyGmail = view.dueSoon.gmail || view.dailyAgenda.gmail || view.tomorrow.gmail;
-    const authEmail = anyGmail
-      ? await admin.auth().getUser(uid).then((rec) => rec.email || null).catch(() => null)
+    const rec = anyGmail
+      ? await admin.auth().getUser(uid).then((r) => r).catch(() => null)
       : null;
+    const authEmail = rec && rec.emailVerified ? rec.email || null : null;
     const canGmail = !!authEmail;
     if (!canPopup && !canGmail) continue;
 
@@ -379,39 +388,83 @@ const WORDMARK_O_B64 = require('fs')
   .readFileSync(require('path').join(__dirname, 'wordmark-o.b64'), 'utf8')
   .trim();
 
+// FLAT WORDMARK (Gabe, 8/9). One image containing "W" + the computer + "rkSpace",
+// instead of live text with the icon inlined between the letters.
+//
+// WHY: Gmail proxies and fetches the icon over the network, so the letters painted
+// instantly and the computer popped in a beat later — the lockup visibly assembled
+// itself in two pieces. A single image can't do that: it's either not there yet or
+// fully there, which is how every other email logo behaves.
+//
+// It was composited FROM the split version's own measured geometry (same Segoe UI
+// fallback Gmail actually uses, same 22px, same vertical-align:-8px, same margins),
+// so it preserves the alignment we settled on rather than re-deriving it. Rendered
+// at 2x for retina, displayed at 123x32.
+//
+// ── REVERT ──────────────────────────────────────────────────────────────────────
+// Flip this to false and the split text+icon version comes back, untouched. Both
+// assets stay on disk. Nothing else needs changing.
+const WORDMARK_FLAT = true;
+const WORDMARK_FULL_B64 = require('fs')
+  .readFileSync(require('path').join(__dirname, 'wordmark-full.b64'), 'utf8')
+  .trim();
+const WORDMARK_FULL_W = 123;
+const WORDMARK_FULL_H = 32;
+
 /** The branded HTML both auth emails share. */
 function authMailDoc(to, kind, link) {
-  const isReset = kind === 'reset';
-  const subject = isReset ? 'Reset your WorkSpace password' : 'Verify your email for WorkSpace';
-  const heading = isReset ? 'Reset your password' : 'Verify your email';
-  const blurb = isReset
-    ? 'Tap the button to choose a new password. The link works once and expires in an hour.'
-    : 'Tap the button to confirm this address so your password keeps working.';
-  const cta = isReset ? 'Reset password' : 'Verify email';
-  const ignore = isReset
-    ? 'Didn’t ask for this? Ignore this email and your password stays exactly as it is.'
-    : 'Didn’t sign up for WorkSpace? You can ignore this email.';
+  // THREE kinds, not two. 'reset' and 'set' send the SAME link and perform the
+  // same action — Firebase has one "choose a password" flow — but they are worded
+  // differently because they answer different questions:
+  //
+  //   reset  → "you have a password and want a new one"      (Forgot password?)
+  //   set    → "you have NO password and want one"           (after the Google
+  //            merge deleted it, or a Google-only account adding one)
+  //
+  // Calling the second one "Reset your password" was incoherent: it told someone
+  // to reset a password that does not exist, and implied their current one was
+  // about to change when there was nothing to change. Same mechanism, honest words.
+  const isVerify = kind === 'verify';
+  const isSet = kind === 'set';
+  const subject = isVerify
+    ? 'Verify your email for WorkSpace'
+    : isSet
+      ? 'Set your WorkSpace password'
+      : 'Reset your WorkSpace password';
+  const heading = isVerify ? 'Verify your email' : isSet ? 'Set a password' : 'Reset your password';
+  const blurb = isVerify
+    ? 'Tap the button to confirm this address so your password keeps working.'
+    : isSet
+      ? 'Your account signs in with Google and has no password yet. Tap the button to choose one, so you can sign in either way. The link works once and expires in an hour.'
+      : 'Tap the button to choose a new password. The link works once and expires in an hour.';
+  const cta = isVerify ? 'Verify email' : isSet ? 'Set password' : 'Reset password';
+  const ignore = isVerify
+    ? 'Didn’t sign up for WorkSpace? You can ignore this email.'
+    : isSet
+      ? 'Didn’t ask for this? Ignore this email — your account keeps working with Google exactly as it does now.'
+      : 'Didn’t ask for this? Ignore this email and your password stays exactly as it is.';
 
   const text = `${heading}\n\n${blurb}\n\n${link}\n\n${ignore}\n\nWorkSpace`;
   const html =
     `<div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#0b1220;padding:32px 16px">` +
     `<div style="max-width:480px;margin:0 auto;background:#111a2e;border:1px solid #22304d;border-radius:16px;padding:32px 28px">` +
-    // ============================================================
-    // GABE: THIS IS THE CSS TO TWEAK. Real "W" + "rkSpace" text, real icon image.
-    //   font-size   → scales the whole lockup; icon size below should match it.
-    //   vertical-align (on the img) → NEGATIVE moves the icon DOWN, positive UP.
-    //     Real app uses translateY(0.2em) i.e. 0.2 × font-size, downward. At
-    //     22px that's -4.4px. Try nudging this a few px at a time.
-    //   margin (on the img) → horizontal kerning against the W and the r. Real
-    //     app uses -0.02em each side. Barely visible; touch last.
-    //   width/height (on the img) → the icon's on-screen size. Keep them EQUAL
-    //     (the source SVG is square) and matched to font-size for the "it's the
-    //     o" illusion to read right.
-    // Edit, then from app/: firebase deploy --only functions:sendAuthEmail
-    // ============================================================
-    `<div style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.01em;margin:0 0 22px;white-space:nowrap">` +
-    `W<img src="cid:wsmark" width="22" height="22" alt="o" ` +
-    `style="width:22px;height:22px;vertical-align:-4.4px;margin:0 -0.44px">rkSpace</div>` +
+    // The wordmark. ONE FLAT IMAGE by default; flip WORDMARK_FLAT (above) to false
+    // to bring back live text with the icon inlined between the letters.
+    //
+    // GABE: if you go back to the split version, its CSS is in the `: ` branch
+    // below. vertical-align on the img is the vertical nudge (NEGATIVE moves the
+    // icon DOWN, currently -8px). Do NOT use `position:relative; top:` there —
+    // Gmail strips `position` outright, the offset vanishes, and the icon jumps
+    // back to baseline, which sits too high. That shipped once and looked worse
+    // than the bug it was meant to fix. The asymmetric margin compensates for
+    // Gmail substituting Segoe UI/Arial for Inter, whose W has a wider right
+    // sidebearing.
+    (WORDMARK_FLAT
+      ? `<img src="cid:wsmark" width="${WORDMARK_FULL_W}" height="${WORDMARK_FULL_H}" alt="WorkSpace" ` +
+        `style="display:block;width:${WORDMARK_FULL_W}px;height:${WORDMARK_FULL_H}px;margin:0 0 22px">`
+      : `<div style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.01em;margin:0 0 22px;white-space:nowrap">` +
+        `W<img src="cid:wsmark" width="22" height="22" alt="o" ` +
+        `style="width:22px;height:22px;vertical-align:-8px;margin:0 -0.44px 0 -0.22px;background:#111a2e">rkSpace</div>`) +
     `<h1 style="margin:0 0 10px;font-size:19px;font-weight:700;color:#f4f7ff">${heading}</h1>` +
     `<p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#9fb0cc">${blurb}</p>` +
     `<a href="${link}" style="display:inline-block;background:#e6a817;color:#1a1206;text-decoration:none;` +
@@ -429,7 +482,7 @@ function authMailDoc(to, kind, link) {
       attachments: [
         {
           filename: 'workspace.png',
-          content: WORDMARK_O_B64,
+          content: WORDMARK_FLAT ? WORDMARK_FULL_B64 : WORDMARK_O_B64,
           encoding: 'base64',
           cid: 'wsmark', // matches src="cid:wsmark" above
           contentDisposition: 'inline', // inline, so it isn't listed as a download
@@ -459,17 +512,26 @@ async function throttleOk(email) {
 
 exports.sendAuthEmail = onCall({ region: 'us-central1' }, async (req) => {
   const email = String((req.data && req.data.email) || '').trim().toLowerCase();
-  const kind = (req.data && req.data.kind) === 'verify' ? 'verify' : 'reset';
+  const raw = req.data && req.data.kind;
+  // 'set' shares reset's mechanism (same generated link) but its own wording.
+  const kind = raw === 'verify' ? 'verify' : raw === 'set' ? 'set' : 'reset';
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     throw new HttpsError('invalid-argument', 'That doesn’t look like a valid email.');
   }
-  // Verification is for the signed-in user only, and only for their own address.
-  if (kind === 'verify') {
-    const caller = req.auth && req.auth.token && req.auth.token.email;
-    if (!caller || String(caller).toLowerCase() !== email) {
-      throw new HttpsError('permission-denied', 'Sign in first.');
-    }
-  }
+  // BOTH kinds are callable signed-out, and that is deliberate.
+  //
+  // `verify` used to require a signed-in caller matching the address. That was
+  // stricter than the reset path right next to it — which is unauthenticated,
+  // standard, and sends a far more sensitive email — and it broke a real case:
+  // the very user this banner warns about. If a Google sign-in dropped their
+  // unverified password credential, they may be UNABLE to sign in, and so unable
+  // to reach the one button that would send them the verification mail.
+  //
+  // The protections that actually matter are unchanged and cover both kinds:
+  //   • per-address throttle (1/min, 8/day) — no email bombing
+  //   • existence check that reports success either way — no account enumeration
+  //   • the mail only ever goes TO the address in question, never anywhere the
+  //     caller chooses, so an attacker gains nothing by asking
   if (!(await throttleOk(email))) {
     throw new HttpsError('resource-exhausted', 'Too many requests. Wait a minute, then try again.');
   }
@@ -496,9 +558,10 @@ exports.sendAuthEmail = onCall({ region: 'us-central1' }, async (req) => {
   let link;
   try {
     link =
-      kind === 'reset'
-        ? await admin.auth().generatePasswordResetLink(email)
-        : await admin.auth().generateEmailVerificationLink(email);
+      kind === 'verify'
+        ? await admin.auth().generateEmailVerificationLink(email)
+        // 'reset' and 'set' are the same Firebase action — choosing a password.
+        : await admin.auth().generatePasswordResetLink(email);
   } catch (err) {
     const code = String((err && (err.code || (err.errorInfo && err.errorInfo.code))) || '');
     console.error('sendAuthEmail failed', code, err && err.message);
@@ -507,4 +570,95 @@ exports.sendAuthEmail = onCall({ region: 'us-central1' }, async (req) => {
 
   await admin.firestore().collection(MAIL_COLLECTION).add(authMailDoc(email, kind, link));
   return { ok: true };
+});
+
+// ---------------------------------------------------------------------------
+// SCHOOLOGY iCAL FETCH — the server-side half of the calendar import.
+//
+// WHY THIS EXISTS: the client imports assignments by fetching the student's iCal
+// feed directly in the browser. That works on localhost only because vite.config
+// proxies /sgy → heschel.schoology.com in DEV. Schoology sends no
+// Access-Control-Allow-Origin header, so from any deployed origin the browser
+// blocks the request outright ("No 'Access-Control-Allow-Origin' header is
+// present" — verified in a real browser, not assumed). Without this function,
+// every import path breaks the moment the frontend is hosted: onboarding's
+// Connect step, Settings' sync, the Dashboard button, Tasks' refresh, and the
+// boot sync.
+//
+// Server-to-server requests aren't subject to CORS, which is the whole trick:
+// the same fetch the browser is forbidden to make, we make here and hand back.
+//
+// THIS IS NOT A GENERAL URL FETCHER, and must never become one. An endpoint that
+// fetches arbitrary URLs on request is an SSRF hole: it could be pointed at cloud
+// metadata services (169.254.169.254), private network ranges, or used as an
+// anonymous proxy. So it is locked down three ways:
+//   1. signed-in callers only,
+//   2. the URL must be an https Schoology calendar-feed URL — host is
+//      schoology.com or a subdomain, path contains /calendar/feed/,
+//   3. the response is capped, so a huge body can't be used to run up cost.
+// ---------------------------------------------------------------------------
+
+const ICAL_MAX_BYTES = 5 * 1024 * 1024; // a year of assignments is well under 1MB
+const ICAL_TIMEOUT_MS = 20_000;
+
+/** Mirrors isSchoologyIcalUrl in src/schoology/ical.ts, minus http:// — a server
+ *  fetch has no excuse to leave TLS. Returns the normalized https URL, or null. */
+function safeSchoologyIcalUrl(raw) {
+  try {
+    // webcal:// is what Schoology's Copy button hands out; it is https with the
+    // scheme swapped as a hint to open a calendar app (see toHttps on the client).
+    const u = new URL(String(raw || '').trim().replace(/^webcal:/i, 'https:'));
+    if (u.protocol !== 'https:') return null;
+    const host = u.hostname.toLowerCase();
+    if (host !== 'schoology.com' && !host.endsWith('.schoology.com')) return null;
+    if (!/\/calendar\/feed\//i.test(u.pathname)) return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+exports.fetchSchoologyIcal = onCall({ region: 'us-central1' }, async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'Sign in first.');
+  }
+  const url = safeSchoologyIcalUrl(req.data && req.data.url);
+  if (!url) {
+    throw new HttpsError(
+      'invalid-argument',
+      'That is not a Schoology calendar link. It looks like webcal://<school>.schoology.com/calendar/feed/ical/…'
+    );
+  }
+
+  let res;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ICAL_TIMEOUT_MS);
+  try {
+    res = await fetch(url, {
+      signal: ctl.signal,
+      redirect: 'follow',
+      // Ask for the calendar, not the HTML page a browser would get.
+      headers: { Accept: 'text/calendar, text/plain;q=0.9, */*;q=0.8' },
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    console.error('fetchSchoologyIcal network failure', err && err.message);
+    throw new HttpsError('unavailable', 'Couldn’t reach Schoology. Try again in a moment.');
+  }
+  clearTimeout(timer);
+
+  if (!res.ok) {
+    // Pass the status through: the client turns it into a sentence for the student.
+    return { ok: false, status: res.status, text: '' };
+  }
+
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > ICAL_MAX_BYTES) {
+    throw new HttpsError('resource-exhausted', 'That calendar is unexpectedly large.');
+  }
+  // The BODY is returned as-is. Every judgement about it — is it iCal, is it the
+  // "no events in this calendar" page, is it an HTML login page — stays on the
+  // client in fetchIcal(), so both paths (dev proxy and this) produce identical
+  // messages and there is exactly ONE place that decides what a feed means.
+  return { ok: true, status: res.status, text: buf.toString('utf8') };
 });

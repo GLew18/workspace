@@ -303,6 +303,21 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       const btn = cta('Connect');
       sc.append(visual, h1, sub, fieldWrap, btn);
 
+      // TEMPORARY (Gabe, 8/9): a way past the connect step while the rest of
+      // onboarding is being built, so testing later screens doesn't require a
+      // working Schoology feed every time.
+      //
+      // This is deliberately NOT a product decision. The header comment above
+      // explains why there is no Skip in the real flow: a student who skips
+      // forgets, opens an empty app, and concludes WorkSpace is broken. The
+      // connection IS the product. DELETE THIS BLOCK when the flow is done.
+      //
+      // It leaves draft.connected false and draft.courses empty, which the later
+      // screens already handle honestly ("Your courses" + "add them here").
+      const skip = el('button', { class: 'onb-skip', type: 'button', text: 'Skip for now (temporary)' });
+      skip.addEventListener('click', () => go(index + 1));
+      sc.append(skip);
+
       const submit = (): void => {
         // Back-navigation: don't replay the scan, just move on.
         if (draft.connected) {

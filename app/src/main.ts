@@ -20,6 +20,9 @@ import {
   needsEmailVerification,
   resendEmailVerification,
   refreshVerificationState,
+  verificationEmailFailed,
+  hasPasswordProvider,
+  sendSetPasswordEmail,
 } from './auth';
 import { openAuthScreen } from './ui/authScreen';
 import { Data } from './db';
@@ -35,6 +38,7 @@ import { SettingsView } from './settings/view';
 import { BookmarksView } from './bookmarks/view';
 import { detectExtension } from './bookmarks/shortcuts';
 import { runOnboarding } from './onboarding/view';
+import { setStorageUser, scopedKey } from './util/userScope';
 import { renderLanding } from './landing/view';
 import { runSync } from './schoology/sync';
 import { detectSchoologyExtension, requestSgyData, applySgyPayload } from './schoology/extension';
@@ -60,6 +64,13 @@ let stopNotifications: (() => void) | null = null; // assignment-reminder schedu
 // running session (music, overlay, minimized widget), which live on <body> and
 // would otherwise survive the sign-out and float over the landing page.
 let activeFocusView: FocusView | null = null;
+
+// Is the signed-in account's email VERIFIED? Held here (not read per-send) so the
+// scheduler can consult it live: verification usually lands mid-session, when the
+// student clicks the link in another tab and comes back. Reset on every sign-in,
+// flipped true the moment a check confirms it. Gates the Gmail channel — see
+// SchedulerOpts.emailVerified.
+let accountEmailVerified = false;
 
 /** Glide away any body-mounted toasts (undo toast, focus-end toast): drop their
  *  .show so the CSS slides them down, then remove once the transition is done. */
@@ -131,6 +142,27 @@ async function renderApp(user: AuthUser): Promise<void> {
   const boot = el('div', { class: 'app-booting' });
   boot.append(el('div', { class: 'app-booting-spinner' }));
   root.append(boot);
+
+  // Bind ALL per-account browser storage to this account before anything reads it
+  // — focus session, notification log + unread marker, reminder ledger. Must run
+  // before bootRestore()/FocusView or a restore could still surface the previously
+  // signed-in account's session. The legacy list is the pre-scoping global keys,
+  // deleted rather than migrated (see util/userScope.ts).
+  setStorageUser(user.uid, [
+    'focus:state:v1',
+    'notify:log:v1',
+    'notify:log:seen:v1',
+    'notify:sent:v1',
+    'ws:verifyNudgeDismissed',
+  ]);
+
+  // Start CLOSED for the new account, then ask. Between these two lines the gmail
+  // channel is off, which is the safe direction: a moment of no email beats one
+  // email to an unproven address.
+  accountEmailVerified = false;
+  void refreshVerificationState().then((v) => {
+    accountEmailVerified = v;
+  });
 
   const data = await Data.create(user.uid);
   // These boot reads are independent of each other — run them CONCURRENTLY so
@@ -257,6 +289,11 @@ async function renderApp(user: AuthUser): Promise<void> {
   // unverified password is silently dropped the first time the same student uses
   // "Continue with Google", and verifying is what prevents that.
   void mountVerifyNudge(below, tabsHost);
+  // The other half of the same story: the merge has ALREADY happened to this
+  // account and took the password with it. Tells them once, instead of leaving
+  // them to discover it the next time they try to type a password that no longer
+  // exists.
+  void mountPasswordDroppedNotice(data, user, below, tabsHost);
 
   // --- Tabs + their views: each tab's content is built by its own module ---
   let controller: TabController;
@@ -342,6 +379,8 @@ async function renderApp(user: AuthUser): Promise<void> {
   stopNotifications = startNotificationScheduler(data, {
     onClick: () => controller.goToTab('tasks'),
     email: user.email, // the Gmail channel's ONLY destination — the account email
+    // Live, not a snapshot: flips true mid-session when verification lands.
+    emailVerified: () => accountEmailVerified,
   });
   // "Also email me" delivery: mirror every notification to an email via the
   // Firestore Trigger Email extension. The scheduler keeps the on/off + address in
@@ -372,16 +411,23 @@ async function renderApp(user: AuthUser): Promise<void> {
  * clicking the link happens in a DIFFERENT tab and `emailVerified` is cached here
  * until we explicitly reload the user.
  */
-const VERIFY_DISMISS_KEY = 'ws:verifyNudgeDismissed';
+// Per-account: whether THIS user dismissed the banner. Unscoped, one account
+// hiding it hid it for every later account on the browser — including accounts
+// that genuinely still need to verify.
+const VERIFY_DISMISS_KEY = () => scopedKey('ws:verifyNudgeDismissed');
 
 async function mountVerifyNudge(host: HTMLElement, before: HTMLElement): Promise<void> {
-  if (sessionStorage.getItem(VERIFY_DISMISS_KEY) === '1') return;
+  if (sessionStorage.getItem(VERIFY_DISMISS_KEY()) === '1') return;
   if (!(await needsEmailVerification())) return;
 
   const bar = el('div', { class: 'verify-bar' });
   const text = el('div', {
     class: 'verify-text',
-    text: 'Verify your email so your password keeps working. Check your inbox for the link.',
+    // Don't send them to an inbox nothing arrived in: if the automatic sign-up
+    // send failed, say that instead (see verificationEmailFailed in auth.ts).
+    text: verificationEmailFailed()
+      ? 'We couldn’t send your verification email. Send it again so your password keeps working.'
+      : 'Verify your email so your password keeps working. Check your inbox for the link.',
   });
   const resend = el('button', { class: 'verify-btn', text: 'Resend email' });
   const dismiss = el('button', { class: 'verify-x', text: '✕', title: 'Hide for now' });
@@ -400,22 +446,113 @@ async function mountVerifyNudge(host: HTMLElement, before: HTMLElement): Promise
         resend.textContent = 'Resend email';
       });
   });
-  dismiss.addEventListener('click', () => {
-    sessionStorage.setItem(VERIFY_DISMISS_KEY, '1');
+  // One teardown for every way the bar can go away, so the focus listener below
+  // never outlives it. Without this, each sign-in added another listener that
+  // stayed subscribed for the life of the page.
+  const close = (): void => {
+    window.removeEventListener('focus', recheck);
     bar.remove();
+  };
+  dismiss.addEventListener('click', () => {
+    sessionStorage.setItem(VERIFY_DISMISS_KEY(), '1');
+    close();
   });
 
   bar.append(text, resend, dismiss);
   host.insertBefore(bar, before); // above the tab column, inside the scrolling area
 
-  // They click the link in another tab; this one only finds out if it asks.
-  const recheck = (): void => {
+  // They click the link in ANOTHER tab, so this one has no way to hear about it.
+  // Coming back to this tab is the cue to go ask.
+  function recheck(): void {
     if (!bar.isConnected) return;
     void refreshVerificationState().then((verified) => {
-      if (verified) bar.remove();
+      if (!verified) return;
+      // Opens the gmail channel in the SAME breath as hiding the banner, so a
+      // student who verifies mid-session starts getting emails without a reload.
+      accountEmailVerified = true;
+      close();
     });
-  };
+  }
   window.addEventListener('focus', recheck);
+}
+
+/**
+ * "Your password stopped working" — shown once, after Firebase's provider merge
+ * has already deleted an email/password credential.
+ *
+ * HOW WE KNOW. We can't see the merge happen: it occurs inside the Google popup,
+ * and the address isn't known until it returns. So instead every signed-in
+ * session records what sign-in methods the account HAS (profile/authMethods).
+ * A session that finds `password: true` on record but no password provider on
+ * the live account is looking at the aftermath — the credential was there, and
+ * now isn't.
+ *
+ * It lives in its own profile key rather than on `account` because `account` is
+ * written whole in two places (onboarding + Settings ▸ name), either of which
+ * would silently drop a field added there.
+ *
+ * WHY BOTHER, since Google still signs them in (Gabe's question, and it's fair):
+ * this is not a lockout, it's a silent surprise. Without it they hit a password
+ * that simply stops working — on their phone, months later — and reasonably
+ * conclude the account is broken or the data is gone. The point is to replace a
+ * mystery with a sentence and a way out. It also matters for the student who
+ * later LOSES the Google account (graduation, a school workspace closing), for
+ * whom the password would have been the way back in.
+ */
+async function mountPasswordDroppedNotice(
+  data: Data,
+  user: AuthUser,
+  host: HTMLElement,
+  before: HTMLElement
+): Promise<void> {
+  if (isLocalMode()) return;
+  const DISMISS = scopedKey('ws:pwDroppedDismissed');
+  const record = (await data.getProfile<{ password?: boolean }>('authMethods')) ?? {};
+  const live = await hasPasswordProvider();
+
+  // Live truth wins: record it so a LATER session can spot a disappearance.
+  if (live !== !!record.password) {
+    // Only ever write when it changed, so this isn't a write on every boot.
+    await data.setProfile('authMethods', { ...record, password: live });
+  }
+  // Had one, doesn't now → the merge took it. (The reverse — gaining one — is
+  // just them setting a password, which needs no announcement.)
+  if (!(record.password === true && !live)) return;
+  if (sessionStorage.getItem(DISMISS) === '1') return;
+
+  const bar = el('div', { class: 'verify-bar pw-dropped' });
+  const text = el('div', {
+    class: 'verify-text',
+    text: 'Your password no longer works on this account. Signing in with Google replaced it. Nothing was lost, and Google still signs you in, but set a new password if you want that option back.',
+  });
+  const act = el('button', { class: 'verify-btn', text: 'Set a password' });
+  const dismiss = el('button', { class: 'verify-x', text: '✕', title: 'Hide for now' });
+
+  act.addEventListener('click', () => {
+    act.disabled = true;
+    act.textContent = 'Sending…';
+    // Same Firebase action as a reset (it's the only "choose a password" flow),
+    // but worded as SET rather than RESET — there is no existing password to reset,
+    // which is exactly what made the old copy read as incoherent. Completing it
+    // also marks the address verified.
+    void sendSetPasswordEmail(user.email)
+      .then(() => {
+        text.textContent = `Sent to ${user.email}. Open the link to choose a password. It can take a minute, and it sometimes lands in spam.`;
+        act.textContent = 'Sent ✓';
+      })
+      .catch((err: Error) => {
+        text.textContent = err.message;
+        act.disabled = false;
+        act.textContent = 'Set a password';
+      });
+  });
+  dismiss.addEventListener('click', () => {
+    sessionStorage.setItem(DISMISS, '1');
+    bar.remove();
+  });
+
+  bar.append(text, act, dismiss);
+  host.insertBefore(bar, before);
 }
 
 // #region Auth wiring — render the app on sign-in, the sign-in screen on sign-out

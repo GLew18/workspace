@@ -1,3 +1,5 @@
+import { scopedKey } from '../util/userScope';
+
 // WorkSpace — crash-safe focus persistence (spec §8.3). Per-device, localStorage only.
 //
 // OWNERSHIP: a session belongs to exactly ONE browser tab (ownerTab in the state).
@@ -6,9 +8,22 @@
 // event and quietly drops its UI). Sign-out marks the state `suspended`, which
 // blocks any auto-restore: the next sign-in offers a "Restore" toast instead.
 
-export const FOCUS_STATE_KEY = 'focus:state:v1';
-const KEY = FOCUS_STATE_KEY;
+// PER ACCOUNT, not per device (Gabe, 8/9). This key used to be one global string
+// with no uid in it, so every account on a browser shared ONE saved session:
+// signing out of A and into B offered B a "Restore" for A's session, and restoring
+// it showed A's task titles inside B's account. Found by restoring a real session
+// while signed into a throwaway account.
+//
+// The scoping rule now lives in util/userScope.ts and is shared by every
+// per-account key in the app; read that file for the reasoning and the one
+// deliberate exception (device preferences).
+const KEY_PREFIX = 'focus:state:v1';
 const TAB_ID_KEY = 'focus:tabId';
+
+/** This account's storage key. Also what the cross-tab 'storage' listener matches. */
+export function focusStateKey(): string {
+  return scopedKey(KEY_PREFIX);
+}
 
 export interface FocusTodo {
   id: string;
@@ -79,7 +94,7 @@ export interface FocusState {
 
 export function saveFocusState(s: FocusState): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(s));
+    localStorage.setItem(focusStateKey(), JSON.stringify(s));
   } catch {
     /* ignore quota */
   }
@@ -87,14 +102,14 @@ export function saveFocusState(s: FocusState): void {
 
 export function loadFocusState(): FocusState | null {
   try {
-    return JSON.parse(localStorage.getItem(KEY) || 'null');
+    return JSON.parse(localStorage.getItem(focusStateKey()) || 'null');
   } catch {
     return null;
   }
 }
 
 export function clearFocusState(): void {
-  localStorage.removeItem(KEY);
+  localStorage.removeItem(focusStateKey());
 }
 
 /** Stable identity for THIS browser tab (survives reloads via sessionStorage;

@@ -59,6 +59,15 @@ export interface SchedulerOpts {
   /** The SIGNED-IN ACCOUNT email — the Gmail channel's one and only destination
    *  (deliberately not editable/stored, so notifications can't be aimed at others). */
   email?: string;
+  /** Is that address VERIFIED? Read live (a function, not a snapshot) because
+   *  verification can land mid-session — the student clicks the link in another
+   *  tab and comes back, and email should start working without a reload.
+   *
+   *  Reminder emails carry task titles, so an unverified address is one we have no
+   *  evidence belongs to this student; a typo at signup would mail their
+   *  assignments to a stranger. Deliberately FAIL-CLOSED: omit this and the gmail
+   *  channel simply never fires. */
+  emailVerified?: () => boolean;
 }
 
 /** Start the reminder loop. Returns a stop() that silences it (sign-out). */
@@ -75,7 +84,10 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
    *  deliberately NOT consulted here. */
   const resolve = (ch: Channels): Channels => ({
     popup: ch.popup && notificationPermission() === 'granted',
-    gmail: ch.gmail && !!opts.email,
+    // `=== true` on purpose: an absent getter reads as false, so a caller that
+    // forgets to pass it loses email rather than silently mailing an unproven
+    // address. Mirrors the same check in the Cloud Function.
+    gmail: ch.gmail && !!opts.email && opts.emailVerified?.() === true,
   });
   /** Send on the resolved channels, once, ledgered. Skips (without consuming the
    *  ledger) when nothing would actually deliver. */

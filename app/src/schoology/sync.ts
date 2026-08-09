@@ -22,6 +22,7 @@ import { classifyBatch } from './classify';
 import { loadLabels, labelFor } from './extension';
 import { todayStr, addDays } from '../util/dates';
 import { getPrefs } from '../prefs';
+import { firebaseConfig } from '../firebase';
 
 // #region Types — the result of a sync + the persistent "already imported" ledger
 export interface SyncResult {
@@ -49,29 +50,75 @@ interface SeenLedger {
  * exactly the same thing. Nothing about what the user pastes or sees changes.
  */
 function toHttps(url: string): string {
-  return url.trim().replace(/^webcal:\/\//i, 'https://');
+  return url
+    .trim()
+    .replace(/^webcal:\/\//i, 'https://')
+    // http:// is upgraded too. The CLIENT's isSchoologyIcalUrl tolerates http, but
+    // the Cloud Function deliberately does NOT (a server fetch has no excuse to
+    // leave TLS). Without this line a pasted http:// link would validate, work on
+    // localhost via the dev proxy, and then be refused in production — precisely
+    // the works-in-dev-fails-deployed trap this whole change exists to remove.
+    .replace(/^http:\/\//i, 'https://');
 }
+
+/** Is this the dev server, where vite.config's /sgy proxy exists? */
+const onDevProxy = (): boolean =>
+  location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 
 /** Route the feed through the Vite dev proxy to dodge CORS (single-school in dev). */
 function toFetchUrl(url: string): string {
   const https = toHttps(url);
-  const host = location.hostname;
-  if (host === 'localhost' || host === '127.0.0.1') {
+  if (onDevProxy()) {
     const m = https.match(/^https?:\/\/[^/]+(\/.*)$/);
     if (m) return '/sgy' + m[1];
   }
   return https;
 }
 
+/**
+ * Fetch the feed THROUGH THE SERVER, for every origin that isn't the dev server.
+ *
+ * Schoology sends no Access-Control-Allow-Origin header, so a browser on a
+ * deployed origin is forbidden to read the response — the request fails before
+ * the app sees anything ("blocked by CORS policy", confirmed in a real browser).
+ * Server-to-server requests aren't subject to CORS, so the fetchSchoologyIcal
+ * Cloud Function makes the identical request and hands back the body.
+ *
+ * It returns the RAW TEXT and nothing else. Every judgement about that text —
+ * valid iCal? empty calendar? login page? — stays in fetchIcal below, so the dev
+ * path and the deployed path produce identical messages from one piece of logic.
+ */
+async function fetchIcalViaFunction(url: string): Promise<{ ok: boolean; status: number; text: string }> {
+  const { initializeApp, getApps, getApp } = await import('firebase/app');
+  const { getFunctions, httpsCallable } = await import('firebase/functions');
+  const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  const fn = httpsCallable(getFunctions(app, 'us-central1'), 'fetchSchoologyIcal');
+  const res = await fn({ url: toHttps(url) });
+  return res.data as { ok: boolean; status: number; text: string };
+}
+
 export async function fetchIcal(url: string): Promise<string> {
-  let res: Response;
+  let text: string;
+  let status = 200;
   try {
-    res = await fetch(toFetchUrl(url));
-  } catch {
-    throw new Error('Couldn’t reach that link. Check the URL and your connection.');
+    if (onDevProxy()) {
+      const res = await fetch(toFetchUrl(url));
+      status = res.status;
+      text = res.ok ? await res.text() : '';
+    } else {
+      const r = await fetchIcalViaFunction(url);
+      status = r.status;
+      text = r.ok ? r.text : '';
+    }
+  } catch (err) {
+    // The callable throws its own sentences (bad link / not signed in / Schoology
+    // unreachable); surface those rather than burying them under a generic one.
+    const msg = (err as { message?: string }).message || '';
+    throw new Error(msg && !/internal/i.test(msg)
+      ? msg
+      : 'Couldn’t reach that link. Check the URL and your connection.');
   }
-  if (!res.ok) throw new Error(`That link returned an error (${res.status}).`);
-  const text = await res.text();
+  if (!text) throw new Error(`That link returned an error (${status}).`);
   // A real calendar feed must declare itself. HTML pages / wrong URLs won't —
   // so this catches "valid-looking but not actually iCal" links.
   if (!/BEGIN:VCALENDAR/i.test(text)) {

@@ -18,6 +18,17 @@ export const isLocalMode = (): boolean => !hasFirebaseConfig;
 
 const LOCAL_KEY = 'ws:localUser';
 
+/** Did the automatic verification email at sign-up fail to send? Read by the
+ *  verify banner so it can tell the truth ("we couldn't send it") instead of
+ *  telling a student to check an inbox nothing was sent to. Module-level on
+ *  purpose: it only needs to survive until the banner mounts, moments later in
+ *  the same page load, and a reload legitimately clears it — Resend is right
+ *  there either way. */
+let verifySendFailed = false;
+export function verificationEmailFailed(): boolean {
+  return verifySendFailed;
+}
+
 // NOTE: a "?tab=<label>" per-tab session mode used to live here, to allow two
 // accounts side by side while testing the extension. Removed (Gabe, 8/7): tabs on
 // one origin kept following each other in practice, and an incognito window gives
@@ -66,7 +77,7 @@ async function firebaseAuth() {
  * The function always reports success, even for an address with no account, so
  * this can never be used to test which emails are registered.
  */
-async function callAuthEmail(email: string, kind: 'reset' | 'verify'): Promise<void> {
+async function callAuthEmail(email: string, kind: 'reset' | 'verify' | 'set'): Promise<void> {
   const { initializeApp, getApps, getApp } = await import('firebase/app');
   const { getFunctions, httpsCallable } = await import('firebase/functions');
   const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
@@ -140,9 +151,18 @@ export async function signUpWithEmail(email: string, password: string): Promise<
     // hold the sign-up screen open for no reason. A failure is caught and ignored
     // (the in-app nudge can resend later); it must never fail a created account.
     if (instance.currentUser?.email) {
-      void callAuthEmail(instance.currentUser.email.toLowerCase(), 'verify').catch(() => {
-        /* offline / rate-limited — the nudge still offers Resend */
-      });
+      // Still not awaited (see above), but no longer SILENT. A swallowed failure
+      // meant a student could be told "check your inbox for the link" when no
+      // link was ever sent — and these were landing in spam until recently, so
+      // that was not hypothetical. One retry absorbs a transient blip; if it
+      // still fails we remember, and the banner says so instead of lying.
+      verifySendFailed = false;
+      const address = instance.currentUser.email.toLowerCase();
+      void callAuthEmail(address, 'verify')
+        .catch(() => callAuthEmail(address, 'verify')) // one retry
+        .catch(() => {
+          verifySendFailed = true;
+        });
     }
   } catch (err) {
     const code = (err as { code?: string }).code || '';
@@ -194,8 +214,39 @@ export async function needsEmailVerification(): Promise<boolean> {
   if (isLocalMode()) return false;
   const { instance } = await firebaseAuth();
   const u = instance.currentUser;
-  if (!u || u.emailVerified) return false;
-  return u.providerData.some((p) => p.providerId === 'password');
+  if (!u) return false;
+  // RELOAD FIRST. `emailVerified` on the restored user is whatever was persisted
+  // when the session was last written — it does NOT refresh on its own, not even
+  // across a page load. So a student who clicked the link and then reloaded
+  // WorkSpace would keep seeing "verify your email" until something else happened
+  // to call reload(). One cheap round-trip here makes the banner tell the truth
+  // on first paint.
+  try {
+    await u.reload();
+  } catch {
+    /* offline — fall through and judge on what we last knew */
+  }
+  const fresh = instance.currentUser;
+  if (!fresh || fresh.emailVerified) return false;
+  return fresh.providerData.some((p) => p.providerId === 'password');
+}
+
+/** Ask for a password on an account that has NONE (after the Google merge deleted
+ *  it, or a Google-only account adding one). Same Firebase action as a reset — it
+ *  is the only "choose a password" flow there is — but the email says "Set a
+ *  password" rather than "Reset", because there is nothing to reset. */
+export async function sendSetPasswordEmail(email: string): Promise<void> {
+  if (isLocalMode()) throw new AuthProblem('other', 'Setting a password requires Firebase config');
+  await callAuthEmail(email.trim().toLowerCase(), 'set');
+}
+
+/** Does the signed-in account currently have an email/password sign-in method?
+ *  Used to notice when Firebase's provider merge has DELETED one (see main.ts). */
+export async function hasPasswordProvider(): Promise<boolean> {
+  if (isLocalMode()) return false;
+  const { instance } = await firebaseAuth();
+  const u = instance.currentUser;
+  return !!u?.providerData.some((p) => p.providerId === 'password');
 }
 
 /** Re-send the verification email to the signed-in user. */

@@ -982,3 +982,25 @@
     transition: none;
   }
 }
+
+/* TEMPORARY (Gabe, 8/9): the "Skip for now" escape on the connect screen, so the
+   later onboarding screens can be tested without a live Schoology feed. Quiet on
+   purpose — it must never compete with Connect, which is the real path.
+   DELETE THIS RULE along with the button in onboarding/view.ts. */
+.onb-skip {
+  margin-top: 14px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+.onb-skip:hover {
+  color: var(--text);
+  text-decoration: underline;
+}

@@ -16,7 +16,14 @@ import { getCourses, replaceCourses } from '../courses/registry';
 import { recommendParseWords } from '../courses/recommend';
 import { runSync } from '../schoology/sync';
 import { isSchoologyIcalUrl } from '../schoology/ical';
-import { signOut } from '../auth';
+import {
+  signOut,
+  needsEmailVerification,
+  resendEmailVerification,
+  hasPasswordProvider,
+  sendPasswordReset,
+  sendSetPasswordEmail,
+} from '../auth';
 import { getPrefs, setPrefsCache, PREFS_EVENT, type AppPrefs } from '../prefs';
 import { END_SOUNDS, DEFAULT_END_SOUND, DEFAULT_END_VOLUME, playEndSound } from '../focus/sounds';
 import { armAudioContext } from '../focus/timer';
@@ -583,6 +590,51 @@ export class SettingsView {
 
     // --- Account ---
     sec.append(el('div', { class: 'settings-group-label', text: '🔑 Account' }));
+
+    // PASSWORD — permanent home for what the top-of-app banner only offers in
+    // passing (Gabe, 8/9). The banner appears exactly once, after the Google merge
+    // deletes a password, and only until dismissed. This row is always here, and
+    // it also serves the case the banner can never reach: a Google-only student
+    // who simply WANTS a password and previously had no way to ask for one.
+    //
+    // The row adapts to what the account actually has, because the two cases need
+    // different words for the same Firebase action (see authMailDoc's reset/set):
+    //   has a password → "Change password"  (reset)
+    //   has none       → "Set a password"   (set)
+    const pwRow = el('div');
+    sec.append(pwRow);
+    void hasPasswordProvider().then((has) => {
+      const btn = el('button', {
+        class: 'settings-save',
+        text: has ? 'Change password' : 'Set a password',
+      }) as HTMLButtonElement;
+      const idle = has
+        ? 'We’ll email you a link to choose a new one.'
+        : 'You sign in with Google. Add a password so you can sign in either way.';
+      const row = this.prefRow('Password', idle, btn);
+      // Feedback goes in THIS row's own subtitle. (Not this.setStatus — that
+      // writes the "Last synced…" caption under the Schoology link, a different
+      // section entirely; sending password mail must not post messages there.)
+      const sub = row.querySelector('.srow-sub');
+      btn.addEventListener('click', () => {
+        const mail = this.opts.email;
+        if (!mail) return;
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        void (has ? sendPasswordReset(mail) : sendSetPasswordEmail(mail))
+          .then(() => {
+            btn.textContent = 'Sent ✓';
+            if (sub) sub.textContent = `Sent to ${mail}. Open the link to choose a password. It can take a minute, and it sometimes lands in spam.`;
+          })
+          .catch((err: Error) => {
+            btn.disabled = false;
+            btn.textContent = has ? 'Change password' : 'Set a password';
+            if (sub) sub.textContent = err.message;
+          });
+      });
+      pwRow.append(row);
+    });
+
     const outBtn = el('button', { class: 'sdanger', text: 'Sign out' });
     outBtn.addEventListener('click', () =>
       this.confirmDanger('Sign out of WorkSpace on this device?', () => void signOut())
@@ -1291,6 +1343,38 @@ export class SettingsView {
     const gmailNote = el('div', { class: 'ngmail-note' });
     gmailNote.innerHTML = `✉ Gmail notifications go to <b>${escapeHtml(this.opts.email || 'your account email')}</b>, your sign-in email.`;
 
+    // The gmail channel REQUIRES a verified address (these emails carry task
+    // titles, so an unproven address could be a stranger's). Without this notice
+    // the toggles below would look on and silently deliver nothing — exactly the
+    // kind of silent failure that makes people think the app is broken. So say it
+    // here, next to the switches, and offer the fix inline.
+    const verifyWarn = el('div', { class: 'ngmail-note ngmail-warn' });
+    verifyWarn.hidden = true;
+    void needsEmailVerification().then((needs) => {
+      if (!needs) return;
+      verifyWarn.replaceChildren();
+      verifyWarn.append(
+        el('span', {
+          text: '⚠ Email reminders are paused until you verify this address. They include your task titles, so we only send them once we know the inbox is yours.',
+        })
+      );
+      const send = el('button', { class: 'nverify-send', text: 'Send verification email' }) as HTMLButtonElement;
+      send.addEventListener('click', () => {
+        send.disabled = true;
+        send.textContent = 'Sending…';
+        void resendEmailVerification()
+          .then(() => {
+            send.textContent = 'Sent ✓';
+          })
+          .catch((err: Error) => {
+            send.textContent = err.message;
+            send.disabled = false;
+          });
+      });
+      verifyWarn.append(send);
+      verifyWarn.hidden = false;
+    });
+
     // --- appearance checklist ---
     const appear = el('div', { class: 'nappear' });
     appear.append(el('div', { class: 'nappear-title', text: 'What each notification shows' }));
@@ -1702,7 +1786,7 @@ export class SettingsView {
       refreshPreviews();
     };
 
-    sec.append(howToBtn, perm, master, gmailNote, appear, sources, groups);
+    sec.append(howToBtn, perm, master, gmailNote, verifyWarn, appear, sources, groups);
     refreshAll();
     return sec;
   }
