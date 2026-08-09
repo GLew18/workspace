@@ -56,19 +56,31 @@ function timeKey(t: Task): string {
  * itself. Tasks never hand-placed sort naturally BELOW the arranged ones (a new
  * import appends under the curated order instead of barging into it).
  *
+ * `manualFirst` promotes manualOrder above dueDate, giving
+ * manualOrder → dueDate → priority → dueTime → has-course → addedAt → id.
+ * Focus passes it; the Tasks tab does not. See the note at the check itself.
+ *
  * The addedAt/id tail makes ties FULLY deterministic. Without it, tied tasks fell
  * back to the backend map's key order — which is creation order for an optimistic
  * local write but lexicographic-by-random-id in a Firebase snapshot — so a freshly
  * added task would visibly "teleport" a second later when the echo arrived.
  */
-export function sortTasks(tasks: Task[]): Task[] {
+export function sortTasks(tasks: Task[], opts: { manualFirst?: boolean } = {}): Task[] {
   return [...tasks].sort((a, b) => {
+    const ma = a.manualOrder ?? Infinity;
+    const mb = b.manualOrder ?? Infinity;
+    // manualFirst (Focus only, per Gabe 8/8): the drag arrangement outranks the
+    // due date itself, so a hand-placement can cross a date boundary. It's the
+    // right rule for a FLAT list. The Tasks tab splits into visible day headers,
+    // so a drag there can only ever mean "within this day" and letting it jump
+    // the date would fling the row into another header. Focus shows one
+    // undivided list, so there is no boundary to respect: a row dragged to the
+    // top is expected to STAY at the top, whatever it's due.
+    if (opts.manualFirst && ma !== mb) return ma - mb;
     if (!a.dueDate && b.dueDate) return 1;
     if (a.dueDate && !b.dueDate) return -1;
     if (a.dueDate !== b.dueDate) return a.dueDate < b.dueDate ? -1 : 1;
     // The user's drag arrangement (same-date group) beats the automatic criteria.
-    const ma = a.manualOrder ?? Infinity;
-    const mb = b.manualOrder ?? Infinity;
     if (ma !== mb) return ma - mb;
     // Within a day, higher priority comes first.
     const pw = PRIORITY_WEIGHT[a.priority] - PRIORITY_WEIGHT[b.priority];

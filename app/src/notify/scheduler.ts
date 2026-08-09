@@ -31,6 +31,7 @@ import {
   sendNotification,
   alreadySent,
   markSent,
+  attachLedger,
 } from './notify';
 
 const EVAL_MS = 30_000; // re-check twice a minute — plenty for minute-granular times
@@ -94,7 +95,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
 
   const announceNewTask = (t: TaskMap[string]): void => {
     const body = taskInfoBody({ course: t.course, priority: cap(t.priority), dueMs: dueMsOf(t) }, settings.appearance);
-    fire(`new|${t.id}`, `New assignment: ${t.title}`, body, settings.newAssignment.channels);
+    fire(`new|${t.id}`, `New assignment — ${t.title}`, body, settings.newAssignment.channels);
   };
 
   const anyOn = (ch: Channels): boolean => ch.popup || ch.gmail;
@@ -108,7 +109,17 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
 
     const today = todayStr();
     const now = Date.now();
-    const open = Object.values(tasks).filter((t) => !t.completed);
+    // ONE gate for all three task-driven reminders below (due-soon, daily agenda,
+    // tomorrow preview) — they all read `open`, so filtering here covers them at
+    // once and can't drift apart later.
+    //
+    // Duplicates are excluded unless Settings says otherwise (default off). A
+    // duplicate keeps the original's due date, so without this, copying a task
+    // three times makes one deadline ping you four times. Copies are usually a
+    // working scratchpad, not four real deadlines.
+    const open = Object.values(tasks).filter(
+      (t) => !t.completed && (settings.notifyDuplicates || !t._isDuplicate)
+    );
 
     // --- 1. due-soon reminders (the rule, per Gabe) -------------------------
     //
@@ -147,7 +158,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
           { course: t.course, priority: cap(t.priority), nowMs: now, dueMs, leadMins: lead, untimed: !t.dueTime },
           settings.appearance
         );
-        fire(`rem|${t.id}|${t.dueDate}|${t.dueTime}|${lead}`, `Due soon: ${t.title}`, body, settings.dueSoon.channels);
+        fire(`rem|${t.id}|${t.dueDate}|${t.dueTime}|${lead}`, `Due soon — ${t.title}`, body, settings.dueSoon.channels);
       }
     }
 
@@ -158,7 +169,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
         const agendaMs = new Date(`${today}T${pad(settings.dailyAgenda.hour)}:${pad(settings.dailyAgenda.minute)}:00`).getTime();
         if (!Number.isNaN(agendaMs) && now >= agendaMs) {
           const n = dueToday.length;
-          fire(`agenda|${today}`, `Good morning: ${n} task${n === 1 ? '' : 's'} due today`, 'Open WorkSpace to see them.', settings.dailyAgenda.channels);
+          fire(`agenda|${today}`, `Good morning — ${n} task${n === 1 ? '' : 's'} due today`, 'Open WorkSpace to see them.', settings.dailyAgenda.channels);
         }
       }
     }
@@ -172,7 +183,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
         const fireMs = new Date(`${today}T${pad(hour24)}:${pad(settings.tomorrow.minute)}:00`).getTime();
         if (!Number.isNaN(fireMs) && now >= fireMs) {
           const n = dueTmr.length;
-          fire(`tomorrow|${today}`, `Heads-up: ${n} task${n === 1 ? '' : 's'} due tomorrow`, 'Open WorkSpace to plan ahead.', settings.tomorrow.channels);
+          fire(`tomorrow|${today}`, `Heads-up — ${n} task${n === 1 ? '' : 's'} due tomorrow`, 'Open WorkSpace to plan ahead.', settings.tomorrow.channels);
         }
       }
     }
@@ -206,7 +217,17 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
       // seed from an empty set once settings are loaded (a genuinely empty account).
       if (ids.size > 0 || settingsLoaded) seen = ids;
     } else {
-      const fresh = [...ids].filter((id) => !seen!.has(id) && tasks[id] && !tasks[id].completed);
+      // Same duplicate gate as `open` above, and this is the one that bites first:
+      // a duplicate gets a brand-new id, so without it the copy is announced as
+      // "New assignment: <title>" the instant you press ⎘. `seen` is still updated
+      // below either way, so a suppressed duplicate can never fire later.
+      const fresh = [...ids].filter(
+        (id) =>
+          !seen!.has(id) &&
+          tasks[id] &&
+          !tasks[id].completed &&
+          (settings.notifyDuplicates || !tasks[id]._isDuplicate)
+      );
       if (fresh.length && anyOn(settings.newAssignment.channels)) {
         if (settings.newAssignment.mode === 'each') {
           for (const id of fresh) announceNewTask(tasks[id]);
@@ -222,6 +243,22 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
 
   // The Gmail channel's destination is the signed-in ACCOUNT email, full stop.
   setEmailAddress(opts.email || '');
+
+  // Share the dedupe ledger with the sendReminders Cloud Function. Without this
+  // the two run blind to each other and every reminder arrives twice, once from
+  // whichever tab is open and once from the server.
+  //
+  // `settingsLoaded` already blocks every send until the settings read lands, and
+  // this read is issued alongside it, so nothing can fire before the ledger is in.
+  void data
+    .getNotifySent()
+    .then((seed) => {
+      if (stopped) return;
+      attachLedger(seed, (key, day) => void data.markNotifySent(key, day).catch(() => {}));
+    })
+    .catch(() => {
+      /* offline / rules — fall back to the local ledger, i.e. today's behavior */
+    });
 
   // Settings: one initial read, then push-updates from the Settings Save.
   void data.getProfile('notifications').then((s) => {

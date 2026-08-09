@@ -38,14 +38,29 @@ interface SeenLedger {
 // #endregion
 
 // #region Fetching — proxy the feed (dev) and download/validate the iCal text
+/**
+ * webcal:// is what Schoology's Copy button hands out, and it is the right thing
+ * for a student to paste — but it is NOT a network protocol. It is https with the
+ * scheme swapped, a signal to the OS meaning "open this in a calendar app".
+ * `fetch()` refuses it outright ("URL scheme webcal is not supported"), which
+ * surfaced as a bogus "Couldn't reach that link" on a perfectly good URL.
+ *
+ * So we swap it back for the request only. Apple Calendar and Google Calendar do
+ * exactly the same thing. Nothing about what the user pastes or sees changes.
+ */
+function toHttps(url: string): string {
+  return url.trim().replace(/^webcal:\/\//i, 'https://');
+}
+
 /** Route the feed through the Vite dev proxy to dodge CORS (single-school in dev). */
 function toFetchUrl(url: string): string {
+  const https = toHttps(url);
   const host = location.hostname;
   if (host === 'localhost' || host === '127.0.0.1') {
-    const m = url.match(/^https?:\/\/[^/]+(\/.*)$/);
+    const m = https.match(/^https?:\/\/[^/]+(\/.*)$/);
     if (m) return '/sgy' + m[1];
   }
-  return url;
+  return https;
 }
 
 export async function fetchIcal(url: string): Promise<string> {
@@ -60,6 +75,12 @@ export async function fetchIcal(url: string): Promise<string> {
   // A real calendar feed must declare itself. HTML pages / wrong URLs won't —
   // so this catches "valid-looking but not actually iCal" links.
   if (!/BEGIN:VCALENDAR/i.test(text)) {
+    // An EMPTY Schoology feed isn't an error and isn't a bad link: Schoology
+    // serves a human-readable "There are no events in this calendar" page instead
+    // of an empty calendar file. Say that, rather than blaming the link.
+    if (/no events in this calendar/i.test(text)) {
+      throw new Error('That calendar is empty. Schoology has nothing scheduled on it yet.');
+    }
     throw new Error('That link isn’t a valid iCal calendar feed.');
   }
   return text;

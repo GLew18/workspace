@@ -184,11 +184,33 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
       setError('');
       setBusy(true, undefined);
       gLabel.textContent = 'Opening Google…';
+
+      // STUCK-BUTTON FIX (Gabe, 8/8): closing the Google window used to leave this
+      // reading "Opening Google…" forever. Firebase detects a closed popup by
+      // polling `popup.closed`, and Chrome's Cross-Origin-Opener-Policy severs that
+      // handle once Google navigates — so the promise never settles and the catch
+      // below never runs. Nothing to await, so we need our own signal: this tab
+      // getting focus back means the user is here, not at Google. Wait a moment in
+      // case a real sign-in is still landing, then give the button back.
+      let done = false;
+      const finish = (): void => {
+        if (done) return;
+        done = true;
+        window.removeEventListener('focus', onReturn);
+        setBusy(false);
+        gLabel.textContent = 'Continue with Google';
+      };
+      const onReturn = (): void => void window.setTimeout(finish, 1500);
+      window.addEventListener('focus', onReturn);
+
       signInWithGoogle()
-        .then(teardown)
+        .then(() => {
+          done = true; // success: leave the button alone, the screen is going away
+          window.removeEventListener('focus', onReturn);
+          teardown();
+        })
         .catch((err: Error) => {
-          setBusy(false);
-          gLabel.textContent = 'Continue with Google';
+          finish();
           // A closed/cancelled popup isn't a real error — stay quiet for that one.
           const code = (err as unknown as { code?: string }).code || '';
           if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
@@ -208,20 +230,49 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
 
     card.append(logo, title, sub, googleBtn, hint, or, form);
     if (!isNew) {
-      const forgot = el('button', { class: 'auth-mini', text: 'Forgot password?' });
+      const forgot = el('button', { class: 'auth-mini', text: 'Forgot password?' }) as HTMLButtonElement;
+      // Narrates the actual steps instead of one canned line (Gabe, 8/8): sending →
+      // sent, naming the address it went to and where to look, then a live cooldown
+      // so "did it work?" never has to be guessed at.
+      //
+      // It still cannot say whether that address HAS an account — that would let
+      // anyone test emails against the user list. "If that email has an account"
+      // stays; everything around it got specific.
+      let cooldown = 0;
+      let timer = 0;
+      const startCooldown = (): void => {
+        cooldown = 30;
+        forgot.disabled = true;
+        const tick = (): void => {
+          forgot.textContent = cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend reset link';
+          if (cooldown <= 0) {
+            window.clearInterval(timer);
+            forgot.disabled = false;
+            return;
+          }
+          cooldown--;
+        };
+        tick();
+        timer = window.setInterval(tick, 1000);
+      };
       forgot.addEventListener('click', () => {
         const mail = email.value.trim();
         if (!mail) return setError('Enter your email above first.');
         forgot.disabled = true;
+        forgot.textContent = 'Sending…';
+        setNotice(`Sending a reset link to ${mail}…`);
         void sendPasswordReset(mail)
           .then(() => {
-            // Deliberately the same words whether or not that address has an
-            // account: anything else would reveal which emails are registered.
-            setNotice('If that email has an account, a reset link is on its way.');
+            setNotice(
+              `Sent. If ${mail} has an account, the reset link is in that inbox now. ` +
+                'It can take a minute, and it sometimes lands in spam.'
+            );
+            startCooldown();
           })
-          .catch((err: Error) => setError(err.message))
-          .finally(() => {
+          .catch((err: Error) => {
+            setError(err.message);
             forgot.disabled = false;
+            forgot.textContent = 'Forgot password?';
           });
       });
       card.append(forgot);

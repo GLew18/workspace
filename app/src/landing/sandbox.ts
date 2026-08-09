@@ -41,7 +41,7 @@ class MemoryBackend implements Backend {
   }
 }
 
-/** Fill in any collections the seed omitted so the cache always has all four. */
+/** Fill in any collections the seed omitted so the cache always has all of them. */
 function structuredSeed(
   seed: Partial<Record<Collection, Record<string, unknown>>>
 ): Record<Collection, Record<string, unknown>> {
@@ -50,6 +50,7 @@ function structuredSeed(
     focus: seed.focus ?? {},
     profile: seed.profile ?? {},
     meta: seed.meta ?? {},
+    notifySent: seed.notifySent ?? {},
   };
 }
 // #endregion

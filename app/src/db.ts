@@ -241,6 +241,17 @@ export class Data {
     await this.backend.set('profile', id, value);
   }
 
+  // --- notification ledger (SHARED with the sendReminders Cloud Function) --
+
+  /** Everything already sent, so an open tab won't re-send what the server did. */
+  async getNotifySent(): Promise<Record<string, unknown>> {
+    return this.backend.getAll('notifySent');
+  }
+  /** Claim one notification key. Same node the Function checks before sending. */
+  async markNotifySent(key: string, day: string): Promise<void> {
+    await this.backend.set('notifySent', key, { at: Date.now(), day });
+  }
+
   // --- focus collection (custom music, hidden built-ins, settings) --------
 
   async getFocusAll<T = unknown>(): Promise<Record<string, T>> {

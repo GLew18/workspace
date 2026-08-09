@@ -80,8 +80,8 @@ function fmtPlaylistLen(sec: number): string {
   if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
   return `${m}m`;
 }
-import { pickEmoji } from '../tasks/emoji';
-import { parseFocusInput } from '../tasks/parser';
+import { parseFocusInput, parseDateTime } from '../tasks/parser';
+import { formatMetaDate, formatTimeOfDay } from '../util/dates';
 import { recordManualLabelForTask } from '../schoology/extension';
 import { getPrefs } from '../prefs';
 import { sendNotification, normalizeNotifySettings } from '../notify/notify';
@@ -744,6 +744,7 @@ export class FocusView {
     back.addEventListener('click', (e) => {
       if (e.target === back) close();
     });
+    enterConfirms(back, () => null); // stacked-popup guard (see util/dom.ts)
     document.body.append(back);
   }
 
@@ -1092,46 +1093,27 @@ export class FocusView {
         musicList.append(collRow('artist', a.name, '🎼', a.name, tracks));
       if (hasMinorArtists()) musicList.append(collRow('various', 'various', '🎭', 'Various', minorArtistTracks()));
 
-      // Custom — user-made playlists (built in Settings) + any pasted-URL tracks.
+      // Custom — user-made playlists, built in Settings from library tracks.
+      // (Pasted-URL tracks used to be listed here too; the box that created them
+      // is gone, so the rows are gone with it. Library only.)
       musicList.append(subhead('Custom'));
       for (const pl of this.customPlaylists) musicList.append(collRow('playlist', pl.id, playlistEmoji(pl), pl.name, this.playlistTracks(pl.id)));
       if (!this.customPlaylists.length) {
         musicList.append(el('div', { class: 'focus-music-hint', text: 'Create custom playlists in settings.' }));
       }
-      const customs = this.playlist.filter((t) => !this.genreForKey(t.key));
-      for (const t of customs) {
-        const b = el('button', { class: `focus-music-opt${this.selectedMusic === t.key ? ' active' : ''}` });
-        b.append(el('span', { class: 'focus-music-opt-emoji', text: t.emoji }), el('span', { class: 'focus-music-opt-label', text: t.label }));
-        b.addEventListener('click', () => {
-          this.selectedMusic = t.key;
-          drawMusic();
-        });
-        musicList.append(b);
-      }
     };
     drawMusic();
     this.redrawSetupMusic = drawMusic; // the song window refreshes this after a pick
 
-    const addMusic = el('div', { class: 'focus-add-music' });
-    const urlIn = textInput({ placeholder: 'Add audio file URL (.mp3)…' });
-    const addBtn = el('button', { text: '+ Add' });
-    addBtn.addEventListener('click', async () => {
-      const src = urlIn.value.trim();
-      if (!src) return;
-      const label = 'Custom track';
-      const emoji = await pickEmoji(label, 'music');
-      const track: Track = { key: 'track_' + genId(), label, emoji, src, volume: 40, custom: true };
-      await this.data.putFocus(track.key, track);
-      this.playlist = await this.buildPlaylist();
-      this.selectedMusic = track.key;
-      urlIn.value = '';
-      drawMusic();
-    });
-    addMusic.append(urlIn, addBtn);
+    // NO "add audio file URL" box (Gabe, 8/8): the built-in library is the only
+    // source of focus music. The pasted-URL track rows in drawMusic went with it,
+    // since that box was the only way to create one. Custom PLAYLISTS (built in
+    // Settings from library tracks) are unaffected and still listed above.
+    //
     // Resizable: the library is 150+ tracks in a 320px window by default — drag
     // the bottom edge down for a proper browsing view. (No fitTo: this list is in
     // normal page flow, so it simply extends the page downward.)
-    wrap.append(musicList, makeResizeGrip({ body: musicList, storageKey: 'focus:musicListHeight' }).el, addMusic);
+    wrap.append(musicList, makeResizeGrip({ body: musicList, storageKey: 'focus:musicListHeight' }).el);
 
     // Start. When a session is already running, this screen is inert — you can't
     // start a second one (matches the guard in startSession).
@@ -1238,7 +1220,8 @@ export class FocusView {
     const { text, course } = parseFocusInput(raw);
     if (!text) return;
     // Only title + course: the Focus box has no date/priority grammar, so the new
-    // task lands under "No due date" in Tasks, ready to be scheduled there.
+    // task lands under "No due date" in Tasks. Its row here shows the dashed
+    // "+ due date" pill, so it can be scheduled from Focus without switching tabs.
     const task = makeTask({
       title: text,
       dueDate: '',
@@ -1350,6 +1333,7 @@ export class FocusView {
     back.addEventListener('click', (e) => {
       if (e.target === back) close();
     });
+    enterConfirms(back, () => null); // stacked-popup guard (see util/dom.ts)
     document.body.append(back);
   }
 
@@ -1421,6 +1405,8 @@ export class FocusView {
         done: false,
         taskId: t.id, // ← the link back to the source task
         course: t.course || '',
+        dueDate: t.dueDate || '',
+        dueTime: t.dueTime || '',
         schoologyUrl: t.schoologyUrl || '',
         translatedTitle: t.translatedTitle || '',
         translatedLang: t.translatedLang || '',
@@ -1441,8 +1427,10 @@ export class FocusView {
       });
       main.append(titleEl);
 
-      // Only the course is shown here — the due date/priority stay in the Tasks tab,
-      // but they still drive the ordering below.
+      // Course + due date, the same meta line the Tasks tab shows (priority stays
+      // out: it has no chip there either, it only sorts). The date matters here
+      // because it is what the ordering below is built on, and a list sorted by a
+      // field you can't see reads as randomly ordered.
       const tags = el('div', { class: 'focus-import-tags' });
       const editCourse = (host: HTMLElement, initial: string) => {
         if (!taskEditUnlocked()) return;
@@ -1463,6 +1451,39 @@ export class FocusView {
         const chip = el('span', { class: 'course-chip empty', text: '+ course' });
         chip.addEventListener('click', () => editCourse(chip, ''));
         tags.append(chip);
+      }
+
+      // Due date — same classes and same formatter as the Tasks tab, so the two
+      // lists read identically. Editable like the title and course above (all
+      // three go through applyTaskEdit, which writes the SOURCE task, so a fix
+      // made here shows up in Tasks too).
+      const editDate = (host: HTMLElement, initial: string) => {
+        if (!taskEditUnlocked()) return;
+        this.inlineTodoEdit(
+          host,
+          initial,
+          'due date',
+          (v) => {
+            const { date, time } = parseDateTime(v);
+            void this.applyTaskEdit(t.id, { dueDate: date, dueTime: time });
+          },
+          drawImportBody
+        );
+      };
+      tags.append(el('span', { class: 'meta-dot', text: '·' }));
+      if (t.dueDate || t.dueTime) {
+        const when = [t.dueDate ? formatMetaDate(t.dueDate) : '', t.dueTime ? formatTimeOfDay(t.dueTime) : '']
+          .filter(Boolean)
+          .join(' ');
+        const dateEl = el('span', { class: 'meta-date', text: when });
+        dateEl.addEventListener('dblclick', () => editDate(dateEl, when));
+        tags.append(dateEl);
+      } else {
+        // Undated tasks sort LAST, so this row is also the explanation for why
+        // they're at the bottom. One click to fix it, same as "+ course".
+        const dateEl = el('span', { class: 'meta-date empty', text: '+ due date' });
+        dateEl.addEventListener('click', () => editDate(dateEl, ''));
+        tags.append(dateEl);
       }
       main.append(tags);
       row.append(main);
@@ -1561,7 +1582,10 @@ export class FocusView {
       // the exact ordering the Tasks tab uses. Neither the date nor the priority is
       // shown here; they only influence the order.
       importBody.append(el('div', { class: 'focus-import-section', text: 'Individual tasks' }));
-      const sorted = sortTasks(filtered);
+      // manualFirst: this list has no day headers, so a ⋮⋮ arrangement made in
+      // Tasks is honored across dates here rather than only within one. See
+      // sortTasks in tasks/store.ts.
+      const sorted = sortTasks(filtered, { manualFirst: true });
       for (const t of sorted) importBody.append(buildTaskRow(t, imported.has(t.id)));
     };
 
@@ -2737,6 +2761,12 @@ export class FocusView {
       todo.course = course;
       if (todo.taskId) void this.applyTaskEdit(todo.taskId, { course });
     };
+    const commitDate = (v: string) => {
+      const { date, time } = parseDateTime(v);
+      todo.dueDate = date;
+      todo.dueTime = time;
+      if (todo.taskId) void this.applyTaskEdit(todo.taskId, { dueDate: date, dueTime: time });
+    };
 
     // Every editor below honors the Settings ▸ Tasks edit lock — these write
     // through to the real task, so they're the same gate as the Tasks tab's.
@@ -2756,6 +2786,13 @@ export class FocusView {
       label.append(addTitle);
     }
 
+    // "Course · date" on ONE line beneath the title. .focus-todo-label is a COLUMN
+    // flex (title stacked over its meta), so these two can't be appended straight
+    // to it or each would claim its own row. They go in a horizontal meta strip
+    // instead, which is also what makes this line match the Tasks tab and the
+    // import list character for character.
+    const meta = el('div', { class: 'focus-todo-meta' });
+
     if (todo.course) {
       const chip = el('span', { class: 'course-chip', text: todo.course });
       chip.style.color = getCourseColor(todo.course);
@@ -2763,15 +2800,44 @@ export class FocusView {
         if (!taskEditUnlocked()) return;
         this.inlineTodoEdit(chip, todo.course || '', 'course', commitCourse, redraw);
       });
-      label.append(chip);
+      meta.append(chip);
     } else {
       const chip = el('span', { class: 'course-chip empty', text: '+ course' });
       chip.addEventListener('click', () => {
         if (!taskEditUnlocked()) return;
         this.inlineTodoEdit(chip, '', 'course', commitCourse, redraw);
       });
-      label.append(chip);
+      meta.append(chip);
     }
+
+    // Due date — identical to the Tasks tab and the import list: same classes,
+    // same formatter, same double-click-to-edit, and the edit writes through to
+    // the source task, so a date changed in a running session is changed
+    // everywhere. One assignment has one due date, no matter which list you are
+    // looking at it in.
+    meta.append(el('span', { class: 'meta-dot', text: '·' }));
+    if (todo.dueDate || todo.dueTime) {
+      const when = [
+        todo.dueDate ? formatMetaDate(todo.dueDate) : '',
+        todo.dueTime ? formatTimeOfDay(todo.dueTime) : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      const dateEl = el('span', { class: 'meta-date', text: when });
+      dateEl.addEventListener('dblclick', () => {
+        if (!taskEditUnlocked()) return;
+        this.inlineTodoEdit(dateEl, when, 'due date', commitDate, redraw);
+      });
+      meta.append(dateEl);
+    } else {
+      const dateEl = el('span', { class: 'meta-date empty', text: '+ due date' });
+      dateEl.addEventListener('click', () => {
+        if (!taskEditUnlocked()) return;
+        this.inlineTodoEdit(dateEl, '', 'due date', commitDate, redraw);
+      });
+      meta.append(dateEl);
+    }
+    label.append(meta);
 
     // English translation carried over from the task (foreign-language titles).
     if (todo.translatedTitle) {
@@ -2783,10 +2849,13 @@ export class FocusView {
     return label;
   }
 
-  /** Apply a title/course edit to a source task and persist it. The data.watchTasks
-   *  subscription (onTasksUpdate) then propagates it to the Tasks tab, the import
-   *  window, and any linked session todo, so all three stay in step. */
-  private async applyTaskEdit(taskId: string, patch: { title?: string; course?: string }): Promise<void> {
+  /** Apply a title/course/due-date edit to a source task and persist it. The
+   *  data.watchTasks subscription (onTasksUpdate) then propagates it to the Tasks
+   *  tab, the import window, and any linked session todo, so all three stay in step. */
+  private async applyTaskEdit(
+    taskId: string,
+    patch: { title?: string; course?: string; dueDate?: string; dueTime?: string }
+  ): Promise<void> {
     const tasks = await this.data.getTasksAll();
     const src = tasks[taskId];
     if (!src) return;
@@ -2805,6 +2874,21 @@ export class FocusView {
       // Same as the Tasks tab: a hand-set course is ground truth, so it goes in the
       // cloud label store where it outranks any later extension scrape.
       void recordManualLabelForTask(this.data, next, patch.course);
+    }
+    // Date and time move together: parseDateTime returns both from one string, so
+    // clearing the time by retyping just a date has to actually clear it. The
+    // timeLabel ("morning", "after school") goes too, for the same reason the
+    // Tasks tab drops it: an explicit clock time replaces a vague one.
+    if (patch.dueDate !== undefined || patch.dueTime !== undefined) {
+      const d = patch.dueDate ?? '';
+      const tm = patch.dueTime ?? '';
+      if (d !== src.dueDate || tm !== src.dueTime) {
+        next.dueDate = d;
+        next.dueTime = tm;
+        next.timeLabel = '';
+        next._manualDueDate = true;
+        changed = true;
+      }
     }
     if (changed) await this.data.putTask(next);
   }
@@ -2849,6 +2933,14 @@ export class FocusView {
         }
         if ((todo.course || '') !== (src.course || '')) {
           todo.course = src.course || '';
+          changed = true;
+        }
+        // Due date/time follow the task the same way the title and course do, so a
+        // date changed in Tasks (or by a Schoology re-sync that moved a deadline)
+        // updates the row you're staring at mid-session.
+        if ((todo.dueDate || '') !== (src.dueDate || '') || (todo.dueTime || '') !== (src.dueTime || '')) {
+          todo.dueDate = src.dueDate || '';
+          todo.dueTime = src.dueTime || '';
           changed = true;
         }
         if ((todo.translatedTitle || '') !== (src.translatedTitle || '')) {

@@ -38,6 +38,13 @@ export interface NotifySettings {
   // notifications at someone else's inbox). The client learns the address from the
   // auth session; the Cloud Function from Firebase Auth.
   appearance: NotifyAppearance;
+  /** Should a DUPLICATED task be able to notify you? Off by default, because a
+   *  duplicate normally carries the original's due date, so every copy would
+   *  reproduce the original's reminders: duplicate a task three times and the
+   *  same deadline pings you four times. Turning this on treats copies as
+   *  ordinary tasks. Gates every task-driven reminder at once (due-soon, daily
+   *  agenda, tomorrow preview) since they all read the same task list. */
+  notifyDuplicates: boolean;
   // Each notification carries its OWN Popup/Gmail choice (the per-card grid). A pop-up
   // fires iff its popup channel is on (and the browser granted permission); an email
   // fires iff its gmail channel is on (and the account has an email). Config fields
@@ -52,6 +59,7 @@ export interface NotifySettings {
 export const DEFAULT_NOTIFY_SETTINGS: NotifySettings = {
   master: { popup: false, gmail: false }, // derived — see normalizeNotifySettings
   appearance: { course: true, priority: false, dueTime: true },
+  notifyDuplicates: false, // OFF by default, per Gabe
   // Popup defaults on for the core reminders — still inert until the user grants the
   // browser permission (the real opt-in). Gmail is opt-in per card + confirmation.
   dueSoon: { channels: { popup: true, gmail: false }, leads: [60] },
@@ -81,6 +89,7 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
   const out: NotifySettings = {
     master: { ...d.master },
     appearance: { ...d.appearance },
+    notifyDuplicates: d.notifyDuplicates,
     dueSoon: { channels: { ...d.dueSoon.channels }, leads: [...d.dueSoon.leads] },
     dailyAgenda: { channels: { ...d.dailyAgenda.channels }, hour: d.dailyAgenda.hour, minute: d.dailyAgenda.minute },
     tomorrow: { channels: { ...d.tomorrow.channels }, hour: d.tomorrow.hour, minute: d.tomorrow.minute },
@@ -100,6 +109,8 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
   // Config fields (same names in every shape): appearance, leads, times, mode/interval.
   const ap = r.appearance as Partial<NotifyAppearance> | undefined;
   if (ap && typeof ap === 'object') out.appearance = { course: ap.course ?? d.appearance.course, priority: ap.priority ?? d.appearance.priority, dueTime: ap.dueTime ?? d.appearance.dueTime };
+  // Boolean, so `?? default` (not `||`) — a stored `false` must survive the read.
+  if (typeof r.notifyDuplicates === 'boolean') out.notifyDuplicates = r.notifyDuplicates;
   const ds = r.dueSoon as { leads?: unknown } | undefined;
   if (ds) { const leads = Array.isArray(ds.leads) ? ds.leads.filter((n): n is number => typeof n === 'number') : []; if (leads.length) out.dueSoon.leads = leads; }
   const da = r.dailyAgenda as { hour?: unknown; minute?: unknown } | undefined;
@@ -319,7 +330,18 @@ export function sendNotification(
   if (shown || emailed) logNotification({ title, body, popup: shown, gmail: emailed });
 }
 
-// --- sent-ledger (per device) ----------------------------------------------
+// --- sent-ledger (SHARED with the Cloud Function) ---------------------------
+//
+// This used to be localStorage-only, and the Cloud Function used
+// users/{uid}/notifySent. Two ledgers that couldn't see each other, so every
+// reminder could send TWICE: once from an open tab, once from the server. Gabe's
+// inbox showed the pair (the differing punctuation is what gave it away).
+//
+// Now both read and write the SAME node. `attachLedger` is called once at
+// sign-in with the Data layer; until then the local map is all we have, which is
+// the correct fallback for local mode and for the moment before the first read
+// lands. Entries are mirrored to localStorage too, so a reload mid-session can't
+// re-fire a reminder while the cloud copy is still loading.
 
 const LEDGER_KEY = 'notify:sent:v1';
 const LEDGER_KEEP_DAYS = 7;
@@ -328,7 +350,12 @@ interface Ledger {
   [key: string]: string; // key → 'YYYY-MM-DD' the entry was recorded (for pruning)
 }
 
-function loadLedger(): Ledger {
+/** Cloud writer, installed by attachLedger(). Null in local mode. */
+let ledgerWrite: ((key: string, day: string) => void) | null = null;
+/** In-memory view: localStorage seed, then merged with the cloud copy. */
+let ledger: Ledger = loadLocal();
+
+function loadLocal(): Ledger {
   try {
     return JSON.parse(localStorage.getItem(LEDGER_KEY) || '{}');
   } catch {
@@ -336,7 +363,7 @@ function loadLedger(): Ledger {
   }
 }
 
-function saveLedger(l: Ledger): void {
+function saveLocal(l: Ledger): void {
   try {
     localStorage.setItem(LEDGER_KEY, JSON.stringify(l));
   } catch {
@@ -344,18 +371,46 @@ function saveLedger(l: Ledger): void {
   }
 }
 
+/**
+ * Point the ledger at the shared cloud node. `seed` is everything the server has
+ * already sent; it is MERGED with (never replaces) the local copy, so a reminder
+ * recorded by either side counts for both.
+ */
+export function attachLedger(
+  seed: Record<string, unknown>,
+  write: (key: string, day: string) => void
+): void {
+  // The Function writes {at: <ms>} per key; we write 'YYYY-MM-DD'. Only the KEY
+  // matters for dedupe, but the value drives pruning, so normalize on the way in
+  // or a cloud-shaped entry would never expire.
+  const norm: Ledger = {};
+  for (const [k, v] of Object.entries(seed)) {
+    const ms = typeof v === 'object' && v && 'at' in v ? Number((v as { at: unknown }).at) : NaN;
+    norm[k] = Number.isFinite(ms)
+      ? new Date(ms).toISOString().slice(0, 10)
+      : typeof v === 'string'
+        ? v
+        : new Date().toISOString().slice(0, 10);
+  }
+  ledger = { ...ledger, ...norm };
+  ledgerWrite = write;
+  saveLocal(ledger);
+}
+
 export function alreadySent(key: string): boolean {
-  return key in loadLedger();
+  return key in ledger;
 }
 
 /** Record `key` as sent today, pruning entries older than LEDGER_KEEP_DAYS. */
 export function markSent(key: string, todayISO: string): void {
-  const l = loadLedger();
-  l[key] = todayISO;
+  ledger[key] = todayISO;
   const cutoff = new Date(todayISO + 'T00:00:00');
   cutoff.setDate(cutoff.getDate() - LEDGER_KEEP_DAYS);
-  for (const [k, day] of Object.entries(l)) {
-    if (new Date(day + 'T00:00:00') < cutoff) delete l[k];
+  for (const [k, day] of Object.entries(ledger)) {
+    if (new Date(day + 'T00:00:00') < cutoff) delete ledger[k];
   }
-  saveLedger(l);
+  saveLocal(ledger);
+  // Fire-and-forget: the local copy already blocks a repeat on this device, and
+  // the cloud write is what stops the Function from re-sending the same one.
+  ledgerWrite?.(key, todayISO);
 }

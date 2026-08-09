@@ -157,7 +157,11 @@ export const $ = <T extends Element = HTMLElement>(sel: string, root: ParentNode
  * keydown handler already gives Enter a meaning — defaultPrevented can't signal
  * that, because textInput() preventDefaults EVERY Enter to stay single-line).
  * `primary` resolves at press time so a button that only becomes valid later (a
- * staged shortcut) works naturally; return null to swallow nothing.
+ * staged shortcut) works naturally.
+ *
+ * Pass `() => null` for a popup with no primary action: it still gets the
+ * stacked-popup guard below, which is why every backdrop in the app calls this
+ * even when Enter has nothing to press.
  */
 /** A plain auto-expiring notice using the app's .toast styling (no Undo button).
  *  Extracted from TasksView.notice so any view (Bookmarks, Focus, …) can toast
@@ -181,6 +185,26 @@ export function enterConfirms(back: HTMLElement, primary: () => HTMLElement | nu
     }
     if (e.key !== 'Enter' || e.repeat || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
     const t = e.target as HTMLElement | null;
+
+    // THE STACKED-POPUP FIX (Gabe, 8/8; audited across every popup in the app).
+    //
+    // Clicking a button focuses it. The popup opens on top, but focus stays on
+    // that trigger button BEHIND the backdrop. Enter then reaches the browser's
+    // native "activate the focused button", which re-clicks the trigger and opens
+    // a SECOND copy of the same modal on top of the first: two backdrops, double
+    // dim, two live listeners. confirmDanger and icalGuide each fixed this locally
+    // by focusing into the dialog; this is the same fix, once, for everyone.
+    //
+    // Anything focused outside the backdrop cannot be a legitimate Enter target
+    // while a modal is up, so swallow the key. Note this must come BEFORE the
+    // BUTTON check below, which would otherwise let the trigger through.
+    if (t && !back.contains(t)) {
+      e.preventDefault();
+      return;
+    }
+
+    // Inside the popup, a focused BUTTON/link keeps Enter for itself (a focused
+    // Cancel must never trigger Save).
     if (t && (t.tagName === 'BUTTON' || t.tagName === 'A' || t.tagName === 'SELECT')) return;
     if (t?.closest?.('[data-enter-own]')) return;
     const btn = primary();

@@ -1177,6 +1177,7 @@ export class SettingsView {
     });
     enterConfirms(back, () => save); // Enter = Save (no-ops until name + a song exist)
     document.body.append(back);
+    nameIn.focus(); // focus INTO the dialog so Enter reaches Save, not the opener
   }
 
   /** Stop any in-progress sound preview and reset its button to the play icon. */
@@ -1293,26 +1294,42 @@ export class SettingsView {
     // --- appearance checklist ---
     const appear = el('div', { class: 'nappear' });
     appear.append(el('div', { class: 'nappear-title', text: 'What each notification shows' }));
-    const checklist = el('div', { class: 'nchecklist' });
-    const checkDefs: [keyof NotifyAppearance, string][] = [
-      ['course', 'Course'],
-      ['priority', 'Priority'],
-      ['dueTime', 'Due time'],
+    // One srow + gold nswitch per field, the same control every other setting in
+    // this tab uses (Gabe, 8/8). The old compact ✓-checklist was the odd one out.
+    const checkDefs: [keyof NotifyAppearance, string, string][] = [
+      ['course', 'Course', 'Show which course the task belongs to.'],
+      ['priority', 'Priority', 'Show the task’s priority level.'],
+      ['dueTime', 'Due time', 'Show the time of day it’s due, not just the date.'],
     ];
-    for (const [key, label] of checkDefs) {
-      const row = el('button', { class: 'ncheck' }) as HTMLButtonElement;
-      row.setAttribute('role', 'checkbox');
-      row.setAttribute('aria-checked', String(n.appearance[key]));
-      row.append(el('span', { class: 'ncheck-box', text: '✓' }), el('span', { class: 'ncheck-label', text: label }));
-      row.addEventListener('click', () => {
-        n.appearance[key] = !n.appearance[key];
-        row.setAttribute('aria-checked', String(n.appearance[key]));
-        refreshPreviews();
-        save();
-      });
-      checklist.append(row);
+    for (const [key, label, sub] of checkDefs) {
+      appear.append(
+        this.prefRow(
+          label,
+          sub,
+          this.prefSwitch(n.appearance[key], (on) => {
+            n.appearance[key] = on;
+            refreshPreviews();
+            save();
+          })
+        )
+      );
     }
-    appear.append(checklist);
+
+    // --- what's ALLOWED to notify you ---
+    // Separate block from the checklist above on purpose: that one changes what a
+    // notification LOOKS like, this one changes whether one is sent at all.
+    const sources = el('div', { class: 'nappear' });
+    sources.append(el('div', { class: 'nappear-title', text: 'What can notify you' }));
+    sources.append(
+      this.prefRow(
+        'Duplicated tasks',
+        'A copy keeps the original due date, so leaving this off stops one deadline reminding you once per copy.',
+        this.prefSwitch(n.notifyDuplicates, (on) => {
+          n.notifyDuplicates = on;
+          save();
+        })
+      )
+    );
 
     // --- shared preview + test builders ---
     const previewRefreshers: (() => void)[] = [];
@@ -1685,7 +1702,7 @@ export class SettingsView {
       refreshPreviews();
     };
 
-    sec.append(howToBtn, perm, master, gmailNote, appear, groups);
+    sec.append(howToBtn, perm, master, gmailNote, appear, sources, groups);
     refreshAll();
     return sec;
   }
@@ -2039,6 +2056,7 @@ export class SettingsView {
     back.addEventListener('click', (e) => {
       if (e.target === back) back.remove();
     });
+    enterConfirms(back, () => null); // stacked-popup guard (see util/dom.ts)
     document.body.append(back);
   }
   // #endregion

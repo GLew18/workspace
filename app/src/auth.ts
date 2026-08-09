@@ -53,6 +53,39 @@ async function firebaseAuth() {
   return { auth, instance: auth.getAuth(app) };
 }
 
+/**
+ * Send a WorkSpace-branded auth email through the sendAuthEmail Cloud Function,
+ * which generates the link and hands it to the same Trigger Email extension that
+ * delivers reminders.
+ *
+ * Firebase's OWN mailer (sendPasswordResetEmail / sendEmailVerification) is a
+ * shared, unbrandable sender whose mail was landing in spam. This route uses the
+ * address students already see WorkSpace mail from, and lets the message carry the
+ * wordmark so it's recognizable at a glance.
+ *
+ * The function always reports success, even for an address with no account, so
+ * this can never be used to test which emails are registered.
+ */
+async function callAuthEmail(email: string, kind: 'reset' | 'verify'): Promise<void> {
+  const { initializeApp, getApps, getApp } = await import('firebase/app');
+  const { getFunctions, httpsCallable } = await import('firebase/functions');
+  const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  const fn = httpsCallable(getFunctions(app, 'us-central1'), 'sendAuthEmail');
+  try {
+    await fn({ email, kind });
+  } catch (err) {
+    const code = (err as { code?: string }).code || '';
+    const msg = (err as { message?: string }).message || '';
+    if (code.includes('resource-exhausted')) {
+      throw new AuthProblem('other', 'Just sent one. Check your inbox, then try again in a minute.');
+    }
+    if (code.includes('invalid-argument')) {
+      throw new AuthProblem('other', 'That doesn’t look like a valid email.');
+    }
+    throw new AuthProblem('other', msg || 'Couldn’t send that email. Try again in a moment.');
+  }
+}
+
 export async function signInWithGoogle(): Promise<void> {
   if (isLocalMode()) throw new Error('Google sign-in requires Firebase config');
   const { auth, instance } = await firebaseAuth();
@@ -106,8 +139,8 @@ export async function signUpWithEmail(email: string, password: string): Promise<
     // has already signed them in, so awaiting an email round-trip here would just
     // hold the sign-up screen open for no reason. A failure is caught and ignored
     // (the in-app nudge can resend later); it must never fail a created account.
-    if (instance.currentUser) {
-      void auth.sendEmailVerification(instance.currentUser).catch(() => {
+    if (instance.currentUser?.email) {
+      void callAuthEmail(instance.currentUser.email.toLowerCase(), 'verify').catch(() => {
         /* offline / rate-limited — the nudge still offers Resend */
       });
     }
@@ -168,18 +201,12 @@ export async function needsEmailVerification(): Promise<boolean> {
 /** Re-send the verification email to the signed-in user. */
 export async function resendEmailVerification(): Promise<void> {
   if (isLocalMode()) return;
-  const { auth, instance } = await firebaseAuth();
-  if (!instance.currentUser) throw new AuthProblem('other', 'You’re signed out.');
-  try {
-    await auth.sendEmailVerification(instance.currentUser);
-  } catch (err) {
-    const code = (err as { code?: string }).code || '';
-    if (code === 'auth/too-many-requests') {
-      throw new AuthProblem('other', 'Just sent one. Check your inbox, then try again in a minute.');
-    }
-    throw new AuthProblem('other', 'Couldn’t send the email. Try again in a moment.');
-  }
+  const { instance } = await firebaseAuth();
+  const user = instance.currentUser;
+  if (!user?.email) throw new AuthProblem('other', 'You’re signed out.');
+  await callAuthEmail(user.email.toLowerCase(), 'verify');
 }
+
 
 /** Ask Firebase for fresh user state — the ONLY way to notice that the student
  *  clicked the link in another tab, since emailVerified is cached in this one. */
@@ -201,16 +228,10 @@ export async function refreshVerificationState(): Promise<boolean> {
  *  message either way (which is also what OWASP recommends). */
 export async function sendPasswordReset(email: string): Promise<void> {
   if (isLocalMode()) throw new AuthProblem('other', 'Password reset requires Firebase config');
-  const { auth, instance } = await firebaseAuth();
-  try {
-    await auth.sendPasswordResetEmail(instance, email.trim());
-  } catch (err) {
-    const code = (err as { code?: string }).code || '';
-    if (code === 'auth/invalid-email') throw new AuthProblem('other', 'That doesn’t look like a valid email.');
-    // Anything else (including "no such user") stays silent: saying so would leak
-    // which addresses are registered.
-  }
+  // Branded, via our own sender (see callAuthEmail) — not Firebase's default mailer.
+  await callAuthEmail(email.trim().toLowerCase(), 'reset');
 }
+
 
 /** Map a Firebase auth error code to a short, human sentence. */
 function friendlyAuthError(code: string): string {

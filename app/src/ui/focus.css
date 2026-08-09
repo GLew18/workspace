@@ -136,9 +136,7 @@
   pointer-events: none;
 }
 .focus-custom,
-.focus-todo-input,
-.focus-add-music input,
-.focus-add-music textarea {
+.focus-todo-input {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -148,9 +146,7 @@
   width: 100%;
 }
 .focus-custom:focus,
-.focus-todo-input:focus,
-.focus-add-music input:focus,
-.focus-add-music textarea:focus {
+.focus-todo-input:focus {
   outline: none;
   border-color: var(--accent);
 }
@@ -433,8 +429,34 @@
 .focus-import-tags {
   display: flex;
   align-items: center;
-  gap: 8px;
+  /* 5px, not 8: this row now carries course · date, the same trio the Tasks tab
+     shows, so it uses the Tasks tab's spacing. */
+  gap: 5px;
+  flex-wrap: wrap;
   font-size: 11.5px;
+  color: var(--text-dim);
+}
+/* The meta-dot / meta-date rules in components.css are scoped to .task-meta, so
+   they don't reach this panel. Re-state them here rather than widening those
+   selectors: the two lists look identical but live in different components. */
+.focus-import-tags .meta-dot {
+  opacity: 0.5;
+}
+.focus-import-tags .meta-date {
+  cursor: text;
+  font-variant-numeric: tabular-nums;
+}
+.focus-import-tags .meta-date.empty {
+  cursor: pointer;
+  font-weight: 500;
+  opacity: 0.7;
+  border: 1px dashed var(--border-strong);
+  border-radius: 999px;
+  padding: 0 7px;
+}
+.focus-import-tags .meta-date.empty:hover {
+  opacity: 1;
+  color: var(--text);
 }
 .focus-import-date {
   font-weight: 700;
@@ -551,6 +573,36 @@
 .focus-todo-label .course-chip {
   font-size: 11.5px;
   flex: none;
+}
+/* The "course · date" strip under a todo's title. Horizontal, because its parent
+   .focus-todo-label is a column. Same metrics as .task-meta and
+   .focus-import-tags so all three lists read identically. */
+.focus-todo-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.focus-todo-meta .meta-dot {
+  opacity: 0.5;
+}
+.focus-todo-meta .meta-date {
+  cursor: text;
+  font-variant-numeric: tabular-nums;
+}
+.focus-todo-meta .meta-date.empty {
+  cursor: pointer;
+  font-weight: 500;
+  opacity: 0.7;
+  border: 1px dashed var(--border-strong);
+  border-radius: 999px;
+  padding: 0 7px;
+}
+.focus-todo-meta .meta-date.empty:hover {
+  opacity: 1;
+  color: var(--text);
 }
 /* English translation carried over from a foreign-language task. */
 .focus-todo-translation {
@@ -790,19 +842,6 @@
   flex: none;
   font-size: 11.5px;
   color: var(--text-dim);
-}
-.focus-add-music {
-  display: flex;
-  gap: 6px;
-}
-.focus-add-music button {
-  flex: none;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 10px;
-  padding: 0 14px;
-  font-weight: 600;
 }
 .focus-start {
   margin-top: 18px;

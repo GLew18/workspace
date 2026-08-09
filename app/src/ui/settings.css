@@ -1144,21 +1144,15 @@
   padding: 13px 15px; margin-bottom: 16px;
 }
 .nappear-title { font-size: 12.5px; font-weight: 650; margin-bottom: 8px; }
-.nchecklist { display: flex; flex-direction: column; gap: 1px; }
-.ncheck {
-  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-  background: none; border: none; color: var(--text); font-family: inherit;
-  font-size: 13px; font-weight: 500; padding: 7px 6px; border-radius: 8px; cursor: pointer;
-  transition: background 0.15s ease;
-}
-.ncheck:hover { background: var(--surface); }
-.ncheck-box {
-  flex: none; width: 18px; height: 18px; border-radius: 5px;
-  border: 1.5px solid var(--border-strong); display: grid; place-items: center;
-  font-size: 11px; line-height: 1; color: transparent;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-.ncheck[aria-checked="true"] .ncheck-box { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+/* These blocks hold .srow rows now (title + sub + gold .nswitch), same as every
+   other setting in the tab. The old compact ✓-checklist (.nchecklist/.ncheck)
+   was deleted with it — it was the only checkbox left in Settings.
+   NO padding/border overrides on the rows: .srow is a self-contained CARD, not a
+   divider-separated list row, so trimming the first and last one's padding just
+   squashes those two cards. Every row keeps the standard 14px 16px. The only
+   tweak is dropping the last card's 8px margin, so the container's own 13px
+   padding sits evenly above the first card and below the last. */
+.nappear .srow:last-child { margin-bottom: 0; }
 
 /* type cards */
 .ntypes { display: flex; flex-direction: column; gap: 10px; transition: opacity 0.25s ease; }

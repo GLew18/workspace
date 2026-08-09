@@ -19,6 +19,10 @@ export interface FocusTodo {
   // Schoology link even if a later sync re-keys or removes the source task.
   course?: string;
   schoologyUrl?: string;
+  /** Due date/time, stashed at import so the session shows the same "course · date"
+   *  line as the Tasks tab and the import list. Kept in step by onTasksUpdate. */
+  dueDate?: string;
+  dueTime?: string;
   // Translation stashed at import so a foreign task keeps its English line in Focus.
   translatedTitle?: string;
   translatedLang?: string;

@@ -4,7 +4,10 @@
 // localStorage. This is the seam that lets Phase 0/1 run with NO backend
 // (LocalBackend) and later swap in Firebase by changing only this file's wiring.
 
-export type Collection = 'tasks' | 'focus' | 'profile' | 'meta';
+// 'notifySent' is the SHARED notification ledger: the same users/{uid}/notifySent
+// node the sendReminders Cloud Function reads and writes. It is a collection so
+// both senders dedupe against ONE record (see notify/notify.ts).
+export type Collection = 'tasks' | 'focus' | 'profile' | 'meta' | 'notifySent';
 
 export type Unsubscribe = () => void;
 
@@ -35,12 +38,13 @@ export class LocalBackend implements Backend {
     focus: {},
     profile: {},
     meta: {},
+    notifySent: {},
   };
   private listeners: Partial<Record<Collection, Set<(v: Record<string, unknown>) => void>>> = {};
 
   constructor(uid: string) {
     this.uid = uid;
-    (['tasks', 'focus', 'profile', 'meta'] as Collection[]).forEach((c) => {
+    (['tasks', 'focus', 'profile', 'meta', 'notifySent'] as Collection[]).forEach((c) => {
       try {
         const raw = localStorage.getItem(lsKey(uid, c));
         if (raw) this.cache[c] = JSON.parse(raw);

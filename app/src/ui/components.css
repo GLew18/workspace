@@ -444,8 +444,7 @@ body.app-mode .app-below {
 }
 /* Add-rows = a growing text box beside a button. Center the button on the box so it
    stays vertically aligned (and never stretches to the box's full growing height). */
-.focus-add-todo,
-.focus-add-music {
+.focus-add-todo {
   align-items: center;
 }
 

@@ -8,7 +8,7 @@
 // panel right. EVERY control is clickable: the clock ticks, ± (and ✎) adjust it,
 // todos toggle, the add-box adds, and Import Tasks opens a real list that imports.
 
-import { el, textInput } from '../util/dom';
+import { el, textInput, enterConfirms } from '../util/dom';
 import { makeWheel } from '../focus/wheel';
 
 const START_SECONDS = 25 * 60; // a classic 25:00 focus block
@@ -138,6 +138,7 @@ export function buildFocusDemo(): HTMLElement {
     actions.append(cancel, ok);
     card.append(actions);
     back.append(card);
+    enterConfirms(back, () => null); // stacked-popup guard (see util/dom.ts)
     host.append(back);
     // Default the picker to 0:05:00 once the wheels are laid out.
     requestAnimationFrame(() => {

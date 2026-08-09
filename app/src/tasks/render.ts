@@ -933,11 +933,14 @@ export class TasksView {
       });
       upd.addEventListener('click', (ev) => {
         ev.stopPropagation(); // the row itself has click/dblclick behaviors
-        this.applyToSelection(task, (t) => {
-          const next = { ...t };
-          delete next.feedUpdated; // delete, not undefined — Firebase rejects undefined
-          return next;
-        });
+        // PER TASK ON PURPOSE, never bulk (Gabe, 8/8). The sync writes this flag,
+        // not the user, and it names THIS assignment's specific changes in the
+        // tooltip. Clicking ✕ means "I read them", so bulk-dismissing would mark
+        // changes read that were never seen, and wipe the one signal that says
+        // which tasks to look at.
+        const next = { ...task };
+        delete next.feedUpdated; // delete, not undefined — Firebase rejects undefined
+        this.save(next);
       });
       title.append(upd);
     }
@@ -1012,7 +1015,13 @@ export class TasksView {
       const x = el('button', { class: 'task-test-badge-x', text: '✕', title: 'Not actually a ' + label.toLowerCase() + '? Remove this badge' });
       x.addEventListener('click', (ev) => {
         ev.stopPropagation(); // the row itself has click/dblclick behaviors
-        this.applyToSelection(task, (t) => ({ ...t, assessmentDismissed: true }));
+        // PER TASK ON PURPOSE, never bulk (Gabe, 8/8). This pill isn't stored: it
+        // is re-derived from the title on every render, and the only saved field
+        // is this suppression flag. Across a selection the other rows either have
+        // no badge (a permanent flag written for nothing, which would pre-silence
+        // the badge if a teacher later renamed that task to "Unit 4 Test") or have
+        // one for a DIFFERENT word, so dismissing "test" would silence "quiz".
+        this.save({ ...task, assessmentDismissed: true });
       });
       pill.append(x);
       metaWrap.append(pill);
@@ -1183,55 +1192,115 @@ export class TasksView {
     return el('div', { class: 'popup-bulk-note', text: `Applies to all ${n} selected tasks.` });
   }
 
-  /** Complete every selected task in ONE write, with ONE undo for the batch. */
-  private async bulkComplete(): Promise<void> {
+  /** Complete every selected task in ONE write, with ONE undo for the batch —
+   *  and the SAME exit animation the single check-off plays, on every row at
+   *  once. This mirrors `complete()` step for step (animate → dissolve emptied
+   *  folders → commit at 820ms → one undo toast); the only difference is that it
+   *  does all of it to N rows instead of one. */
+  private bulkComplete(): void {
     const tasks = [...this.selectedIds]
       .map((id) => this.map[id])
       .filter((t): t is Task => !!t && !t.completed);
     this.clearSelection();
     if (!tasks.length) return;
-    playCompleteChime();
+    playCompleteChime(); // ONE chime for the batch, not N overlapping ones
+    const ids = new Set(tasks.map((t) => t.id));
+
+    // Every selected row glides out together. The rows are found by id rather
+    // than passed in, because only the clicked row's element was ever handed to
+    // us. A row with no element (calendar popovers, or one scrolled out of a
+    // virtualized list) simply completes without the animation.
+    this.beginExitAnimation(); // hold every render until the glide + collapse lands
+    for (const id of ids) {
+      const row = this.listEl.querySelector<HTMLElement>(`.task-item[data-task-id="${id}"]`);
+      if (row) this.animateRowOut(row);
+      this.completingIds.add(id); // renders hide it while the write is pending
+    }
+
+    // FOLDERS: a folder finished off by this batch dissolves in the same breath,
+    // exactly as in the single path. "Finished off" means every member is either
+    // already completed or is in this batch, AND at least one member IS in this
+    // batch (otherwise an untouched folder would be swept up).
+    const dissolved: string[] = [];
+    for (const folder of [...this.folders]) {
+      const members = folderMembers(folder, this.map);
+      if (!members.length || !members.some((m) => ids.has(m.id))) continue;
+      if (!members.every((m) => m.completed || ids.has(m.id))) continue;
+      const block = this.listEl.querySelector(`.task-folder[data-folder-id="${folder.id}"]`);
+      if (block instanceof HTMLElement) collapseFolderBlock(block);
+      this.folders = this.folders.filter((f) => f !== folder);
+      this.openFolders.delete(folder.id);
+      this.recentlyDissolved.set(folder.id, { folder, at: Date.now() });
+      dissolved.push(folder.name);
+    }
+    if (dissolved.length) void saveTaskFolders(this.data, this.folders);
+
+    // Commit after the full glide + collapse (~0.8s), same as the single path, so
+    // the re-render that drops the rows can't interrupt the animation mid-flight.
     const now = new Date().toISOString();
-    await this.data.putTasksBulk(tasks.map((t) => ({ ...t, completed: true, completedAt: now })));
+    const commitTimer = window.setTimeout(() => {
+      void Promise.resolve(
+        this.data.putTasksBulk(tasks.map((t) => ({ ...t, completed: true, completedAt: now })))
+      ).finally(() => {
+        for (const id of ids) this.completingIds.delete(id);
+      });
+    }, 820);
+
+    // Same vocabulary as the single-task toast ("Task Deleted"): checking the box
+    // IS the delete in this app, so the batch shouldn't call it something else.
+    // Dissolved folders ride along in the one toast rather than firing their own.
+    const base = `${tasks.length} Task${tasks.length === 1 ? '' : 's'} Deleted`;
+    const message = dissolved.length
+      ? `${base} · 📁 ${dissolved.map((n) => `“${n}”`).join(', ')} dissolved`
+      : base;
     showUndoToast(
-      // Same vocabulary as the single-task toast above ("Task Deleted"): checking
-      // the box IS the delete in this app, so the batch shouldn't call it
-      // something else.
-      `${tasks.length} Task${tasks.length === 1 ? '' : 's'} Deleted`,
-      () => void this.data.putTasksBulk(tasks.map((t) => ({ ...t, completed: false, completedAt: null }))),
+      message,
+      () => {
+        clearTimeout(commitTimer); // a fast undo must not be clobbered by the pending commit
+        for (const id of ids) this.completingIds.delete(id);
+        this.animatingUntil = 0; // Undo cancels the exit — repaint at once, don't wait it out
+        // The un-complete write triggers folderMaintenance, whose resurrection
+        // path restores every just-dissolved folder along with its tasks.
+        void this.data.putTasksBulk(tasks.map((t) => ({ ...t, completed: false, completedAt: null })));
+      },
       () => {},
-      this.sample?.host
+      this.sample?.host // landing preview → keep the toast inside the device frame
     );
   }
 
   // --- completion ---------------------------------------------------------
 
+  /** The check-off exit: tick the box, glide the row aside while it fades, then
+   *  collapse its height so the rows below ease up into the gap. The height is
+   *  PINNED to its measured value first, because a collapse animation needs a
+   *  from-value and `auto` isn't one. Shared by the single and bulk paths so a
+   *  batch never looks different from one row. */
+  private animateRowOut(row: HTMLElement): void {
+    row.querySelector('.task-cb')?.classList.add('checked');
+    const h = row.offsetHeight;
+    row.style.height = `${h}px`;
+    void row.offsetHeight; // force reflow so the collapse animates from full height
+    row.classList.add('completing');
+    requestAnimationFrame(() => {
+      row.style.height = '0px';
+      row.style.marginTop = '0px';
+      row.style.marginBottom = '0px';
+      row.style.paddingTop = '0px';
+      row.style.paddingBottom = '0px';
+    });
+  }
+
   private complete(task: Task, animEl: HTMLElement): void {
     if (task.completed) return;
     // Checking a SELECTED row completes the whole selection (one write, one undo).
     if (this.selectedIds.has(task.id) && this.selectedIds.size > 1) {
-      void this.bulkComplete();
+      this.bulkComplete();
       return;
     }
     playCompleteChime();
 
-    // Check the box, then let the row slowly glide to the side and fade out;
-    // its height collapses afterward (CSS-delayed) so the tasks below ease up
-    // into place. We pin the current height first so that collapse has a
-    // from-value to animate from.
-    animEl.querySelector('.task-cb')?.classList.add('checked');
-    const h = animEl.offsetHeight;
-    animEl.style.height = `${h}px`;
-    void animEl.offsetHeight; // force reflow so the collapse animates from full height
-    animEl.classList.add('completing');
+    this.animateRowOut(animEl);
     this.beginExitAnimation(); // hold every render until the glide + collapse lands
-    requestAnimationFrame(() => {
-      animEl.style.height = '0px';
-      animEl.style.marginTop = '0px';
-      animEl.style.marginBottom = '0px';
-      animEl.style.paddingTop = '0px';
-      animEl.style.paddingBottom = '0px';
-    });
     this.completingIds.add(task.id); // renders hide it while the write is pending
 
     // FOLDER, SIMULTANEOUS DISSOLVE: if this check-off finishes its folder, the
@@ -1480,10 +1549,12 @@ export class TasksView {
     // width — drag the right edge once and they all remember it. Width is the
     // pinch here, not height: long folder names and URLs are what get squeezed.
     box.append(makeWidthGrip({ box, storageKey: 'ws:popupWidth' }));
-    // Enter = the popup's primary action, IF the builder marked one with
-    // [data-enter-primary] (attachments' Save). Pickers mark nothing: clicking a
-    // row IS the save there, so Enter has nothing meaningful to press.
-    enterConfirms(backdrop, () => box.querySelector<HTMLElement>('[data-enter-primary]'));
+    // These popups have no primary action: clicking a row IS the save in the
+    // pickers, and attachments auto-saves. (This used to look for a
+    // [data-enter-primary] element; nothing ever set that attribute after
+    // attachments lost its Save button, so the selector was dead code.)
+    // Still called, for the stacked-popup guard inside enterConfirms.
+    enterConfirms(backdrop, () => null);
     backdrop.append(box);
     (this.sample?.host ?? document.body).append(backdrop);
     const close = () => backdrop.remove();
