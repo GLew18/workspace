@@ -799,6 +799,32 @@ body.app-mode .app-below {
   padding: 11px 14px;
   cursor: pointer;
 }
+/* ☰ folder drag grip — the folder-scale twin of a task row's ⋮⋮ handle. Same dim
+   -until-hovered affordance; a hamburger because what moves here is the whole
+   block, not a line. Sits on the head's first line with the icon and count. */
+.task-folder-handle {
+  flex: none;
+  margin-top: 1px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 18px; /* matches .task-folder-ico height, so it centers on the icon */
+  cursor: grab;
+  opacity: 0.4;
+  user-select: none;
+}
+.task-folder-head:hover .task-folder-handle {
+  opacity: 0.75;
+}
+.task-folder-handle:hover {
+  opacity: 1;
+}
+.task-folder-handle:active {
+  cursor: grabbing;
+}
+.task-folder.dragging {
+  opacity: 0.5;
+}
+
 /* The name is the only part allowed to shrink+wrap (it has min-width:0);
    the icon, count and arrow keep their size and stay on the first line. */
 .task-folder-head .task-folder-ico,

@@ -25,6 +25,7 @@ import {
   makeFolder,
   folderMembers,
   mutateTaskFolders,
+  reorderTaskFolders,
   normFolder,
   FOLDERS_EVENT,
 } from './folders';
@@ -81,6 +82,9 @@ export class TasksView {
   private autoTx = false; // guards the auto-translate pass against re-entry
   // The task being ⋮⋮-dragged (id + its due-date group), null when idle.
   private dragFrom: { id: string; group: string } | null = null;
+  // The folder being ☰-dragged, null when idle. Separate from dragFrom so a task
+  // drag inside an open folder and a folder drag can never be mistaken for each other.
+  private folderDragId: string | null = null;
   // Folders (the big-project feature): loaded once at mount, mutated only by
   // this view's own actions. openFolders is pure view state (expanded rows).
   private folders: TaskFolder[] = [];
@@ -627,10 +631,58 @@ export class TasksView {
     this.listEl.append(el('div', { class: 'task-folders-label', text: 'Folders' }));
     for (const f of this.folders) {
       const members = folderMembers(f, this.map);
+      // What the head COUNTS is what the body SHOWS: still-open tasks. Counting
+      // every member (completed included) made a check-off leave the number
+      // frozen — 10 tasks stayed "10 tasks" until a reload purged the completed
+      // ones and it jumped to 8. Excluding the rows mid-exit-animation too keeps
+      // the number falling in step with them gliding out.
+      const openMembers = members.filter((t) => !t.completed && !this.completingIds.has(t.id));
       const open = this.openFolders.has(f.id);
       const row = el('div', { class: `task-folder${open ? ' open' : ''}`, 'data-folder-id': f.id });
       const head = el('button', { class: 'task-folder-head' });
       head.innerHTML = FOLDER_SVG(f.color);
+
+      // ☰ drag-to-reorder, the folder-scale twin of a task row's ⋮⋮. Folders are
+      // the only list here the user orders by hand, so the grip is a hamburger
+      // rather than the row grip: it reads as "the whole block moves". Same
+      // arming trick as tasks — `draggable` goes on only while the grip is held,
+      // so text selection and the head's own click behaviors stay untouched.
+      const fHandle = el('span', {
+        class: 'task-folder-handle',
+        text: '☰',
+        title: 'Drag to reorder folders',
+      });
+      fHandle.addEventListener('pointerdown', () => row.setAttribute('draggable', 'true'));
+      fHandle.addEventListener('pointerup', () => row.removeAttribute('draggable'));
+      row.addEventListener('dragstart', (e) => {
+        this.folderDragId = f.id;
+        row.classList.add('dragging');
+        e.dataTransfer?.setData('text/plain', f.id);
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+        e.stopPropagation(); // an open folder holds task rows — don't read this as a task drag
+      });
+      row.addEventListener('dragend', () => {
+        row.classList.remove('dragging');
+        row.removeAttribute('draggable');
+        this.folderDragId = null;
+      });
+      row.addEventListener('dragover', (e) => {
+        if (!this.folderDragId || this.folderDragId === f.id) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      });
+      row.addEventListener('drop', (e) => {
+        const from = this.folderDragId;
+        if (!from || from === f.id) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.folderDragId = null;
+        void reorderTaskFolders(this.data, from, f.id).then((list) => {
+          this.folders = list;
+          this.render();
+        });
+      });
+      head.prepend(fHandle); // ahead of the folder icon — the grip is the row's leading edge
       // Double-click the name to rename (same convention as task titles); a
       // single click on the name is a no-op so renaming never fights the toggle.
       const nameEl = el('span', { class: 'task-folder-name', text: f.name });
@@ -666,7 +718,7 @@ export class TasksView {
         // that does not exist. "5 tasks" just states what is inside.
         el('span', {
           class: 'task-folder-count',
-          text: `${members.length} task${members.length === 1 ? '' : 's'}`,
+          text: `${openMembers.length} task${openMembers.length === 1 ? '' : 's'}`,
         }),
         el('span', { class: 'task-folder-arrow', text: '▶' }),
         colorIn
@@ -677,6 +729,7 @@ export class TasksView {
         // click" targets the BUTTON itself, so target checks alone can't catch it).
         if (head.querySelector('.inline-edit-block')) return;
         if (t.closest('.task-folder-name')) return;
+        if (t.closest('.task-folder-handle')) return; // grabbing the grip is not a toggle
         if (t.closest('.task-folder-ico')) {
           colorIn.click();
           return;
@@ -697,7 +750,7 @@ export class TasksView {
           else this.calWeek(prefs, scoped, body);
         } else {
           const subMap: TaskMap = {};
-          for (const t of members) if (!t.completed && !this.completingIds.has(t.id)) subMap[t.id] = t;
+          for (const t of openMembers) subMap[t.id] = t; // the same set the head counts
           const subgroups = groupTasks(subMap);
           for (const g of subgroups) {
             // Scope the group key to this folder so ⋮⋮ reordering never crosses
@@ -1362,7 +1415,16 @@ export class TasksView {
 
   // --- inline edits (double-click) ----------------------------------------
 
-  private inlineEdit(host: HTMLElement, initial: string, commit: (value: string) => void): void {
+  private inlineEdit(
+    host: HTMLElement,
+    initial: string,
+    commit: (value: string) => void,
+    // Commit even when the text came back unchanged. Only ever set for a BULK
+    // edit: `initial` is the acted-on row's value, so when the row you clicked
+    // already reads "8/15", typing "8/15" to push that date onto the other four
+    // selected tasks looked like a no-op and wrote nothing at all.
+    commitUnchanged = false
+  ): void {
     this.data.setRenderLocked(true);
     // Every inline editor (title, course, date) hugs its text at the text's own
     // on-screen size — no dilation, no row-wide box. Metrics are copied while the
@@ -1392,7 +1454,7 @@ export class TasksView {
       const value = input.value.trim();
       // Only commit when the value actually changed — pressing away (blur) with no
       // edit must preserve the existing value, never re-parse/clear it.
-      if (apply && value !== initial.trim()) commit(value);
+      if (apply && (commitUnchanged || value !== initial.trim())) commit(value);
       this.render();
     };
     input.addEventListener('keydown', (e) => {
@@ -1454,37 +1516,47 @@ export class TasksView {
         ? `${formatShortDate(task.dueDate)} ${this.fmtTime(task.dueTime)}`
         : formatShortDate(task.dueDate)
       : '';
-    this.inlineEdit(host, initial, (v) => {
-      const { date, time } = parseDateTime(v);
-      // One due date onto every selected task: "these five are all due Friday".
-      this.applyToSelection(task, (t) => ({
-        ...t,
-        dueDate: date,
-        dueTime: time,
-        timeLabel: '',
-        _manualDueDate: true,
-      }));
-    });
+    this.inlineEdit(
+      host,
+      initial,
+      (v) => {
+        const { date, time } = parseDateTime(v);
+        // One due date onto every selected task: "these five are all due Friday".
+        this.applyToSelection(task, (t) => ({
+          ...t,
+          dueDate: date,
+          dueTime: time,
+          timeLabel: '',
+          _manualDueDate: true,
+        }));
+      },
+      this.selCount(task) > 1 // bulk: retyping the same date still pushes it to the rest
+    );
   }
 
   private editCourse(task: Task, host: HTMLElement): void {
     if (!this.editingUnlocked()) return;
-    this.inlineEdit(host, task.course, (v) => {
-      const course = v ? matchCourseStrict(v) : ''; // '' → renders "+ course"
-      this.applyToSelection(task, (t) => ({ ...t, course, _manualCourse: true }));
-      // The two learning side effects are PER TASK, so they run over the whole
-      // selection: labelling ten assignments at once should teach ten times, not
-      // once. (The write above is a single batch; only the teaching fans out.)
-      for (const t of this.selTargets(task)) {
-        // Remember the correction as GROUND TRUTH in the cloud label store, not just
-        // on this task: it outranks anything the extension later scrapes, and it
-        // reaches this student's other devices (a phone can fix a label too).
-        void recordManualLabelForTask(this.data, t, course);
-        // Layer 3 "Help our AI": reinforce the learned model with the words/phrases
-        // of this assignment so the same kind auto-tags (confidently) next time.
-        if (course) void learnCorrection(t.title, t.details || '', course);
-      }
-    });
+    this.inlineEdit(
+      host,
+      task.course,
+      (v) => {
+        const course = v ? matchCourseStrict(v) : ''; // '' → renders "+ course"
+        this.applyToSelection(task, (t) => ({ ...t, course, _manualCourse: true }));
+        // The two learning side effects are PER TASK, so they run over the whole
+        // selection: labelling ten assignments at once should teach ten times, not
+        // once. (The write above is a single batch; only the teaching fans out.)
+        for (const t of this.selTargets(task)) {
+          // Remember the correction as GROUND TRUTH in the cloud label store, not just
+          // on this task: it outranks anything the extension later scrapes, and it
+          // reaches this student's other devices (a phone can fix a label too).
+          void recordManualLabelForTask(this.data, t, course);
+          // Layer 3 "Help our AI": reinforce the learned model with the words/phrases
+          // of this assignment so the same kind auto-tags (confidently) next time.
+          if (course) void learnCorrection(t.title, t.details || '', course);
+        }
+      },
+      this.selCount(task) > 1 // bulk: retyping the same course still pushes it to the rest
+    );
   }
 
   // --- translation --------------------------------------------------------
@@ -1520,7 +1592,13 @@ export class TasksView {
       }
     } finally {
       this.autoTx = false;
-      // Merge onto the CURRENT tasks (skip any edited/removed mid-pass) and write once.
+      // Merge onto the CURRENT tasks (skip any edited/removed mid-pass) and write
+      // once. `this.map` being current is what makes this safe: a pass can run for
+      // many seconds, so it must spread over the task as it stands NOW, not as it
+      // stood when the pass began — otherwise a bulk edit that landed mid-pass gets
+      // its new values written straight back to the old ones. (Data.putTasksBulk
+      // publishes optimistically for exactly this reason.) The title check stays:
+      // a retitled task's translation belongs to a title that no longer exists.
       const writes = results
         .map((r) => {
           const cur = this.map[r.id];

@@ -52,6 +52,28 @@ export async function mutateTaskFolders(
   return next;
 }
 
+/**
+ * Move `fromId` into `toId`'s slot and persist the new order. Folder order IS
+ * the array order, so this is a splice.
+ *
+ * Re-reads first for the same reason mutateTaskFolders does: this view's copy of
+ * the list may not know about a folder Focus just created, and writing a stale
+ * array back would erase it. Returns the fresh, reordered list.
+ */
+export async function reorderTaskFolders(
+  data: Data,
+  fromId: string,
+  toId: string
+): Promise<TaskFolder[]> {
+  const list = await getTaskFolders(data);
+  const fi = list.findIndex((f) => f.id === fromId);
+  const ti = list.findIndex((f) => f.id === toId);
+  if (fi < 0 || ti < 0 || fi === ti) return list;
+  list.splice(ti, 0, ...list.splice(fi, 1));
+  await saveTaskFolders(data, list);
+  return list;
+}
+
 /** Canonical form for comparing folder names. The quick-add bar's "f:" token is
  *  ONE WORD, so a multi-word folder is typed with a hyphen ("f:AP-Bio") — this
  *  makes that land in the existing "AP Bio" instead of creating a near-duplicate.

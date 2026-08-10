@@ -91,6 +91,7 @@ import {
   saveFocusState,
   loadFocusState,
   clearFocusState,
+  declineSavedSession,
   getTabId,
   ownsSession,
   focusStateKey,
@@ -413,7 +414,8 @@ export class FocusView {
     if (saved.suspended) {
       // Suspended by sign-out: NEVER auto-restore — ask first, and ONLY in the tab
       // the session lived in. Other tabs stay silent (it isn't running anywhere).
-      if (ownsSession(saved)) this.showSessionToast('restore');
+      // Asked ONCE: a ✕ on that toast is a "no" that outlives the page (Gabe, 8/9).
+      if (ownsSession(saved) && !saved.declined) this.showSessionToast('restore');
     } else if (ownsSession(saved)) {
       // This tab's own session (mid-session reload): bring it right back.
       this.restore(saved);
@@ -474,6 +476,9 @@ export class FocusView {
     if (kind === 'restore') {
       const close = el('button', { class: 'focus-end-toast-close', text: '✕', title: 'Dismiss' });
       close.addEventListener('click', () => {
+        // Persist the "no". Closing the node alone left the saved session
+        // suspended-and-unanswered, so the toast returned on every later load.
+        declineSavedSession();
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 400);
       });

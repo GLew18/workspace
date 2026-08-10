@@ -45,7 +45,10 @@ export class Data {
   private lastTasks: TaskMap = {};
   private taskCbs = new Set<(u: TasksUpdate) => void>();
   private subscribed = false;
-  private bulkImporting = false;
+  // How many bulk writes are in flight. A COUNTER, not a flag: two overlapping
+  // bulks (an edit landing while the translate sweep writes) used to have the
+  // first one to finish clear the flag for both, re-opening the echo storm.
+  private bulkDepth = 0;
 
   private constructor(backend: Backend) {
     this.backend = backend;
@@ -110,7 +113,7 @@ export class Data {
   private handleRemote(incoming: TaskMap): void {
     // During a bulk import, ignore the per-write echo storm entirely; the bulk
     // call snapshots and notifies once at the end.
-    if (this.bulkImporting) return;
+    if (this.bulkDepth) return;
     // Self-echo suppression: skip callbacks right after our own write, or mid-edit.
     const isEcho = Date.now() - this.lastWriteAt < ECHO_WINDOW_MS;
     const empty = Object.keys(incoming).length === 0;
@@ -188,23 +191,45 @@ export class Data {
   }
 
   /**
-   * Write many tasks at once (Schoology import). Suppresses the per-write
-   * snapshot/notify storm, then snapshots and notifies a single time.
+   * Write many tasks at once (bulk edit, Schoology import). Suppresses the
+   * per-write snapshot/notify storm, then notifies a single time at the end.
+   *
+   * The cache is updated OPTIMISTICALLY, before the network, exactly like
+   * putTask. That is not just for speed: this used to publish the new values
+   * only after every write had settled, so for the whole (multi-second) span of
+   * a bulk write every view still held the PRE-edit tasks. A background pass
+   * that rebuilds a task from the cache in that window — the auto-translate
+   * sweep does exactly this — would write the OLD field values straight back
+   * over the edit, and whichever set() landed last won. That is what made a
+   * bulk due-date change apply to only some of the selected tasks.
    */
   async putTasksBulk(tasks: Task[]): Promise<void> {
     if (!tasks.length) return;
-    this.bulkImporting = true;
+    this.bulkDepth++;
     this.lastWriteAt = Date.now();
     const next = { ...this.lastTasks };
     for (const t of tasks) next[t.id] = t;
-    localStorage.setItem(this.hadDataKey(), '1');
-    try {
-      for (const t of tasks) await this.backend.set('tasks', t.id, t);
-    } finally {
-      this.bulkImporting = false;
-    }
     this.lastTasks = next;
-    void this.backupAll(); // capture the freshly imported state in a backup
+    localStorage.setItem(this.hadDataKey(), '1');
+    // Paint the new values NOW so nothing downstream can read a stale task.
+    this.notifyTasks({ tasks: this.lastTasks, suspectedWipe: false });
+    try {
+      // allSettled, not a sequential loop: the loop aborted on the first
+      // rejection and silently stranded every task queued behind it — the other
+      // half of "the edit only applied to some of them". Every task gets its
+      // write attempted, and a failure is reported instead of swallowed.
+      const results = await Promise.allSettled(tasks.map((t) => this.backend.set('tasks', t.id, t)));
+      const failed = results.filter((r) => r.status === 'rejected');
+      if (failed.length) {
+        console.error(`putTasksBulk: ${failed.length}/${tasks.length} task writes failed`, failed);
+      }
+    } finally {
+      this.bulkDepth--;
+      // Hold the echo window open until the LAST write of the batch has landed,
+      // or the tail of our own storm comes back as a "remote" change.
+      this.lastWriteAt = Date.now();
+    }
+    void this.backupAll(); // capture the freshly written state in a backup
     this.notifyTasks({ tasks: this.lastTasks, suspectedWipe: false });
   }
 

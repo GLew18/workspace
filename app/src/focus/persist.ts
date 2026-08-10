@@ -90,6 +90,19 @@ export interface FocusState {
   ownerTab?: string;
   /** Set on sign-out: blocks ALL auto-restore — the next sign-in offers "Restore". */
   suspended?: boolean;
+  /** The user answered NO to the Restore toast (✕). The question is asked once:
+   *  without this, dismissing only closed the toast and every later load asked
+   *  again. The session data is KEPT (declining shouldn't shred a session's
+   *  todos), it just stops being offered — and a new session writes a fresh
+   *  state, so the flag never leaks forward. */
+  declined?: boolean;
+}
+
+/** Record "no" to the Restore toast, so it is never offered again. */
+export function declineSavedSession(): void {
+  const s = loadFocusState();
+  if (!s) return;
+  saveFocusState({ ...s, declined: true });
 }
 
 export function saveFocusState(s: FocusState): void {
