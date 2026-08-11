@@ -1,4 +1,4 @@
-// WorkSpace — Tasks tab view (spec §6.6).
+// Cobalt: Tasks tab view (spec §6.6).
 
 import type { Task, TaskMap, Priority, ParsedTask, TaskFolder } from '../types';
 import type { Data, TasksUpdate } from '../db';
@@ -10,7 +10,7 @@ import { getPrefs, PREFS_EVENT, type AppPrefs } from '../prefs';
 import { makeWidthGrip } from '../util/resize';
 import { genId } from '../util/ids';
 import { buildQuickAdd } from './quickadd';
-import { makeTask, duplicateTask, groupTasks, dueBadge, type TaskGroup } from './store';
+import { makeTask, duplicateTask, groupTasks, dueBadge, sortTasks, type TaskGroup } from './store';
 import { PRIORITIES, priorityDef } from './priorities';
 import { getCourseColor, onRegistryChange, matchCourseStrict } from '../courses/registry';
 import { classifyByRules, learnCorrection } from '../schoology/classify';
@@ -125,9 +125,21 @@ export class TasksView {
   private selectedIds = new Set<string>();
   private lastSelId: string | null = null;
 
-  constructor(data: Data, sample?: { host: HTMLElement }) {
+  // EXCERPT MODE (Gabe, 8/10): the Dashboard's "Today's Tasks" card mounts THIS
+  // view filtered to one day, so its rows are the real Tasks-tab rows, not a
+  // lookalike that drifts. No header, no quick-add, no calendar toggle, and no
+  // folder sections: foldered and loose tasks are COMPILED into one flat list,
+  // because "what's due today" is one question, not one per folder.
+  private excerpt?: { filter: (t: Task) => boolean; empty: string };
+
+  constructor(
+    data: Data,
+    sample?: { host: HTMLElement },
+    excerpt?: { filter: (t: Task) => boolean; empty: string }
+  ) {
     this.data = data;
     this.sample = sample;
+    this.excerpt = excerpt;
   }
 
   /** Open an external URL — a no-op in the landing sample (buttons stay inert). */
@@ -137,6 +149,27 @@ export class TasksView {
 
   mount(panel: HTMLElement): void {
     this.bannerHost = el('div');
+    // Excerpt: just the rows. It still watches tasks, folders and the registry,
+    // so a task edited/completed anywhere repaints here on the same tick as the
+    // Tasks tab, and the rows keep every behavior they have there.
+    if (this.excerpt) {
+      this.listEl = el('div', { class: 'task-list task-list-excerpt' });
+      panel.append(this.listEl);
+      this.data.watchTasks((u) => this.onUpdate(u));
+      onRegistryChange(() => this.render());
+      window.addEventListener(PREFS_EVENT, () => this.render());
+      void getTaskFolders(this.data).then((f) => {
+        this.folders = f;
+        this.render();
+      });
+      window.addEventListener(FOLDERS_EVENT, () => {
+        void getTaskFolders(this.data).then((f) => {
+          this.folders = f;
+          this.renderAfterAnimation();
+        });
+      });
+      return;
+    }
     const header = el('div', { class: 'tasks-header' });
     // List ⇄ Calendar toggle (quick nav; the Default-screen pref sets the start).
     this.mode = getPrefs().calendar.defaultScreen;
@@ -220,7 +253,7 @@ export class TasksView {
     const banner = el('div', { class: 'wipe-banner' });
     banner.append(
       el('div', {
-        text: '⚠️ Your data looked suddenly empty. WorkSpace blocked it to protect you. Restore everything from your most recent backup?',
+        text: '⚠️ Your data looked suddenly empty. Cobalt blocked it to protect you. Restore everything from your most recent backup?',
       })
     );
     const btn = el('button', { text: 'Restore from backup' });
@@ -317,6 +350,10 @@ export class TasksView {
 
   private render(): void {
     this.listEl.replaceChildren();
+    if (this.excerpt) {
+      this.renderExcerpt();
+      return;
+    }
     this.listEl.classList.toggle('cal-mode', this.mode === 'calendar');
     if (this.mode === 'calendar') {
       if (this.selectedIds.size) this.clearSelection(); // selection is list-only
@@ -346,6 +383,24 @@ export class TasksView {
       );
       for (const t of g.tasks) this.listEl.append(this.renderTask(t, g));
     }
+  }
+
+  /** Excerpt render: one flat, sorted list of the matching tasks, folders and
+   *  all. Rows come from renderTask, the SAME builder the Tasks tab uses, so
+   *  chips, badges, buttons, editing and multi-select are identical by
+   *  construction rather than by imitation. */
+  private renderExcerpt(): void {
+    const hits = Object.values(this.map).filter(
+      (t) => !t.completed && !this.completingIds.has(t.id) && this.excerpt!.filter(t)
+    );
+    if (!hits.length) {
+      this.listEl.append(el('div', { class: 'dash-due-empty', text: this.excerpt!.empty }));
+      return;
+    }
+    // ONE synthetic group: these rows are already one date's worth, so a ⋮⋮ drop
+    // reorders within the excerpt exactly as it would within that date's group.
+    const group: TaskGroup = { key: 'excerpt', header: '', tone: 'red', tasks: sortTasks(hits) };
+    for (const t of group.tasks) this.listEl.append(this.renderTask(t, group));
   }
 
   // --- calendar mode (the big-project port) --------------------------------
@@ -451,7 +506,7 @@ export class TasksView {
       getPrefs().calendar.colorBy === 'course'
         ? t.course
           ? getCourseColor(t.course)
-          : '#e6a817'
+          : '#7db4ff'
         : priorityDef(t.priority).color;
     const chip = el('button', {
       class: `cal-chip${t.completed ? ' done' : ''}`,
@@ -649,7 +704,7 @@ export class TasksView {
       // so text selection and the head's own click behaviors stay untouched.
       const fHandle = el('span', {
         class: 'task-folder-handle',
-        text: '☰',
+        text: '⋮⋮',
         title: 'Drag to reorder folders',
       });
       fHandle.addEventListener('pointerdown', () => row.setAttribute('draggable', 'true'));
@@ -699,7 +754,7 @@ export class TasksView {
       const colorIn = el('input', {
         type: 'color',
         class: 'task-folder-colorin',
-        value: /^#[0-9a-f]{6}$/i.test(f.color) ? f.color : '#e6a817',
+        value: /^#[0-9a-f]{6}$/i.test(f.color) ? f.color : '#7db4ff',
         title: 'Folder color',
       });
       colorIn.addEventListener('click', (e) => e.stopPropagation());
@@ -805,11 +860,11 @@ export class TasksView {
       }
       // "+ New folder" row: name box + a color well. The well DEFAULTS to the
       // task's course color but is freely editable (native color picker).
-      const courseColor = task.course ? getCourseColor(task.course) : '#e6a817';
+      const courseColor = task.course ? getCourseColor(task.course) : '#7db4ff';
       const colorIn = el('input', {
         type: 'color',
         class: 'folder-pick-color',
-        value: /^#[0-9a-f]{6}$/i.test(courseColor) ? courseColor : '#e6a817',
+        value: /^#[0-9a-f]{6}$/i.test(courseColor) ? courseColor : '#7db4ff',
         title: 'Folder color',
       });
       const input = textInput({ class: 'folder-pick-input', placeholder: '+ New folder…' });
@@ -1017,15 +1072,28 @@ export class TasksView {
 
     // Meta reads COURSE · DATE TIME — the date and its due time are ONE integrated
     // unit (e.g. "Tomorrow 8am"), never split across the row.
+    // ONE CLICK opens the course/date editors, populated or empty (Gabe, 8/10).
+    // They were dblclick when filled, which broke bulk editing: with a selection
+    // active, the single click fell through to the row and toggled its selection,
+    // so editing a batch took a double-click and often deselected the row first.
+    // stopPropagation is what keeps the selection intact while the editor opens;
+    // modifier clicks still pass through untouched, they are selection gestures.
+    const editClick = (host: HTMLElement, open: () => void): void => {
+      host.addEventListener('click', (e) => {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) return; // range/toggle select, not an edit
+        e.stopPropagation();
+        open();
+      });
+    };
     if (task.course) {
       const chip = el('span', { class: 'course-chip', text: task.course });
       chip.style.color = getCourseColor(task.course);
-      chip.addEventListener('dblclick', () => this.editCourse(task, chip));
+      editClick(chip, () => this.editCourse(task, chip));
       meta.append(chip);
     } else {
       // Uncategorized (e.g. an import the AI couldn't place) — offer a one-click tag.
       const chip = el('span', { class: 'course-chip empty', text: '+ course' });
-      chip.addEventListener('click', () => this.editCourse(task, chip));
+      editClick(chip, () => this.editCourse(task, chip));
       meta.append(chip);
     }
     if (task.dueDate || task.dueTime) {
@@ -1037,23 +1105,28 @@ export class TasksView {
         .filter(Boolean)
         .join(' ');
       const dateEl = el('span', { class: 'meta-date', text: when });
-      dateEl.addEventListener('dblclick', () => this.editDateTime(task, dateEl));
+      editClick(dateEl, () => this.editDateTime(task, dateEl));
       meta.append(dateEl);
     } else {
       // Undated — offer a one-click affordance to set a due date (mirrors "+ course").
       meta.append(el('span', { class: 'meta-dot', text: '·' }));
       const dateEl = el('span', { class: 'meta-date empty', text: '+ due date' });
-      dateEl.addEventListener('click', () => this.editDateTime(task, dateEl));
+      editClick(dateEl, () => this.editDateTime(task, dateEl));
       meta.append(dateEl);
     }
     // (No "via Schoology" tag — the ↗ / ⓘ action buttons already mark imports,
     // and dropping it keeps the meta line uncluttered.)
     metaWrap.append(meta);
 
+    // OVERDUE ONLY (Gabe, 8/10). TOD / TOM / "3d" are gone: the date is already
+    // spelled out in the meta line beside this and the list is grouped by day,
+    // so those three restated what two other things already said. OVR stays
+    // because it is the one state the date alone doesn't shout: a past date
+    // reads the same as any other until you do the arithmetic.
     const badge = dueBadge(task);
-    if (badge) metaWrap.append(el('span', { class: `task-due-badge ${badge.state}`, text: badge.label }));
-    // Assessment badge — QUIZ / TEST only (BADGE_ASSESSMENT_RE; the importer's
-    // wider matcher still imports exams/finals, they just don't wear a pill).
+    if (badge?.state === 'OVR')
+      metaWrap.append(el('span', { class: `task-due-badge ${badge.state}`, text: badge.label }));
+    // Assessment badge — QUIZ / TEST / EXAM (BADGE_ASSESSMENT_RE).
     // Checked at render time so it covers manual tasks, old imports & translations.
     // The hover ✕ dismisses it for good: "test" might just be a word in the title
     // ("test your hypothesis"), and the teacher won't fix it — so the student can.
@@ -1834,7 +1907,7 @@ export class TasksView {
 
       // Two DELIBERATELY separate launchers (Gabe, 8/7/26), so the user picks:
       //   Open all       = free, plain tabs, always.
-      //   Open as group  = the PREMIUM one (violet + star): one named Chrome tab
+      //   Open as group  = the PREMIUM one (gem cobalt blue): one named Chrome tab
       //                    group wearing the task's course color, via the
       //                    extension. Falls back to plain tabs if the extension
       //                    isn't there, so the button is never a dead end.
@@ -1851,7 +1924,7 @@ export class TasksView {
       // Stacked label (Gabe, 8/7/26): main line + a small qualifier, no star.
       const openGroupBtn = el('button', {
         class: 'btn-primary attach-open-group',
-        title: 'Premium: opens every link as one named, colored Chrome tab group (needs the WorkSpace extension)',
+        title: 'Premium: opens every link as one named, colored Chrome tab group (needs the Cobalt extension)',
       });
       openGroupBtn.append(
         el('span', { text: 'Open all' }),
@@ -1861,7 +1934,7 @@ export class TasksView {
         if (this.sample) return;
         // No silent fallback to plain tabs: a missing extension gets told WHY.
         if (!extensionActive()) {
-          this.notice('Install the WorkSpace extension to open links as one Chrome tab group.');
+          this.notice('Install the Cobalt extension to open links as one Chrome tab group.');
           return;
         }
         openAll(notes, { name: task.title, color: getCourseColor(task.course) });

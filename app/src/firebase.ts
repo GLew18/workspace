@@ -1,4 +1,4 @@
-// WorkSpace — Firebase config.
+// Cobalt: Firebase config.
 //
 // Values come from .env.local (see .env.example). When they're absent the app
 // runs in local-only mode (no Firebase loaded at all).

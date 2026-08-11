@@ -1,4 +1,4 @@
-// WorkSpace — notification troubleshooting guides.
+// Cobalt: notification troubleshooting guides.
 //
 // Six guides, ORDERED BY LIKELIHOOD (the most common blocker first), each a short
 // slideshow. Every step is an ANIMATED SVG mockup — a cursor glides to the control,
@@ -42,12 +42,12 @@ export interface Guide {
 
 // ---------------------------------------------------------------------------
 // Palette (app accents; navy mockup surfaces match the preview stages).
-const GOLD = '#e6a817';
+const GOLD = '#7db4ff';
 const GREEN = '#27ae60';
 const RED = '#ef4444';
-const BG = '#0d1526';
-const PANEL = '#182338';
-const PANEL2 = '#22304f';
+const BG = '#0d1936';
+const PANEL = '#1a2a4d';
+const PANEL2 = '#233a6c';
 const LINE = 'rgba(255,255,255,0.14)';
 const TXT = 'rgba(255,255,255,0.92)';
 const DIM = 'rgba(255,255,255,0.55)';
@@ -95,7 +95,7 @@ const box = (x: number, y: number, w: number, h: number, fill: string, rx = 8, e
 const cursor = (x0: number, y0: number, x1: number, y1: number): string =>
   `<circle class="r" cx="${x1 + 2}" cy="${y1 + 2}" r="11" fill="${GOLD}"/>` +
   `<g class="c" style="--x0:${x0}px;--y0:${y0}px;--x1:${x1}px;--y1:${y1}px">` +
-  `<path d="M0 0 L0 15 L4.2 11.6 L7.2 18 L9.8 16.8 L6.9 10.6 L11.5 10.2 Z" fill="#fff" stroke="#0a0f1e" stroke-width="1.2"/></g>`;
+  `<path d="M0 0 L0 15 L4.2 11.6 L7.2 18 L9.8 16.8 L6.9 10.6 L11.5 10.2 Z" fill="#fff" stroke="#0b142b" stroke-width="1.2"/></g>`;
 
 /** A toggle switch. mode: on | off | turnsOn (flips at the click) | turnsOff. */
 const toggle = (x: number, y: number, mode: 'on' | 'off' | 'turnsOn' | 'turnsOff'): string => {
@@ -186,13 +186,19 @@ const rowIco = (y: number, icon: string, label: string, control: string, sub = '
   (sub ? txt(62, y + 29, 8.5, DIM, sub) : '') +
   control;
 
-/** The WorkSpace logo, mini: dark rounded tile + gold monitor (matches the app icon —
- *  the computer, NOT a letter). */
+/** The Cobalt logo, mini: dark rounded tile + the cobalt gem (matches the app
+ *  icon; the monitor retired 8/10). At 28px the gem is drawn from flat
+ *  primitives, no gradients: gradient defs would need unique ids per call and
+ *  this helper can appear several times inside one guide SVG. */
 const wsIcon = (x: number, y: number): string =>
-  box(x, y, 28, 28, '#0e1730', 7, `stroke="${LINE}"`) +
-  `<rect x="${x + 6}" y="${y + 5.5}" width="16" height="11.5" rx="2.5" fill="none" stroke="${GOLD}" stroke-width="2"/>` +
-  `<path d="M${x + 11.5} ${y + 17} L${x + 16.5} ${y + 17} L${x + 18} ${y + 21} L${x + 10} ${y + 21} Z" fill="${GOLD}"/>` +
-  `<rect x="${x + 8}" y="${y + 21.5}" width="12" height="1.8" rx="0.9" fill="${GOLD}"/>`;
+  box(x, y, 28, 28, '#0e1e42', 7, `stroke="${LINE}"`) +
+  // gem body: rounded cushion in mid cobalt
+  `<rect x="${x + 5}" y="${y + 5}" width="18" height="18" rx="7" fill="#2f6fdd"/>` +
+  // light catching the crown (top-left) and the shadowed pavilion (bottom-right)
+  `<path d="M${x + 5} ${y + 12} q1 -6 7 -7 l4 0 q-8 4 -8 12 l0 1 q-3 -2 -3 -6 Z" fill="#7db4ff" opacity="0.85"/>` +
+  `<path d="M${x + 23} ${y + 14} q-1 7 -8 8 q6 -6 5 -12 Z" fill="#0a2f77" opacity="0.9"/>` +
+  // sparkle
+  `<path d="M${x + 11} ${y + 9} l1 1.8 1.8 1 -1.8 1 -1 1.8 -1 -1.8 -1.8 -1 1.8 -1 Z" fill="#ffffff" opacity="0.95"/>`;
 
 /** Pulsing gold highlight rectangle (draws the eye). */
 const hl = (x: number, y: number, w: number, h: number): string =>
@@ -224,10 +230,10 @@ const icoRefresh = (x: number, y: number): string =>
  *  (naturally spaced), then the address bar with the ⓘ site-info icon inside it.
  *  The refresh icon is a vector centered at (75, 56) so highlights can target it
  *  exactly. `right` renders inside the bar's right end. */
-const browser = (right = '', url = 'workspace.app'): string =>
+const browser = (right = '', url = 'cobalt.app'): string =>
   box(16, 14, 428, 58, PANEL, 10) +
   box(28, 20, 122, 20, PANEL2, 7) +
-  txt(40, 34, 10.5, DIM, 'WorkSpace') +
+  txt(40, 34, 10.5, DIM, 'Cobalt') +
   txt(34, 60, 12, DIM, '‹') +
   txt(52, 60, 12, DIM, '›') +
   icoRefresh(75, 56) +
@@ -251,7 +257,7 @@ const row = (y: number, label: string, control: string, sub = ''): string =>
   (sub ? txt(42, y + 29, 8.5, DIM, sub) : '') +
   control;
 
-/** The WorkSpace notification toast — computer-logo tile + two text lines. */
+/** The Cobalt notification toast: computer-logo tile + two text lines. */
 const wsToast = (x: number, y: number, title: string, msg: string, cls = 'af'): string =>
   `<g class="${cls}">` +
   box(x, y, 210, 52, PANEL2, 10, `stroke="${LINE}"`) +
@@ -260,21 +266,21 @@ const wsToast = (x: number, y: number, title: string, msg: string, cls = 'af'): 
   txt(x + 46, y + 36, 9.5, DIM, msg) +
   `</g>`;
 
-/** A WorkSpace channel button ([🔔 Popup] style). */
+/** A Cobalt channel button ([🔔 Popup] style). */
 const chanBtn = (x: number, y: number, label: string, state: 'on' | 'off' | 'turnsOn'): string => {
   const w = 64;
   if (state === 'turnsOn') {
     return (
       `<rect class="bf" x="${x}" y="${y}" width="${w}" height="22" rx="8" fill="${PANEL2}" stroke="${LINE}"/>` +
       `<g class="bf">${txt(x + w / 2, y + 15, 10, DIM, label, 600, 'middle')}</g>` +
-      `<g class="af"><rect x="${x}" y="${y}" width="${w}" height="22" rx="8" fill="rgba(230,168,23,0.14)" stroke="${GOLD}"/>` +
+      `<g class="af"><rect x="${x}" y="${y}" width="${w}" height="22" rx="8" fill="rgba(125, 180, 255,0.14)" stroke="${GOLD}"/>` +
       txt(x + w / 2, y + 15, 10, GOLD, label, 700, 'middle') +
       `</g>`
     );
   }
   const on = state === 'on';
   return (
-    `<rect x="${x}" y="${y}" width="${w}" height="22" rx="8" fill="${on ? 'rgba(230,168,23,0.14)' : PANEL2}" stroke="${on ? GOLD : LINE}"/>` +
+    `<rect x="${x}" y="${y}" width="${w}" height="22" rx="8" fill="${on ? 'rgba(125, 180, 255,0.14)' : PANEL2}" stroke="${on ? GOLD : LINE}"/>` +
     txt(x + w / 2, y + 15, 10, on ? GOLD : DIM, label, on ? 700 : 600, 'middle')
   );
 };
@@ -297,7 +303,7 @@ const TEST_SCENE = testScene('Popup shows → fixed ✓ · Still nothing → try
 // The LAST guide has no "next guide" to point at — its closer celebrates instead.
 const TEST_SCENE_FINAL = testScene('You should finally see the popup now ✓');
 const testStep = (lead: string, last = false): GuideStep => ({
-  caption: `${lead} Head back to WorkSpace ▸ Settings ▸ Notifications and press “Test out notification”. ${
+  caption: `${lead} Head back to Cobalt ▸ Settings ▸ Notifications and press “Test out notification”. ${
     last ? 'You should finally see a popup now.' : 'A popup means you’re fixed. Still nothing means move on to the next guide.'
   }`,
   svg: last ? TEST_SCENE_FINAL : TEST_SCENE,
@@ -308,7 +314,7 @@ const testStep = (lead: string, last = false): GuideStep => ({
 
 export const NOTIFY_GUIDES: Guide[] = [
   {
-    title: 'Check WorkSpace’s own switches',
+    title: 'Check Cobalt’s own switches',
     tag: 'Most common',
     emoji: '⚙️',
     color: '#ef4444',
@@ -353,7 +359,7 @@ export const NOTIFY_GUIDES: Guide[] = [
       },
       {
         caption:
-          'Press “Test out notification” on any open card. If a popup appears, WorkSpace can reach your screen. Recheck each alert’s buttons. If NOTHING appears, work through the next guides: something outside WorkSpace is blocking.',
+          'Press “Test out notification” on any open card. If a popup appears, Cobalt can reach your screen. Recheck each alert’s buttons. If NOTHING appears, work through the next guides: something outside Cobalt is blocking.',
         svg: scene(
           box(30, 60, 190, 34, PANEL2, 9, `stroke="${LINE}"`) +
             txt(125, 81, 11, TXT, 'Test out notification', 600, 'middle') +
@@ -361,16 +367,16 @@ export const NOTIFY_GUIDES: Guide[] = [
             cursor(90, 200, 120, 76) +
             arrow(240, 78, 280, 110) +
             wsToast(235, 120, '⏰ Focus session complete!', '25 min focused • 3/4 tasks done') +
-            txt(230, 220, 10.5, DIM, 'Popup shows → WorkSpace is fine · No popup → keep reading', 500, 'middle')
+            txt(230, 220, 10.5, DIM, 'Popup shows → Cobalt is fine · No popup → keep reading', 500, 'middle')
         ),
       },
       {
         caption:
-          'One more thing: reminders fire while WorkSpace is OPEN in a tab (or installed as an app). Keep it open in the background. Closed-app alerts arrive with the cloud update, coming soon.',
+          'One more thing: reminders fire while Cobalt is OPEN in a tab (or installed as an app). Keep it open in the background. Closed-app alerts arrive with the cloud update, coming soon.',
         svg: scene(
           browser() +
             box(30, 92, 400, 110, PANEL, 10) +
-            txt(230, 130, 13, TXT, 'Keep WorkSpace open in a tab', 650, 'middle') +
+            txt(230, 130, 13, TXT, 'Keep Cobalt open in a tab', 650, 'middle') +
             txt(230, 152, 10.5, DIM, 'Minimized is fine · another window in front is fine', 500, 'middle') +
             txt(230, 172, 10.5, DIM, 'Fully closed = no reminders (for now)', 500, 'middle') +
             wsToast(125, 210, 'Due soon: Math worksheet', 'Due 4:30 PM (in 30 minutes)', '')
@@ -379,15 +385,15 @@ export const NOTIFY_GUIDES: Guide[] = [
     ],
   },
   {
-    title: 'Your browser blocked WorkSpace',
+    title: 'Your browser blocked Cobalt',
     tag: 'Very common',
     emoji: '🔕',
     color: '#e85d04',
-    blurb: 'One accidental “Block” click silences WorkSpace until you undo it here.',
+    blurb: 'One accidental “Block” click silences Cobalt until you undo it here.',
     steps: [
       {
         caption:
-          'Look at the RIGHT end of the address bar: a crossed-out bell means the browser is blocking WorkSpace’s notifications. (No icon? Continue to the next step anyway.)',
+          'Look at the RIGHT end of the address bar: a crossed-out bell means the browser is blocking Cobalt’s notifications. (No icon? Continue to the next step anyway.)',
         svg: scene(
           browser(txt(414, 61, 12, TXT, '🔕')) +
             hl(408, 43, 29, 27) +
@@ -404,7 +410,7 @@ export const NOTIFY_GUIDES: Guide[] = [
             cursor(180, 245, 118, 58) +
             `<g class="af">` +
             box(96, 76, 240, 178, PANEL2, 10, `stroke="${LINE}"`) +
-            txt(112, 96, 11, TXT, 'workspace.app', 650) +
+            txt(112, 96, 11, TXT, 'cobalt.app', 650) +
             txt(320, 96, 10, DIM, '✕', 600, 'middle') +
             box(104, 106, 224, 1, LINE, 0) +
             txt(112, 128, 10.5, TXT, '🔔 Notifications') +
@@ -426,7 +432,7 @@ export const NOTIFY_GUIDES: Guide[] = [
         caption:
           'No Notifications row? Open “Site settings” from that same menu. Under Permissions, find Notifications and switch its dropdown to ALLOW.',
         svg: scene(
-          winSettings('workspace.app - Site settings') +
+          winSettings('cobalt.app - Site settings') +
             txt(30, 58, 10.5, DIM, 'Permissions', 650) +
             box(324, 44, 108, 22, PANEL2, 11, `stroke="${LINE}"`) +
             txt(378, 59, 9, DIM, 'Reset permissions', 500, 'middle') +
@@ -470,7 +476,7 @@ export const NOTIFY_GUIDES: Guide[] = [
     title: 'Windows Do Not Disturb is on',
     tag: 'Common',
     emoji: '🌙',
-    color: '#e6a817',
+    color: '#7db4ff',
     blurb: 'DND (and Focus sessions) silently swallow every popup, and Windows often turns them on by itself.',
     steps: [
       {
@@ -491,7 +497,7 @@ export const NOTIFY_GUIDES: Guide[] = [
             txt(256, 120, 9.5, GOLD, 'Notification settings') +
             box(244, 130, 186, 42, PANEL2, 8) +
             txt(256, 146, 9.5, TXT, '⏰ Due soon: Science lab') +
-            txt(256, 160, 8.5, DIM, 'WorkSpace · missed while DND was on') +
+            txt(256, 160, 8.5, DIM, 'Cobalt · missed while DND was on') +
             box(244, 180, 186, 26, PANEL2, 8) +
             txt(337, 197, 9.5, DIM, 'Wednesday, July 15', 500, 'middle') +
             box(16, 224, 428, 26, PANEL, 8) +
@@ -639,7 +645,7 @@ export const NOTIFY_GUIDES: Guide[] = [
     steps: [
       {
         caption:
-          'Paste chrome://settings/content/notifications in the address bar. Under “Default behavior”, if “Don’t allow sites to send notifications” is selected, every site, WorkSpace included, is silenced. Choose “Sites can ask to send notifications”.',
+          'Paste chrome://settings/content/notifications in the address bar. Under “Default behavior”, if “Don’t allow sites to send notifications” is selected, every site, Cobalt included, is silenced. Choose “Sites can ask to send notifications”.',
         svg: scene(
           browser('', 'chrome://settings/content/notifications') +
             txt(28, 96, 10.5, DIM, 'Default behavior', 650) +
@@ -656,7 +662,7 @@ export const NOTIFY_GUIDES: Guide[] = [
       },
       {
         caption:
-          'Scroll to “Customized behaviors” on the same page: the “Not allowed to send notifications” list. If workspace.app is in it, open its ⋮ menu (far right of the row) and press Allow.',
+          'Scroll to “Customized behaviors” on the same page: the “Not allowed to send notifications” list. If cobalt.app is in it, open its ⋮ menu (far right of the row) and press Allow.',
         svg: scene(
           browser('', 'chrome://settings/content/notifications') +
             txt(28, 96, 10.5, DIM, 'Customized behaviors', 650) +
@@ -665,7 +671,7 @@ export const NOTIFY_GUIDES: Guide[] = [
             box(384, 116, 48, 20, PANEL2, 10, `stroke="${LINE}"`) +
             txt(408, 130, 9.5, DIM, 'Add', 600, 'middle') +
             box(28, 140, 404, 34, PANEL2, 8) +
-            txt(44, 161, 10.5, TXT, '🌐 https://workspace.app:443') +
+            txt(44, 161, 10.5, TXT, '🌐 https://cobalt.app:443') +
             txt(392, 162, 10, DIM, '▸', 600, 'middle') +
             txt(414, 162, 13, DIM, '⋮', 700, 'middle') +
             hl(402, 143, 24, 28) +
@@ -678,7 +684,7 @@ export const NOTIFY_GUIDES: Guide[] = [
             `</g>`
         ),
       },
-      testStep('Chrome’s default fixed and WorkSpace allowed?'),
+      testStep('Chrome’s default fixed and Cobalt allowed?'),
     ],
   },
   {
@@ -690,7 +696,7 @@ export const NOTIFY_GUIDES: Guide[] = [
     steps: [
       {
         caption:
-          'Notification permission is PER BROWSER PROFILE. If you allowed WorkSpace on your school profile, your personal profile is still blocked. Sign into the profile you actually use and allow it there too.',
+          'Notification permission is PER BROWSER PROFILE. If you allowed Cobalt on your school profile, your personal profile is still blocked. Sign into the profile you actually use and allow it there too.',
         svg: scene(
           box(60, 60, 150, 130, PANEL, 12) +
             `<circle cx="135" cy="105" r="24" fill="${GOLD}"/>` +
@@ -703,27 +709,27 @@ export const NOTIFY_GUIDES: Guide[] = [
             txt(325, 150, 10.5, TXT, 'Personal profile', 600, 'middle') +
             txt(325, 168, 10, RED, '🔕 Blocked', 650, 'middle') +
             hl(295, 154, 60, 21) +
-            txt(230, 225, 10.5, DIM, 'Each profile keeps its own permission. Allow WorkSpace in both.', 500, 'middle')
+            txt(230, 225, 10.5, DIM, 'Each profile keeps its own permission. Allow Cobalt in both.', 500, 'middle')
         ),
       },
       {
         caption:
-          'Incognito windows never show site notifications. You can tell you’re in one by the “Incognito” chip at the TOP-RIGHT of the toolbar (and the dark “You’ve gone Incognito” new-tab page). Keep WorkSpace in a normal window.',
+          'Incognito windows never show site notifications. You can tell you’re in one by the “Incognito” chip at the TOP-RIGHT of the toolbar (and the dark “You’ve gone Incognito” new-tab page). Keep Cobalt in a normal window.',
         svg: scene(
-          box(16, 20, 428, 200, '#121722', 10) +
+          box(16, 20, 428, 200, '#181e2d', 10) +
             box(28, 26, 110, 20, '#1f2430', 7) +
             txt(42, 40, 10.5, DIM, 'New Tab') +
             txt(34, 66, 12, DIM, '‹') +
             txt(52, 66, 12, DIM, '›') +
             txt(70, 66, 11, DIM, '⟳') +
-            box(84, 52, 248, 20, '#0b0f18', 10) +
+            box(84, 52, 248, 20, '#0f1421', 10) +
             box(340, 52, 92, 20, '#1f2430', 10) +
             txt(386, 66, 9.5, TXT, '🕶 Incognito', 600, 'middle') +
             hl(336, 48, 100, 28) +
             txt(230, 122, 26, TXT, '🕶', 500, 'middle') +
             txt(230, 152, 13, TXT, 'You’ve gone Incognito', 650, 'middle') +
             txt(230, 170, 9.5, DIM, 'Sites you visit here can’t send notifications, by design, in every browser.', 500, 'middle') +
-            txt(230, 240, 10.5, DIM, 'Open WorkSpace in a regular window instead.', 500, 'middle')
+            txt(230, 240, 10.5, DIM, 'Open Cobalt in a regular window instead.', 500, 'middle')
         ),
       },
       {

@@ -1,59 +1,60 @@
-// WorkSpace wordmark — the "o" in "Work" is a gold computer monitor.
+// Cobalt wordmark: the "o" in "Cobalt" is a round cobalt gem.
 //
-// Plain row: "W" + [monitor] + "rkSpace". The monitor is a fixed brand gold
-// (no longer tied to task-completion). The hollow screen doubles as the "O" and
-// is sized/positioned to line up with the surrounding caps (top ≈ cap height,
-// bottom ≈ baseline). Below it: a short, subtly-trapezoidal keyboard with many
-// dot-keys (recreating Gabe's reference icon).
+// Plain row: "C" + [gem] + "balt". The gem replaced the gold computer monitor
+// on 8/10/26 (Gabe's call: the stone propagates app-wide). Round cushion cut,
+// modeled on a real cobalt-blue sapphire: radial body light, translucent
+// facets, an inner glow, a window-light sheen, three specular sparkles. The
+// artwork paints itself (hardcoded cobalt fills), so unlike the monitor it
+// does not use currentColor; size and position still come from .ws-mon in
+// components.css (height 1em, margin 0 -0.05em, translateY(0.09em)).
+//
+// The gem group carries scale(0.92) and rotate(-8deg) about the viewBox
+// center: Gabe's round-2/round-3
+// tuning (slightly smaller in the slot). The full design record, including
+// the retired monitor option, lives in design/wordmark-cobalt-B-stone.html
+// and design/wordmark-cobalt-A-monitor.html.
 
-// #region Keyboard geometry — math that draws the trapezoid + its rows of keys
-/** A circle as an SVG sub-path (used as an even-odd "hole" in the keyboard). */
-function circ(cx: number, cy: number, r: number): string {
-  return `M${cx - r} ${cy} a${r} ${r} 0 1 0 ${2 * r} 0 a${r} ${r} 0 1 0 ${-2 * r} 0 Z`;
-}
-
-const KB_TOP_Y = 75;
-const KB_BOT_Y = 94;
-const KB_TOP_HALF = 27; // half-width at the top edge
-const KB_BOT_HALF = 37; // half-width at the bottom edge (subtle outward flare)
-const CX = 50;
-
-const kbHalfAt = (y: number): number =>
-  KB_TOP_HALF + (KB_BOT_HALF - KB_TOP_HALF) * ((y - KB_TOP_Y) / (KB_BOT_Y - KB_TOP_Y));
-
-/** Keyboard = a short, subtle trapezoid with many dot-holes (even-odd → holes). */
-function keyboardPath(): string {
-  let d =
-    `M${CX - KB_TOP_HALF} ${KB_TOP_Y} L${CX + KB_TOP_HALF} ${KB_TOP_Y}` +
-    ` L${CX + KB_BOT_HALF} ${KB_BOT_Y} L${CX - KB_BOT_HALF} ${KB_BOT_Y} Z`;
-  const rows: Array<[number, number]> = [
-    [79, 7],
-    [83, 8],
-    [87, 9],
-    [91, 10],
-  ];
-  for (const [y, n] of rows) {
-    const half = kbHalfAt(y) - 4.5; // inset from the slanted edges
-    for (let i = 0; i < n; i++) {
-      const x = CX - half + 2 * half * (i / (n - 1));
-      d += ' ' + circ(x, y, 1.4);
-    }
-  }
-  return d;
-}
-// #endregion
-
-// #region Monitor markup — the gold computer SVG that stands in for the "o"
-// Screen frame (hollow rounded rect) + neck + the generated keyboard. Uses
-// currentColor so the CSS in components.css controls size, position, and color.
-const MONITOR_SVG = `<svg class="ws-mon" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
-  <rect x="16" y="10" width="68" height="54" rx="12" fill="none" stroke="currentColor" stroke-width="9"/>
-  <path d="M44 64 L56 64 L60 75 L40 75 Z" fill="currentColor"/>
-  <path fill-rule="evenodd" fill="currentColor" d="${keyboardPath()}"/>
+// #region Gem markup: the cobalt stone SVG that stands in for the "o"
+// NOTE on ids: every wordmark instance emits the same defs ids (cb-*). That is
+// deliberate: url(#...) resolves to the first match in the document, and all
+// instances are identical, so any resolution target renders correctly.
+const STONE_SVG = `<svg class="ws-mon" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+  <defs>
+    <clipPath id="cb-clip"><rect x="9" y="9" width="82" height="82" rx="31" ry="31"/></clipPath>
+    <radialGradient id="cb-body" cx="36%" cy="30%" r="88%">
+      <stop offset="0%" stop-color="#8cc0ff"/><stop offset="38%" stop-color="#3d7fe8"/>
+      <stop offset="68%" stop-color="#0b46b0"/><stop offset="100%" stop-color="#032154"/>
+    </radialGradient>
+    <radialGradient id="cb-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#7db4ff" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#7db4ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cb-sheen" x1="0%" y1="0%" x2="70%" y2="70%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.48"/>
+      <stop offset="42%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <g transform="rotate(-8 50 50) translate(50 50) scale(0.92) translate(-50 -50)" clip-path="url(#cb-clip)">
+    <rect x="9" y="9" width="82" height="82" fill="url(#cb-body)"/>
+    <polygon points="38,34 62,34 74,6 26,6"    fill="#ffffff" opacity="0.14"/>
+    <polygon points="62,34 70,44 96,30 74,6"   fill="#02174a" opacity="0.24"/>
+    <polygon points="70,44 70,58 96,72 96,30"  fill="#ffffff" opacity="0.10"/>
+    <polygon points="70,58 62,66 74,96 96,72"  fill="#02174a" opacity="0.38"/>
+    <polygon points="62,66 38,66 26,96 74,96"  fill="#02174a" opacity="0.20"/>
+    <polygon points="38,66 30,58 4,72 26,96"   fill="#02174a" opacity="0.32"/>
+    <polygon points="30,58 30,44 4,30 4,72"    fill="#ffffff" opacity="0.13"/>
+    <polygon points="30,44 38,34 26,6 4,30"    fill="#ffffff" opacity="0.22"/>
+    <polygon points="38,34 62,34 70,44 70,58 62,66 38,66 30,44" fill="#4a8cf0" opacity="0.50"/>
+    <ellipse cx="41" cy="58" rx="16" ry="12" fill="url(#cb-glow)"/>
+    <path d="M9,9 h52 q-32,13 -42,46 z" fill="url(#cb-sheen)"/>
+    <path d="M36 19 l2.6 4.6 4.6 2.6 -4.6 2.6 -2.6 4.6 -2.6 -4.6 -4.6 -2.6 4.6 -2.6 Z" fill="#ffffff" opacity="0.95"/>
+    <circle cx="64" cy="61" r="1.8" fill="#ffffff" opacity="0.6"/>
+    <circle cx="57" cy="20" r="1.3" fill="#ffffff" opacity="0.5"/>
+  </g>
 </svg>`;
 // #endregion
 
-// #region Public API — createWordmark() builds the header logo element
+// #region Public API: createWordmark() builds the header logo element
 export interface Wordmark {
   el: HTMLElement;
 }
@@ -61,7 +62,7 @@ export interface Wordmark {
 export function createWordmark(): Wordmark {
   const root = document.createElement('span');
   root.className = 'ws-mark';
-  root.innerHTML = `<span class="ws-mark-text">W</span>${MONITOR_SVG}<span class="ws-mark-text">rkSpace</span>`;
+  root.innerHTML = `<span class="ws-mark-text">C</span>${STONE_SVG}<span class="ws-mark-text">balt</span>`;
   return { el: root };
 }
 // #endregion

@@ -1,4 +1,4 @@
-// WorkSpace: the pop-up blocker fix-it guide.
+// Cobalt: the pop-up blocker fix-it guide.
 //
 // WHY THIS EXISTS: "Open all" opens links with window.open, and Chrome's pop-up
 // blocker allows exactly ONE per click, so with pop-ups blocked the button
@@ -10,7 +10,7 @@
 //
 // The scenes copy CHROME'S OWN dark UI (from Gabe's screenshot): its grays, its
 // blue toggles, its site-info panel. Only the instructional overlays (cursor,
-// highlight ring) are WorkSpace gold. Player chrome and launcher reuse the
+// highlight ring) are Cobalt gold. Player chrome and launcher reuse the
 // notification fix-it guides' classes (.ngd*, .notify-howto in settings.css),
 // so the two guide systems look like one product.
 
@@ -26,7 +26,7 @@ const DIM = '#9aa0a6';
 const BLUE = '#a8c7fa'; // Chrome's toggle-on blue
 const OFFP = '#5f6368'; // toggle-off pill
 const WARN = '#f28b82'; // the "not secure" warning red
-const GOLD = '#e6a817'; // WorkSpace's instructional overlay color only
+const GOLD = '#7db4ff'; // Cobalt's instructional overlay color only
 
 // Timing classes: .c cursor glide, .r click ripple, .pu pulse, and the toggle
 // pair .tk/.tp (knob slides right, pill turns Chrome-blue at the click beat).
@@ -55,7 +55,7 @@ const B = (x: number, y: number, w: number, h: number, f: string, rx = 8, ex = '
 const cursor = (x0: number, y0: number, x1: number, y1: number): string =>
   `<circle class="r" cx="${x1 + 2}" cy="${y1 + 2}" r="11" fill="${GOLD}"/>` +
   `<g class="c" style="--x0:${x0}px;--y0:${y0}px;--x1:${x1}px;--y1:${y1}px">` +
-  `<path d="M0 0 L0 15 L4.2 11.6 L7.2 18 L9.8 16.8 L6.9 10.6 L11.5 10.2 Z" fill="#fff" stroke="#0a0f1e" stroke-width="1.2"/></g>`;
+  `<path d="M0 0 L0 15 L4.2 11.6 L7.2 18 L9.8 16.8 L6.9 10.6 L11.5 10.2 Z" fill="#fff" stroke="#0b142b" stroke-width="1.2"/></g>`;
 
 const hl = (x: number, y: number, w: number, h: number): string =>
   `<rect class="pu" x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="none" stroke="${GOLD}" stroke-width="2"/>`;
@@ -122,12 +122,12 @@ const STEPS: Step[] = [
       'In the address bar, click the little icon just LEFT of the web address. (On some sites it looks like sliders instead of an i.)',
     svg: scene(
       browserBar() +
-        // a faint WorkSpace page below, so the scene reads as "your open tab".
+        // a faint Cobalt page below, so the scene reads as "your open tab".
         // Deliberately WORDLESS: a lone "W" here just read as a stray letter.
-        B(14, 56, 432, 190, '#0d1526', 10) +
-        B(40, 120, 380, 26, '#182338', 8) +
-        B(40, 156, 380, 26, '#182338', 8) +
-        B(40, 192, 180, 26, '#22304f', 8) +
+        B(14, 56, 432, 190, '#0d1936', 10) +
+        B(40, 120, 380, 26, '#1a2a4d', 8) +
+        B(40, 156, 380, 26, '#1a2a4d', 8) +
+        B(40, 192, 180, 26, '#233a6c', 8) +
         hl(20, 17, 28, 24) +
         cursor(300, 190, 32, 26)
     ),

@@ -1,4 +1,4 @@
-// WorkSpace — authentication.
+// Cobalt: authentication.
 //
 // Firebase mode: Google sign-in (the only method in v1).
 // Local mode (no Firebase config): a lightweight named profile so you can use
@@ -65,13 +65,13 @@ async function firebaseAuth() {
 }
 
 /**
- * Send a WorkSpace-branded auth email through the sendAuthEmail Cloud Function,
+ * Send a Cobalt-branded auth email through the sendAuthEmail Cloud Function,
  * which generates the link and hands it to the same Trigger Email extension that
  * delivers reminders.
  *
  * Firebase's OWN mailer (sendPasswordResetEmail / sendEmailVerification) is a
  * shared, unbrandable sender whose mail was landing in spam. This route uses the
- * address students already see WorkSpace mail from, and lets the message carry the
+ * address students already see Cobalt mail from, and lets the message carry the
  * wordmark so it's recognizable at a glance.
  *
  * The function always reports success, even for an address with no account, so
@@ -218,7 +218,7 @@ export async function needsEmailVerification(): Promise<boolean> {
   // RELOAD FIRST. `emailVerified` on the restored user is whatever was persisted
   // when the session was last written — it does NOT refresh on its own, not even
   // across a page load. So a student who clicked the link and then reloaded
-  // WorkSpace would keep seeing "verify your email" until something else happened
+  // Cobalt would keep seeing "verify your email" until something else happened
   // to call reload(). One cheap round-trip here makes the banner tell the truth
   // on first paint.
   try {

@@ -1,4 +1,4 @@
-// WorkSpace — per-account scoping for browser storage.
+// Cobalt: per-account scoping for browser storage.
 //
 // THE RULE (Gabe, 8/9/26): anything peculiar to ONE account — tasks, bookmarks,
 // settings, focus sessions, notifications and their read state — must only be

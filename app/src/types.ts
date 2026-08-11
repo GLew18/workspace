@@ -1,4 +1,4 @@
-// WorkSpace — shared data types.
+// Cobalt: shared data types.
 
 export type Priority = 'highest' | 'high' | 'normal' | 'low' | 'lowest';
 

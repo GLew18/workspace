@@ -1,4 +1,4 @@
-// WorkSpace — app entry point.
+// Cobalt: app entry point.
 
 // #region Imports — styles + the modules this entry point wires together
 import './ui/theme.css';
@@ -50,7 +50,8 @@ import { queueEmail } from './notify/email';
 import { enablePush } from './notify/push';
 import { capitalizeName } from './util/names';
 import { getPrefs, setPrefsCache, normalizePrefs, DEFAULT_PREFS, PREFS_EVENT } from './prefs';
-import type { SchoologySettings } from './types';
+import type { SchoologySettings, TaskMap } from './types';
+import { todayStr } from './util/dates';
 // #endregion
 
 // #region Top-level state — the root element + background-sync timer handle
@@ -92,12 +93,12 @@ function renderSignIn(): void {
   if (isLocalMode()) {
     const wrap = el('div', { class: 'signin' });
     wrap.append(
-      el('img', { src: '/icons/icon.svg', alt: 'WorkSpace' }),
-      el('h1', { text: 'WorkSpace' }),
+      el('img', { src: '/icons/icon.svg', alt: 'Cobalt' }),
+      el('h1', { text: 'Cobalt' }),
       el('p', { text: 'A space that makes work more convenient and fun.' })
     );
     const input = textInput({ placeholder: 'Your name', autocomplete: 'off' });
-    const btn = el('button', { class: 'btn-primary', text: 'Enter WorkSpace' });
+    const btn = el('button', { class: 'btn-primary', text: 'Enter Cobalt' });
     const go = () => signInLocal(input.value);
     btn.addEventListener('click', go);
     input.addEventListener('keydown', (e) => {
@@ -265,12 +266,25 @@ async function renderApp(user: AuthUser): Promise<void> {
     { id: 'focus', label: 'Focus' },
   ];
   const navBtns = new Map<string, HTMLElement>();
+  // "Tasks" carries a red count of what's due TODAY (Gabe, 8/10) — the one number
+  // worth seeing from any tab. Red, not the bell's gold, because this is a
+  // deadline rather than a message. Hidden at zero: an empty badge is noise.
+  const tasksCount = el('span', { class: 'nav-count' });
   for (const it of NAV_TABS) {
     const b = el('button', { class: 'nav-item', text: it.label });
+    if (it.id === 'tasks') b.append(tasksCount);
     b.addEventListener('click', () => controller.goToTab(it.id)); // sidebar stays open
     navBtns.set(it.id, b);
     sidebar.append(b);
   }
+  const paintTasksCount = (tasks: TaskMap): void => {
+    const today = todayStr();
+    const n = Object.values(tasks).filter((t) => !t.completed && t.dueDate === today).length;
+    tasksCount.textContent = n > 99 ? '99+' : String(n);
+    tasksCount.classList.toggle('on', n > 0);
+  };
+  paintTasksCount(data.getTasks());
+  data.watchTasks((u) => paintTasksCount(u.tasks));
   // Settings and the bell live in the header, not the drawer, but both still
   // register so they pick up the "active" highlight when their tab is showing.
   navBtns.set('settings', settingsBtn);
@@ -391,7 +405,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   // the app runs a production build (dev has no service worker).
   void enablePush(data);
 
-  // Open the tab the user chose in Settings ▸ Preferences ("Open WorkSpace to").
+  // Open the tab the user chose in Settings ▸ Preferences ("Open Cobalt to").
   if (getPrefs().openTo !== 'dashboard') controller.goToTab(getPrefs().openTo);
 
   // Deep link from a service-worker notification click ("/#tasks"): land on Tasks.

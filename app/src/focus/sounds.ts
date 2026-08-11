@@ -1,4 +1,4 @@
-// WorkSpace — Focus end-of-session sounds.
+// Cobalt: Focus end-of-session sounds.
 //
 // Ten themed completion cues, fully synthesized with the Web Audio API (no asset
 // files). The user picks one in Settings; the chosen key is played by the Focus

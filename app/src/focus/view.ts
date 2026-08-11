@@ -1,4 +1,4 @@
-// WorkSpace — Focus sessions (spec §8). Single-shot deep-work countdown tied to tasks.
+// Cobalt: Focus sessions (spec §8). Single-shot deep-work countdown tied to tasks.
 
 import type { Data } from '../db';
 import type { Task, TaskMap, TaskFolder } from '../types';
@@ -926,22 +926,48 @@ export class FocusView {
     let importUI: { button: HTMLElement; panel: HTMLElement; refresh: () => void } | null = null;
     const drawTodos = () => {
       todoList.replaceChildren();
+      // Selection follows reality: drop ids whose todos left the session.
+      const live = new Set(this.todos.map((t) => t.id));
+      for (const id of [...this.todoSel]) if (!live.has(id)) this.todoSel.delete(id);
+      // Visible row order (collapsed folder members are not rangeable), for
+      // Shift+click ranges. Filled in as the rows are drawn below.
+      const visIds: string[] = [];
       const buildRow = (t: FocusTodo): HTMLElement => {
-        const row = el('div', { class: 'focus-todo-row' });
-        // Double-click the title or course to edit; "+ title" / "+ course" add when empty.
-        row.append(this.buildTodoLabel(t, drawTodos));
-        // 🗀 — group this todo into a FOCUS folder (independent of Tasks folders).
+        visIds.push(t.id);
+        const row = el('div', { class: `focus-todo-row${this.todoSel.has(t.id) ? ' selected' : ''}` });
+        // Multi-select: shift/ctrl clicks route into the shared todo selection.
+        row.addEventListener('mousedown', (e) => {
+          if (e.shiftKey || e.ctrlKey || e.metaKey) e.preventDefault(); // no text painting
+        });
+        row.addEventListener('click', (e) => {
+          const tgt = e.target as HTMLElement;
+          // Chips (.course-chip/.meta-date) are NOT excluded here: their own
+        // handlers stopPropagation on plain clicks (edit) and bubble modifier
+        // clicks up to this selection routing.
+        if (tgt.closest('button, a, input, textarea, .inline-edit-block')) return;
+          if (this.selClick('todo', visIds, t.id, e)) drawTodos();
+        });
+        // Title dblclick to edit; course/date are one-click and bulk-aware.
+        row.append(this.buildTodoLabel(t, drawTodos, this.todos));
+        // 🗀 — file into a shared folder. On a selected row: the whole selection.
         const fold = el('button', { class: 'focus-todo-fold', title: 'Add to folder' });
         fold.innerHTML = FOCUS_FOLDER_BTN_SVG;
         const inFolder = this.taskFolders.find((f) => f.id === t.folderId);
         if (inFolder) fold.style.color = inFolder.color;
-        fold.addEventListener('click', () => this.openFocusFolderPicker(t, this.taskFolders, drawTodos));
+        fold.addEventListener('click', () =>
+          this.openFocusFolderPicker(t, this.taskFolders, drawTodos, this.todoTargets(t, this.todos))
+        );
         // Takes it out of THIS session only. Every todo now has a real task behind
         // it, and dropping a task from a session is not the same as deleting it —
         // so the task itself is never touched here. Delete it in the Tasks tab.
+        // On a selected row, ✕ removes the WHOLE selection from the session.
         const del = el('button', { class: 'focus-todo-del', text: '✕', title: 'Remove from this session' });
         del.addEventListener('click', () => {
-          this.todos.splice(this.todos.indexOf(t), 1);
+          for (const m of this.todoTargets(t, this.todos)) {
+            const i = this.todos.indexOf(m);
+            if (i >= 0) this.todos.splice(i, 1);
+            this.todoSel.delete(m.id);
+          }
           drawTodos();
           importUI?.refresh();
         });
@@ -1182,6 +1208,48 @@ export class FocusView {
     this.taskFolders = await getTaskFolders(this.data);
   }
 
+  // --- multi-select (Gabe 8/10): every Focus list selects like the Tasks tab ---
+  //
+  // Two selections, not four: both Import panels share one (they show the same
+  // tasks), and both todo lists share one (they show the same session todos).
+  // Ctrl/Cmd+click toggles, Shift+click ranges over the VISIBLE order, and once
+  // a selection exists plain clicks toggle too. Acting on a selected row acts on
+  // the whole selection (the File-Explorer rule, same as Tasks).
+  private importSel = new Set<string>(); // task ids, both Import panels
+  private todoSel = new Set<string>(); // todo ids, setup list + in-session list
+  private selAnchor: { imp: string | null; todo: string | null } = { imp: null, todo: null };
+
+  /** Route one row click into the selection model. Returns true when the click
+   *  WAS a selection gesture (caller re-syncs its list UI and stops). */
+  private selClick(kind: 'imp' | 'todo', ids: string[], id: string, e: MouseEvent): boolean {
+    const sel = kind === 'imp' ? this.importSel : this.todoSel;
+    const multi = e.ctrlKey || e.metaKey || e.shiftKey;
+    if (!multi && !sel.size) return false;
+    e.preventDefault();
+    window.getSelection()?.removeAllRanges(); // sweep away shift-click text highlight
+    const anchor = this.selAnchor[kind];
+    const a = anchor ? ids.indexOf(anchor) : -1;
+    const b = ids.indexOf(id);
+    if (e.shiftKey && a >= 0 && b >= 0) {
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) sel.add(ids[i]);
+    } else if (sel.has(id)) {
+      sel.delete(id);
+    } else {
+      sel.add(id);
+    }
+    // Anchor lives only while a selection does (same rule as the Tasks tab).
+    this.selAnchor[kind] = sel.size ? id : null;
+    return true;
+  }
+
+  /** The todos a row action operates on: the whole selection when the acted-on
+   *  row is part of it, just that todo otherwise. */
+  private todoTargets(t: FocusTodo, pool: FocusTodo[]): FocusTodo[] {
+    if (this.todoSel.has(t.id) && this.todoSel.size > 1)
+      return pool.filter((x) => this.todoSel.has(x.id));
+    return [t];
+  }
+
   /** The folder icon's hidden color well, shared by both Focus folder headers and
    *  copied from the Tasks tab so the gesture is the same in both places: click the
    *  glyph, the OS picker opens, the glyph previews as you drag, the pick saves on
@@ -1193,7 +1261,7 @@ export class FocusView {
       class: 'focus-folder-colorin',
       // A folder made before colors (or with junk stored) opens on gold, not on an
       // invalid value the native picker would silently turn black.
-      value: /^#[0-9a-f]{6}$/i.test(folder.color) ? folder.color : '#e6a817',
+      value: /^#[0-9a-f]{6}$/i.test(folder.color) ? folder.color : '#7db4ff',
       title: 'Folder color',
     });
     colorIn.addEventListener('click', (e) => e.stopPropagation()); // never toggle the block open/closed
@@ -1216,7 +1284,7 @@ export class FocusView {
    * filed in a folder (the old promote-on-file rule) — the task is written right
    * away, which means it outlives the session and can be dated, filed, or
    * completed from either side, and completing it here checks it off there
-   * (syncLinkedTask). Course parse words still apply ("write essay mon").
+   * (syncLinkedTasks). Course parse words still apply ("write essay mon").
    *
    * Synchronous on purpose: Data.putTask updates its cache and notifies BEFORE
    * the network settles, so the caller can push, redraw, and move on.
@@ -1282,11 +1350,24 @@ export class FocusView {
 
   /** The 🗀 on a focus todo row: join/leave a folder, or create one — all against
    *  the SHARED folder list, so every action here lands in the Tasks tab too. */
-  private openFocusFolderPicker(todo: FocusTodo, folders: TaskFolder[], redraw: () => void): void {
+  private openFocusFolderPicker(
+    todo: FocusTodo,
+    folders: TaskFolder[],
+    redraw: () => void,
+    // Bulk (Gabe 8/10): opened from a SELECTED row, the picker files the WHOLE
+    // selection; the acted-on todo plus these. Every choice below loops the batch.
+    others: FocusTodo[] = []
+  ): void {
+    const batch = [todo, ...others.filter((o) => o !== todo)];
+    const fileAll = (folderId: string | null) =>
+      Promise.all(batch.map((b) => this.fileTodoInFolder(b, folderId))).then(redraw);
     const back = el('div', { class: 'focus-modal-back' });
     const card = el('div', { class: 'focus-modal' });
     card.append(el('div', { class: 'focus-modal-title', text: 'Add to folder' }));
     const wrap = el('div', { class: 'folder-pick' });
+    if (batch.length > 1) {
+      wrap.append(el('div', { class: 'popup-bulk-note', text: `Applies to all ${batch.length} selected tasks.` }));
+    }
     const close = () => back.remove();
     for (const f of folders) {
       const b = el('button', { class: `folder-pick-row${todo.folderId === f.id ? ' on' : ''}` });
@@ -1294,15 +1375,15 @@ export class FocusView {
       b.append(el('span', { text: f.name }));
       b.addEventListener('click', () => {
         this.openFocusFolders.add(f.id);
-        void this.fileTodoInFolder(todo, f.id).then(redraw);
+        void fileAll(f.id);
         close();
       });
       wrap.append(b);
     }
-    if (todo.folderId) {
+    if (batch.some((b) => b.folderId)) {
       const rm = el('button', { class: 'folder-pick-remove', text: 'Remove from folder' });
       rm.addEventListener('click', () => {
-        void this.fileTodoInFolder(todo, null).then(redraw);
+        void fileAll(null);
         close();
       });
       wrap.append(rm);
@@ -1310,11 +1391,11 @@ export class FocusView {
     // "+ New folder" row: color well (defaults to the todo's course color, freely
     // editable) + name box — the same creation flow as the Tasks tab's picker,
     // and it creates a REAL shared folder.
-    const courseColor = todo.course ? getCourseColor(todo.course) : '#e6a817';
+    const courseColor = todo.course ? getCourseColor(todo.course) : '#7db4ff';
     const colorIn = el('input', {
       type: 'color',
       class: 'folder-pick-color',
-      value: /^#[0-9a-f]{6}$/i.test(courseColor) ? courseColor : '#e6a817',
+      value: /^#[0-9a-f]{6}$/i.test(courseColor) ? courseColor : '#7db4ff',
       title: 'Folder color',
     });
     const input = textInput({ class: 'folder-pick-input', placeholder: '+ New folder…' });
@@ -1327,7 +1408,7 @@ export class FocusView {
       this.openFocusFolders.add(folder.id);
       close();
       void saveTaskFolders(this.data, this.taskFolders)
-        .then(() => this.fileTodoInFolder(todo, folder.id))
+        .then(() => Promise.all(batch.map((b) => this.fileTodoInFolder(b, folder.id))))
         .then(redraw);
     });
     const newRow = el('div', { class: 'folder-pick-new' });
@@ -1419,8 +1500,28 @@ export class FocusView {
       });
     };
 
+    // Visible order of the individual-task rows, for Shift+click ranges. Rebuilt
+    // by every drawImportBody pass.
+    let importVisIds: string[] = [];
     const buildTaskRow = (t: Task, already: boolean): HTMLElement => {
-      const row = el('div', { class: `focus-import-task${already ? ' imported' : ''}` });
+      const selected = this.importSel.has(t.id);
+      const row = el('div', {
+        class: `focus-import-task${already ? ' imported' : ''}${selected ? ' selected' : ''}`,
+      });
+      // Multi-select: same gestures as everywhere else. Already-imported rows
+      // are not selectable (there is nothing bulk to do to them).
+      row.addEventListener('mousedown', (e) => {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) e.preventDefault();
+      });
+      row.addEventListener('click', (e) => {
+        if (already) return;
+        const tgt = e.target as HTMLElement;
+        // Chips (.course-chip/.meta-date) are NOT excluded here: their own
+        // handlers stopPropagation on plain clicks (edit) and bubble modifier
+        // clicks up to this selection routing.
+        if (tgt.closest('button, a, input, textarea, .inline-edit-block')) return;
+        if (this.selClick('imp', importVisIds, t.id, e)) drawImportBody();
+      });
       const main = el('div', { class: 'focus-import-task-main' });
 
       // Title — double-click to edit (no pen button; editing is double-click only).
@@ -1436,6 +1537,20 @@ export class FocusView {
       // out: it has no chip there either, it only sorts). The date matters here
       // because it is what the ordering below is built on, and a list sorted by a
       // field you can't see reads as randomly ordered.
+      //
+      // Both fields are ONE-CLICK and BULK-AWARE (Gabe 8/10, same rule as the
+      // Tasks tab): editing a SELECTED row writes the whole selection in one
+      // putTasksBulk. Plain clicks open the editor without touching the
+      // selection; modifier clicks bubble to the row and stay selection gestures.
+      const bulkIds = (): string[] =>
+        this.importSel.has(t.id) && this.importSel.size > 1 ? [...this.importSel] : [t.id];
+      const editClick = (host: HTMLElement, open: () => void): void => {
+        host.addEventListener('click', (e) => {
+          if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+          e.stopPropagation();
+          open();
+        });
+      };
       const tags = el('div', { class: 'focus-import-tags' });
       const editCourse = (host: HTMLElement, initial: string) => {
         if (!taskEditUnlocked()) return;
@@ -1443,18 +1558,18 @@ export class FocusView {
           host,
           initial,
           'course',
-          (v) => void this.applyTaskEdit(t.id, { course: v ? matchCourseStrict(v) : '' }),
+          (v) => void this.applyTaskEditBulk(bulkIds(), { course: v ? matchCourseStrict(v) : '' }),
           drawImportBody
         );
       };
       if (t.course) {
         const chip = el('span', { class: 'course-chip', text: t.course });
         chip.style.color = getCourseColor(t.course);
-        chip.addEventListener('dblclick', () => editCourse(chip, t.course));
+        editClick(chip, () => editCourse(chip, t.course));
         tags.append(chip);
       } else {
         const chip = el('span', { class: 'course-chip empty', text: '+ course' });
-        chip.addEventListener('click', () => editCourse(chip, ''));
+        editClick(chip, () => editCourse(chip, ''));
         tags.append(chip);
       }
 
@@ -1470,7 +1585,7 @@ export class FocusView {
           'due date',
           (v) => {
             const { date, time } = parseDateTime(v);
-            void this.applyTaskEdit(t.id, { dueDate: date, dueTime: time });
+            void this.applyTaskEditBulk(bulkIds(), { dueDate: date, dueTime: time });
           },
           drawImportBody
         );
@@ -1481,26 +1596,33 @@ export class FocusView {
           .filter(Boolean)
           .join(' ');
         const dateEl = el('span', { class: 'meta-date', text: when });
-        dateEl.addEventListener('dblclick', () => editDate(dateEl, when));
+        editClick(dateEl, () => editDate(dateEl, when));
         tags.append(dateEl);
       } else {
         // Undated tasks sort LAST, so this row is also the explanation for why
         // they're at the bottom. One click to fix it, same as "+ course".
         const dateEl = el('span', { class: 'meta-date empty', text: '+ due date' });
-        dateEl.addEventListener('click', () => editDate(dateEl, ''));
+        editClick(dateEl, () => editDate(dateEl, ''));
         tags.append(dateEl);
       }
       main.append(tags);
       row.append(main);
 
+      // The + on a SELECTED row imports the whole selection in one click.
+      const bulkN = selected && this.importSel.size > 1 ? this.importSel.size : 0;
       const add = el('button', {
         class: `focus-import-add${already ? ' done' : ''}`,
         text: already ? '✓' : '+',
-        title: already ? 'Imported' : 'Import',
+        title: already ? 'Imported' : bulkN ? `Import all ${bulkN} selected` : 'Import',
       });
       if (!already) {
         add.addEventListener('click', () => {
-          addTaskToTodos(t);
+          const targets = bulkN
+            ? this.importTasks.filter((x) => this.importSel.has(x.id))
+            : [t];
+          const imported = importedTaskIds();
+          for (const x of targets) if (!imported.has(x.id)) addTaskToTodos(x);
+          this.importSel.clear();
           redraw();
           drawImportBody();
         });
@@ -1591,6 +1713,11 @@ export class FocusView {
       // Tasks is honored across dates here rather than only within one. See
       // sortTasks in tasks/store.ts.
       const sorted = sortTasks(filtered, { manualFirst: true });
+      // Selection housekeeping: range order = drawn order; imported/filtered-out
+      // ids fall out of the selection instead of lingering invisibly.
+      importVisIds = sorted.filter((t) => !imported.has(t.id)).map((t) => t.id);
+      const selectable = new Set(importVisIds);
+      for (const id of [...this.importSel]) if (!selectable.has(id)) this.importSel.delete(id);
       for (const t of sorted) importBody.append(buildTaskRow(t, imported.has(t.id)));
     };
 
@@ -1750,7 +1877,7 @@ export class FocusView {
   private suspendUI(): void {
     this.stopTicker();
     this.stopRing();
-    document.title = this.originalTitle || 'WorkSpace';
+    document.title = this.originalTitle || 'Cobalt';
     this.engine?.destroy(); // kills the music immediately
     this.engine = null;
     this.overlay?.remove();
@@ -1821,7 +1948,7 @@ export class FocusView {
   private endSession(completed: boolean): void {
     this.stopTicker();
     this.stopRing();
-    document.title = this.originalTitle || 'WorkSpace';
+    document.title = this.originalTitle || 'Cobalt';
     const done = this.sessionTodos.filter((t) => t.done).length;
     const total = this.sessionTodos.length;
     // Minutes actually focused (elapsed), not the planned length — so a session
@@ -2584,9 +2711,29 @@ export class FocusView {
       host.append(el('div', { class: 'focus-todos-empty', text: 'No tasks left. Add one below.' }));
       return;
     }
+    // Selection follows reality + visible order for Shift ranges (same scheme as
+    // the setup list; the two lists share this.todoSel since they show the same
+    // session todos).
+    const live = new Set(this.sessionTodos.map((t) => t.id));
+    for (const id of [...this.todoSel]) if (!live.has(id)) this.todoSel.delete(id);
+    const visIds: string[] = [];
     const buildRow = (todo: FocusTodo, draggable: boolean): HTMLElement => {
       const i = this.sessionTodos.indexOf(todo);
-      const row = el('div', { class: `focus-todo-item${todo.done ? ' done' : ''}` });
+      visIds.push(todo.id);
+      const row = el('div', {
+        class: `focus-todo-item${todo.done ? ' done' : ''}${this.todoSel.has(todo.id) ? ' selected' : ''}`,
+      });
+      row.addEventListener('mousedown', (e) => {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) e.preventDefault(); // no text painting
+      });
+      row.addEventListener('click', (e) => {
+        const tgt = e.target as HTMLElement;
+        // Chips (.course-chip/.meta-date) are NOT excluded here: their own
+        // handlers stopPropagation on plain clicks (edit) and bubble modifier
+        // clicks up to this selection routing.
+        if (tgt.closest('button, a, input, textarea, .inline-edit-block')) return;
+        if (this.selClick('todo', visIds, todo.id, e)) this.drawOverlayTodos(host);
+      });
 
       if (draggable) {
         const handle = el('button', { class: 'focus-todo-handle', text: '⋮⋮', title: 'Drag to reorder' });
@@ -2600,18 +2747,29 @@ export class FocusView {
       cb.innerHTML =
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
       cb.addEventListener('click', () => {
-        todo.done = !todo.done;
-        void this.syncLinkedTask(todo);
+        // Checking a SELECTED row checks the whole selection, to the clicked
+        // row's NEW state (a mixed selection becomes uniformly that state,
+        // same rule as the Tasks tab's bulk actions).
+        const next = !todo.done;
+        const flipped = this.todoTargets(todo, this.sessionTodos).filter((m) => m.done !== next);
+        for (const m of flipped) m.done = next;
+        // ONE write for the batch (see syncLinkedTasks): looping the single-task
+        // version raced its own cache reads and un-checked the boxes again.
+        void this.syncLinkedTasks(flipped);
         this.drawOverlayTodos(host);
         this.persist();
       });
 
-      // Double-click the title or course to edit (writes through to the source task
-      // if imported); "+ title" / "+ course" appear when a field is empty.
-      const label = this.buildTodoLabel(todo, () => {
-        this.drawOverlayTodos(host);
-        this.persist();
-      });
+      // Title dblclick to edit; course/date are one-click and bulk-aware (writes
+      // through to the source tasks); "+ title" / "+ course" appear when empty.
+      const label = this.buildTodoLabel(
+        todo,
+        () => {
+          this.drawOverlayTodos(host);
+          this.persist();
+        },
+        this.sessionTodos
+      );
 
       const actions = el('div', { class: 'focus-todo-actions' });
       if (todo.schoologyUrl) {
@@ -2625,16 +2783,21 @@ export class FocusView {
         });
         actions.append(link);
       }
-      // 🗀 — regroup mid-session too (focus folders, independent namespace).
+      // 🗀 — regroup mid-session too. On a selected row: the whole selection.
       const fold = el('button', { class: 'focus-todo-fold', title: 'Add to folder' });
       fold.innerHTML = FOCUS_FOLDER_BTN_SVG;
       const inFolder = this.taskFolders.find((f) => f.id === todo.folderId);
       if (inFolder) fold.style.color = inFolder.color;
       fold.addEventListener('click', () =>
-        this.openFocusFolderPicker(todo, this.taskFolders, () => {
-          this.drawOverlayTodos(host);
-          this.persist();
-        })
+        this.openFocusFolderPicker(
+          todo,
+          this.taskFolders,
+          () => {
+            this.drawOverlayTodos(host);
+            this.persist();
+          },
+          this.todoTargets(todo, this.sessionTodos)
+        )
       );
       actions.append(fold);
       row.append(cb, label, actions);
@@ -2755,9 +2918,14 @@ export class FocusView {
   /** A focus-todo's label: title + course, each double-click-to-edit, with
    *  "+ title" / "+ course" affordances when a field is empty. When `mirror` is
    *  set, edits are written through to the linked source task (used in-session). */
-  private buildTodoLabel(todo: FocusTodo, redraw: () => void): HTMLElement {
+  private buildTodoLabel(todo: FocusTodo, redraw: () => void, pool: FocusTodo[] = []): HTMLElement {
     const label = el('div', { class: 'focus-todo-label' });
 
+    // Course and date commits are BULK-AWARE (Gabe 8/10): on a selected row they
+    // hit the whole selection, exactly like the Tasks tab. The todos update in
+    // place and the linked source tasks go out in ONE putTasksBulk write.
+    // (Title stays single-target: bulk renamed focus rows was never the ask.)
+    const dateTargets = () => (pool.length ? this.todoTargets(todo, pool) : [todo]);
     const commitTitle = (v: string) => {
       todo.text = v;
       // Imported todos write through to the source task (→ Tasks tab + import window).
@@ -2765,14 +2933,30 @@ export class FocusView {
     };
     const commitCourse = (v: string) => {
       const course = v ? matchCourseStrict(v) : '';
-      todo.course = course;
-      if (todo.taskId) void this.applyTaskEdit(todo.taskId, { course });
+      const targets = dateTargets();
+      for (const m of targets) m.course = course;
+      const ids = targets.map((m) => m.taskId).filter(Boolean) as string[];
+      if (ids.length) void this.applyTaskEditBulk(ids, { course });
     };
     const commitDate = (v: string) => {
       const { date, time } = parseDateTime(v);
-      todo.dueDate = date;
-      todo.dueTime = time;
-      if (todo.taskId) void this.applyTaskEdit(todo.taskId, { dueDate: date, dueTime: time });
+      const targets = dateTargets();
+      for (const m of targets) {
+        m.dueDate = date;
+        m.dueTime = time;
+      }
+      const ids = targets.map((m) => m.taskId).filter(Boolean) as string[];
+      if (ids.length) void this.applyTaskEditBulk(ids, { dueDate: date, dueTime: time });
+    };
+    // ONE CLICK opens the course/date editors (same 8/10 rule as the Tasks tab);
+    // plain clicks must not fall through to row selection, while modifier clicks
+    // stay selection gestures and bubble.
+    const editClick = (host: HTMLElement, open: () => void): void => {
+      host.addEventListener('click', (e) => {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+        e.stopPropagation();
+        open();
+      });
     };
 
     // Every editor below honors the Settings ▸ Tasks edit lock — these write
@@ -2803,14 +2987,14 @@ export class FocusView {
     if (todo.course) {
       const chip = el('span', { class: 'course-chip', text: todo.course });
       chip.style.color = getCourseColor(todo.course);
-      chip.addEventListener('dblclick', () => {
+      editClick(chip, () => {
         if (!taskEditUnlocked()) return;
         this.inlineTodoEdit(chip, todo.course || '', 'course', commitCourse, redraw);
       });
       meta.append(chip);
     } else {
       const chip = el('span', { class: 'course-chip empty', text: '+ course' });
-      chip.addEventListener('click', () => {
+      editClick(chip, () => {
         if (!taskEditUnlocked()) return;
         this.inlineTodoEdit(chip, '', 'course', commitCourse, redraw);
       });
@@ -2818,7 +3002,7 @@ export class FocusView {
     }
 
     // Due date — identical to the Tasks tab and the import list: same classes,
-    // same formatter, same double-click-to-edit, and the edit writes through to
+    // same formatter, same ONE-CLICK edit, and the edit writes through to
     // the source task, so a date changed in a running session is changed
     // everywhere. One assignment has one due date, no matter which list you are
     // looking at it in.
@@ -2831,14 +3015,14 @@ export class FocusView {
         .filter(Boolean)
         .join(' ');
       const dateEl = el('span', { class: 'meta-date', text: when });
-      dateEl.addEventListener('dblclick', () => {
+      editClick(dateEl, () => {
         if (!taskEditUnlocked()) return;
         this.inlineTodoEdit(dateEl, when, 'due date', commitDate, redraw);
       });
       meta.append(dateEl);
     } else {
       const dateEl = el('span', { class: 'meta-date empty', text: '+ due date' });
-      dateEl.addEventListener('click', () => {
+      editClick(dateEl, () => {
         if (!taskEditUnlocked()) return;
         this.inlineTodoEdit(dateEl, '', 'due date', commitDate, redraw);
       });
@@ -2863,9 +3047,36 @@ export class FocusView {
     taskId: string,
     patch: { title?: string; course?: string; dueDate?: string; dueTime?: string }
   ): Promise<void> {
+    return this.applyTaskEditBulk([taskId], patch);
+  }
+
+  /** The bulk twin (Gabe 8/10): one patch onto MANY source tasks, in ONE
+   *  putTasksBulk write, with exactly applyTaskEdit's per-task semantics
+   *  (skip-if-unchanged, _manual flags, ground-truth course labels). This is
+   *  what the Focus course/date editors call when the edited row is part of a
+   *  selection, so Focus bulk edits behave byte-for-byte like the Tasks tab's. */
+  private async applyTaskEditBulk(
+    taskIds: string[],
+    patch: { title?: string; course?: string; dueDate?: string; dueTime?: string }
+  ): Promise<void> {
     const tasks = await this.data.getTasksAll();
-    const src = tasks[taskId];
-    if (!src) return;
+    const writes: Task[] = [];
+    for (const taskId of taskIds) {
+      const src = tasks[taskId];
+      if (!src) continue;
+      const next = this.patchedTask(src, patch);
+      if (next) writes.push(next);
+    }
+    if (writes.length === 1) await this.data.putTask(writes[0]);
+    else if (writes.length) await this.data.putTasksBulk(writes);
+  }
+
+  /** applyTaskEdit's per-task core: returns the patched task, or null when the
+   *  patch changes nothing on this task. */
+  private patchedTask(
+    src: Task,
+    patch: { title?: string; course?: string; dueDate?: string; dueTime?: string }
+  ): Task | null {
     const next: Task = { ...src };
     let changed = false;
     // A title-less focus todo is allowed, but never blank the underlying task.
@@ -2897,7 +3108,7 @@ export class FocusView {
         changed = true;
       }
     }
-    if (changed) await this.data.putTask(next);
+    return changed ? next : null;
   }
 
   /** A task changed anywhere (Tasks tab edit or one of our own) → keep the import
@@ -3022,17 +3233,37 @@ export class FocusView {
     });
   }
 
-  /** When a session todo is linked to a task, mirror its completion to the task. */
-  private async syncLinkedTask(todo: FocusTodo): Promise<void> {
-    if (!todo.taskId) return;
+  /**
+   * When session todos are linked to tasks, mirror their completion onto those
+   * tasks: ONE read and ONE write, however many todos are checked at once.
+   *
+   * A per-todo version of this looped here, and that is what made bulk check-off
+   * fail to stick (Gabe, 8/10): each call ran its own getTasksAll(), which REPLACES Data's
+   * whole task cache with the snapshot it fetched. Fired N times at once, every
+   * snapshot predated the others' writes, so each one resolving stomped the
+   * previously-written completions back out of the cache. onTasksUpdate then
+   * mirrored that stale `completed: false` onto the todos (it syncs DONE both
+   * ways) and the boxes visibly un-checked themselves. Reading once removes the
+   * clobber, and writing once means a single re-render for the batch.
+   */
+  private async syncLinkedTasks(todos: FocusTodo[]): Promise<void> {
+    const linked = todos.filter((t) => t.taskId);
+    if (!linked.length) return;
     const tasks = await this.data.getTasksAll();
-    const task: Task | undefined = tasks[todo.taskId];
-    if (!task) return;
-    await this.data.putTask({
-      ...task,
-      completed: todo.done,
-      completedAt: todo.done ? new Date().toISOString() : null,
-    });
+    const now = new Date().toISOString();
+    const writes: Task[] = [];
+    for (const todo of linked) {
+      const task: Task | undefined = tasks[todo.taskId!];
+      if (!task) continue;
+      if (task.completed === todo.done) continue; // already in step
+      writes.push({
+        ...task,
+        completed: todo.done,
+        completedAt: todo.done ? now : null,
+      });
+    }
+    if (writes.length === 1) await this.data.putTask(writes[0]);
+    else if (writes.length) await this.data.putTasksBulk(writes);
   }
 
   /** Countdown text honoring the "Show seconds" pref (ring / tab title / toasts). */
@@ -3223,7 +3454,7 @@ export class FocusView {
       // INLINE styles throughout — they beat every cloned rule and :has() quirk.
       const root = pip.document.documentElement;
       root.style.overflow = 'hidden';
-      root.style.background = '#070d20';
+      root.style.background = '#07132e';
       pip.document.body.style.cssText = 'margin:0;height:100vh;position:relative;overflow:hidden;';
       const sbHide = pip.document.createElement('style');
       // Only the WINDOW's own scroller hides its bar (locked decision — wheel-only).
@@ -3237,7 +3468,7 @@ export class FocusView {
       const scroller = pip.document.createElement('div');
       scroller.className = 'focus-pip-scroll';
       scroller.style.cssText =
-        'position:absolute;inset:0;overflow-y:auto;background:linear-gradient(165deg,#0f1c40 0%,#0a1430 55%,#070d20 100%);';
+        'position:absolute;inset:0;overflow-y:auto;background:linear-gradient(165deg,#0e2457 0%,#091a43 55%,#07132e 100%);';
       scroller.appendChild(content); // adopts the live nodes — listeners keep working
       pip.document.body.appendChild(scroller);
       this.pipWindow = pip;
@@ -3389,7 +3620,7 @@ export class FocusView {
 
   /** Fire the "session complete" system notification — but only when the user has
    *  Notifications on AND the "Focus sessions" type enabled (Settings ▸ Notifications).
-   *  Routed through sendNotification so it carries the WorkSpace logo like every other
+   *  Routed through sendNotification so it carries the Cobalt logo like every other
    *  notification (the old bare Notification here had no icon). */
   private async notify(title: string, body: string): Promise<void> {
     try {

@@ -1,4 +1,4 @@
-// WorkSpace — storage backend abstraction.
+// Cobalt: storage backend abstraction.
 //
 // The rest of the app talks to a `Backend`, never directly to Firebase or
 // localStorage. This is the seam that lets Phase 0/1 run with NO backend

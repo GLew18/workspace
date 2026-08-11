@@ -1,4 +1,4 @@
-/* WorkSpace — component styles. */
+/* Cobalt: component styles. */
 
 /* =========================== THE WRAP RULE ===========================
    Gabe's app-wide rule: when text is too long, it WRAPS. It never runs off
@@ -43,7 +43,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 0px 28px;
-  background: #14224a;
+  background: #132b65;
   border-bottom: 1px solid var(--border-strong);
   box-shadow: 0 2px 16px rgba(0, 0, 0, 0.32);
 }
@@ -82,8 +82,8 @@
 }
 .icon-btn.active {
   color: var(--text);
-  background: rgba(230, 168, 23, 0.16);
-  border-color: rgba(230, 168, 23, 0.3);
+  background: rgba(125, 180, 255, 0.16);
+  border-color: rgba(125, 180, 255, 0.3);
 }
 
 /* ---- Below-header area: sidebar trickles DOWN from under the header,
@@ -123,7 +123,7 @@ body.app-mode .app-below {
   left: 0;
   bottom: 0;
   width: 248px;
-  background: #161d2b;
+  background: #17233d;
   border-right: 1px solid var(--border-strong);
   padding: 18px 12px;
   display: flex;
@@ -174,10 +174,40 @@ body.app-mode .app-below {
 }
 .nav-item.active {
   color: var(--text);
-  background: rgba(230, 168, 23, 0.16);
+  background: rgba(125, 180, 255, 0.16);
+}
+/* Due-today count on the "Tasks" nav item. RED (not the bell's accent) because it
+   is a deadline, not a message. `display:none` at zero, so the row reads clean
+   on a day with nothing due. */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nav-count {
+  display: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 800;
+  flex: none;
+}
+/* Centered by FLEX, not line-height (Gabe, 8/10: the number sat high). A digit's
+   glyph box is taller than its ink, so line-height centers the box and leaves the
+   ink riding above center; align-items centers the ink itself. `line-height: 1`
+   keeps the box from re-introducing the offset. */
+.nav-count.on {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
-/* ---- "WorkSpace" wordmark — the "o" is a computer monitor ---- */
+/* ---- "Cobalt" wordmark: the "o" is a round cobalt gem (monitor retired 8/10) ---- */
 .ws-mark {
   display: inline-flex;
   align-items: center;
@@ -196,11 +226,12 @@ body.app-mode .app-below {
   height: 1em;
   width: auto;
   display: inline-block;
-  /* nest the monitor where the "o" sits, snug to W and r */
-  margin: 0 -0.02em;
-  /* center the screen on the letters' optical center so it reads as an "o" */
-  transform: translateY(0.2em);
-  color: #e6a817; /* fixed brand gold */
+  /* nest the gem where the "o" sits, tucked under C and b (Gabe 8/10) */
+  margin: 0 -0.05em;
+  /* sit the gem on the letters' optical center; Gabe's round-2 raise
+     (the retired monitor sat at 0.2em) */
+  transform: translateY(0.09em);
+  /* no color rule: the gem paints itself with hardcoded cobalt fills */
 }
 /* Top-right cluster: [bell] [gear]      [name]
    The two icon buttons are a PAIR, so they sit tight together (4px), while the
@@ -241,8 +272,8 @@ body.app-mode .app-below {
   border-color: transparent;
 }
 .app-user .icon-btn.active {
-  background: rgba(230, 168, 23, 0.16);
-  border-color: rgba(230, 168, 23, 0.3);
+  background: rgba(125, 180, 255, 0.16);
+  border-color: rgba(125, 180, 255, 0.3);
 }
 
 /* 🔔 unread badge — rides the bell's top-right corner. Hidden at zero (never a
@@ -255,8 +286,8 @@ body.app-mode .app-below {
   height: 15px;
   padding: 0 3px;
   border-radius: 999px;
-  /* Gold, not red: nothing here is an error, it's WorkSpace with something for
-     you. The dark-on-gold pair is the same one every filled gold control uses. */
+  /* Gold, not red: nothing here is an error, it's Cobalt with something for
+     you. The dark-on-accent pair is the same one every filled accent control uses. */
   background: var(--accent);
   color: var(--on-accent);
   font-size: 9.5px;
@@ -264,7 +295,7 @@ body.app-mode .app-below {
   line-height: 15px;
   text-align: center;
   display: none;
-  box-shadow: 0 0 0 2px #0f1a34, 0 0 10px var(--gold-glow);
+  box-shadow: 0 0 0 2px #0e2049, 0 0 10px var(--gold-glow);
 }
 .bell-dot.on {
   display: block;
@@ -388,14 +419,14 @@ body.app-mode .app-below {
   align-items: center;
   justify-content: center;
   color: var(--gold);
-  background: rgba(230, 168, 23, 0.08);
-  border: 1px solid rgba(230, 168, 23, 0.3);
+  background: rgba(125, 180, 255, 0.08);
+  border: 1px solid rgba(125, 180, 255, 0.3);
   border-radius: 999px;
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease;
 }
 .tasks-mode-btn:hover {
-  background: rgba(230, 168, 23, 0.16);
+  background: rgba(125, 180, 255, 0.16);
 }
 .tasks-mode-btn svg {
   display: block;
@@ -411,15 +442,15 @@ body.app-mode .app-below {
   font-size: 15px;
   line-height: 1;
   color: var(--gold);
-  background: rgba(230, 168, 23, 0.08);
-  border: 1px solid rgba(230, 168, 23, 0.3);
+  background: rgba(125, 180, 255, 0.08);
+  border: 1px solid rgba(125, 180, 255, 0.3);
   border-radius: 999px;
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
 }
 .tasks-refresh-btn:hover {
-  background: rgba(230, 168, 23, 0.16);
-  border-color: rgba(230, 168, 23, 0.5);
+  background: rgba(125, 180, 255, 0.16);
+  border-color: rgba(125, 180, 255, 0.5);
 }
 .tasks-refresh-btn:disabled {
   opacity: 0.6;
@@ -636,19 +667,21 @@ body.app-mode .app-below {
   height: 13px;
 }
 
-/* ⋮⋮ drag handle — same affordance as bookmark cards: a comfortable grab strip
-   spanning the row's height, dim until hovered. */
+/* ⋮⋮ drag handle — THE move grip, shared with bookmark cards and the folder
+   rows below (Gabe, 8/10: the dotted grip reads as "move" in a way ☰ does not).
+   Same type treatment as .bm-card-handle; the row-height grab strip makes the
+   target generous rather than a tiny glyph. */
 .task-handle {
   flex: none;
   align-self: stretch;
   display: flex;
   align-items: center;
   color: var(--text-dim);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1;
   letter-spacing: -2px;
   cursor: grab;
-  opacity: 0.4;
+  opacity: 0.5;
   padding: 0 2px;
   user-select: none;
 }
@@ -799,17 +832,18 @@ body.app-mode .app-below {
   padding: 11px 14px;
   cursor: pointer;
 }
-/* ☰ folder drag grip — the folder-scale twin of a task row's ⋮⋮ handle. Same dim
-   -until-hovered affordance; a hamburger because what moves here is the whole
-   block, not a line. Sits on the head's first line with the icon and count. */
+/* ⋮⋮ folder drag grip — THE SAME move grip the task rows and bookmark cards
+   wear (Gabe, 8/10). One glyph means "drag me" everywhere in the app. Sits on
+   the head's first line with the icon and count. */
 .task-folder-handle {
   flex: none;
   margin-top: 1px;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: 16px;
   line-height: 18px; /* matches .task-folder-ico height, so it centers on the icon */
+  letter-spacing: -2px;
   cursor: grab;
-  opacity: 0.4;
+  opacity: 0.5;
   user-select: none;
 }
 .task-folder-head:hover .task-folder-handle {
@@ -1008,7 +1042,7 @@ body.app-mode .app-below {
   width: 64px;
   height: 5px;
   border-radius: 999px;
-  background: rgba(230, 168, 23, 0.45); /* visible gold, not a faint gray sliver */
+  background: rgba(125, 180, 255, 0.45); /* visible accent, not a faint gray sliver */
   transition: background 0.15s ease, width 0.15s ease;
 }
 .ws-resize-grip:hover .ws-resize-grip-pill {
@@ -1032,7 +1066,7 @@ body.app-mode .app-below {
   width: 5px;
   height: 54px;
   border-radius: 999px;
-  background: rgba(230, 168, 23, 0.45);
+  background: rgba(125, 180, 255, 0.45);
   transition: background 0.15s ease, height 0.15s ease;
 }
 .ws-resize-grip-x:hover .ws-resize-grip-x-pill {
@@ -1054,7 +1088,7 @@ body.app-mode .app-below {
 .task-item.selected {
   outline: 2px solid var(--gold);
   outline-offset: -2px;
-  background: rgba(230, 168, 23, 0.07);
+  background: rgba(125, 180, 255, 0.07);
 }
 /* ===================== Calendar mode (Tasks tab) ===================== */
 .cal-bar {
@@ -1435,7 +1469,7 @@ body.app-mode .app-below {
 }
 
 /* ---- Inline edit ----
-   THE one double-click editor (task titles, courses, dates, focus todos): a gold
+   THE one double-click editor (task titles, courses, dates, focus todos): an accent
    box that fills its container's full width — never the textarea's arbitrary
    ~20-character default — so long text wraps at the row's right edge. */
 .inline-edit-block {
@@ -1534,8 +1568,8 @@ body.app-mode .app-below {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: rgba(230, 168, 23, 0.1);
-  border: 1px solid rgba(230, 168, 23, 0.35);
+  background: rgba(125, 180, 255, 0.1);
+  border: 1px solid rgba(125, 180, 255, 0.35);
   border-radius: 12px;
   padding: 11px 14px;
   font-size: 13.5px;
@@ -1855,7 +1889,8 @@ body.app-mode .app-below {
    positioned BELOW that center line, where it hangs without pushing the main
    line up (per Gabe: the two "Open all"s must sit level). */
 .attach-open-group {
-  
+  /* Premium is VIOLET again (Gabe, 8/10): the accent is the gem's blue now, so a
+     blue premium button stopped reading as a different tier. */
   background: linear-gradient(180deg, #9b79ee, #7c56dd);
   color: #fff;
   display: flex;
@@ -1884,7 +1919,7 @@ body.app-mode .app-below {
 
 /* The "your password stopped working" banner. Same shape as .verify-bar, but a
    colder tone on purpose: .verify-bar is a nudge about something you SHOULD do,
-   this reports something that ALREADY happened. Reusing the gold would make them
+   this reports something that ALREADY happened. Reusing the accent would make them
    read as the same nag. */
 .verify-bar.pw-dropped {
   background: rgba(120, 145, 200, 0.1);

@@ -1,4 +1,4 @@
-// WorkSpace — minimalist lightbulb logo.
+// Cobalt: minimalist lightbulb logo.
 //
 // Brightness reflects the share of today's tasks completed: dim & mundane at 0%,
 // bright & luminescent at 100%. Used in the header and on the Dashboard so they

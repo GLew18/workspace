@@ -1,4 +1,4 @@
-// WorkSpace — focus music catalog generator.
+// Cobalt: focus music catalog generator.
 //
 //   node scripts/build-music-catalog.mjs
 //
@@ -295,7 +295,7 @@ for (const g of GENRES) {
 const mode = rawCount === 0 && finalCount > 0 ? 'final' : 'provisional';
 
 let out = '';
-out += `// WorkSpace — focus music library catalog. GENERATED FILE — do not edit.\n`;
+out += `// Cobalt: focus music library catalog. GENERATED FILE, do not edit.\n`;
 out += `// Regenerate with:  node scripts/build-music-catalog.mjs\n`;
 out += `// Source of truth: the five genre folders in "<repo>/Music Database".\n`;
 out += `//\n`;

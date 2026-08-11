@@ -1,4 +1,4 @@
-// WorkSpace — shared URL helper.
+// Cobalt: shared URL helper.
 //
 // normalizeUrl was lifted out of bookmarks/view.ts so both the view and the
 // shortcuts module (which builds ShortcutEntry.url for the extension config)

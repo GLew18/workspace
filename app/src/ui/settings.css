@@ -1,4 +1,4 @@
-/* WorkSpace — Preferences screen. */
+/* Cobalt: Preferences screen. */
 
 .settings-backdrop {
   position: fixed;
@@ -175,7 +175,7 @@
 }
 .settings-side-btn.active {
   color: var(--accent);
-  background: rgba(230, 168, 23, 0.16);
+  background: rgba(125, 180, 255, 0.16);
 }
 .settings-side-btn svg {
   width: 19px;
@@ -435,7 +435,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: rgba(230, 168, 23, 0.08);
+  background: rgba(125, 180, 255, 0.08);
   /* 1px on purpose: tiny chips look chunky at 2px (2px is for the BIG pills). */
   border: 1px dashed var(--accent);
   border-radius: 999px;
@@ -446,7 +446,7 @@
   cursor: pointer;
 }
 .parse-rec:hover {
-  background: rgba(230, 168, 23, 0.18);
+  background: rgba(125, 180, 255, 0.18);
 }
 .parse-rec-plus {
   font-weight: 700;
@@ -539,7 +539,7 @@
 .editor-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(4, 8, 16, 0.66);
+  background: rgba(3, 8, 17, 0.66);
   backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
@@ -701,7 +701,7 @@
   background: rgba(255, 255, 255, 0.06);
 }
 .playlist-song.on {
-  background: rgba(230, 168, 23, 0.12);
+  background: rgba(125, 180, 255, 0.12);
 }
 .playlist-song-check {
   flex: none;
@@ -842,7 +842,7 @@
 .confirm-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(4, 8, 16, 0.66);
+  background: rgba(3, 8, 17, 0.66);
   backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
@@ -928,7 +928,7 @@
 }
 .sound-row.selected {
   border-color: var(--accent);
-  background: rgba(230, 168, 23, 0.08);
+  background: rgba(125, 180, 255, 0.08);
 }
 .sound-pick {
   flex: 1;
@@ -985,7 +985,7 @@
 }
 .sound-preview:hover {
   border-color: var(--accent);
-  background: rgba(230, 168, 23, 0.12);
+  background: rgba(125, 180, 255, 0.12);
 }
 .sound-preview svg {
   display: block;
@@ -1047,8 +1047,8 @@
 }
 .notify-toggle.on {
   color: var(--accent);
-  border-color: rgba(230, 168, 23, 0.5);
-  background: rgba(230, 168, 23, 0.07);
+  border-color: rgba(125, 180, 255, 0.5);
+  background: rgba(125, 180, 255, 0.07);
 }
 .notify-sublabel {
   margin: 14px 0 6px;
@@ -1159,10 +1159,10 @@
 .ntypes.disabled { opacity: 0.4; }
 .ntypes.disabled .nswitch { pointer-events: none; }
 .ncard { border-radius: 12px; background: var(--surface2); border: 1px solid var(--border); overflow: hidden; transition: border-color 0.22s ease, background 0.22s ease; }
-.ncard.open { border-color: rgba(230,168,23,0.4); background: rgba(230,168,23,0.06); }
+.ncard.open { border-color: rgba(125, 180, 255,0.4); background: rgba(125, 180, 255,0.06); }
 .ncard-bar { display: flex; align-items: flex-start; gap: 12px; padding: 14px 15px; }
 .ncard-ico { flex: none; width: 30px; height: 30px; border-radius: 8px; background: var(--surface); display: grid; place-items: center; color: var(--text-dim); margin-top: 1px; transition: color 0.22s ease, background 0.22s ease; }
-.ncard.open .ncard-ico { color: var(--accent); background: rgba(230,168,23,0.14); }
+.ncard.open .ncard-ico { color: var(--accent); background: rgba(125, 180, 255,0.14); }
 .ncard-main { flex: 1; min-width: 0; }
 .ncard-title { font-size: 13.5px; font-weight: 600; }
 .ncard-desc { font-size: 12px; color: var(--text-dim); margin-top: 3px; line-height: 1.45; }
@@ -1185,11 +1185,11 @@
 .notify-howto {
   display: block; width: 100%; text-align: center; margin: 0 0 14px;
   padding: 10px 14px; border-radius: 10px; cursor: pointer;
-  background: rgba(230,168,23,0.10); border: 1px solid rgba(230,168,23,0.35);
+  background: rgba(125, 180, 255,0.10); border: 1px solid rgba(125, 180, 255,0.35);
   color: var(--accent); font-family: inherit; font-size: 13px; font-weight: 600;
   transition: background 0.18s ease, border-color 0.18s ease;
 }
-.notify-howto:hover { background: rgba(230,168,23,0.18); border-color: var(--accent); }
+.notify-howto:hover { background: rgba(125, 180, 255,0.18); border-color: var(--accent); }
 
 /* Channel grid — [🔔 Popup] [✉ Gmail], on the master row and every notification card.
    A button is gold when its channel is on, dim otherwise. */
@@ -1203,7 +1203,7 @@
 }
 .nchan-ico { display: inline-flex; }
 .nchan-btn:hover { color: var(--text); border-color: var(--text-dim); }
-.nchan-btn[aria-pressed="true"] { background: rgba(230,168,23,0.14); border-color: var(--accent); color: var(--accent); }
+.nchan-btn[aria-pressed="true"] { background: rgba(125, 180, 255,0.14); border-color: var(--accent); color: var(--accent); }
 
 /* (The Tasks/Focus subheaders reuse .settings-group-label, like every other tab.) */
 
@@ -1243,11 +1243,11 @@
 
 /* Gmail-style email preview (shown on a card while its ✉ Gmail channel is on) */
 .nmail {
-  background: #f7f9fd; color: #1a2233; border-radius: 10px; padding: 12px 14px;
+  background: #f7f9fd; color: #212c42; border-radius: 10px; padding: 12px 14px;
   display: flex; flex-direction: column; gap: 6px;
 }
 .nmail-top { display: flex; align-items: center; gap: 9px; }
-/* Sender avatar = the WorkSpace computer logo (WS_ICON_SVG carries its own dark tile). */
+/* Sender avatar = the Cobalt computer logo (WS_ICON_SVG carries its own dark tile). */
 .nmail-av { flex: none; width: 30px; height: 30px; border-radius: 8px; overflow: hidden; }
 .nmail-av svg { display: block; width: 100%; height: 100%; }
 .nmail-meta { flex: 1; min-width: 0; }
@@ -1269,7 +1269,7 @@
    screen, because they are what you read while doing something else. */
 .ngd {
   position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center;
-  background: rgba(6, 10, 20, 0.62); backdrop-filter: blur(3px); padding: 20px;
+  background: rgba(5, 10, 21, 0.62); backdrop-filter: blur(3px); padding: 20px;
   animation: ngd-fade 0.18s ease;
 }
 @keyframes ngd-fade { from { opacity: 0; } to { opacity: 1; } }
@@ -1363,7 +1363,7 @@
 
 /* live preview toast */
 .nprev-tag { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint, rgba(255,255,255,0.32)); margin-bottom: 8px; }
-.nprev-stage { background: linear-gradient(155deg,#223047,#16202f); border-radius: 12px; padding: 16px; display: flex; justify-content: center; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05); }
+.nprev-stage { background: linear-gradient(155deg,#243862,#172642); border-radius: 12px; padding: 16px; display: flex; justify-content: center; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05); }
 .ntoast { width: 300px; background: #202024; border: 1px solid var(--border-strong); border-radius: 9px; display: flex; gap: 10px; align-items: flex-start; padding: 12px 11px; box-shadow: 0 14px 34px rgba(0,0,0,0.45); }
 .ntoast-icon { flex: none; width: 42px; height: 42px; border-radius: 8px; overflow: hidden; }
 .ntoast-icon svg { width: 100%; height: 100%; display: block; }
@@ -1464,7 +1464,7 @@ a.settings-credits-lic:hover { color: var(--accent); border-color: var(--accent)
   position: fixed;
   inset: 0;
   z-index: 1700;
-  background: linear-gradient(165deg, #0f1c40 0%, #0a1430 50%, #070d20 100%);
+  background: linear-gradient(165deg, #0e2457 0%, #091a43 50%, #07132e 100%);
   display: flex;
   flex-direction: column;
 }

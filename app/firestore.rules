@@ -1,7 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // WorkSpace uses Firestore ONLY as the outbox for the Trigger Email extension.
+    // Cobalt uses Firestore ONLY as the outbox for the Trigger Email extension.
     // Signed-in users may QUEUE an email (create); nobody may read/alter the queue —
     // only the extension (which runs with admin privileges, bypassing these rules)
     // reads and sends them. Every other path is denied by the absence of a rule.

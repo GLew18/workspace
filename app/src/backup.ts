@@ -1,4 +1,4 @@
-// WorkSpace — rolling full-account backups (spec §9.2 / §10).
+// Cobalt: rolling full-account backups (spec §9.2 / §10).
 //
 // A daily snapshot of the user's ENTIRE account — tasks + profile (name, courses,
 // learned model, Schoology settings) + focus — kept per-uid. Keeps ~14 days, capped

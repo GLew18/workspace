@@ -1,4 +1,4 @@
-// WorkSpace — sign-in screen (the landing page's "Get started" / "Log in" door).
+// Cobalt: sign-in screen (the landing page's "Get started" / "Log in" door).
 //
 // Visually IDENTICAL to the final slide of the onboarding deck: big app mark, a
 // white Google pill first, an "or" rule, then email + password and a gold pill.
@@ -73,12 +73,12 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
     const logo = el('img', {
       class: 'auth-logo',
       src: '/icons/icon.svg',
-      alt: 'WorkSpace',
+      alt: 'Cobalt',
     }) as HTMLImageElement;
 
     const title = el('h1', {
       class: 'auth-title',
-      text: isNew ? 'Create your account' : 'Log in to WorkSpace',
+      text: isNew ? 'Create your account' : 'Log in to Cobalt',
     });
     const sub = el('p', {
       class: 'auth-sub',

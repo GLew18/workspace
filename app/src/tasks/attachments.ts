@@ -1,4 +1,4 @@
-// WorkSpace — link attachments (spec §6.5). URLs only.
+// Cobalt: link attachments (spec §6.5). URLs only.
 
 import type { Note } from '../types';
 import { extensionActive, openUrlsInGroup, openTabs } from '../bookmarks/shortcuts';

@@ -1,4 +1,4 @@
-// WorkSpace — landing Focus demo.
+// Cobalt: landing Focus demo.
 //
 // The real Focus session renders as a full-screen overlay on <body>, which would
 // hijack the landing page. So the "See it in action → Focus" panel gets this: a

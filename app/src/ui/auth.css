@@ -1,4 +1,4 @@
-/* WorkSpace — sign-in screen (see src/ui/authScreen.ts).
+/* Cobalt: sign-in screen (see src/ui/authScreen.ts).
    Deliberately IDENTICAL to the onboarding deck's final slide: same big app mark,
    same provider-pill-then-form order, same gold pill. It is a full-screen takeover
    rather than a floating card, because a bordered box dropped over the landing
@@ -14,7 +14,7 @@
   padding: 24px;
   overflow-y: auto;
   /* the landing's own gradient, opaque — this IS the sign-in page now */
-  background: linear-gradient(165deg, #0f1c40 0%, #0a1430 50%, #070d20 100%);
+  background: linear-gradient(165deg, #0e2457 0%, #091a43 50%, #07132e 100%);
   animation: auth-fade 0.18s ease;
 }
 @keyframes auth-fade {

@@ -1,4 +1,4 @@
-// WorkSpace: first-run onboarding deck.
+// Cobalt: first-run onboarding deck.
 //
 // Ported from the onb-A prototype (app/public/onb-A.html). Six full-screen
 // slides over the branded gradient field, with a progress rail that only ever
@@ -62,7 +62,7 @@ const SGY_LOGO =
 // Settings and the extension use. Any-URL was not enough: a YouTube link is a
 // perfectly valid URL and a perfectly useless calendar feed.
 
-const NEW_COURSE_COLOR = '#e6a817';
+const NEW_COURSE_COLOR = '#7db4ff';
 
 /**
  * The student's REAL courses, or nothing.
@@ -102,7 +102,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
     // Courses start EMPTY, and stay empty unless the connection actually finds
     // some (per Gabe). The old code seeded this from getCourses(), which on a
     // fresh account is the generic catalog in courses/maps.ts, so every student
-    // was shown English/Math/Science/… as if WorkSpace had discovered their real
+    // was shown English/Math/Science/… as if Cobalt had discovered their real
     // schedule. It had not. Presenting a guess as a finding is the one thing this
     // screen must never do.
     courses: [] as CourseConfig[],
@@ -191,7 +191,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       hero.append(el('div', { class: 'onb-hero-glow' }));
       hero.append(el('img', { class: 'onb-mark', src: '/icons/icon.svg', alt: '' }));
       const wordmark = el('div', { class: 'onb-wordmark rise d1' });
-      wordmark.append('W', el('span', { class: 'o', text: 'o' }), 'rkSpace');
+      wordmark.append('C', el('span', { class: 'o', text: 'o' }), 'balt');
       sc.append(
         hero,
         el('div', { class: 'onb-eyebrow rise d1', text: 'welcome to' }),
@@ -246,7 +246,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
         h1,
         el('p', {
           class: 'onb-sub rise d2',
-          text: 'WorkSpace reads your Schoology calendar and turns it into a clean task list. Automatically, forever.',
+          text: 'Cobalt reads your Schoology calendar and turns it into a clean task list. Automatically, forever.',
         })
       );
       const next = cta('Continue');
@@ -309,7 +309,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       //
       // This is deliberately NOT a product decision. The header comment above
       // explains why there is no Skip in the real flow: a student who skips
-      // forgets, opens an empty app, and concludes WorkSpace is broken. The
+      // forgets, opens an empty app, and concludes Cobalt is broken. The
       // connection IS the product. DELETE THIS BLOCK when the flow is done.
       //
       // It leaves draft.connected false and draft.courses empty, which the later
@@ -345,7 +345,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
 
         // THE REAL CONNECTION. This used to validate the URL's shape and then play
         // a canned animation over six invented titles, which meant a student with
-        // an empty Schoology watched WorkSpace "find" six assignments that do not
+        // an empty Schoology watched Cobalt "find" six assignments that do not
         // exist. Now the feed is actually downloaded and parsed, and what flies in
         // is what is genuinely in it.
         void (async () => {
@@ -578,7 +578,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       h1.append('What should we ', el('span', { class: 'g', text: 'call you' }), '?');
       sc.append(
         h1,
-        el('p', { class: 'onb-sub rise d1', text: 'This is the name WorkSpace greets you with.' })
+        el('p', { class: 'onb-sub rise d1', text: 'This is the name Cobalt greets you with.' })
       );
 
       const wrap = el('div', { class: 'rise d2', style: 'width:100%;max-width:420px;margin-top:30px' });
@@ -597,7 +597,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       const submit = (): void => {
         const v = capitalizeName(input.value);
         if (!v) {
-          err.textContent = 'Enter a name so WorkSpace knows what to call you.';
+          err.textContent = 'Enter a name so Cobalt knows what to call you.';
           input.focus();
           return;
         }
@@ -709,7 +709,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
           sc.append(wrap);
         }
 
-        const enter = el('button', { class: 'onb-cta', style: 'margin-top:30px', text: 'Enter WorkSpace' });
+        const enter = el('button', { class: 'onb-cta', style: 'margin-top:30px', text: 'Enter Cobalt' });
         enter.addEventListener('click', () => {
           deck.remove();
           onDone(draft.name);
@@ -722,7 +722,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
 
         // confetti: completion and reward land as one moment
         const burst = el('div', { class: 'onb-confetti' });
-        const colors = ['#e6a817', '#f2bb33', '#4098d7', '#27ae60', '#fff'];
+        const colors = ['#7db4ff', '#f2bb33', '#4098d7', '#27ae60', '#fff'];
         for (let i = 0; i < 28; i++) {
           const p = el('i');
           p.style.setProperty('--x', `${4 + Math.random() * 92}%`);

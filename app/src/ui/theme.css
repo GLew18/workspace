@@ -1,4 +1,4 @@
-/* WorkSpace — design system (dark theme, Inter). Palette ported verbatim from spec §9.4. */
+/* Cobalt: design system (dark theme, Inter). Palette ported verbatim from spec §9.4. */
 
 :root {
   --bg: #0a0a0a;
@@ -6,10 +6,14 @@
   --surface2: #141414;
   --text: rgba(255, 255, 255, 0.9);
   --text-dim: rgba(255, 255, 255, 0.5);
-  --accent: #e6a817; /* the one brand gold */
-  --gold: var(--accent); /* alias of --accent, so every var(--gold) usage is the same gold */
-  --gold-glow: rgba(230, 168, 23, 0.3); /* translucent --accent, for glows + ::selection */
-  --on-accent: #1a1206; /* the ONE near-black for text sitting on a gold fill (warm, matches gold) */
+  /* THE BRAND ACCENT (Gabe, 8/10): the cobalt gem's own glow blue, replacing the
+     old gold #e6a817. Picked for contrast parity so nothing else had to be
+     rebalanced: against the three backgrounds it sits at 8.16 / 6.99 / 7.60,
+     where the gold was 8.27 / 7.08 / 7.70. */
+  --accent: #7db4ff;
+  --gold: var(--accent); /* legacy alias: every var(--gold) is the accent */
+  --gold-glow: rgba(125, 180, 255, 0.3); /* translucent --accent, for glows + ::selection */
+  --on-accent: #071433; /* the ONE near-black for text on an accent fill (deep navy, matches the blue) */
   --green: #27ae60;
   --red-fill: rgba(239, 68, 68, 0.85); /* hover fill for labeled delete buttons */
   --red-tint: rgba(239, 68, 68, 0.16); /* subtle hover hint for danger icon-buttons */
@@ -60,12 +64,12 @@ html:has(.focus-pip-body) {
      itself never scrolls. */
   overflow: hidden;
   scrollbar-gutter: auto;
-  background: #070d20;
+  background: #07132e;
 }
 
 body {
   /* subtle dark-blue → even-darker-blue gradient (still clearly blue), fixed */
-  background: linear-gradient(165deg, #0f1c40 0%, #0a1430 50%, #070d20 100%) fixed;
+  background: linear-gradient(165deg, #0e2457 0%, #091a43 50%, #07132e 100%) fixed;
   min-height: 100vh;
   color: var(--text);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
@@ -160,7 +164,7 @@ a {
   background: var(--gold-glow);
 }
 
-/* Custom scrollbars — gold thumb on a TRANSPARENT rail, replacing the default
+/* Custom scrollbars — accent thumb on a TRANSPARENT rail, replacing the default
    white/gray everywhere anything scrolls (the page, popups, song lists, the
    settings panels, the PiP mini player — it copies these styles). The rail is
    transparent so the scrollbar automatically matches WHATEVER background it sits
@@ -177,7 +181,7 @@ a {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  /* The transparent border + padding-box clip inset the gold into a slim pill
+  /* The transparent border + padding-box clip inset the accent into a slim pill
      without painting any rail color around it. Longhand properties on purpose:
      a var() inside the `background` shorthand serializes all its longhands as
      empty in the CSSOM, which makes the rule impossible to audit. */
@@ -187,7 +191,7 @@ a {
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #f2bb33; /* brighter gold on hover, matching button hover behavior */
+  background-color: #a5cdff; /* accent, one step brighter, matching button hover behavior */
 }
 ::-webkit-scrollbar-corner {
   background: transparent;

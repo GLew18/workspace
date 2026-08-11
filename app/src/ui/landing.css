@@ -1,4 +1,4 @@
-/* WorkSpace — landing / welcome screen. Full-bleed over the app's dark-blue
+/* Cobalt: landing / welcome screen. Full-bleed over the app's dark-blue
    gradient (theme.css body). Gold = --accent. The "how it works" and "see it in
    action" sections host the REAL app views inside a faux browser frame. */
 
@@ -20,7 +20,7 @@
   max-width: 900px;
   max-height: 900px;
   transform: translateX(-50%);
-  background: radial-gradient(circle, rgba(230, 168, 23, 0.16) 0%, rgba(230, 168, 23, 0) 62%);
+  background: radial-gradient(circle, rgba(125, 180, 255, 0.16) 0%, rgba(125, 180, 255, 0) 62%);
   pointer-events: none;
   z-index: 0;
   animation: lp-drift 16s ease-in-out infinite alternate;
@@ -94,12 +94,12 @@
   font-size: 17px;
   padding: 15px 42px;
   cursor: pointer;
-  box-shadow: 0 10px 30px rgba(230, 168, 23, 0.32);
+  box-shadow: 0 10px 30px rgba(125, 180, 255, 0.32);
   transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 .lp-cta:hover {
   transform: translateY(-2px);
-  box-shadow: 0 14px 38px rgba(230, 168, 23, 0.45);
+  box-shadow: 0 14px 38px rgba(125, 180, 255, 0.45);
   background: #f0b62a;
 }
 .lp-cta:active { transform: translateY(0); }
@@ -251,7 +251,7 @@
   height: 560px;
   display: flex;
   flex-direction: column;
-  background: #0c1630;
+  background: #0c1b43;
   border: 1px solid var(--border);
   border-radius: 16px;
   overflow: hidden;
@@ -429,7 +429,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(230, 168, 23, 0.16);
+  background: rgba(125, 180, 255, 0.16);
   color: var(--accent);
   border-radius: 50%;
   font-size: 11px;
@@ -635,9 +635,9 @@
 .lpf-ctrl:hover { border-color: var(--accent); }
 .lpf-ctrl.primary {
   color: var(--accent);
-  border-color: rgba(230, 168, 23, 0.5);
+  border-color: rgba(125, 180, 255, 0.5);
 }
-.lpf-ctrl.primary:hover { background: rgba(230, 168, 23, 0.12); }
+.lpf-ctrl.primary:hover { background: rgba(125, 180, 255, 0.12); }
 .lpf-ctrl.danger {
   color: #e04545;
   border-color: rgba(224, 69, 69, 0.4);
@@ -669,8 +669,8 @@
   cursor: pointer;
 }
 .lpf-extend-btn.custom { font-size: 11px; }
-.lpf-extend-row.add .lpf-extend-btn { color: var(--accent); border-color: rgba(230, 168, 23, 0.35); }
-.lpf-extend-row.add .lpf-extend-btn:hover { background: rgba(230, 168, 23, 0.12); border-color: var(--accent); }
+.lpf-extend-row.add .lpf-extend-btn { color: var(--accent); border-color: rgba(125, 180, 255, 0.35); }
+.lpf-extend-row.add .lpf-extend-btn:hover { background: rgba(125, 180, 255, 0.12); border-color: var(--accent); }
 .lpf-extend-row.trim .lpf-extend-btn { color: #e04545; border-color: rgba(224, 69, 69, 0.32); }
 .lpf-extend-row.trim .lpf-extend-btn:hover { background: rgba(224, 69, 69, 0.12); border-color: #e04545; }
 /* "This session" task panel — the real .focus-task-panel, scaled to the frame. */
@@ -823,7 +823,7 @@
   margin: 6px auto 0;
 }
 .lp-persona {
-  background: #0c1630;
+  background: #0c1b43;
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 16px 14px;

@@ -1,4 +1,4 @@
-/* WorkSpace — Dashboard styles. */
+/* Cobalt: Dashboard styles. */
 
 .dash {
   display: flex;
@@ -45,10 +45,21 @@
   border-radius: var(--radius);
   padding: 16px;
 }
-.dash-due-header {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text);
+/* The Today's-Tasks card wears .dash-schedule-header (one shared heading style
+   for both cards). Its title is a button so it can jump to the Tasks tab, so
+   strip every trace of button chrome and let it inherit the heading's type. */
+.dash-due-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.dash-due-link:hover {
+  color: var(--accent);
 }
 .dash-due-empty {
   margin-top: 10px;
@@ -129,15 +140,15 @@
   font-size: 14px;
   line-height: 1;
   color: var(--gold);
-  background: rgba(230, 168, 23, 0.08);
-  border: 1px solid rgba(230, 168, 23, 0.3);
+  background: rgba(125, 180, 255, 0.08);
+  border: 1px solid rgba(125, 180, 255, 0.3);
   border-radius: 999px;
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
 }
 .dash-refresh-btn:hover {
-  background: rgba(230, 168, 23, 0.16);
-  border-color: rgba(230, 168, 23, 0.5);
+  background: rgba(125, 180, 255, 0.16);
+  border-color: rgba(125, 180, 255, 0.5);
 }
 .dash-refresh-btn:disabled {
   opacity: 0.6;

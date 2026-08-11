@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cobalt wordmark, Option A: monitor-as-o</title>
+<style>
+  /* Real app tokens, pulled from app/src/ui/theme.css */
+  :root {
+    --bg: #0a0a0a;
+    --surface: #1a1a1a;
+    --text: rgba(255, 255, 255, 0.9);
+    --text-dim: rgba(255, 255, 255, 0.5);
+    --accent: #e6a817;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg); /* the app's real dark background */
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    padding: 48px 40px 80px;
+  }
+  main { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .sub { color: var(--text-dim); font-size: 14px; margin: 0 0 36px; }
+  h2 {
+    font-size: 13px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--text-dim); margin: 44px 0 14px;
+  }
+
+  /* ---------------------------------------------------------------
+     The wordmark, verbatim from the app (components.css .ws-mark /
+     .ws-mon). Only the letters change: C + monitor + balt.
+     --------------------------------------------------------------- */
+  .ws-mark {
+    display: inline-flex;
+    align-items: center;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 34px;             /* real topbar size */
+    letter-spacing: -0.01em;
+    color: #ffffff;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .ws-mark-text { color: #ffffff; }
+  .ws-mon {
+    height: 1em;
+    width: auto;
+    display: inline-block;
+    /* nest the monitor where the "o" sits, snug to C and b */
+    margin: 0 -0.02em;
+    /* center the screen on the letters' optical center so it reads as an "o" */
+    transform: translateY(0.2em);
+    color: #e6a817; /* fixed brand gold */
+  }
+  /* Only overall size may scale. Proportions never change: everything
+     inside .ws-mark is em-based, so one font-size override scales all. */
+  .ws-mark.display { font-size: 120px; }
+
+  /* Presentation chrome (not part of the wordmark) */
+  .topbar-demo {
+    height: 92px;                 /* real --header-h */
+    display: flex;
+    align-items: center;
+    padding: 0 28px;              /* real header padding */
+    background: #14224a;          /* real .app-header background */
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.32);
+  }
+  .stage {
+    padding: 56px 28px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    justify-content: center;
+    overflow-x: auto;
+  }
+  .caption { color: var(--text-dim); font-size: 12.5px; margin: 8px 2px 0; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-dim); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-family: ui-monospace, Consolas, monospace; color: var(--accent); white-space: nowrap; }
+  td.src { color: var(--text-dim); font-size: 12px; }
+
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+    overflow-x: auto;
+    margin: 0;
+  }
+  .comment { color: var(--text-dim); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Cobalt wordmark, Option A</h1>
+  <p class="sub">The existing computer-monitor glyph replaces the "o": C + monitor-as-o + balt. Every ratio is taken from the shipped WorkSpace wordmark (app/src/ui/laurel.ts + components.css), not eyeballed. Only overall size scales.</p>
+
+  <h2>Real topbar size (font-size 34px, on the real header background #14224a)</h2>
+  <div class="topbar-demo">
+    <span class="ws-mark"><span class="ws-mark-text">C</span><svg class="ws-mon" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+      <rect x="16" y="10" width="68" height="54" rx="12" fill="none" stroke="currentColor" stroke-width="9"/>
+      <path d="M44 64 L56 64 L60 75 L40 75 Z" fill="currentColor"/>
+      <path fill-rule="evenodd" fill="currentColor" d="M23 75 L77 75 L87 94 L13 94 Z M23.994736842105265 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M32.19649122807018 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M40.39824561403508 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M48.6 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M56.801754385964905 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M65.00350877192982 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M73.20526315789473 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M21.88947368421053 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M29.52105263157895 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M37.15263157894737 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M44.78421052631579 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M52.41578947368421 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M60.04736842105263 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M67.67894736842103 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M75.31052631578947 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M19.78421052631579 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M26.988157894736844 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M34.19210526315789 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M41.39605263157895 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M48.6 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M55.803947368421056 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M63.00789473684211 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M70.21184210526314 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M77.41578947368421 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M17.678947368421056 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M24.550292397660822 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M31.42163742690059 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M38.29298245614035 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M45.16432748538012 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M52.03567251461988 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M58.907017543859645 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M65.7783625730994 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M72.64970760233916 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M79.52105263157894 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z"/>
+    </svg><span class="ws-mark-text">balt</span></span>
+  </div>
+  <p class="caption">Height 92px (real --header-h), padding 0 28px, background #14224a: all real .app-header values.</p>
+
+  <h2>Large display size (font-size 120px, on the app background --bg)</h2>
+  <div class="stage">
+    <span class="ws-mark display"><span class="ws-mark-text">C</span><svg class="ws-mon" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+      <rect x="16" y="10" width="68" height="54" rx="12" fill="none" stroke="currentColor" stroke-width="9"/>
+      <path d="M44 64 L56 64 L60 75 L40 75 Z" fill="currentColor"/>
+      <path fill-rule="evenodd" fill="currentColor" d="M23 75 L77 75 L87 94 L13 94 Z M23.994736842105265 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M32.19649122807018 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M40.39824561403508 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M48.6 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M56.801754385964905 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M65.00350877192982 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M73.20526315789473 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M21.88947368421053 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M29.52105263157895 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M37.15263157894737 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M44.78421052631579 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M52.41578947368421 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M60.04736842105263 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M67.67894736842103 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M75.31052631578947 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M19.78421052631579 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M26.988157894736844 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M34.19210526315789 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M41.39605263157895 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M48.6 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M55.803947368421056 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M63.00789473684211 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M70.21184210526314 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M77.41578947368421 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M17.678947368421056 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M24.550292397660822 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M31.42163742690059 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M38.29298245614035 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M45.16432748538012 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M52.03567251461988 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M58.907017543859645 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M65.7783625730994 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M72.64970760233916 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M79.52105263157894 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z"/>
+    </svg><span class="ws-mark-text">balt</span></span>
+  </div>
+  <p class="caption">Same CSS, one font-size override. All internal dimensions are em-based, so proportions are identical.</p>
+
+  <h2>Derived spec (all ratios from the shipped code, 1em = 100 viewBox units)</h2>
+  <table>
+    <thead><tr><th>Property</th><th>Value</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>Monitor SVG box</td><td class="num">1em x 1em (height: 1em, square viewBox 0 0 100 100)</td><td class="src">components.css .ws-mon + laurel.ts MONITOR_SVG</td></tr>
+      <tr><td>Screen frame (stroke centerline)</td><td class="num">0.68em x 0.54em (rect 16,10 w68 h54); outer painted extent with the 0.09em stroke: 0.77em x 0.63em</td><td class="src">laurel.ts rect</td></tr>
+      <tr><td>Screen corner radius</td><td class="num">0.12em (rx=12)</td><td class="src">laurel.ts rect</td></tr>
+      <tr><td>Frame border thickness</td><td class="num">0.09em (stroke-width=9, fill none)</td><td class="src">laurel.ts rect</td></tr>
+      <tr><td>Screen inset from SVG box</td><td class="num">0.16em sides, 0.10em top (x=16, y=10)</td><td class="src">laurel.ts rect</td></tr>
+      <tr><td>Stand (neck)</td><td class="num">0.12em top width, 0.20em bottom width, 0.11em tall (44,64 to 56,64 to 60,75 to 40,75)</td><td class="src">laurel.ts neck path</td></tr>
+      <tr><td>Keyboard trapezoid</td><td class="num">0.54em top width, 0.74em bottom width, 0.19em tall (y 75 to 94, half-widths 27 to 37)</td><td class="src">laurel.ts KB_TOP_Y/KB_BOT_Y/KB_TOP_HALF/KB_BOT_HALF</td></tr>
+      <tr><td>Key dots</td><td class="num">radius 0.014em; rows at y 79/83/87/91 with 7/8/9/10 dots; 4.5-unit edge inset; even-odd holes</td><td class="src">laurel.ts keyboardPath()</td></tr>
+      <tr><td>Horizontal nesting</td><td class="num">margin: 0 -0.02em (snug to neighboring letters)</td><td class="src">components.css .ws-mon</td></tr>
+      <tr><td>Vertical alignment</td><td class="num">transform: translateY(0.2em) (screen sits on the letters' optical center)</td><td class="src">components.css .ws-mon</td></tr>
+      <tr><td>Type</td><td class="num">Inter / system-ui / sans-serif, weight 700, letter-spacing -0.01em, line-height 1</td><td class="src">components.css .ws-mark</td></tr>
+      <tr><td>Topbar size</td><td class="num">font-size: 34px</td><td class="src">components.css .ws-mark</td></tr>
+      <tr><td>Colors</td><td class="num">letters #ffffff, monitor #e6a817 (--accent gold), app bg #0a0a0a (--bg), header bg #14224a</td><td class="src">components.css + theme.css</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Ready to paste: modified createWordmark() (app/src/ui/laurel.ts)</h2>
+  <pre><code><span class="comment">// Only the two text spans change. MONITOR_SVG, keyboardPath(), the Wordmark
+// interface, and all geometry constants stay exactly as they are today.</span>
+
+<span class="comment">// #region Public API: createWordmark() builds the header logo element</span>
+export interface Wordmark {
+  el: HTMLElement;
+}
+
+export function createWordmark(): Wordmark {
+  const root = document.createElement('span');
+  root.className = 'ws-mark';
+  root.innerHTML = `&lt;span class="ws-mark-text"&gt;C&lt;/span&gt;${MONITOR_SVG}&lt;span class="ws-mark-text"&gt;balt&lt;/span&gt;`;
+  return { el: root };
+}
+<span class="comment">// #endregion</span></code></pre>
+
+  <h2>CSS (app/src/ui/components.css): unchanged, shown for reference</h2>
+  <pre><code><span class="comment">/* ---- "Cobalt" wordmark: the "o" is a computer monitor ---- */</span>
+.ws-mark {
+  display: inline-flex;
+  align-items: center;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 34px;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+  line-height: 1;
+  white-space: nowrap;
+}
+.ws-mark-text {
+  color: #ffffff;
+}
+.ws-mon {
+  height: 1em;
+  width: auto;
+  display: inline-block;
+  <span class="comment">/* nest the monitor where the "o" sits, snug to C and b */</span>
+  margin: 0 -0.02em;
+  <span class="comment">/* center the screen on the letters' optical center so it reads as an "o" */</span>
+  transform: translateY(0.2em);
+  color: #e6a817; <span class="comment">/* fixed brand gold */</span>
+}</code></pre>
+  <p class="caption">No CSS values change for the rename. The two comments referencing "W and r" / "WorkSpace" can be updated to "C and b" / "Cobalt" as shown.</p>
+</main>
+</body>
+</html>

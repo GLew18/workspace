@@ -1,4 +1,4 @@
-// WorkSpace — email mirror via the Firestore "Trigger Email" extension.
+// Cobalt: email mirror via the Firestore "Trigger Email" extension.
 //
 // Desktop notifications are device-local. When the user turns on "also email me",
 // each notification is ALSO queued as an email — the official way: write a doc to
@@ -36,10 +36,10 @@ export async function queueEmail(to: string, subject: string, body: string): Pro
   try {
     const { db, collection, addDoc } = await mailApi();
     const html =
-      `<div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:15px;color:#1a2233;line-height:1.5">` +
+      `<div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:15px;color:#212c42;line-height:1.5">` +
       `<p style="margin:0 0 6px;font-weight:600;font-size:16px">${escapeHtml(subject)}</p>` +
       `<p style="margin:0;color:#4a5568">${escapeHtml(body)}</p>` +
-      `<p style="margin:18px 0 0;font-size:12px;color:#94a3b8">Sent by WorkSpace · manage in Settings ▸ Notifications</p>` +
+      `<p style="margin:18px 0 0;font-size:12px;color:#94a3b8">Sent by Cobalt · manage in Settings ▸ Notifications</p>` +
       `</div>`;
     await addDoc(collection(db, MAIL_COLLECTION), {
       to: [to],

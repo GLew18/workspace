@@ -1,4 +1,4 @@
-// WorkSpace — course-learning model (Layer 1b).
+// Cobalt: course-learning model (Layer 1b).
 //
 // Learns WHICH WORDS/PHRASES in an assignment's title + description go with which
 // course, from the student's own corrections. Every correction reinforces it.

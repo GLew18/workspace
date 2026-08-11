@@ -1,4 +1,4 @@
-// WorkSpace — keyboard shortcuts (premium, extension-backed) + in-app fallback.
+// Cobalt: keyboard shortcuts (premium, extension-backed) + in-app fallback.
 //
 // This module is the SINGLE SOURCE OF TRUTH for everything shortcut-related:
 //   • comboFromEvent / normalizeCombo / isTypingTarget / prettyCombo — the combo
@@ -10,7 +10,7 @@
 //   • detectExtension / syncShortcutsToExtension / renderInstallPrompt — the
 //     bridge to the companion extension (ping/pong + full-replace config sync).
 //   • installInAppDispatcher / setRecording — the focused-tab fallback that fires
-//     shortcuts while WorkSpace is the active tab (and yields to the extension
+//     shortcuts while Cobalt is the active tab (and yields to the extension
 //     once it is detected, so exactly one tab opens per press).
 //
 // Transport: prefer chrome.runtime.sendMessage(EXTENSION_ID, …) when chrome and a
@@ -256,7 +256,7 @@ export function setRecording(active: boolean): void {
   _recording = active;
 }
 
-/** Handles shortcut presses ON the WorkSpace tab itself — the extension's content
+/** Handles shortcut presses ON the Cobalt tab itself. The extension's content
  *  script deliberately skips its own origin and defers here. Fires ONLY when the
  *  extension is detected: shortcuts are a premium/extension feature, so with no
  *  extension nothing fires (and nothing can be saved either — see openShortcutModal). */
@@ -481,7 +481,7 @@ export function extensionActive(): boolean {
 
 // #region Chrome tab groups (premium) — open a set of links as one named bundle
 /** Chrome's tab-group palette. `chrome.tabGroups.update` accepts only these nine
- *  names, so a WorkSpace hex has to be snapped to the closest one. */
+ *  names, so a Cobalt hex has to be snapped to the closest one. */
 const CHROME_GROUP_COLORS: [string, [number, number, number]][] = [
   ['grey', [95, 99, 104]],
   ['blue', [26, 115, 232]],
@@ -496,7 +496,7 @@ const CHROME_GROUP_COLORS: [string, [number, number, number]][] = [
 
 /** Nearest Chrome group color to an arbitrary hex, by squared RGB distance. A
  *  group's gold, a course's purple: each lands on the palette entry that reads
- *  closest, so the browser strip echoes the color used inside WorkSpace. */
+ *  closest, so the browser strip echoes the color used inside Cobalt. */
 export function toChromeGroupColor(hex: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec((hex || '').trim());
   if (!m) return 'grey';
@@ -552,7 +552,7 @@ export function openTabs(urls: string[]): void {
     }
     if (blocked > 0) {
       showToast(
-        `Chrome blocked ${blocked} of ${clean.length} tabs. Allow pop-ups for WorkSpace to open them all.`
+        `Chrome blocked ${blocked} of ${clean.length} tabs. Allow pop-ups for Cobalt to open them all.`
       );
     }
   };
@@ -581,7 +581,7 @@ function sendTabRequest(
     const done = (ok: boolean, how: string) => {
       if (settled) return;
       settled = true;
-      if (!ok) console.warn('[WorkSpace]', type, 'did not run:', how);
+      if (!ok) console.warn('[Cobalt]', type, 'did not run:', how);
       resolve(ok);
     };
 
@@ -656,7 +656,7 @@ export function renderInstallPrompt(container: HTMLElement): HTMLElement {
   banner.append(
     el('div', {
       class: 'bm-install-title',
-      text: 'Keyboard shortcuts are a WorkSpace premium feature.',
+      text: 'Keyboard shortcuts are a Cobalt premium feature.',
     })
   );
   banner.append(
@@ -707,7 +707,7 @@ export function openShortcutModal(bm: ShortcutBookmark, opts: OpenShortcutModalO
   box.append(el('h3', { class: 'bm-modal-title', text: 'Open this website with a key combination' }));
 
   const content = el('div', { class: 'bm-modal-content' });
-  content.append(el('div', { class: 'bm-modal-hint', text: 'Checking for the WorkSpace extension…' }));
+  content.append(el('div', { class: 'bm-modal-hint', text: 'Checking for the Cobalt extension…' }));
   box.append(content);
 
   back.append(box);

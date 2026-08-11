@@ -1,4 +1,4 @@
-// WorkSpace: parse-word recommendations for a course name.
+// Cobalt: parse-word recommendations for a course name.
 //
 // ONE implementation, used by both places a course can be created: the
 // onboarding courses screen and Settings ▸ Courses. It used to be duplicated

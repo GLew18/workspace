@@ -1,4 +1,4 @@
-// WorkSpace: the "where is my iCal link" slideshow.
+// Cobalt: the "where is my iCal link" slideshow.
 //
 // Four animated slides that walk a student through the REAL route to their
 // calendar feed, exactly as it looks in Schoology (from Gabe's screenshots,
@@ -11,9 +11,9 @@
 //
 // FIDELITY RULES (Gabe's explicit calls):
 //   - Slides copy Schoology's own light UI, its whites, grays, and blues, NOT
-//     WorkSpace's dark theme: this is the student's first impression and the
+//     Cobalt's dark theme: this is the student's first impression and the
 //     guide must look like the page they are about to see. Only the
-//     instructional overlays (cursor, highlight, arrows) are WorkSpace gold.
+//     instructional overlays (cursor, highlight, arrows) are Cobalt gold.
 //   - Nothing school-specific: no Heschel name, logo, or account details. The
 //     guide must read true for any school on Schoology.
 //   - Nothing fabricated: every element in the scenes exists in the real
@@ -42,8 +42,8 @@ const PS = '#0079c1'; // the PowerSchool "P"
 const HL_ROW = '#e9f2fc'; // the dropdown's hovered-row blue
 const BTN = '#31699e'; // the "Save Changes" steel blue
 const BADGE = '#e8536f'; // the unread-mail badge + the calendar icon's red band
-// WorkSpace gold: the instructional layer only (cursor ripple, highlights).
-const GOLD = '#e6a817';
+// Cobalt gold: the instructional layer only (cursor ripple, highlights).
+const GOLD = '#7db4ff';
 
 // ---- the mini-DSL ------------------------------------------------------------
 // Timing classes: .c cursor glide, .r click ripple, .af appears after the click,
@@ -227,7 +227,7 @@ const SLIDES: Slide[] = [
   // 4 · the link (no copy animation on purpose: students know how to copy;
   //     the guide's only job is showing WHERE the link lives)
   {
-    cap: 'There it is: <b>Share Your Schoology Calendar</b>. Copy the <b>iCal link</b> and paste it back in WorkSpace.',
+    cap: 'There it is: <b>Share Your Schoology Calendar</b>. Copy the <b>iCal link</b> and paste it back in Cobalt.',
     svg: scene(settingsCard() + shareCalSection() + hl(90, 142, 302, 34)),
   },
 ];

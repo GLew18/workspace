@@ -1,4 +1,4 @@
-// WorkSpace — Tasks-tab folders (the "big project" Folders feature).
+// Cobalt: Tasks-tab folders (the "big project" Folders feature).
 //
 // A folder is a named, colored group of tasks. Membership lives on each task's
 // `folderId` (one folder per task); the folder records themselves live in ONE

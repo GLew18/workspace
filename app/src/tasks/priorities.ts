@@ -1,4 +1,4 @@
-// WorkSpace — task priorities (spec §6.3).
+// Cobalt: task priorities (spec §6.3).
 
 import type { Priority } from '../types';
 
@@ -30,9 +30,11 @@ export const priorityDef = (key: Priority): PriorityDef =>
   PRIORITIES.find((p) => p.key === key)!;
 
 // Token maps used by the natural-language parser.
+// "hi" is deliberately NOT an alias for high: it is a real word ("hi today" is a
+// task named hi, due today), and eating it left an empty title that swallowed the
+// date/course too (Gabe, 8/10). "high" and "h" cover the intent.
 export const PRIORITY_SINGLE: Record<string, Priority> = {
   high: 'high',
-  hi: 'high',
   h: 'high',
   med: 'normal',
   medium: 'normal',

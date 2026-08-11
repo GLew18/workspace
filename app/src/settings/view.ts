@@ -1,4 +1,4 @@
-// WorkSpace — Settings: one scrolling page (Name · Schoology · Courses).
+// Cobalt Settings: one scrolling page (Name · Schoology · Courses).
 //
 // Every field saves itself the moment you change it — there's no Save button.
 // The one exception is the Schoology calendar link: because changing it re-imports
@@ -97,19 +97,19 @@ interface Draft {
 const HELP: Record<string, { title: string; text: string }> = {
   account: {
     title: 'Your account',
-    text: 'The login this WorkSpace belongs to. It’s set by how you signed in (Google, later) and can’t be changed here. Your data is tied to it.',
+    text: 'The login this Cobalt belongs to. It’s set by how you signed in (Google, later) and can’t be changed here. Your data is tied to it.',
   },
   name: {
     title: 'Your name',
-    text: 'What WorkSpace calls you, in your greeting and across the app. It’s always capitalized, and you can change it anytime.',
+    text: 'What Cobalt calls you, in your greeting and across the app. It’s always capitalized, and you can change it anytime.',
   },
   ical: {
     title: 'Schoology calendar link',
-    text: 'Your personal Schoology calendar (iCal) link. WorkSpace uses it to import your assignments automatically. Find it in Schoology under Settings → your calendar feed, then paste it here.\n\nIt’s read-only and has no password in it. WorkSpace never sees your Schoology login, and you can reset the link in Schoology anytime.',
+    text: 'Your personal Schoology calendar (iCal) link. Cobalt uses it to import your assignments automatically. Find it in Schoology under Settings → your calendar feed, then paste it here.\n\nIt’s read-only and has no password in it. Cobalt never sees your Schoology login, and you can reset the link in Schoology anytime.',
   },
   course: {
     title: 'Course name',
-    text: 'A class you take. WorkSpace labels and color-codes its assignments with this name so your work is easy to scan.',
+    text: 'A class you take. Cobalt labels and color-codes its assignments with this name so your work is easy to scan.',
   },
   color: {
     title: 'Course color',
@@ -204,7 +204,7 @@ export class SettingsView {
 
     // Artifact-style page heads: each tab opens with its title + a one-line purpose.
     const DESCS: Record<string, string> = {
-      Profile: 'Your account and how WorkSpace behaves for you.',
+      Profile: 'Your account and how Cobalt behaves for you.',
       Tasks: 'Where your assignments come from, what gets imported, and how the calendar looks.',
       Courses: "Name, color, and auto-file each class's assignments with parse words.",
       Focus: 'Defaults for your focus sessions: sound, timer, and music.',
@@ -353,7 +353,7 @@ export class SettingsView {
       this.confirmDanger(
         next
           ? 'Change your Schoology link? This re-imports your assignments from the new feed.'
-          : 'Remove your Schoology link? WorkSpace will stop importing your assignments.',
+          : 'Remove your Schoology link? Cobalt will stop importing your assignments.',
         () => void this.commitIcal(next)
       );
       return;
@@ -479,7 +479,7 @@ export class SettingsView {
     );
     sec.append(
       this.prefRow(
-        'Open WorkSpace to',
+        'Open Cobalt to',
         'Which tab greets you when the app loads.',
         this.prefSeg(
           [['dashboard', 'Dashboard'], ['tasks', 'Tasks'], ['bookmarks', 'Bookmarks'], ['focus', 'Focus']],
@@ -637,7 +637,7 @@ export class SettingsView {
 
     const outBtn = el('button', { class: 'sdanger', text: 'Sign out' });
     outBtn.addEventListener('click', () =>
-      this.confirmDanger('Sign out of WorkSpace on this device?', () => void signOut())
+      this.confirmDanger('Sign out of Cobalt on this device?', () => void signOut())
     );
     sec.append(this.prefRow('Sign out', 'End your session on this device.', outBtn));
 
@@ -726,7 +726,7 @@ export class SettingsView {
     sec.append(autoRow);
     sec.append(
       this.prefRow(
-        'Sync when I open WorkSpace',
+        'Sync when I open Cobalt',
         'Always start with the latest.',
         this.prefSwitch(p.sync.onOpen, (on) => {
           p.sync.onOpen = on;
@@ -1414,6 +1414,16 @@ export class SettingsView {
         })
       )
     );
+    sources.append(
+      this.prefRow(
+        'Group a burst of reminders',
+        'Bulk edits can make many reminders come due at once. The first few arrive normally and the rest fold into one summary. Every reminder is still listed in the notification log.',
+        this.prefSwitch(n.groupBursts, (on) => {
+          n.groupBursts = on;
+          save();
+        })
+      )
+    );
 
     // --- shared preview + test builders ---
     const previewRefreshers: (() => void)[] = [];
@@ -1429,7 +1439,7 @@ export class SettingsView {
       const body = el('div', { class: 'ntoast-body' });
       const title = el('div', { class: 'ntoast-title' });
       const msg = el('div', { class: 'ntoast-msg' });
-      body.append(title, msg, el('div', { class: 'ntoast-src', text: 'workspace.app' }));
+      body.append(title, msg, el('div', { class: 'ntoast-src', text: 'cobalt.app' }));
       toast.append(icon, body);
       stage.append(toast);
       frame.append(stage);
@@ -1488,13 +1498,13 @@ export class SettingsView {
       av.innerHTML = WS_ICON_SVG; // the computer logo — the app's real avatar, not a letter
       const meta = el('div', { class: 'nmail-meta' });
       const fromRow = el('div', { class: 'nmail-fromrow' });
-      fromRow.append(el('span', { class: 'nmail-from', text: 'WorkSpace' }), el('span', { class: 'nmail-time', text: 'now' }));
+      fromRow.append(el('span', { class: 'nmail-from', text: 'Cobalt' }), el('span', { class: 'nmail-time', text: 'now' }));
       const toLine = el('div', { class: 'nmail-to', text: 'to me' });
       meta.append(fromRow, toLine);
       top.append(av, meta);
       const subj = el('div', { class: 'nmail-subj' });
       const body = el('div', { class: 'nmail-body' });
-      const foot = el('div', { class: 'nmail-foot', text: 'Sent by WorkSpace · manage in Settings ▸ Notifications' });
+      const foot = el('div', { class: 'nmail-foot', text: 'Sent by Cobalt · manage in Settings ▸ Notifications' });
       card.append(top, subj, body, foot);
       frame.append(card);
       return {
@@ -1647,7 +1657,7 @@ export class SettingsView {
     })();
     const naCard = el('div', { class: 'ncard' });
     const naChan = channelGrid(() => n.newAssignment.channels, childToggle(n.newAssignment.channels));
-    naCard.append(this.notifyBar('inbox', 'New assignments', 'When WorkSpace imports new work from Schoology.', naChan.el));
+    naCard.append(this.notifyBar('inbox', 'New assignments', 'When Cobalt imports new work from Schoology.', naChan.el));
     const naDetail = el('div', { class: 'ncard-detail' });
     const naInner = el('div', { class: 'ncard-detail-inner' });
     naInner.append(el('div', { class: 'nopt-label', text: 'How new assignments arrive' }));
@@ -2154,10 +2164,26 @@ function joinList(items: string[]): string {
   return `${items.slice(0, -1).join(', ')} & ${items[items.length - 1]}`;
 }
 
-// The REAL WorkSpace app icon (navy square + gold monitor + dotted keyboard),
-// copied from public/icons/icon.svg so the notification preview shows the true icon.
+// The REAL Cobalt app icon (navy square + the cobalt gem; the monitor retired
+// 8/10), matching public/icons/icon.svg so the notification preview shows the
+// true icon. Ids are si-* so they never collide with the header wordmark's cb-*.
 const WS_ICON_SVG =
-  '<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="120" height="120" rx="26" fill="#0e1730"/><g transform="translate(60 60) scale(1.02) translate(-50 -49.75)" fill="#e6a817"><rect x="16" y="10" width="68" height="54" rx="12" fill="none" stroke="#e6a817" stroke-width="9"/><path d="M44 64 L56 64 L60 75 L40 75 Z"/><path fill-rule="evenodd" d="M23 75 L77 75 L87 94 L13 94 Z M23.99 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M32.2 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M40.4 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M48.6 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M56.8 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M65 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M73.21 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M21.89 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M29.52 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M37.15 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M44.78 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M52.42 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M60.05 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M67.68 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M75.31 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M19.78 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M26.99 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M34.19 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M41.4 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M48.6 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M55.8 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M63.01 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M70.21 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M77.42 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M17.68 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M24.55 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M31.42 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M38.29 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M45.16 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M52.04 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M58.91 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M65.78 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M72.65 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M79.52 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z"/></g></svg>';
+  '<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="120" height="120" rx="26" fill="#0e1e42"/>' +
+  '<defs><clipPath id="si-clip"><rect x="9" y="9" width="82" height="82" rx="31" ry="31"/></clipPath>' +
+  '<radialGradient id="si-body" cx="36%" cy="30%" r="88%"><stop offset="0%" stop-color="#8cc0ff"/><stop offset="38%" stop-color="#3d7fe8"/><stop offset="68%" stop-color="#0b46b0"/><stop offset="100%" stop-color="#032154"/></radialGradient>' +
+  '<radialGradient id="si-glow" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#7db4ff" stop-opacity="0.55"/><stop offset="100%" stop-color="#7db4ff" stop-opacity="0"/></radialGradient>' +
+  '<linearGradient id="si-sheen" x1="0%" y1="0%" x2="70%" y2="70%"><stop offset="0%" stop-color="#ffffff" stop-opacity="0.48"/><stop offset="42%" stop-color="#ffffff" stop-opacity="0"/></linearGradient></defs>' +
+  '<g transform="translate(10 10)"><g clip-path="url(#si-clip)">' +
+  '<rect x="9" y="9" width="82" height="82" fill="url(#si-body)"/>' +
+  '<polygon points="38,34 62,34 74,6 26,6" fill="#ffffff" opacity="0.14"/><polygon points="62,34 70,44 96,30 74,6" fill="#02174a" opacity="0.24"/>' +
+  '<polygon points="70,44 70,58 96,72 96,30" fill="#ffffff" opacity="0.10"/><polygon points="70,58 62,66 74,96 96,72" fill="#02174a" opacity="0.38"/>' +
+  '<polygon points="62,66 38,66 26,96 74,96" fill="#02174a" opacity="0.20"/><polygon points="38,66 30,58 4,72 26,96" fill="#02174a" opacity="0.32"/>' +
+  '<polygon points="30,58 30,44 4,30 4,72" fill="#ffffff" opacity="0.13"/><polygon points="30,44 38,34 26,6 4,30" fill="#ffffff" opacity="0.22"/>' +
+  '<polygon points="38,34 62,34 70,44 70,58 62,66 38,66 30,44" fill="#4a8cf0" opacity="0.50"/>' +
+  '<ellipse cx="41" cy="58" rx="16" ry="12" fill="url(#si-glow)"/><path d="M9,9 h52 q-32,13 -42,46 z" fill="url(#si-sheen)"/>' +
+  '<path d="M36 19 l2.6 4.6 4.6 2.6 -4.6 2.6 -2.6 4.6 -2.6 -4.6 -4.6 -2.6 4.6 -2.6 Z" fill="#ffffff" opacity="0.95"/>' +
+  '<circle cx="64" cy="61" r="1.8" fill="#ffffff" opacity="0.6"/><circle cx="57" cy="20" r="1.3" fill="#ffffff" opacity="0.5"/>' +
+  '</g></g></svg>';
 
 // Small line-icons for the notification type rows.
 const NICONS = {

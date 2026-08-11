@@ -1,4 +1,4 @@
-// WorkSpace — keyless task-title translation.
+// Cobalt: keyless task-title translation.
 //
 // Uses Google's public "gtx" endpoint, which is an ML translator that BOTH
 // auto-detects the source language AND translates in a single call — no API key,

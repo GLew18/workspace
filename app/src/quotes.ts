@@ -1,4 +1,4 @@
-// WorkSpace — the daily-quote library (Dashboard ▸ Daily quote).
+// Cobalt: the daily-quote library (Dashboard ▸ Daily quote).
 //
 // Five styles, selected in Settings ▸ Profile ▸ Quote style (prefs.dash.quoteStyle):
 // Stoic, Modern, Literary, Science & discovery, and Mixed (a blend of all four).

@@ -1,4 +1,4 @@
-# WorkSpace — measure integrated loudness (LUFS) + true peak of every focus-music
+# Cobalt: measure integrated loudness (LUFS) + true peak of every focus-music
 # track with ffmpeg's loudnorm, so the app can normalize each track to a common
 # target. READ-ONLY: measures only, never re-encodes. Writes app/scripts/loudness.json
 # keyed by "<Genre folder>/<file>.mp3" → { i: integrated LUFS, tp: true peak dBTP }.

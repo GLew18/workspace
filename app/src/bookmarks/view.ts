@@ -1,9 +1,9 @@
-// WorkSpace — Links (Quick Access) tab.
+// Cobalt: Links (Quick Access) tab.
 //
 // A grid of rich, rectangular link cards: a large favicon fills the LEFT of each
 // card, the name + host sit on the RIGHT. Live search, a shared add/edit modal,
 // and a confirmed delete. Each card can be given an in-app keyboard shortcut that
-// opens it — active while WorkSpace is the focused browser tab (a web page can't
+// opens it, active while Cobalt is the focused browser tab (a web page can't
 // capture keys globally without an extension).
 //
 // Persistence: the whole { list, groups } blob is saved under the 'bookmarks'
@@ -11,7 +11,7 @@
 //
 // Deferred (next passes): colored groups, drag-to-reorder, per-site sub-links
 // (Schoology auto-filled from your courses), and an optional companion extension
-// for shortcuts that fire even when WorkSpace isn't focused.
+// for shortcuts that fire even when Cobalt isn't focused.
 
 import type { Data } from '../db';
 import { el, textInput, enterConfirms, showToast } from '../util/dom';
@@ -37,7 +37,7 @@ interface Bookmark {
   name: string;
   url: string;
   customIcon?: string | null;
-  shortcut?: string; // e.g. "Alt+Y" — opens this link when pressed (WorkSpace focused)
+  shortcut?: string; // e.g. "Alt+Y", opens this link when pressed (Cobalt focused)
   groupId?: string; // reserved for the deferred grouping feature
 }
 interface BookmarkGroup {
@@ -76,7 +76,7 @@ const FAVICON_OVERRIDES: Record<string, string> = {
 
 // #region URL + favicon helpers
 /** Pretty URL for the card's second line: host + the full path/query/hash so you
- *  see the precise link (e.g. "workspace.app/tasks"), dropping only the scheme, a
+ *  see the precise link (e.g. "cobalt.app/tasks"), dropping only the scheme, a
  *  leading www., and a bare trailing slash. The card CSS keeps it to one line with
  *  an ellipsis, so a long path truncates instead of wrapping. */
 function hostOf(url: string): string {
@@ -326,7 +326,7 @@ export class BookmarksView {
   /** The strip above a group's cards: its dot, its name, and TWO launchers
    *  (Gabe, 8/7/26), so the user picks:
    *    Open all  = free, every link in its own tab, always.
-   *    ⭐ group  = the PREMIUM one (violet): the whole group opens as ONE named,
+   *    ⭐ group  = the PREMIUM one (gem cobalt blue): the whole group opens as ONE named,
    *                colored Chrome tab group via the extension. Falls back to
    *                plain tabs if the extension isn't there, never a dead end. */
   private groupHeader(group: BookmarkGroup, members: Bookmark[]): HTMLElement {
@@ -353,7 +353,7 @@ export class BookmarksView {
     const openGroup = el('button', {
       class: 'bm-group-head-open bm-group-head-gopen',
       text: 'Open all as group',
-      title: `Premium: open all ${members.length} links as one “${group.name}” Chrome tab group (needs the WorkSpace extension)`,
+      title: `Premium: open all ${members.length} links as one “${group.name}” Chrome tab group (needs the Cobalt extension)`,
     });
     openGroup.addEventListener('click', () => {
       if (this.sample) return;
@@ -362,14 +362,14 @@ export class BookmarksView {
       // One line in the console on every launch, saying which path ran and why.
       // Silent fallback was impossible to tell apart from a broken extension.
       const active = extensionActive();
-      console.info('[WorkSpace] Open as group:', { group: group.name, links: urls.length, extensionDetected: active });
+      console.info('[Cobalt] Open as group:', { group: group.name, links: urls.length, extensionDetected: active });
       if (!active) {
         // No silent fallback to plain tabs: a missing extension gets told WHY.
-        showToast('Install the WorkSpace extension to open links as one Chrome tab group.');
+        showToast('Install the Cobalt extension to open links as one Chrome tab group.');
         return;
       }
       void openUrlsInGroup(group.name, group.color, urls).then((ok) => {
-        console.info('[WorkSpace] tab group created:', ok);
+        console.info('[Cobalt] tab group created:', ok);
         if (!ok) openTabs(urls); // extension answered "no" (old Chrome, missing permission)
       });
     });
@@ -625,7 +625,7 @@ export class BookmarksView {
     box.append(label('New group'));
     const createRow = el('div', { class: 'bm-modal-iconrow' });
     const colorInp = el('input', { type: 'color', class: 'bm-group-color' }) as HTMLInputElement;
-    colorInp.value = '#e6a817';
+    colorInp.value = '#7db4ff';
     const nameInp = textInput({ class: 'bm-input bm-mini-input', placeholder: 'Group name' });
     nameInp.maxLength = 18; // keep group names chip-sized
     nameInp.addEventListener('input', () => nameInp.classList.remove('invalid'));
@@ -637,7 +637,7 @@ export class BookmarksView {
         nameInp.focus();
         return;
       }
-      const g: BookmarkGroup = { id: 'grp_' + genId(), name: nm, color: colorInp.value || '#e6a817' };
+      const g: BookmarkGroup = { id: 'grp_' + genId(), name: nm, color: colorInp.value || '#7db4ff' };
       this.state.groups.push(g);
       void pick(g.id); // creating auto-assigns and closes, same as clicking a row
     });

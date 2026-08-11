@@ -1,4 +1,4 @@
-// WorkSpace — course normalization (spec §6.4 / Appendix 13.1).
+// Cobalt: course normalization (spec §6.4 / Appendix 13.1).
 
 import { COURSE_ABBR, COURSE_COLORS, COURSE_TABGROUP_COLOR, DEFAULT_COURSE_COLOR } from './maps';
 

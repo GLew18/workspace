@@ -1,4 +1,4 @@
-// WorkSpace — data orchestrator.
+// Cobalt: data orchestrator.
 //
 // Wraps a Backend with the non-negotiable safety from spec §9.2 / §10:
 //   • per-uid scoping (the backend already enforces this)

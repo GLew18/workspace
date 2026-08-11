@@ -1,4 +1,4 @@
-// WorkSpace — "drag the bottom edge to resize" grip, shared by every resizable
+// Cobalt: "drag the bottom edge to resize" grip, shared by every resizable
 // list panel (focus import, music browser, in-session song list).
 //
 // DESIGN (Gabe's rules, learned the hard way on the import panel):

@@ -1,4 +1,4 @@
-// WorkSpace — app-wide preferences (the Settings "Preferences" / "Dashboard" /
+// Cobalt: app-wide preferences (the Settings "Preferences" / "Dashboard" /
 // "Syncing" / "Import" / Focus toggles).
 //
 // One profile key ('prefs') holds them all. A module-level cache makes reads

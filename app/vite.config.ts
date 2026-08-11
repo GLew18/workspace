@@ -52,7 +52,7 @@ const musicLibPlugin = {
   },
 };
 
-// WorkSpace web app — Vite config.
+// Cobalt web app: Vite config.
 // PWA service worker lives in /public/sw.js and is registered from main.ts.
 export default defineConfig({
   plugins: [musicLibPlugin],

@@ -1,13 +1,13 @@
-// WorkSpace — the notification log (the 🔔 screen's data).
+// Cobalt: the notification log (the 🔔 screen's data).
 //
-// Every notification WorkSpace delivers is recorded here as ONE entry, whatever
+// Every notification Cobalt delivers is recorded here as ONE entry, whatever
 // channels carried it. That single-entry rule is the whole point: a reminder sent
 // as both a pop-up and an email is one event with two delivery routes, not two
 // notifications — listing it twice with identical text would just be noise. The
 // entry carries which routes fired, so the screen can say so in a line of icons.
 //
 // Storage is localStorage, matching the sent-ledger next door: notifications are a
-// device-local thing (they fire from whichever device had WorkSpace open), so a
+// device-local thing (they fire from whichever device had Cobalt open), so a
 // per-device history is the honest record, and it costs no cloud writes.
 
 import { scopedKey } from '../util/userScope';

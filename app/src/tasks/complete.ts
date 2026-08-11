@@ -1,4 +1,4 @@
-// WorkSpace — completion feedback: chime + 5s undo toast (spec §6.6).
+// Cobalt completion feedback: chime + 5s undo toast (spec §6.6).
 
 let audioCtx: AudioContext | null = null;
 

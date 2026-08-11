@@ -1,4 +1,4 @@
-// WorkSpace — Firebase Realtime Database backend.
+// Cobalt: Firebase Realtime Database backend.
 //
 // Mirrors the LocalBackend interface but reads/writes under users/{uid}/{collection}.
 // Loaded lazily (dynamic import) so the local-only build never pulls in Firebase.

@@ -1,4 +1,4 @@
-// WorkSpace — quick-add input + submit guard (spec §6.2 finalize / tryAddTask).
+// Cobalt: quick-add input + submit guard (spec §6.2 finalize / tryAddTask).
 
 import type { ParsedTask, TaskFolder } from '../types';
 import { parseQuickAdd } from './parser';

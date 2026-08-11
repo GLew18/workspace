@@ -1,4 +1,4 @@
-// WorkSpace — course maps (verbatim from spec Appendix 13.1, this school's catalog).
+// Cobalt: course maps (verbatim from spec Appendix 13.1, this school's catalog).
 // For multi-school (Phase 6) these become per-schoolDomain config.
 
 export const COURSE_COLORS: Record<string, string> = {

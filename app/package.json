@@ -1,9 +1,9 @@
 {
-  "name": "workspace-app",
+  "name": "cobalt-app",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "WorkSpace — a productivity space that makes work more convenient and fun.",
+  "description": "Cobalt: a productivity space that makes work more convenient and fun.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

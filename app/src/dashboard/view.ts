@@ -1,17 +1,16 @@
-// WorkSpace — Dashboard tab (landing screen).
+// Cobalt: Dashboard tab (landing screen).
 // Time-aware greeting, the daily quote (style picked in Settings; library in
 // src/quotes.ts), and the "due today" + schedule cards.
 
 import type { Data } from '../db';
-import type { Task, TaskMap, ScheduleItem } from '../types';
+import type { ScheduleItem } from '../types';
 import { el } from '../util/dom';
-import { todayStr, addDays, scheduleMonday, formatTimeOfDay } from '../util/dates';
+import { todayStr, addDays, scheduleMonday } from '../util/dates';
 import { getPrefs, PREFS_EVENT } from '../prefs';
 import { quoteOfDay, type Quote } from '../quotes';
-import { sortTasks } from '../tasks/store';
-import { getCourseColor, onRegistryChange } from '../courses/registry';
 import { openAttachment } from '../tasks/attachments';
 import { runSync } from '../schoology/sync';
+import { TasksView } from '../tasks/render';
 
 
 // The landing preview shows ONE fixed, hand-picked pair — it's a showcase, not a
@@ -83,6 +82,9 @@ export class DashboardView {
   private sample: boolean; // landing preview → external links (schedule) are inert
   private panelEl: HTMLElement | null = null; // kept so a prefs change can re-render
   private wired = false; // watchTasks/onRegistryChange subscribed exactly once
+  // The Today's-Tasks excerpt view's own container. Built once, then moved
+  // between rebuilt cards, so its subscription is never duplicated.
+  private dueBody: HTMLElement | null = null;
   private onPrefsChange = (): void => {
     if (this.panelEl) this.mount(this.panelEl);
   };
@@ -144,54 +146,57 @@ export class DashboardView {
 
     panel.append(wrap);
 
-    // Subscribe once — re-mounts (prefs changes) reuse the same callbacks, which
-    // read the CURRENT dueBox/scheduleBox fields.
+    // The Today's-Tasks card no longer needs a task subscription of its own: the
+    // excerpt view inside it watches tasks, folders and the course registry
+    // directly. This one stays for the SCHEDULE card.
+    this.renderDue();
     if (!this.wired) {
       this.wired = true;
-      this.data.watchTasks((u) => {
-        this.update(u.tasks);
+      this.data.watchTasks(() => {
         void this.refreshSchedule(); // a sync that adds tasks also refreshes the schedule
       });
-      onRegistryChange(() => this.update(this.data.getTasks()));
-    } else {
-      this.update(this.data.getTasks());
     }
     void this.refreshSchedule();
   }
 
-  private update(tasks: TaskMap): void {
-    this.renderDue(tasks);
-  }
-
-  private renderDue(tasks: TaskMap): void {
-    const today = todayStr();
-    // The app's ONE task ordering (tasks/store.ts). All of these share today's date,
-    // so it reduces to priority → time → addedAt → id; the deterministic tail keeps
-    // tied tasks from shuffling when a Firebase snapshot re-orders the map.
-    const due: Task[] = sortTasks(Object.values(tasks).filter((t) => !t.completed && t.dueDate === today));
-
+  /**
+   * "Today's Tasks" is a REAL EXCERPT of the Tasks tab (Gabe, 8/10), not a
+   * lookalike: it mounts a TasksView in excerpt mode filtered to today, so the
+   * rows are byte-for-byte the Tasks-tab rows (course chip, due time, badges,
+   * attachments, priority, editing, multi-select) and can never drift from
+   * them. Tasks living in folders are compiled in alongside the loose ones,
+   * because "due today" is one question, not one per folder.
+   *
+   * Mounted ONCE and left alone: the excerpt view has its own watchTasks
+   * subscription, so it repaints itself on the same tick as the Tasks tab.
+   * renderDue only builds the card's header the first time.
+   */
+  private renderDue(): void {
     this.dueBox.replaceChildren();
-    const count = due.length;
-    const header = el('div', { class: 'dash-due-header' });
-    header.append(el('span', { text: "Today's Tasks" }));
+    // SAME CLASS as the Schedule card's header (Gabe, 8/10) so the two cards are
+    // one design: identical size, weight, color and spacing, no second rule to
+    // keep in step. The title is still the way over to the full list (the rows
+    // themselves are real task rows now, so clicking one edits, not navigates),
+    // and .dash-due-link strips the button chrome so it reads as the heading.
+    const header = el('div', { class: 'dash-schedule-header' });
+    const link = el('button', { class: 'dash-due-link', text: "Today's Tasks" });
+    link.addEventListener('click', () => this.goToTab('tasks'));
+    header.append(link);
     this.dueBox.append(header);
-
-    if (count === 0) {
-      this.dueBox.append(el('div', { class: 'dash-due-empty', text: 'All clear today' }));
-      return;
+    if (!this.dueBody) {
+      this.dueBody = el('div', { class: 'dash-due-list' });
+      // todayStr() is read per render (not captured), so a session left open
+      // past midnight rolls over to the new day on the next repaint. In the
+      // landing preview, popups mount INSIDE the frame, as the Tasks preview does.
+      new TasksView(this.data, this.sample ? { host: this.dueBody } : undefined, {
+        filter: (t) => t.dueDate === todayStr(),
+        empty: 'All clear today',
+      }).mount(this.dueBody);
     }
-
-    const list = el('div', { class: 'dash-due-list' });
-    for (const t of due) {
-      const row = el('div', { class: 'dash-due-item' });
-      const dot = el('span', { class: 'dash-due-dot' });
-      dot.style.background = getCourseColor(t.course); // dot = course color
-      row.append(dot, el('span', { class: 'dash-due-title', text: t.title }));
-      if (t.dueTime) row.append(el('span', { class: 'dash-due-time', text: this.fmtTime(t.dueTime) }));
-      row.addEventListener('click', () => this.goToTab('tasks'));
-      list.append(row);
-    }
-    this.dueBox.append(list);
+    // A prefs change re-mounts the dashboard and rebuilds dueBox. RE-USE the same
+    // element and the same view: constructing a second one would add a second
+    // watchTasks subscription every time (Data has no unsubscribe).
+    this.dueBox.append(this.dueBody);
   }
 
   /** A "Refresh schedule" button that re-pulls the Schoology iCal on demand.
@@ -261,9 +266,5 @@ export class DashboardView {
       list.append(row);
     }
     this.scheduleBox.append(list);
-  }
-
-  private fmtTime(hhmm: string): string {
-    return formatTimeOfDay(hhmm); // honors the Time-format pref (12h/24h)
   }
 }

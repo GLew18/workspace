@@ -1,7 +1,7 @@
 {
-  "name": "WorkSpace",
-  "short_name": "WorkSpace",
-  "description": "The best Schoology alternative for Heschel students — assignments, focus, and links in one place.",
+  "name": "Cobalt",
+  "short_name": "Cobalt",
+  "description": "The best Schoology alternative for Heschel students: assignments, focus, and links in one place.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

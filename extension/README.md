@@ -1,13 +1,13 @@
-# WorkSpace Premium (companion extension)
+# Cobalt Premium (companion extension)
 
 A small MV3 Chrome/Edge extension that makes the keyboard shortcuts you set on
-the **Links** tab of the WorkSpace web app fire from **any tab in the browser**,
-not just while the WorkSpace tab is focused.
+the **Links** tab of the Cobalt web app fire from **any tab in the browser**,
+not just while the Cobalt tab is focused.
 
 The web app stays the single place you manage shortcuts. This extension just
 receives the list over a trusted-origin message channel, stores it, and runs one
 generic keydown matcher on every page. There is nothing to configure inside the
-extension and no "refresh" to click — changes you make in WorkSpace propagate
+extension and no "refresh" to click. Changes you make in Cobalt propagate
 live.
 
 ---
@@ -15,7 +15,7 @@ live.
 ## How it works (architecture)
 
 ```
-WorkSpace web app  ──(externally_connectable / postMessage bridge)──▶  background.js (SW)
+Cobalt web app  ──(externally_connectable / postMessage bridge)──▶  background.js (SW)
                                                                           │  writes
                                                                           ▼
                                                                  chrome.storage.local   ◀── source of truth
@@ -27,7 +27,7 @@ WorkSpace web app  ──(externally_connectable / postMessage bridge)──▶ 
 - **`manifest.json`** — MV3. Permissions: `storage`, `tabs`, `scripting` (the
   last is used by `background.js` to inject `content.js` into already-open tabs).
   `host_permissions: ["<all_urls>"]`. `externally_connectable.matches` lists the
-  exact WorkSpace origins allowed to message the service worker.
+  exact Cobalt origins allowed to message the service worker.
 - **`background.js`** — the service worker. Registers all listeners synchronously
   at top level (MV3 evicts idle workers after ~30s, so they must re-bind on
   wake). Handles `PING` → `PONG` (install/version detection) and
@@ -40,9 +40,9 @@ WorkSpace web app  ──(externally_connectable / postMessage bridge)──▶ 
   synchronous and works even when the worker is asleep) and stays live via
   `chrome.storage.onChanged`. On a matching `keydown` it `preventDefault`s and
   asks the worker to open the URL. It **ignores** typing targets and **ignores**
-  WorkSpace's own tab (the web app's in-app dispatcher handles that one), so
+  Cobalt's own tab (the web app's in-app dispatcher handles that one), so
   exactly one tab opens per press.
-- **`bridge.js`** — a tiny relay injected **only** on the WorkSpace origin(s) +
+- **`bridge.js`**: a tiny relay injected **only** on the Cobalt origin(s) +
   localhost. It announces the extension's id + version to the page and relays
   `window.postMessage` ⇄ `chrome.runtime`. This is the dev fallback (because
   `externally_connectable` to `http://localhost:5173` is unreliable) and the
@@ -54,22 +54,22 @@ WorkSpace web app  ──(externally_connectable / postMessage bridge)──▶ 
 
 ## Install for local development ("load unpacked")
 
-1. Run the WorkSpace dev server: `cd app && npm run dev` (serves
+1. Run the Cobalt dev server: `cd app && npm run dev` (serves
    `http://localhost:5173`).
 2. Open **`chrome://extensions`** (or **`edge://extensions`**).
 3. Toggle **Developer mode** on (top-right).
 4. Click **Load unpacked**.
 5. Select this **`extension/`** folder (the one containing `manifest.json`).
-6. The card shows **WorkSpace Premium** with an **ID** like
+6. The card shows **Cobalt Premium** with an **ID** like
    `abcdefghijklmnopabcdefghijklmnop`. **Copy that ID.**
 7. Tell the web app which extension you loaded, one of:
-   - In the WorkSpace tab's DevTools console:
+   - In the Cobalt tab's DevTools console:
      `localStorage.setItem('ws:extId', 'PASTE_THE_ID_HERE')` then reload, **or**
-   - Just reload the WorkSpace tab — `bridge.js` posts an `ANNOUNCE` with the id
+   - Just reload the Cobalt tab, and `bridge.js` posts an `ANNOUNCE` with the id
      automatically on localhost, so the app can detect + learn the id without you
      pasting anything.
-8. Open WorkSpace → **Links** tab → add a shortcut on a card. The banner should
-   read **"WorkSpace Premium extension connected."** Switch to another tab,
+8. Open Cobalt → **Links** tab → add a shortcut on a card. The banner should
+   read **"Cobalt Premium extension connected."** Switch to another tab,
    press the combo, and the link opens.
 
 Verify on the extension's **Details → Extension options** page (or the puzzle-piece
@@ -103,7 +103,7 @@ Shortcuts do **not** fire on `file://` URLs unless you enable
 
 ## Where shortcuts will and won't fire
 
-"Global" honestly means: normal websites in the browser, even when the WorkSpace
+"Global" honestly means: normal websites in the browser, even when the Cobalt
 tab is in the background. Shortcuts will **not** fire on:
 
 - `chrome://`, `edge://`, `about:` pages, and the New Tab page
@@ -162,7 +162,7 @@ depth. Prefer `Alt+letter` or `Ctrl+Shift+letter`.
 
 ## Privacy
 
-The extension stores only the shortcut config you set in WorkSpace
+The extension stores only the shortcut config you set in Cobalt
 (combo + URL + name) in local extension storage. It sends nothing to any server,
 makes no network requests, and reads no page content — `content.js` only listens
 for `keydown` and never inspects the page DOM.
@@ -178,5 +178,5 @@ node icons/make-icons.cjs
 ```
 
 It writes `icon16/32/48/128.png` (a gold laurel wreath + checkmark on a
-dark-blue tile, matching the WorkSpace theme). The script is a build helper and
+dark-blue tile, matching the Cobalt theme). The script is a build helper and
 is not loaded by the extension at runtime.

@@ -1,4 +1,4 @@
-// WorkSpace — display-name helpers.
+// Cobalt: display-name helpers.
 
 /** Capitalize the first letter of each word; leaves the rest as typed. "zach" → "Zach". */
 export function capitalizeName(input: string): string {

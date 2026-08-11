@@ -1,4 +1,4 @@
-// WorkSpace Premium — content script.
+// Cobalt Premium: content script.
 //
 // Runs at document_start on <all_urls>, all frames. This is the keydown hot path
 // and it must work COLD (the MV3 service worker may be asleep), so matching is
@@ -95,7 +95,7 @@
 
   // Seeded from chrome.storage.local and refreshed via storage.onChanged.
   let byCombo = Object.create(null); // { [combo]: { url, id, name } }
-  let ownOrigin = null; // wsConfig.origin — WorkSpace's own tab; in-app dispatcher owns it there.
+  let ownOrigin = null; // wsConfig.origin: Cobalt's own tab; in-app dispatcher owns it there.
 
   function applyStored(items) {
     const map = items && items.shortcutsByCombo;
@@ -131,18 +131,18 @@
 
   // ============================ keydown matcher ==============================
 
-  // Are we running inside WorkSpace's own tab? If so, the in-app dispatcher
+  // Are we running inside Cobalt's own tab? If so, the in-app dispatcher
   // handles shortcuts — bail to guarantee exactly one tab opens per press.
   // We compare the TOP-frame origin (window.top), falling back to this frame's
   // origin when cross-origin access throws.
-  function isWorkSpaceOwnTab() {
+  function isCobaltOwnTab() {
     if (!ownOrigin) return false;
     let topOrigin;
     try {
       topOrigin = window.top.location.origin;
     } catch (_e) {
       // Cross-origin top frame: this content script's frame is therefore NOT
-      // WorkSpace's top document, so it's not the "own tab" we must skip.
+      // Cobalt's top document, so it's not the "own tab" we must skip.
       return false;
     }
     return topOrigin === ownOrigin;
@@ -153,7 +153,7 @@
     (e) => {
       if (e.defaultPrevented) return;
       if (isTypingTarget(e.target)) return; // never hijack typing
-      if (isWorkSpaceOwnTab()) return; // WorkSpace tab — let the in-app dispatcher fire
+      if (isCobaltOwnTab()) return; // Cobalt tab: let the in-app dispatcher fire
 
       const combo = comboFromEvent(e);
       if (!combo) return;

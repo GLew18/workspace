@@ -1,4 +1,4 @@
-// WorkSpace — tiny DOM helpers.
+// Cobalt: tiny DOM helpers.
 
 type Attrs = Record<string, string | number | boolean | undefined>;
 

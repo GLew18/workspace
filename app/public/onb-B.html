@@ -1,18 +1,18 @@
-<title>WorkSpace — Onboarding B (Schoology integration)</title>
+<title>Cobalt: Onboarding B (Schoology integration)</title>
 <!-- Without this a phone lays the page out at ~980px and zooms out, so the
      max-width breakpoints below never fire. The real app already has it. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <style>
-  /* ============ WorkSpace tokens (ported from app/src/ui/theme.css) ============ */
+  /* ============ Cobalt tokens (ported from app/src/ui/theme.css) ============ */
   :root{
-    --bg0:#0f1c40; --bg1:#0a1430; --bg2:#070d20;
+    --bg0:#0e2457; --bg1:#091a43; --bg2:#07132e;
     --surface:#1a1a1a; --surface2:#141414;
     --text:rgba(255,255,255,.92); --dim:rgba(255,255,255,.52);
     --gold:#e6a817; --gold-glow:rgba(230,168,23,.3); --on-gold:#1a1206;
     --green:#27ae60; --red:#ef4444;
     --border:rgba(255,255,255,.08); --border-strong:rgba(255,255,255,.16);
     --radius:14px;
-    --sBG:#0d1526; --sP:#182338; --sP2:#22304f; /* scene palette (notifyGuides) */
+    --sBG:#0d1936; --sP:#1a2a4d; --sP2:#233a6c; /* scene palette (notifyGuides) */
     color-scheme:dark;
   }
   *{box-sizing:border-box}
@@ -26,7 +26,7 @@
     background:
       radial-gradient(1150px 720px at 82% -12%, rgba(230,168,23,.17), transparent 62%) fixed,
       radial-gradient(900px 720px at -6% 108%, rgba(64,152,215,.18), transparent 62%) fixed,
-      linear-gradient(165deg,#16295c 0%,#0d1a3d 46%,var(--bg2) 100%) fixed;
+      linear-gradient(165deg,#1c3474 0%,#11224f 46%,var(--bg2) 100%) fixed;
     color:var(--text);
     font-family:'Inter',system-ui,-apple-system,sans-serif;
     -webkit-font-smoothing:antialiased; line-height:1.45;
@@ -538,7 +538,7 @@
 'use strict';
 /* public/icons/icon.svg artwork, verbatim (tile removed) — the hero AND the
    auth card's wordmark-o both render THIS, so the brand is one drawing. */
-const ICON_ART = `<svg class="app-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="WorkSpace"><g transform="translate(60 60) scale(1.02) translate(-50 -49.75)" fill="#e6a817"><rect x="16" y="10" width="68" height="54" rx="12" fill="none" stroke="#e6a817" stroke-width="9"/><path d="M44 64 L56 64 L60 75 L40 75 Z"/><path fill-rule="evenodd" d="M23 75 L77 75 L87 94 L13 94 Z M23.99 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M32.2 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M40.4 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M48.6 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M56.8 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M65 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M73.21 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M21.89 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M29.52 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M37.15 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M44.78 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M52.42 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M60.05 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M67.68 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M75.31 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M19.78 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M26.99 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M34.19 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M41.4 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M48.6 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M55.8 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M63.01 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M70.21 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M77.42 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M17.68 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M24.55 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M31.42 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M38.29 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M45.16 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M52.04 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M58.91 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M65.78 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M72.65 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M79.52 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z"/></g></svg>`;
+const ICON_ART = `<svg class="app-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Cobalt"><g transform="translate(60 60) scale(1.02) translate(-50 -49.75)" fill="#e6a817"><rect x="16" y="10" width="68" height="54" rx="12" fill="none" stroke="#e6a817" stroke-width="9"/><path d="M44 64 L56 64 L60 75 L40 75 Z"/><path fill-rule="evenodd" d="M23 75 L77 75 L87 94 L13 94 Z M23.99 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M32.2 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M40.4 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M48.6 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M56.8 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M65 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M73.21 79 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M21.89 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M29.52 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M37.15 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M44.78 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M52.42 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M60.05 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M67.68 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M75.31 83 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M19.78 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M26.99 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M34.19 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M41.4 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M48.6 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M55.8 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M63.01 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M70.21 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M77.42 87 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M17.68 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M24.55 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M31.42 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M38.29 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M45.16 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M52.04 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M58.91 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M65.78 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M72.65 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z M79.52 91 a1.4 1.4 0 1 0 2.8 0 a1.4 1.4 0 1 0 -2.8 0 Z"/></g></svg>`;
 /* Schoology's real mark, inline so it needs no network. White disc included so
    it never shows a transparent halo on the navy background. */
 const SGY_LOGO = `<svg class="sgy-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Schoology"><circle cx="50" cy="50" r="47" fill="#fff"/><circle cx="50" cy="50" r="42.5" fill="none" stroke="#4BAFE8" stroke-width="9"/><text x="50" y="51" text-anchor="middle" dominant-baseline="central" font-family="Inter, Helvetica, Arial, sans-serif" font-size="56" font-weight="700" fill="#38383B">S</text></svg>`;
@@ -661,7 +661,7 @@ SCREENS.push({ build(el){ el.innerHTML = `
       ${ICON_ART}
     </div>
     <div class="welcome-eyebrow rise d1">welcome to</div>
-    <div class="wordmark rise d1">W<span class="o">o</span>rkSpace</div>
+    <div class="wordmark rise d1">C<span class="o">o</span>balt</div>
     <p class="sub rise d2" style="margin-top:16px">Your Schoology, organized — every assignment in one calm place.</p>
     <button class="cta rise d3" id="n">Let’s go</button>
   </div>`;
@@ -685,7 +685,7 @@ SCREENS.push({ build(el){ el.innerHTML = `
       </div>
     </div>
     <h1 class="rise d1">Every assignment <span class="g">imports itself</span></h1>
-    <p class="sub rise d2">WorkSpace connects to Schoology and turns your coursework into a clean task list — sorted by class, automatically, forever.</p>
+    <p class="sub rise d2">Cobalt connects to Schoology and turns your coursework into a clean task list, sorted by class, automatically, forever.</p>
     <button class="cta rise d3" id="n">Continue</button>
   </div>`;
   el.querySelector('#n').addEventListener('click',()=>go(state.i+1));
@@ -693,7 +693,7 @@ SCREENS.push({ build(el){ el.innerHTML = `
 
 /* ============================================================ 4 · connect */
 /* Schoology is an INTEGRATION, not a link the student has to go find: one tap
-   authorizes, WorkSpace reads the account, and the courses it discovers become
+   authorizes, Cobalt reads the account, and the courses it discovers become
    the next screen. No iCal URL is ever shown — that plumbing is invisible now. */
 SCREENS.push({ build(el){
   el.innerHTML = `
@@ -890,7 +890,7 @@ SCREENS.push({ build(el){
   el.innerHTML = `
   <div class="sc">
     <h1 class="rise">What should we <span class="g">call you</span>?</h1>
-    <p class="sub rise d1">This is the name WorkSpace greets you with.</p>
+    <p class="sub rise d1">This is the name Cobalt greets you with.</p>
     <div style="width:100%;max-width:420px;margin-top:30px" class="rise d2">
       <input class="name-input" id="nameIn" value="${esc(state.name)}" placeholder="Your first name"
              autocomplete="given-name" spellcheck="false">
@@ -907,7 +907,7 @@ SCREENS.push({ build(el){
   const tidy = s => s.trim().replace(/^\p{L}/u, ch => ch.toUpperCase());
   const submit = ()=>{
     const v = tidy(inp.value);
-    if(!v){ err.textContent='Enter a name so WorkSpace knows what to call you.'; inp.focus(); return; }
+    if(!v){ err.textContent='Enter a name so Cobalt knows what to call you.'; inp.focus(); return; }
     state.name = v; go(state.i+1);
   };
   el.querySelector('#n').addEventListener('click',submit);
@@ -952,7 +952,7 @@ SCREENS.push({
         <h1>You’re in, ${esc(state.name)}!</h1>
         <p class="sub">${IMPORTED.length} assignments imported, sorted into your courses.</p>
         ${rows}
-        <button class="cta" id="enter" style="margin-top:30px">Enter WorkSpace</button>`;
+        <button class="cta" id="enter" style="margin-top:30px">Enter Cobalt</button>`;
       sc.querySelector('#enter').addEventListener('click',restart);
       document.getElementById('fill').style.width = '100%'; lastPct = 100;
       // confetti burst — completion and reward land as one moment

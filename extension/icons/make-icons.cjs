@@ -1,9 +1,13 @@
+// SUPERSEDED 8/10/26: the extension icons are now the COBALT GEM on the gold
+// tile, rasterized in-browser from extension/icons/icon.svg (see that file).
+// This monitor-glyph generator is kept for history only; running it would
+// overwrite the gem PNGs with the retired monitor artwork. Do not run it.
 // Generates the extension's PNG icons (16/32/48/128) with no external deps.
 //
-// Draws the WorkSpace computer-monitor logo — the SAME mark as the web app's
+// Draws the Cobalt computer-monitor logo, the SAME mark as the web app's
 // favicon (app/public/icons/icon.svg) — but COLOR-INVERTED: a gold (#e6a817)
 // rounded-square tile with the monitor (screen frame, neck, perforated base)
-// rendered in dark navy (#0e1730). The favicon is gold-on-navy; the extension
+// rendered in dark navy (#0b1733). The favicon is gold-on-navy; the extension
 // is its exact inverse, navy-on-gold, so the two read as a matched pair.
 //
 // Pure-Node: a tiny software rasterizer + a zlib-backed PNG encoder. The monitor
@@ -112,7 +116,7 @@ function fillSS(cv, paint, ss) {
 
 // --------------------------- colors (inverse of favicon) -------------------
 const GOLD = [230, 168, 23]; // #e6a817 — tile background (was the favicon's mark)
-const NAVY = [14, 23, 48]; //   #0e1730 — the monitor (was the favicon's tile)
+const NAVY = [11, 23, 51]; //   #0b1733 — the monitor (was the favicon's tile)
 
 // ------------------------- geometry (from icon.svg) ------------------------
 // The favicon draws its mark inside a group transformed by

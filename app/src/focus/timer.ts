@@ -1,4 +1,4 @@
-// WorkSpace — focus audio + time helpers (spec §8.2).
+// Cobalt: focus audio + time helpers (spec §8.2).
 //
 // The AudioContext is created during the START click (a user gesture) and reused,
 // so the completion fanfare can fire later without a fresh gesture.

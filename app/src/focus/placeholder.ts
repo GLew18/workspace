@@ -1,4 +1,4 @@
-// WorkSpace — Focus tab placeholder (full implementation lands in Phase 4).
+// Cobalt: Focus tab placeholder (full implementation lands in Phase 4).
 
 import { el } from '../util/dom';
 

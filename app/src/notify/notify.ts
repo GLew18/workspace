@@ -1,7 +1,7 @@
-// WorkSpace — notification plumbing (assignment reminders).
+// Cobalt: notification plumbing (assignment reminders).
 //
 // Device-local system notifications via the Web Notifications API. They fire while
-// WorkSpace is OPEN (a tab or the installed PWA) — true push-while-closed needs a
+// Cobalt is OPEN (a tab or the installed PWA). True push-while-closed needs a
 // server (Firebase Cloud Messaging) and comes with hosting later.
 //
 // The LEDGER is the important part: every notification has a stable key recorded in
@@ -46,6 +46,14 @@ export interface NotifySettings {
    *  ordinary tasks. Gates every task-driven reminder at once (due-soon, daily
    *  agenda, tomorrow preview) since they all read the same task list. */
   notifyDuplicates: boolean;
+  /** Collapse a BURST into one summary (Gabe, 8/10). Bulk actions can make many
+   *  reminders come due at the same instant: move twelve tasks onto today, or
+   *  create a batch of them, and twelve pop-ups (and twelve emails) fire back to
+   *  back. With this on, the first few arrive normally and the rest are folded
+   *  into a single "N more reminders" message. ON by default: the storm is
+   *  never what anyone wants, and nothing is lost, the 🔔 log still lists each
+   *  one individually. */
+  groupBursts: boolean;
   // Each notification carries its OWN Popup/Gmail choice (the per-card grid). A pop-up
   // fires iff its popup channel is on (and the browser granted permission); an email
   // fires iff its gmail channel is on (and the account has an email). Config fields
@@ -61,6 +69,7 @@ export const DEFAULT_NOTIFY_SETTINGS: NotifySettings = {
   master: { popup: false, gmail: false }, // derived — see normalizeNotifySettings
   appearance: { course: true, priority: false, dueTime: true },
   notifyDuplicates: false, // OFF by default, per Gabe
+  groupBursts: true, // ON by default: a storm of pop-ups is never wanted
   // Popup defaults on for the core reminders — still inert until the user grants the
   // browser permission (the real opt-in). Gmail is opt-in per card + confirmation.
   dueSoon: { channels: { popup: true, gmail: false }, leads: [60] },
@@ -91,6 +100,7 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
     master: { ...d.master },
     appearance: { ...d.appearance },
     notifyDuplicates: d.notifyDuplicates,
+    groupBursts: d.groupBursts,
     dueSoon: { channels: { ...d.dueSoon.channels }, leads: [...d.dueSoon.leads] },
     dailyAgenda: { channels: { ...d.dailyAgenda.channels }, hour: d.dailyAgenda.hour, minute: d.dailyAgenda.minute },
     tomorrow: { channels: { ...d.tomorrow.channels }, hour: d.tomorrow.hour, minute: d.tomorrow.minute },
@@ -112,6 +122,7 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
   if (ap && typeof ap === 'object') out.appearance = { course: ap.course ?? d.appearance.course, priority: ap.priority ?? d.appearance.priority, dueTime: ap.dueTime ?? d.appearance.dueTime };
   // Boolean, so `?? default` (not `||`) — a stored `false` must survive the read.
   if (typeof r.notifyDuplicates === 'boolean') out.notifyDuplicates = r.notifyDuplicates;
+  if (typeof r.groupBursts === 'boolean') out.groupBursts = r.groupBursts;
   const ds = r.dueSoon as { leads?: unknown } | undefined;
   if (ds) { const leads = Array.isArray(ds.leads) ? ds.leads.filter((n): n is number => typeof n === 'number') : []; if (leads.length) out.dueSoon.leads = leads; }
   const da = r.dailyAgenda as { hour?: unknown; minute?: unknown } | undefined;
@@ -289,12 +300,98 @@ export function setEmailAddress(address: string): void {
 /** Deliver a notification on the requested channels. `popup` shows a browser pop-up
  *  (only when permission is granted); `gmail` sends an email (only when an address +
  *  sender are wired). The caller decides the channels (master cap × the notification's
- *  own choice); the two are independent. Clicking the pop-up focuses WorkSpace, then
+ *  own choice); the two are independent. Clicking the pop-up focuses Cobalt, then
  *  runs `onClick` (e.g. jump to the Tasks tab). */
+// --- burst grouping (NotifySettings.groupBursts) -----------------------------
+//
+// A bulk action can make many reminders come due in the same instant: drop
+// twelve tasks onto today, and twelve pop-ups and twelve emails fire back to
+// back. The rule (Gabe, 8/10) is ONE interruption for the whole burst, not a
+// few individual ones plus a summary: everything that fires together becomes a
+// single "Due soon: multiple assignments" naming every task.
+//
+// So every notification is held for one short quiet gap. When the gap closes,
+// a lone notification goes out exactly as it always did (the delay is
+// imperceptible and nothing is reworded), and two or more become the combined
+// one. The 🔔 log still records each notification separately, so the history
+// is complete and only the interruption is merged.
+const BURST_FLUSH_MS = 1_200; // quiet gap that closes a burst
+
+interface Queued {
+  title: string;
+  body: string;
+  /** The bare task name, when the caller has one. The combined message lists
+   *  THESE, not the titles: a title reads "Due soon: Lab report", and repeating
+   *  that phrase down a comma-separated list under a heading that already says
+   *  "Due soon" was the ugly part (Gabe, 8/10). */
+  name?: string;
+  popup: boolean;
+  gmail: boolean;
+  onClick?: () => void;
+}
+let burstQueue: Queued[] = [];
+let burstTimer: number | null = null;
+let burstGrouping = true; // mirrors NotifySettings.groupBursts
+
+/** Point the burst grouper at the current setting (called wherever settings load). */
+export function setBurstGrouping(on: boolean): void {
+  burstGrouping = on;
+}
+
+/** Close the burst: one notification either way. */
+function flushBurst(): void {
+  burstTimer = null;
+  const q = burstQueue;
+  burstQueue = [];
+  if (!q.length) return;
+  if (q.length === 1) {
+    // A lone reminder is itself, untouched (deliver() logs it).
+    deliver(q[0].title, q[0].body, q[0]);
+    return;
+  }
+  // Many at once → ONE interruption listing them all. Each is logged
+  // individually first, so the 🔔 screen still shows the real history; the
+  // combined message is the delivery, not a log entry of its own.
+  for (const item of q) {
+    logNotification({ title: item.title, body: item.body, popup: item.popup, gmail: item.gmail });
+  }
+  // Body = the task NAMES, nothing else. The heading carries "Due soon" once.
+  deliver(
+    'Due soon: multiple assignments',
+    q.map((i) => i.name || i.title).join(', '),
+    { popup: q.some((i) => i.popup), gmail: q.some((i) => i.gmail) },
+    false // already logged, per item
+  );
+}
+
 export function sendNotification(
   title: string,
   body: string,
-  opts: { popup?: boolean; gmail?: boolean; onClick?: () => void } = {}
+  opts: { popup?: boolean; gmail?: boolean; name?: string; onClick?: () => void } = {}
+): void {
+  if (!burstGrouping) {
+    deliver(title, body, opts);
+    return;
+  }
+  burstQueue.push({
+    title,
+    body,
+    name: opts.name,
+    popup: !!opts.popup,
+    gmail: !!opts.gmail,
+    onClick: opts.onClick,
+  });
+  if (burstTimer !== null) clearTimeout(burstTimer);
+  burstTimer = window.setTimeout(flushBurst, BURST_FLUSH_MS);
+}
+
+/** The actual delivery: pop-up, email, and (unless the caller already did it
+ *  per item) the log entry. */
+function deliver(
+  title: string,
+  body: string,
+  opts: { popup?: boolean; gmail?: boolean; onClick?: () => void } = {},
+  log = true
 ): void {
   if (opts.popup) {
     try {
@@ -328,7 +425,7 @@ export function sendNotification(
   // app (scheduler reminders and focus-session cues alike) passes through, so
   // logging here can't miss one or double-count a pop-up + email pair.
   const shown = !!opts.popup && notificationsSupported() && Notification.permission === 'granted';
-  if (shown || emailed) logNotification({ title, body, popup: shown, gmail: emailed });
+  if (log && (shown || emailed)) logNotification({ title, body, popup: shown, gmail: emailed });
 }
 
 // --- sent-ledger (SHARED with the Cloud Function) ---------------------------

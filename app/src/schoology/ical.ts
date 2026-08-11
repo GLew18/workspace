@@ -1,4 +1,4 @@
-// WorkSpace — Schoology iCal feed parser.
+// Cobalt: Schoology iCal feed parser.
 //
 // Schoology's personal calendar feed is a flat ICS dump. Each VEVENT carries only:
 //   UID, DTSTART, DTEND, SUMMARY, DESCRIPTION, URL — no course/teacher/room fields.

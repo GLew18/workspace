@@ -1,6 +1,6 @@
 {
-  "name": "workspace-functions",
-  "description": "WorkSpace Cloud Functions — closed-app assignment reminders via FCM",
+  "name": "cobalt-functions",
+  "description": "Cobalt Cloud Functions: closed-app assignment reminders via FCM",
   "main": "index.js",
   "engines": {
     "node": "22"

@@ -1,4 +1,4 @@
-// WorkSpace — the endless number wheel (carousel column). One implementation,
+// Cobalt: the endless number wheel (carousel column). One implementation,
 // shared by the Focus setup's H:M:S length picker, the in-session custom add/trim
 // popup, and the landing demo's custom picker — so every wheel in the app scrolls,
 // snaps and loops identically.

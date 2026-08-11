@@ -1,4 +1,4 @@
-/* WorkSpace: first-run onboarding deck.
+/* Cobalt: first-run onboarding deck.
  *
  * Ported from the onb-A prototype (app/public/onb-A.html). Everything here is
  * scoped under `.onb-deck` so the deck's generic names (.sc, .cta, .visual…)
@@ -23,9 +23,9 @@
   overflow: hidden;
   color: var(--text);
   background:
-    radial-gradient(1150px 720px at 82% -12%, rgba(230, 168, 23, 0.17), transparent 62%) fixed,
+    radial-gradient(1150px 720px at 82% -12%, rgba(125, 180, 255, 0.17), transparent 62%) fixed,
     radial-gradient(900px 720px at -6% 108%, rgba(64, 152, 215, 0.18), transparent 62%) fixed,
-    linear-gradient(165deg, #16295c 0%, #0d1a3d 46%, #070d20 100%) fixed;
+    linear-gradient(165deg, #14337c 0%, #0c2254 46%, #07132e 100%) fixed;
 }
 /* A fine dot grid over the field: barely visible alone, but it's what the eye
    registers as texture. Masked so it fades out down the page. */
@@ -50,7 +50,7 @@
 .onb-orb.a {
   width: 420px;
   height: 420px;
-  background: rgba(230, 168, 23, 0.07);
+  background: rgba(125, 180, 255, 0.07);
   top: -120px;
   right: -100px;
   animation: onb-orbA 22s ease-in-out infinite alternate;
@@ -87,7 +87,7 @@
 .onb-fill {
   height: 100%;
   width: 14%;
-  background: linear-gradient(90deg, var(--gold), #f2bb33);
+  background: linear-gradient(90deg, var(--gold), #a5cdff);
   box-shadow: 0 0 12px var(--gold-glow);
   transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
@@ -183,7 +183,7 @@
     linear-gradient(180deg, rgba(23, 35, 68, 0.72), rgba(12, 19, 42, 0.66)) padding-box,
     linear-gradient(
         135deg,
-        rgba(230, 168, 23, 0.55),
+        rgba(125, 180, 255, 0.55),
         rgba(255, 255, 255, 0.1) 42%,
         rgba(64, 152, 215, 0.42)
       )
@@ -233,7 +233,7 @@
   font-weight: 750;
   font-size: 15.5px;
   padding: 15px 24px;
-  box-shadow: 0 10px 30px rgba(230, 168, 23, 0.25);
+  box-shadow: 0 10px 30px rgba(125, 180, 255, 0.25);
   transition: filter 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
   position: relative;
   overflow: hidden;
@@ -259,7 +259,7 @@
 }
 .onb-cta:hover {
   filter: brightness(1.06);
-  box-shadow: 0 12px 36px rgba(230, 168, 23, 0.35);
+  box-shadow: 0 12px 36px rgba(125, 180, 255, 0.35);
 }
 .onb-cta:active {
   transform: scale(0.98);
@@ -489,7 +489,7 @@
   top: -90px;
   pointer-events: none;
   opacity: 0;
-  background: linear-gradient(180deg, transparent, rgba(230, 168, 23, 0.22), transparent);
+  background: linear-gradient(180deg, transparent, rgba(125, 180, 255, 0.22), transparent);
 }
 .onb-stage.scanning .onb-beam {
   opacity: 1;
@@ -575,7 +575,7 @@
 }
 .onb-help:hover {
   border-color: var(--gold);
-  box-shadow: 0 6px 24px rgba(230, 168, 23, 0.15);
+  box-shadow: 0 6px 24px rgba(125, 180, 255, 0.15);
 }
 .onb-help-play {
   width: 30px;
@@ -588,7 +588,7 @@
   justify-content: center;
   font-size: 12px;
   flex: none;
-  box-shadow: 0 4px 14px rgba(230, 168, 23, 0.4);
+  box-shadow: 0 4px 14px rgba(125, 180, 255, 0.4);
 }
 .onb-help-mins {
   margin-left: auto;
@@ -599,7 +599,7 @@
 }
 
 /* ==================== the iCal slideshow (icalGuide.ts) ====================
-   The player chrome is WorkSpace-dark; the SCENES inside are Schoology-light
+   The player chrome is Cobalt-dark; the SCENES inside are Schoology-light
    on purpose (see the fidelity note at the top of icalGuide.ts). Sits above
    the deck (z 200). */
 .onb-sso {
@@ -607,7 +607,7 @@
   inset: 0;
   z-index: 300;
   display: flex;
-  background: rgba(4, 8, 20, 0.78);
+  background: rgba(3, 8, 21, 0.78);
   backdrop-filter: blur(4px);
   align-items: center;
   justify-content: center;

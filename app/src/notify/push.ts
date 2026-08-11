@@ -1,7 +1,7 @@
-// WorkSpace — push notifications (closed-app reminders) via Firebase Cloud Messaging.
+// Cobalt: push notifications (closed-app reminders) via Firebase Cloud Messaging.
 //
 // THE DIVISION OF LABOR:
-//   • While WorkSpace is OPEN, src/notify/scheduler.ts fires reminders locally.
+//   • While Cobalt is OPEN, src/notify/scheduler.ts fires reminders locally.
 //   • While it's CLOSED, the Cloud Function in app/functions/ sends the same
 //     reminders through FCM → the service worker (public/sw.js 'push' handler)
 //     shows them, and a click opens the app at /#tasks.

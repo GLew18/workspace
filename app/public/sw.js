@@ -1,4 +1,4 @@
-// WorkSpace service worker — PUSH NOTIFICATIONS ONLY (no asset caching).
+// Cobalt service worker: PUSH NOTIFICATIONS ONLY (no asset caching).
 //
 // Caching was intentionally removed: the old shell cache kept serving stale app code
 // during active development (a hard reload doesn't clear a service worker), which
@@ -31,7 +31,7 @@ self.addEventListener('push', (event) => {
     /* non-JSON push — ignore */
   }
   const data = d.data || d.notification || d;
-  const title = data.title || 'WorkSpace';
+  const title = data.title || 'Cobalt';
   const body = data.body || '';
   event.waitUntil(
     self.registration.showNotification(title, {
@@ -43,7 +43,7 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// Clicking the notification focuses an open WorkSpace window (Tasks tab), or opens one.
+// Clicking the notification focuses an open Cobalt window (Tasks tab), or opens one.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const url = (event.notification.data && event.notification.data.url) || '/#tasks';

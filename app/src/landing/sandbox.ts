@@ -1,4 +1,4 @@
-// WorkSpace — landing-page sandbox.
+// Cobalt: landing-page sandbox.
 //
 // The landing showcases the REAL app views (Tasks, Bookmarks, Dashboard) running
 // live, so a visitor can click, edit, check off, add — everything a signed-in user

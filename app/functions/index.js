@@ -1,6 +1,6 @@
-// WorkSpace — Cloud Function: closed-app reminders (push + email).
+// Cobalt Cloud Function: closed-app reminders (push + email).
 //
-// While WorkSpace is OPEN, src/notify/scheduler.ts fires reminders locally. While
+// While Cobalt is OPEN, src/notify/scheduler.ts fires reminders locally. While
 // it's CLOSED, THIS function runs every 5 minutes and delivers the same TIME-BASED
 // reminders through two channels:
 //   • PUSH   → admin.messaging().send() → the service worker (public/sw.js 'push'
@@ -27,7 +27,7 @@
 // twice whenever a tab was open.
 //
 // TIMEZONE: dueDate/dueTime are the student's local wall time with no zone info.
-// Every WorkSpace user is a Heschel student, so we evaluate in America/New_York.
+// Every Cobalt user is a Heschel student, so we evaluate in America/New_York.
 
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const admin = require('firebase-admin');
@@ -111,10 +111,10 @@ function reminderBody(t, remaining, a, sameDay, untimed) {
 function mailDoc(to, subject, body) {
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const html =
-    `<div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:15px;color:#1a2233;line-height:1.5">` +
+    `<div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:15px;color:#212c42;line-height:1.5">` +
     `<p style="margin:0 0 6px;font-weight:600;font-size:16px">${esc(subject)}</p>` +
     `<p style="margin:0;color:#4a5568">${esc(body)}</p>` +
-    `<p style="margin:18px 0 0;font-size:12px;color:#94a3b8">Sent by WorkSpace · manage in Settings ▸ Notifications</p>` +
+    `<p style="margin:18px 0 0;font-size:12px;color:#94a3b8">Sent by Cobalt · manage in Settings ▸ Notifications</p>` +
     `</div>`;
   return { to: [to], message: { subject, text: body, html } };
 }
@@ -300,7 +300,7 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
       const dueToday = tasks.filter((t) => t && !t.completed && t.dueDate === today);
       if (dueToday.length && nowMin >= view.agHour * 60 + view.agMinute) {
         const n = dueToday.length;
-        fire(`agenda|${today}`, `Good morning — ${n} task${n === 1 ? '' : 's'} due today`, 'Open WorkSpace to see them.', view.dailyAgenda);
+        fire(`agenda|${today}`, `Good morning, ${n} task${n === 1 ? '' : 's'} due today`, 'Open Cobalt to see them.', view.dailyAgenda);
       }
     }
 
@@ -309,7 +309,7 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
       const dueTmr = tasks.filter((t) => t && !t.completed && t.dueDate === tomorrow);
       if (dueTmr.length && nowMin >= (view.tmHour + 12) * 60 + view.tmMinute) {
         const n = dueTmr.length;
-        fire(`tomorrow|${today}`, `Heads-up — ${n} task${n === 1 ? '' : 's'} due tomorrow`, 'Open WorkSpace to plan ahead.', view.tomorrow);
+        fire(`tomorrow|${today}`, `Heads-up: ${n} task${n === 1 ? '' : 's'} due tomorrow`, 'Open Cobalt to plan ahead.', view.tomorrow);
       }
     }
 
@@ -344,12 +344,12 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
 });
 
 // ---------------------------------------------------------------------------
-// AUTH EMAILS — password reset + email verification, sent as WorkSpace.
+// AUTH EMAILS: password reset + email verification, sent as Cobalt.
 //
 // WHY THIS EXISTS: Firebase's built-in auth mailer sends from a shared,
 // unbrandable sender, and those messages were landing in Gabe's spam while the
 // reminder emails from the Trigger Email extension were landing in Primary. So
-// auth mail now takes the SAME route as every other WorkSpace email: this
+// auth mail now takes the SAME route as every other Cobalt email: this
 // generates the action link with the Admin SDK and writes a branded doc to the
 // `mail` collection the extension already watches.
 //
@@ -408,8 +408,15 @@ const WORDMARK_FLAT = true;
 const WORDMARK_FULL_B64 = require('fs')
   .readFileSync(require('path').join(__dirname, 'wordmark-full.b64'), 'utf8')
   .trim();
-const WORDMARK_FULL_W = 123;
-const WORDMARK_FULL_H = 32;
+// 8/10: regenerated for the Cobalt rebrand, then AGAIN when the gem replaced
+// the monitor app-wide. Rasterized from the LIVE lockup in Chrome (Inter 700
+// via canvas + the exact laurel.ts gem SVG with its 0.92 in-slot scale,
+// geometry measured off a real .ws-mark DOM probe at margin -0.05em /
+// translateY 0.09em), 2x on the card navy #121f40, tight-cropped. Raster
+// 187x50 → displayed at half size below. wordmark-o.b64 is now the gem glyph
+// (64px, transparent) for the split-text fallback path.
+const WORDMARK_FULL_W = 94;
+const WORDMARK_FULL_H = 26;
 
 /** The branded HTML both auth emails share. */
 function authMailDoc(to, kind, link) {
@@ -427,10 +434,10 @@ function authMailDoc(to, kind, link) {
   const isVerify = kind === 'verify';
   const isSet = kind === 'set';
   const subject = isVerify
-    ? 'Verify your email for WorkSpace'
+    ? 'Verify your email for Cobalt'
     : isSet
-      ? 'Set your WorkSpace password'
-      : 'Reset your WorkSpace password';
+      ? 'Set your Cobalt password'
+      : 'Reset your Cobalt password';
   const heading = isVerify ? 'Verify your email' : isSet ? 'Set a password' : 'Reset your password';
   const blurb = isVerify
     ? 'Tap the button to confirm this address so your password keeps working.'
@@ -439,15 +446,15 @@ function authMailDoc(to, kind, link) {
       : 'Tap the button to choose a new password. The link works once and expires in an hour.';
   const cta = isVerify ? 'Verify email' : isSet ? 'Set password' : 'Reset password';
   const ignore = isVerify
-    ? 'Didn’t sign up for WorkSpace? You can ignore this email.'
+    ? 'Didn’t sign up for Cobalt? You can ignore this email.'
     : isSet
       ? 'Didn’t ask for this? Ignore this email — your account keeps working with Google exactly as it does now.'
       : 'Didn’t ask for this? Ignore this email and your password stays exactly as it is.';
 
-  const text = `${heading}\n\n${blurb}\n\n${link}\n\n${ignore}\n\nWorkSpace`;
+  const text = `${heading}\n\n${blurb}\n\n${link}\n\n${ignore}\n\nCobalt`;
   const html =
-    `<div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#0b1220;padding:32px 16px">` +
-    `<div style="max-width:480px;margin:0 auto;background:#111a2e;border:1px solid #22304d;border-radius:16px;padding:32px 28px">` +
+    `<div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#0c152e;padding:32px 16px">` +
+    `<div style="max-width:480px;margin:0 auto;background:#121f40;border:1px solid #233869;border-radius:16px;padding:32px 28px">` +
     // The wordmark. ONE FLAT IMAGE by default; flip WORDMARK_FLAT (above) to false
     // to bring back live text with the icon inlined between the letters.
     //
@@ -456,15 +463,15 @@ function authMailDoc(to, kind, link) {
     // icon DOWN, currently -8px). Do NOT use `position:relative; top:` there —
     // Gmail strips `position` outright, the offset vanishes, and the icon jumps
     // back to baseline, which sits too high. That shipped once and looked worse
-    // than the bug it was meant to fix. The asymmetric margin compensates for
-    // Gmail substituting Segoe UI/Arial for Inter, whose W has a wider right
-    // sidebearing.
+    // than the bug it was meant to fix. The asymmetric margin was measured against
+    // the OLD "W" first glyph in Gmail's Segoe UI/Arial fallback; the first glyph
+    // is now "C", so re-measure before trusting it (unverified for C).
     (WORDMARK_FLAT
-      ? `<img src="cid:wsmark" width="${WORDMARK_FULL_W}" height="${WORDMARK_FULL_H}" alt="WorkSpace" ` +
+      ? `<img src="cid:wsmark" width="${WORDMARK_FULL_W}" height="${WORDMARK_FULL_H}" alt="Cobalt" ` +
         `style="display:block;width:${WORDMARK_FULL_W}px;height:${WORDMARK_FULL_H}px;margin:0 0 22px">`
       : `<div style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.01em;margin:0 0 22px;white-space:nowrap">` +
-        `W<img src="cid:wsmark" width="22" height="22" alt="o" ` +
-        `style="width:22px;height:22px;vertical-align:-8px;margin:0 -0.44px 0 -0.22px;background:#111a2e">rkSpace</div>`) +
+        `C<img src="cid:wsmark" width="22" height="22" alt="o" ` +
+        `style="width:22px;height:22px;vertical-align:-8px;margin:0 -0.44px 0 -0.22px;background:#121f40">balt</div>`) +
     `<h1 style="margin:0 0 10px;font-size:19px;font-weight:700;color:#f4f7ff">${heading}</h1>` +
     `<p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#9fb0cc">${blurb}</p>` +
     `<a href="${link}" style="display:inline-block;background:#e6a817;color:#1a1206;text-decoration:none;` +
@@ -481,7 +488,7 @@ function authMailDoc(to, kind, link) {
       html,
       attachments: [
         {
-          filename: 'workspace.png',
+          filename: 'cobalt.png',
           content: WORDMARK_FLAT ? WORDMARK_FULL_B64 : WORDMARK_O_B64,
           encoding: 'base64',
           cid: 'wsmark', // matches src="cid:wsmark" above

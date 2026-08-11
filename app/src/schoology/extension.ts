@@ -1,4 +1,4 @@
-// WorkSpace — Schoology-extension client + course-label store.
+// Cobalt: Schoology-extension client + course-label store.
 //
 // The iCal feed has NO course names, so imported tasks get their course from a
 // heuristic guess — the app's biggest credibility risk. The companion extension
@@ -97,7 +97,7 @@ function getChromeRuntime(): ChromeRuntimeLike | undefined {
 // #endregion
 
 // #region Transport — detect + request/response with the extension
-/** True when the WorkSpace companion extension answers a ping. Same extension as
+/** True when the Cobalt companion extension answers a ping. Same extension as
  *  shortcuts, so this simply reuses its detector (ping/pong over both channels,
  *  5s positive cache). Never throws; absent/blocked chrome APIs → false. */
 export async function detectSchoologyExtension(timeoutMs?: number): Promise<boolean> {

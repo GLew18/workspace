@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cobalt wordmark, Option B: cobalt stone</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    /* the app's REAL background: theme.css body gradient, verbatim */
+    background: linear-gradient(165deg, #0f1c40 0%, #0a1430 50%, #070d20 100%) fixed;
+    min-height: 100vh;
+    color: rgba(255, 255, 255, 0.9);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.45;
+    padding: 40px 32px 80px;
+  }
+  main { max-width: 900px; margin: 0 auto; }
+
+  h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+  .sub { color: rgba(255,255,255,0.5); font-size: 13px; margin: 0 0 36px; }
+  h2 {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: rgba(255,255,255,0.45);
+    margin: 44px 0 14px;
+  }
+
+  /* ============================================================
+     Wordmark styling: cloned 1:1 from app/src/ui/components.css
+     (.ws-mark / .ws-mark-text / .ws-mon), renamed cb-* here.
+     Gabe's 8/10 revision: gem RAISED (translateY 0.13em, was 0.2em)
+     and TUCKED TIGHTER (margin 0 -0.05em, was -0.02em).
+     ============================================================ */
+  .cb-mark {
+    display: inline-flex;
+    align-items: center;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 34px;              /* real topbar size */
+    letter-spacing: -0.01em;
+    color: #ffffff;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .cb-mark-text { color: #ffffff; }
+  .cb-stone {
+    height: 1em;                  /* same slot the monitor occupies */
+    width: auto;                  /* square viewBox, so width = 1em */
+    display: inline-block;
+    margin: 0 -0.05em;            /* tighter to C and b (was -0.02em) */
+    transform: translateY(0.09em);/* raised again per 8/10 round 2 (monitor sits at 0.2em) */
+  }
+  .cb-mark.display { font-size: 110px; }
+
+  /* framing chrome for the demos (not part of the wordmark) */
+  .topbar-mock {
+    display: flex; align-items: center;
+    padding: 12px 18px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.02);
+  }
+  .topbar-mock .fake-menu {
+    width: 22px; height: 22px; margin-right: 14px; flex: none;
+    color: rgba(255,255,255,0.7);
+  }
+  .stage {
+    display: flex; align-items: center; justify-content: center;
+    padding: 56px 24px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.02);
+  }
+  .note { font-size: 12.5px; color: rgba(255,255,255,0.5); margin: 10px 2px 0; }
+
+  table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;
+    overflow: hidden;
+  }
+  th, td {
+    text-align: left; padding: 9px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    vertical-align: top;
+  }
+  th { color: rgba(255,255,255,0.5); font-weight: 600; width: 34%; }
+  td code, p code {
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+    background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 5px;
+  }
+  pre {
+    background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: rgba(255,255,255,0.85);
+  }
+</style>
+</head>
+<body>
+<main>
+
+  <h1>Cobalt wordmark, Option B: the "o" is a cobalt stone</h1>
+  <p class="sub">Round cushion-cut gem (modeled on a real cobalt-blue sapphire): radial body light, translucent facets, specular sparkles. Raised 0.07em and tucked 0.03em tighter per Gabe's 8/10 feedback.</p>
+
+  <!-- Shared gem artwork: defined ONCE, referenced by every instance below. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <!-- Round cushion outline, the "o" body -->
+      <clipPath id="cbClip"><rect x="9" y="9" width="82" height="82" rx="31" ry="31"/></clipPath>
+      <!-- Body light: bright cerulean upper-left falling to deep navy lower-right -->
+      <radialGradient id="cbBody" cx="36%" cy="30%" r="88%">
+        <stop offset="0%"  stop-color="#8cc0ff"/>
+        <stop offset="38%" stop-color="#3d7fe8"/>
+        <stop offset="68%" stop-color="#0b46b0"/>
+        <stop offset="100%" stop-color="#032154"/>
+      </radialGradient>
+      <!-- The luminous patch cobalt gems glow with, low-left of center -->
+      <radialGradient id="cbGlow" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#7db4ff" stop-opacity="0.55"/>
+        <stop offset="100%" stop-color="#7db4ff" stop-opacity="0"/>
+      </radialGradient>
+      <!-- Top-left window-light sheen -->
+      <linearGradient id="cbSheen" x1="0%" y1="0%" x2="70%" y2="70%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.48"/>
+        <stop offset="42%" stop-color="#ffffff" stop-opacity="0"/>
+      </linearGradient>
+      <!-- Round 2 (Gabe 8/10): whole gem scaled to 0.92 inside its slot (slightly
+           smaller), girdle rim REMOVED (read as a light-blue border). -->
+      <g id="cbGem" transform="rotate(-8 50 50) translate(50 50) scale(0.92) translate(-50 -50)">
+        <g clip-path="url(#cbClip)">
+          <rect x="9" y="9" width="82" height="82" fill="url(#cbBody)"/>
+          <!-- Cushion facets: translucent kites radiating from the table so the
+               body gradient shines through, like crossing facets in the photo -->
+          <polygon points="38,34 62,34 74,6 26,6"    fill="#ffffff" opacity="0.14"/>
+          <polygon points="62,34 70,44 96,30 74,6"   fill="#02174a" opacity="0.24"/>
+          <polygon points="70,44 70,58 96,72 96,30"  fill="#ffffff" opacity="0.10"/>
+          <polygon points="70,58 62,66 74,96 96,72"  fill="#02174a" opacity="0.38"/>
+          <polygon points="62,66 38,66 26,96 74,96"  fill="#02174a" opacity="0.20"/>
+          <polygon points="38,66 30,58 4,72 26,96"   fill="#02174a" opacity="0.32"/>
+          <polygon points="30,58 30,44 4,30 4,72"    fill="#ffffff" opacity="0.13"/>
+          <polygon points="30,44 38,34 26,6 4,30"    fill="#ffffff" opacity="0.22"/>
+          <!-- Table (center facet), a touch lighter than the body under it -->
+          <polygon points="38,34 62,34 70,44 70,58 62,66 38,66 30,44"
+                   fill="#4a8cf0" opacity="0.45"/>
+          <!-- Inner glow -->
+          <ellipse cx="41" cy="58" rx="16" ry="12" fill="url(#cbGlow)"/>
+          <!-- Window-light sweep across the crown -->
+          <path d="M9,9 h52 q-32,13 -42,46 z" fill="url(#cbSheen)"/>
+          <!-- Specular sparkles -->
+          <path d="M36 19 l2.6 4.6 4.6 2.6 -4.6 2.6 -2.6 4.6 -2.6 -4.6 -4.6 -2.6 4.6 -2.6 Z" fill="#ffffff" opacity="0.95"/>
+          <circle cx="64" cy="61" r="1.8" fill="#ffffff" opacity="0.6"/>
+          <circle cx="57" cy="20" r="1.3" fill="#ffffff" opacity="0.5"/>
+        </g>
+      </g>
+    </defs>
+  </svg>
+
+  <!-- ================= PRIMARY: UPRIGHT ================= -->
+
+  <h2>Primary: round cushion gem, real topbar size (34px)</h2>
+  <div class="topbar-mock">
+    <svg class="fake-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+    <span class="cb-mark">
+      <span class="cb-mark-text">C</span><svg class="cb-stone" viewBox="0 0 100 100" aria-hidden="true" focusable="false"><use href="#cbGem"/></svg><span class="cb-mark-text">balt</span>
+    </span>
+  </div>
+  <p class="note">Mocked with the app's real menu button for scale; the wordmark block itself is pixel-identical CSS to <code>.ws-mark</code> apart from the two revised numbers (raise + tuck).</p>
+
+  <h2>Primary: display size (110px)</h2>
+  <div class="stage">
+    <span class="cb-mark display">
+      <span class="cb-mark-text">C</span><svg class="cb-stone" viewBox="0 0 100 100" aria-hidden="true" focusable="false"><use href="#cbGem"/></svg><span class="cb-mark-text">balt</span>
+    </span>
+  </div>
+
+  <!-- ================= ALTERNATE: SLIGHT TILT ================= -->
+
+  <h2>Alternate: same gem, tilted 8° like the reference photo (34px)</h2>
+  <div class="topbar-mock">
+    <svg class="fake-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+    <span class="cb-mark">
+      <span class="cb-mark-text">C</span><svg class="cb-stone" viewBox="0 0 100 100" aria-hidden="true" focusable="false"><g transform="rotate(-8 50 50)"><use href="#cbGem"/></g></svg><span class="cb-mark-text">balt</span>
+    </span>
+  </div>
+
+  <h2>Alternate: tilted, display size (110px)</h2>
+  <div class="stage">
+    <span class="cb-mark display">
+      <span class="cb-mark-text">C</span><svg class="cb-stone" viewBox="0 0 100 100" aria-hidden="true" focusable="false"><g transform="rotate(-8 50 50)"><use href="#cbGem"/></g></svg><span class="cb-mark-text">balt</span>
+    </span>
+  </div>
+  <p class="note">The tilt adds personality but reads slightly less like an "o" at 34px. Upright is the safer topbar pick.</p>
+
+  <!-- ================= SPEC TABLE ================= -->
+
+  <h2>Derived o-slot metrics (vs the live wordmark)</h2>
+  <table>
+    <tr><th>Source</th><td><code>app/src/ui/laurel.ts</code> (createWordmark) and <code>app/src/ui/components.css</code> (<code>.ws-mark</code>, <code>.ws-mark-text</code>, <code>.ws-mon</code>)</td></tr>
+    <tr><th>Lettering</th><td>Inter, weight 700, <code>font-size: 34px</code> topbar, <code>letter-spacing: -0.01em</code>, <code>line-height: 1</code>, color <code>#ffffff</code>, <code>display: inline-flex; align-items: center</code>. Unchanged.</td></tr>
+    <tr><th>Glyph height</th><td><code>height: 1em</code>, <code>width: auto</code>, square 100-unit viewBox. Unchanged.</td></tr>
+    <tr><th>Horizontal spacing</th><td><code>margin: 0 -0.05em</code>. REVISED from the monitor's -0.02em: tucks the gem 0.03em further under both C and b (Gabe, 8/10).</td></tr>
+    <tr><th>Vertical alignment</th><td><code>transform: translateY(0.09em)</code>. Round 2 value (was 0.13em; the monitor sits at 0.2em).</td></tr>
+    <tr><th>Stone footprint</th><td>Rounded cushion, x 9 to 91 with corner radius 31, scaled 0.92 about the center (round 2: slightly smaller), so it paints roughly x 12.3 to 87.7. Near-circle that reads as the letter "o".</td></tr>
+    <tr><th>Rendering model</th><td>Radial body gradient (#8cc0ff → #3d7fe8 → #0b46b0 → #032154, hue centered on cobalt #0047AB) under translucent facet kites, an inner glow low-left, a window-light sheen top-left, and three specular sparkles. No rim stroke (round 2: it read as a light-blue border). All vector, no images.</td></tr>
+  </table>
+
+  <!-- ================= READY-TO-PASTE CODE ================= -->
+
+  <h2>Ready to paste: createWordmark() variant (laurel.ts) + CSS deltas</h2>
+  <pre>// Cobalt wordmark, Option B: the "o" in "Cobalt" is a round cobalt gem.
+// CSS deltas on .ws-mon if this option is adopted:
+//   margin: 0 -0.05em;              /* was -0.02em */
+//   transform: translateY(0.09em);  /* was 0.2em  */
+//   (the color line becomes inert; the gem paints itself)
+// The gem group carries transform="translate(50 50) scale(0.92) translate(-50 -50)"
+// and has NO rim stroke (round 2).
+
+const STONE_SVG = `&lt;svg class="ws-mon" viewBox="0 0 100 100" aria-hidden="true" focusable="false"&gt;
+  &lt;defs&gt;
+    &lt;clipPath id="cbClip"&gt;&lt;rect x="9" y="9" width="82" height="82" rx="31" ry="31"/&gt;&lt;/clipPath&gt;
+    &lt;radialGradient id="cbBody" cx="36%" cy="30%" r="88%"&gt;
+      &lt;stop offset="0%" stop-color="#8cc0ff"/&gt;&lt;stop offset="38%" stop-color="#3d7fe8"/&gt;
+      &lt;stop offset="68%" stop-color="#0b46b0"/&gt;&lt;stop offset="100%" stop-color="#032154"/&gt;
+    &lt;/radialGradient&gt;
+    &lt;radialGradient id="cbGlow" cx="50%" cy="50%" r="50%"&gt;
+      &lt;stop offset="0%" stop-color="#7db4ff" stop-opacity="0.55"/&gt;
+      &lt;stop offset="100%" stop-color="#7db4ff" stop-opacity="0"/&gt;
+    &lt;/radialGradient&gt;
+    &lt;linearGradient id="cbSheen" x1="0%" y1="0%" x2="70%" y2="70%"&gt;
+      &lt;stop offset="0%" stop-color="#ffffff" stop-opacity="0.48"/&gt;
+      &lt;stop offset="42%" stop-color="#ffffff" stop-opacity="0"/&gt;
+    &lt;/linearGradient&gt;
+  &lt;/defs&gt;
+  &lt;g transform="translate(50 50) scale(0.92) translate(-50 -50)" clip-path="url(#cbClip)"&gt;
+    &lt;rect x="9" y="9" width="82" height="82" fill="url(#cbBody)"/&gt;
+    &lt;polygon points="38,34 62,34 74,6 26,6" fill="#ffffff" opacity="0.14"/&gt;
+    &lt;polygon points="62,34 70,44 96,30 74,6" fill="#02174a" opacity="0.24"/&gt;
+    &lt;polygon points="70,44 70,58 96,72 96,30" fill="#ffffff" opacity="0.10"/&gt;
+    &lt;polygon points="70,58 62,66 74,96 96,72" fill="#02174a" opacity="0.38"/&gt;
+    &lt;polygon points="62,66 38,66 26,96 74,96" fill="#02174a" opacity="0.20"/&gt;
+    &lt;polygon points="38,66 30,58 4,72 26,96" fill="#02174a" opacity="0.32"/&gt;
+    &lt;polygon points="30,58 30,44 4,30 4,72" fill="#ffffff" opacity="0.13"/&gt;
+    &lt;polygon points="30,44 38,34 26,6 4,30" fill="#ffffff" opacity="0.22"/&gt;
+    &lt;polygon points="38,34 62,34 70,44 70,58 62,66 38,66 30,44" fill="#4a8cf0" opacity="0.50"/&gt;
+    &lt;ellipse cx="41" cy="58" rx="20" ry="15" fill="url(#cbGlow)"/&gt;
+    &lt;path d="M9,9 h52 q-32,13 -42,46 z" fill="url(#cbSheen)"/&gt;
+    &lt;path d="M36 19 l2.6 4.6 4.6 2.6 -4.6 2.6 -2.6 4.6 -2.6 -4.6 -4.6 -2.6 4.6 -2.6 Z" fill="#ffffff" opacity="0.95"/&gt;
+    &lt;circle cx="64" cy="61" r="1.8" fill="#ffffff" opacity="0.6"/&gt;
+    &lt;circle cx="57" cy="20" r="1.3" fill="#ffffff" opacity="0.5"/&gt;
+  &lt;/g&gt;
+&lt;/svg&gt;`;
+
+export function createWordmark(): Wordmark {
+  const root = document.createElement('span');
+  root.className = 'ws-mark';
+  root.innerHTML = `&lt;span class="ws-mark-text"&gt;C&lt;/span&gt;${STONE_SVG}&lt;span class="ws-mark-text"&gt;balt&lt;/span&gt;`;
+  return { el: root };
+}</pre>
+
+</main>
+</body>
+</html>

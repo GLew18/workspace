@@ -1,4 +1,4 @@
-// WorkSpace — date/time helpers (verbatim behavior from spec §9.5).
+// Cobalt: date/time helpers (verbatim behavior from spec §9.5).
 // All dates are handled as LOCAL 'YYYY-MM-DD' strings. To build a Date from one
 // without a timezone day-shift, append 'T12:00:00'.
 

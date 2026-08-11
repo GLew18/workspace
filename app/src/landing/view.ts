@@ -1,4 +1,4 @@
-// WorkSpace — landing / welcome screen (the signed-out front door).
+// Cobalt: landing / welcome screen (the signed-out front door).
 //
 // The showcase runs the REAL app views live against a throwaway in-memory sandbox
 // (see sandbox.ts): the "how it works" section pairs the pitch with a live
@@ -203,7 +203,7 @@ function howItWorksSection(sandbox: Promise<Data>): HTMLElement {
   const sec = el('section', { class: 'lp-section lp-how lp-reveal' });
 
   const row = el('div', { class: 'lp-split' });
-  const frame = deviceFrame('workspace.app/dashboard');
+  const frame = deviceFrame('cobalt.app/dashboard');
   // This preview is a static showcase — visitors LOOK at the Dashboard here and
   // PLAY in the "see it in action" section below. Render the real view, then turn
   // the whole frame body into an image (no clicks, no hover, no text selection).
@@ -214,7 +214,7 @@ function howItWorksSection(sandbox: Promise<Data>): HTMLElement {
     el('h2', { class: 'lp-h2 lp-h2-left', text: 'One clean space, built from your Schoology feed' }),
     el('p', {
       class: 'lp-lead',
-      text: 'WorkSpace reads your Schoology calendar and automatically imports every assignment into one organized place. Stop digging through Schoology; start getting things done with clarity.',
+      text: 'Cobalt reads your Schoology calendar and automatically imports every assignment into one organized place. Stop digging through Schoology; start getting things done with clarity.',
    })
   );
   row.append(scaleToFit(frame.frame, 560), text); // frame LEFT, copy RIGHT
@@ -253,7 +253,7 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
   const tabs = el('div', { class: 'lp-tabs' });
   const row = el('div', { class: 'lp-split lp-split-reverse' });
   const text = el('div', { class: 'lp-split-text' });
-  const frame = deviceFrame('workspace.app/tasks');
+  const frame = deviceFrame('cobalt.app/tasks');
   row.append(text, scaleToFit(frame.frame, 560)); // copy LEFT, frame RIGHT
 
   // Each tab's panel is built + mounted once, then just shown/hidden — so state
@@ -291,7 +291,7 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
     current = f.id;
     [...tabs.children].forEach((c) => c.classList.remove('active'));
     btn.classList.add('active');
-    frame.url.textContent = `workspace.app/${f.urlPath}`;
+    frame.url.textContent = `cobalt.app/${f.urlPath}`;
     text.replaceChildren(
       el('h3', { class: 'lp-split-title', text: f.title }),
       el('p', { class: 'lp-lead', text: f.blurb }),
@@ -405,7 +405,7 @@ function capabilitiesSection(): HTMLElement {
 
 // #region Personalization showcase ---------------------------------------------
 // A wide, side-by-side look at THREE settings tabs — Profile, Courses, Alerts —
-// so a visitor sees at a glance how much of WorkSpace bends to them: their name +
+// so a visitor sees at a glance how much of Cobalt bends to them: their name +
 // greeting + clock, their own course names/colors/parse-words, and exactly which
 // notifications reach them. Static replicas (display-only), built from the same
 // UI classes the real settings screens use so they look authentic.
@@ -415,7 +415,7 @@ function personalizeSection(): HTMLElement {
     el('h2', { class: 'lp-h2', text: 'Endless personalization' }),
     el('p', {
       class: 'lp-sub',
-      text: 'Make WorkSpace your own: set your name, greeting and clock, rename and recolor every course with your own parse words, and choose exactly which alerts reach you.',
+      text: 'Make Cobalt your own: set your name, greeting and clock, rename and recolor every course with your own parse words, and choose exactly which alerts reach you.',
     })
   );
   // ONE settings window whose three columns read as a single screen — no separate
@@ -475,7 +475,7 @@ function profileCol(): HTMLElement[] {
   return [
     el('div', { class: 'lp-set-label', text: 'Display name' }),
     el('div', { class: 'settings-input lp-set-input', text: 'Gabe' }),
-    srow('Time format', 'How times show across WorkSpace.', twoWaySeg('12-hour', '24-hour')),
+    srow('Time format', 'How times show across Cobalt.', twoWaySeg('12-hour', '24-hour')),
     srow('Personalized greeting', 'Use your name in the greeting.', fauxSwitch(true)),
     srow('Daily quote', 'A rotating quote each day.', fauxSwitch(true)),
   ];
@@ -541,7 +541,7 @@ function ctaButton(label: string, onClick: () => void): HTMLElement {
 
 function footerSection(): HTMLElement {
   const f = el('footer', { class: 'lp-footer' });
-  f.append(el('span', { text: 'WorkSpace · built for Heschel students' }));
+  f.append(el('span', { text: 'Cobalt · built for Heschel students' }));
   return f;
 }
 

@@ -1,6 +1,6 @@
-// WorkSpace Premium — postMessage bridge content script.
+// Cobalt Premium: postMessage bridge content script.
 //
-// Injected ONLY on the WorkSpace origin(s) + localhost (see manifest
+// Injected ONLY on the Cobalt origin(s) + localhost (see manifest
 // content_scripts[1].matches). It is the dev + cross-browser-portable fallback
 // for externally_connectable, which (a) requires an EXACT origin match — no
 // wildcard TLD — and is unreliable for http://localhost:5173, and (b) does not

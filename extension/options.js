@@ -1,4 +1,4 @@
-// WorkSpace Premium — options page logic.
+// Cobalt Premium: options page logic.
 //
 // Read-only dashboard: reflects the authoritative state in chrome.storage.local
 // (written by the background SW on every SYNC_SHORTCUTS) and shows whether the
@@ -55,7 +55,7 @@ function render(items) {
   // ---- connection status ----
   if (config && Array.isArray(config.entries)) {
     dot.className = 'dot ok';
-    statusText.textContent = 'Connected to WorkSpace';
+    statusText.textContent = 'Connected to Cobalt';
     statusMeta.innerHTML =
       'Origin: <b>' +
       escapeHtml(config.origin || '—') +
@@ -67,7 +67,7 @@ function render(items) {
     dot.className = 'dot warn';
     statusText.textContent = 'Waiting for first sync';
     statusMeta.innerHTML =
-      'Open the WorkSpace web app and add a keyboard shortcut on the Links tab to connect. Extension v' +
+      'Open the Cobalt web app and add a keyboard shortcut on the Links tab to connect. Extension v' +
       escapeHtml(EXT_VERSION);
   }
 
@@ -81,7 +81,7 @@ function render(items) {
   if (live.length === 0) {
     table.hidden = true;
     empty.hidden = false;
-    empty.textContent = config ? 'No shortcuts set in WorkSpace yet.' : 'No shortcuts synced yet.';
+    empty.textContent = config ? 'No shortcuts set in Cobalt yet.' : 'No shortcuts synced yet.';
     return;
   }
   table.hidden = false;

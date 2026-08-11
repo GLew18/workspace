@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "WorkSpace Premium",
-  "description": "Premium companion for WorkSpace: global link shortcuts from any tab, real course names from Schoology, and Open all launching into named Chrome tab groups.",
+  "name": "Cobalt Premium",
+  "description": "Premium companion for Cobalt: global link shortcuts from any tab, real course names from Schoology, and Open all launching into named Chrome tab groups.",
   "version": "1.0.0",
   "minimum_chrome_version": "102",
   "permissions": ["storage", "tabs", "tabGroups", "scripting", "alarms"],
@@ -41,7 +41,7 @@
   ],
   "options_page": "options.html",
   "action": {
-    "default_title": "WorkSpace Premium",
+    "default_title": "Cobalt Premium",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",

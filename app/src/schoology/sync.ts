@@ -1,4 +1,4 @@
-// WorkSpace — Schoology import orchestration (client-side, on-demand).
+// Cobalt: Schoology import orchestration (client-side, on-demand).
 //
 // Runs on app open and when Settings is saved. In production the same
 // parse/classify pipeline moves into a scheduled Cloud Function for the 30-min

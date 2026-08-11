@@ -1,4 +1,4 @@
-// WorkSpace — natural-language quick-add parser (spec §6.2, Appendix 13.3).
+// Cobalt: natural-language quick-add parser (spec §6.2, Appendix 13.3).
 //
 // Parses free text like "mow the lawn tom 630am misc" into a ParsedTask, or
 // null when no title remains. Extraction order: time-label → priority → time

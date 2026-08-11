@@ -1,4 +1,4 @@
-// WorkSpace — task building, sorting, grouping, dedup (spec §6.1, §6.3, §6.6).
+// Cobalt: task building, sorting, grouping, dedup (spec §6.1, §6.3, §6.6).
 
 import type { ParsedTask, Task, TaskMap } from '../types';
 import { genId } from '../util/ids';

@@ -1,6 +1,6 @@
-// WorkSpace — the 🔔 Notifications screen (a full tab, like Settings).
+// Cobalt: the 🔔 Notifications screen (a full tab, like Settings).
 //
-// A plain history of what WorkSpace has told you, newest first, grouped by day.
+// A plain history of what Cobalt has told you, newest first, grouped by day.
 // One row per notification — NOT one per channel: a reminder that went out as both
 // a pop-up and an email is a single event, with small icons saying which routes it
 // took. Reading the same sentence twice would be pure noise.
@@ -54,6 +54,12 @@ export class NotificationLogView {
     this.host = page;
     panel.replaceChildren(page);
     this.draw();
+    // OPEN AT THE TOP (Gabe, 8/10). In the signed-in shell the window doesn't
+    // scroll, .app-below does (components.css), and that scroll position is
+    // shared across tabs — so arriving from a scrolled-down Tasks list dropped
+    // you at the bottom of the log, past the newest entries. The list is
+    // newest-first, so the top is the only sensible landing spot.
+    document.querySelector('.app-below')?.scrollTo({ top: 0 });
     // Opening the screen IS reading it: clears the bell's unread dot. Done after
     // the first draw so entries that arrived while away still render normally.
     markNotifyLogSeen();
@@ -73,7 +79,7 @@ export class NotificationLogView {
       el('div', { class: 'nlog-title', text: 'Notifications' }),
       el('div', {
         class: 'nlog-desc',
-        text: 'Everything WorkSpace has sent you on this device, newest first.',
+        text: 'Everything Cobalt has sent you on this device, newest first.',
       })
     );
     head.append(headText);

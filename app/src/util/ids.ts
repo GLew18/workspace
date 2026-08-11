@@ -1,4 +1,4 @@
-// WorkSpace — id + hashing helpers (verbatim from spec §9.5).
+// Cobalt: id + hashing helpers (verbatim from spec §9.5).
 
 /** 8-char random id. */
 export const genId = (): string => Math.random().toString(36).substring(2, 10);

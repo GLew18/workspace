@@ -1,4 +1,4 @@
-/* WorkSpace — Focus session styles. */
+/* Cobalt: Focus session styles. */
 
 /* ---- Setup screen ---- */
 .focus-setup {
@@ -130,9 +130,9 @@
   right: 0;
   height: 34px;
   transform: translateY(-50%);
-  border-top: 1px solid rgba(230, 168, 23, 0.5);
-  border-bottom: 1px solid rgba(230, 168, 23, 0.5);
-  background: rgba(230, 168, 23, 0.06);
+  border-top: 1px solid rgba(125, 180, 255, 0.5);
+  border-bottom: 1px solid rgba(125, 180, 255, 0.5);
+  background: rgba(125, 180, 255, 0.06);
   pointer-events: none;
 }
 .focus-custom,
@@ -171,7 +171,7 @@
   opacity: 1;
   color: var(--text);
 }
-/* Free-text add row: input + gold "+". */
+/* Free-text add row: input + accent "+". */
 .focus-add-todo {
   display: flex;
   gap: 6px;
@@ -398,8 +398,18 @@
   padding: 9px 13px;
   border-top: 1px solid var(--border);
 }
+/* Multi-select (Gabe 8/10): the same gold ring the Tasks tab's selected rows
+   wear, on all four Focus lists (both Import panels + both todo lists). */
+.focus-import-task.selected,
+.focus-todo-row.selected,
+.focus-todo-item.selected {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+  background: rgba(125, 180, 255, 0.07);
+  border-radius: 8px;
+}
 .focus-import-bulk {
-  background: rgba(230, 168, 23, 0.05);
+  background: rgba(125, 180, 255, 0.05);
 }
 .focus-import-bulk-label {
   flex: 1;
@@ -505,7 +515,7 @@
 }
 .focus-import-add:hover {
   border-color: var(--accent);
-  background: rgba(230, 168, 23, 0.08);
+  background: rgba(125, 180, 255, 0.08);
 }
 .focus-import-add.done {
   color: var(--green);
@@ -746,7 +756,7 @@
   position: fixed;
   inset: 0;
   z-index: 1200;
-  background: rgba(6, 10, 22, 0.72);
+  background: rgba(4, 10, 24, 0.72);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -823,7 +833,7 @@
   background: rgba(255, 255, 255, 0.06);
 }
 .focus-songwin-row.active {
-  background: rgba(230, 168, 23, 0.12);
+  background: rgba(125, 180, 255, 0.12);
   color: var(--accent);
 }
 .focus-songwin-emoji {
@@ -866,8 +876,8 @@
   /* Same dark-blue gradient as the rest of the app (theme.css body), so the focus
      takeover reads as the same app — plus a faint gold glow behind the ring. */
   background:
-    radial-gradient(820px 560px at 50% 16%, rgba(230, 168, 23, 0.07), transparent 60%),
-    linear-gradient(165deg, #0f1c40 0%, #0a1430 50%, #070d20 100%);
+    radial-gradient(820px 560px at 50% 16%, rgba(125, 180, 255, 0.07), transparent 60%),
+    linear-gradient(165deg, #0e2457 0%, #091a43 50%, #07132e 100%);
 }
 
 /* Two-column stage on desktop; stacks to one column on narrow screens. */
@@ -1056,10 +1066,10 @@
 }
 .focus-extend-row.add .focus-extend-btn {
   color: var(--accent);
-  border-color: rgba(230, 168, 23, 0.35);
+  border-color: rgba(125, 180, 255, 0.35);
 }
 .focus-extend-row.add .focus-extend-btn:hover {
-  background: rgba(230, 168, 23, 0.12);
+  background: rgba(125, 180, 255, 0.12);
   border-color: var(--accent);
 }
 .focus-extend-row.trim .focus-extend-btn {
@@ -1113,19 +1123,19 @@
    End Session .danger button so the two controls match. Same in BOTH the overlay and
    the mini widget (shared base rule — no per-screen override). */
 .focus-ctrl.primary {
-  border-color: rgba(230, 168, 23, 0.5);
+  border-color: rgba(125, 180, 255, 0.5);
   color: var(--accent);
 }
 .focus-ctrl.primary:hover {
-  background: rgba(230, 168, 23, 0.12);
+  background: rgba(125, 180, 255, 0.12);
 }
 .focus-ctrl.gold {
   /* Outline style (dark bg + gold text/border), mirroring .danger so Add & Trim match. */
   color: var(--accent);
-  border-color: rgba(230, 168, 23, 0.4);
+  border-color: rgba(125, 180, 255, 0.4);
 }
 .focus-ctrl.gold:hover {
-  background: rgba(230, 168, 23, 0.12);
+  background: rgba(125, 180, 255, 0.12);
   border-color: var(--accent);
 }
 .focus-ctrl.danger {
@@ -1283,7 +1293,7 @@
   position: fixed;
   inset: 0;
   z-index: 2100;
-  background: rgba(4, 8, 20, 0.6);
+  background: rgba(3, 8, 21, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1592,7 +1602,7 @@
   background: rgba(255, 255, 255, 0.06);
 }
 .focus-menu-track.active {
-  background: rgba(230, 168, 23, 0.12);
+  background: rgba(125, 180, 255, 0.12);
   color: var(--accent);
   font-weight: 600;
 }
@@ -1700,8 +1710,8 @@
   align-items: center;
   gap: 14px;
   /* Same dark-blue hue as the overlay/app, so it reads as a shrunk-down takeover. */
-  background: linear-gradient(165deg, #0f1c40 0%, #0a1430 55%, #070d20 100%);
-  border: 1px solid rgba(230, 168, 23, 0.35);
+  background: linear-gradient(165deg, #0e2457 0%, #091a43 55%, #07132e 100%);
+  border: 1px solid rgba(125, 180, 255, 0.35);
   border-radius: 16px;
   padding: 34px 16px 18px; /* top room for the maximize button */
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
@@ -1764,7 +1774,7 @@
    before that div mounts; the inline styles in JS own the actual behavior. */
 .focus-pip-body {
   margin: 0;
-  background: #070d20;
+  background: #07132e;
 }
 .focus-pip-scroll {
   /* everything set inline in openPipWidget(); listed here for discoverability */
@@ -1896,7 +1906,7 @@
   gap: 14px;
   max-width: 420px;
   background: var(--surface);
-  border: 1px solid rgba(230, 168, 23, 0.4);
+  border: 1px solid rgba(125, 180, 255, 0.4);
   border-radius: 14px;
   padding: 14px 20px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);

@@ -1,4 +1,4 @@
-// WorkSpace — focus music engine.
+// Cobalt: focus music engine.
 //
 // Plays plain audio files (e.g. /music/lofi.mp3) with an HTML5 <audio> element.
 // Built-in tracks live in app/public/music/; users can also paste a direct audio

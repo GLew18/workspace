@@ -1,4 +1,4 @@
-/* WorkSpace — the 🔔 Notifications screen (see src/notify/logView.ts).
+/* Cobalt: the 🔔 Notifications screen (see src/notify/logView.ts).
    A reading surface, not a control panel: one row per delivered notification,
    grouped under day headings, newest first. */
 
@@ -75,7 +75,7 @@
    page, so the column scans like a log rather than a feed of cards.
 
    The fill is a translucent navy rather than the flat --surface: the app's body
-   is the blue gradient, so letting it show through ties the rows to WorkSpace's
+   is the blue gradient, so letting it show through ties the rows to Cobalt's
    blue instead of sitting on it as neutral gray slabs. Hover warms the edge gold,
    which is the app's other half. */
 .nlog-row {
@@ -90,7 +90,7 @@
 }
 .nlog-row:hover {
   background: rgba(28, 39, 65, 0.7);
-  border-color: rgba(230, 168, 23, 0.35);
+  border-color: rgba(125, 180, 255, 0.35);
 }
 .nlog-time {
   flex: none;
@@ -144,8 +144,8 @@
 }
 .nlog-route.is-popup {
   color: var(--accent);
-  background: rgba(230, 168, 23, 0.12);
-  border: 1px solid rgba(230, 168, 23, 0.35);
+  background: rgba(125, 180, 255, 0.12);
+  border: 1px solid rgba(125, 180, 255, 0.35);
 }
 .nlog-route.is-email {
   color: #8cc6ee;
@@ -167,7 +167,7 @@
   display: grid;
   place-items: center;
   font-size: 30px;
-  background: radial-gradient(circle, rgba(230, 168, 23, 0.16), transparent 70%);
+  background: radial-gradient(circle, rgba(125, 180, 255, 0.16), transparent 70%);
   opacity: 0.75;
 }
 .nlog-empty-title {

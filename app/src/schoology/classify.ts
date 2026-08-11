@@ -1,4 +1,4 @@
-// WorkSpace — course attribution. Same engine for typed tasks AND calendar imports.
+// Cobalt: course attribution. Same engine for typed tasks AND calendar imports.
 //
 //   Layer 1a  explicit parse-word rules (registry) — deterministic, certain.
 //   Layer 1b  learned model (courses/learn) — weighted words/phrases from the

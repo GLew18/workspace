@@ -1,4 +1,4 @@
-// WorkSpace Premium — Schoology course-labeling content script.
+// Cobalt Premium: Schoology course-labeling content script.
 //
 // Runs on https://*.schoology.com/* at document_idle. The iCal feed the app
 // imports has NO course names, so the app guesses courses heuristically. This
@@ -331,7 +331,7 @@
   }
 
   /** The signed-in user's numeric id, needed for /v1/users/<id>/events. A prior
-   *  extension hardcoded it (single user); WorkSpace is multi-user, so it must be
+   *  extension hardcoded it (single user); Cobalt is multi-user, so it must be
    *  discovered — several ways, because markup differs by Schoology era. */
   function extractUserIdFromDoc(doc, html) {
     try {
@@ -366,7 +366,7 @@
    *  NOTE: the prior extension also stripped a trailing number ("Torah 9" -> "Torah")
    *  and alias-mapped onto ~30 canonical Heschel names. Both are deliberately NOT
    *  copied: stripping would wreck real titles like "Algebra 2", and a hardcoded
-   *  school-specific alias map cannot work for other schools. WorkSpace keeps the
+   *  school-specific alias map cannot work for other schools. Cobalt keeps the
    *  school's own wording verbatim and lets the user's course registry do the
    *  aliasing it already does. */
   function courseNameFromApi(obj) {
@@ -375,7 +375,7 @@
     return typeof name === 'string' ? name.trim() : '';
   }
 
-  /** The assignment id WorkSpace joins on: prefer the one inside web_url (it is
+  /** The assignment id Cobalt joins on: prefer the one inside web_url (it is
    *  literally the /assignment/<id> the iCal feed carries), else the event id. */
   function assignmentIdFromEvent(e, host) {
     const fromUrl = parseAssignmentId(repairSchoologyUrl(String(e && e.web_url ? e.web_url : ''), host));
@@ -559,18 +559,18 @@
   // A pill in the bottom-right of the Schoology page reporting what this scrape
   // found, expanding to the per-course breakdown. It is the ONLY place the whole
   // pipeline is visible: without it a school whose markup or API differs fails
-  // silently and the student just sees vaguely-wrong courses in WorkSpace.
+  // silently and the student just sees vaguely-wrong courses in Cobalt.
   //
   // Rendered inside a shadow root so Schoology's stylesheet cannot reach in (and
   // ours cannot leak out) — the earlier extension used inline styles on a plain
   // div, which works until a host page sets something like `* { all: revert }`.
   const BADGE_HOST_ID = 'ws-sgy-badge-host';
   const GREEN = '#27ae60';
-  const AMBER = '#e6a817'; // WorkSpace gold, doubling as the "nothing found" warning
+  const AMBER = '#e6a817'; // Cobalt gold, doubling as the "nothing found" warning
   const RED = '#e53935';
 
   function appUrl(cb) {
-    // The shortcuts config records the WorkSpace origin the user actually runs.
+    // The shortcuts config records the Cobalt origin the user actually runs.
     try {
       chrome.storage.local.get('wsConfig', (cur) => {
         const origin = cur && cur.wsConfig && cur.wsConfig.origin;
@@ -642,7 +642,7 @@
       pill.className = 'pill';
       pill.textContent = ok
         ? `✓ ${labelCount} assignment${labelCount === 1 ? '' : 's'} labeled · ${courseNames.size} course${courseNames.size === 1 ? '' : 's'}`
-        : '⚠ WorkSpace found no courses. Click';
+        : '⚠ Cobalt found no courses. Click';
 
       const panel = document.createElement('div');
       panel.className = 'panel';
@@ -650,7 +650,7 @@
       if (courseNames.size) {
         const h = document.createElement('div');
         h.className = 'head';
-        h.textContent = `${courseNames.size} course${courseNames.size === 1 ? '' : 's'} synced to WorkSpace`;
+        h.textContent = `${courseNames.size} course${courseNames.size === 1 ? '' : 's'} synced to Cobalt`;
         panel.append(h);
         for (const [name, n] of [...courseNames.entries()].sort((a, b) => b[1] - a[1])) {
           const row = document.createElement('div');
@@ -679,7 +679,7 @@
 
       const cta = document.createElement('button');
       cta.className = 'cta';
-      cta.textContent = '📋 Open WorkSpace';
+      cta.textContent = '📋 Open Cobalt';
       appUrl((origin) => {
         cta.style.display = origin ? '' : 'none';
         cta.onclick = () => origin && window.open(origin, '_blank', 'noopener');

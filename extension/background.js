@@ -1,11 +1,11 @@
-// WorkSpace Premium — background service worker (MV3).
+// Cobalt Premium: background service worker (MV3).
 //
 // Holds NO in-memory source of truth: the MV3 SW is evicted after ~30s idle, so
 // chrome.storage.local is authoritative. Every listener below is registered
 // SYNCHRONOUSLY at top level so they re-bind the instant the worker wakes.
 //
 // Responsibilities:
-//   • onMessageExternal — trusted-origin channel from the WorkSpace web app
+//   • onMessageExternal: trusted-origin channel from the Cobalt web app
 //       (externally_connectable). Handles PING (install/version detection) and
 //       SYNC_SHORTCUTS (authoritative full-replace of the shortcut config).
 //   • onMessage — internal channel from our own content scripts. Handles
@@ -147,7 +147,7 @@ function handleSgyCapture(payload) {
 // ---------------------------------------------------------------------------
 // Background sync — the point of the whole feature.
 //
-// WorkSpace REPLACES Schoology, so requiring the student to go visit Schoology to
+// Cobalt REPLACES Schoology, so requiring the student to go visit Schoology to
 // keep course names accurate would defeat the product. Instead: every 30 minutes,
 // if no Schoology tab happens to be open, open one INVISIBLY (a background tab the
 // student never sees), let the content script scrape, and close it again. Typical
@@ -314,7 +314,7 @@ const MAX_GROUP_TABS = 25;
 
 // Open urls as PLAIN background tabs, no group. Exists because the page's
 // window.open hits Chrome's popup blocker (ONE popup per click), so "Open all"
-// from WorkSpace could only ever open the first link. chrome.tabs.create has no
+// from Cobalt could only ever open the first link. chrome.tabs.create has no
 // such limit. Same URL hygiene and window pinning as handleOpenGroup.
 async function handleOpenTabs(payload, sendAck) {
   const ack = (ok, count) => sendAck({ source: 'workspace-ext', v: PROTOCOL_VERSION, type: 'OPEN_TABS_ACK', ok, count });
@@ -343,7 +343,7 @@ async function handleOpenTabs(payload, sendAck) {
     }
     ack(count > 0, count);
   } catch (e) {
-    console.error('[WorkSpace] open tabs failed:', e);
+    console.error('[Cobalt] open tabs failed:', e);
     ack(false, 0);
   }
 }
@@ -366,7 +366,7 @@ async function handleOpenGroup(payload, sendAck) {
   // worker"), because from the page side a failure is indistinguishable from the
   // extension not being installed at all.
   if (!chrome.tabGroups || !chrome.tabs.group) {
-    console.error('[WorkSpace] tab grouping unavailable. The extension needs a RELOAD after the manifest gained the "tabGroups" permission (chrome://extensions → Reload).');
+    console.error('[Cobalt] tab grouping unavailable. The extension needs a RELOAD after the manifest gained the "tabGroups" permission (chrome://extensions → Reload).');
     ack(false, 0);
     return;
   }
@@ -393,23 +393,23 @@ async function handleOpenGroup(payload, sendAck) {
       if (typeof tab.id === 'number') ids.push(tab.id);
     }
     if (!ids.length) {
-      console.error('[WorkSpace] no tabs were created for', title);
+      console.error('[Cobalt] no tabs were created for', title);
       ack(false, 0);
       return;
     }
     const groupId = await chrome.tabs.group({ tabIds: ids });
     await chrome.tabGroups.update(groupId, { title, color });
     await chrome.tabs.update(ids[0], { active: true }); // land the user on the first link
-    console.info('[WorkSpace] grouped', ids.length, 'tabs as', JSON.stringify(title), color);
+    console.info('[Cobalt] grouped', ids.length, 'tabs as', JSON.stringify(title), color);
     ack(true, ids.length);
   } catch (e) {
-    console.error('[WorkSpace] tab grouping failed:', e && e.message ? e.message : e);
+    console.error('[Cobalt] tab grouping failed:', e && e.message ? e.message : e);
     ack(false, 0);
   }
 }
 
 // ---------------------------------------------------------------------------
-// External channel: WorkSpace web app -> SW (externally_connectable)
+// External channel: Cobalt web app -> SW (externally_connectable)
 // ---------------------------------------------------------------------------
 chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
   // Defense in depth on top of externally_connectable's origin allowlist.

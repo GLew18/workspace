@@ -1,4 +1,4 @@
-// WorkSpace — focus music library catalog. GENERATED FILE — do not edit.
+// Cobalt: focus music library catalog. GENERATED FILE, do not edit.
 // Regenerate with:  node scripts/build-music-catalog.mjs
 // Source of truth: the five genre folders in "<repo>/Music Database".
 //

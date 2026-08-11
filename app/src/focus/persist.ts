@@ -1,6 +1,6 @@
 import { scopedKey } from '../util/userScope';
 
-// WorkSpace — crash-safe focus persistence (spec §8.3). Per-device, localStorage only.
+// Cobalt: crash-safe focus persistence (spec §8.3). Per-device, localStorage only.
 //
 // OWNERSHIP: a session belongs to exactly ONE browser tab (ownerTab in the state).
 // Other tabs never run it — they show a persistent "Enter focus session" toast, and

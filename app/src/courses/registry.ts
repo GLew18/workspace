@@ -1,4 +1,4 @@
-// WorkSpace — runtime course registry.
+// Cobalt: runtime course registry.
 //
 // The single source of truth for the user's courses, colors, and parse words.
 // Seeded from the static Heschel catalog (maps.ts) on first run, then fully

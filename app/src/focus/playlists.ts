@@ -1,4 +1,4 @@
-// WorkSpace — user-made custom playlists (built in Settings, played in Focus).
+// Cobalt: user-made custom playlists (built in Settings, played in Focus).
 //
 // A playlist is a named, ordered set of library-track ids. It's persisted through
 // the Data layer as a focus record keyed "playlist_<id>", so it lives per-user and

@@ -1,4 +1,4 @@
-// WorkSpace — artist grouping over the focus music library.
+// Cobalt: artist grouping over the focus music library.
 //
 // library.ts is GENERATED (don't hand-edit it), so the "organize by artist" view
 // lives here. A track's PRIMARY artist is its first composer (authors[0]); e.g.
