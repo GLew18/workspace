@@ -188,11 +188,14 @@ body.app-mode .app-below {
   display: none;
   min-width: 18px;
   height: 18px;
-  padding: 0 5px;
+  padding: 2 5px;
   border-radius: 999px;
   background: #ef4444;
   color: #fff;
   font-size: 10.5px;
+  position: relative;
+  top: 1px;
+  padding-top: 2px;
   font-weight: 800;
   flex: none;
 }

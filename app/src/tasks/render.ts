@@ -16,7 +16,7 @@ import { getCourseColor, onRegistryChange, matchCourseStrict } from '../courses/
 import { classifyByRules, learnCorrection } from '../schoology/classify';
 import { recordManualLabelForTask } from '../schoology/extension';
 import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
-import { parseDateTime } from './parser';
+import { parseDateTime, isPastDate, PAST_DATE_MSG } from './parser';
 import { detectAttachmentType, normalizeUrl, openAttachment, openAll } from './attachments';
 import { playCompleteChime, showUndoToast } from './complete';
 import {
@@ -130,12 +130,16 @@ export class TasksView {
   // lookalike that drifts. No header, no quick-add, no calendar toggle, and no
   // folder sections: foldered and loose tasks are COMPILED into one flat list,
   // because "what's due today" is one question, not one per folder.
-  private excerpt?: { filter: (t: Task) => boolean; empty: string };
+  private excerpt?: { filter: (t: Task) => boolean; empty: string; onCount?: (n: number) => void };
 
   constructor(
     data: Data,
     sample?: { host: HTMLElement },
-    excerpt?: { filter: (t: Task) => boolean; empty: string }
+    // onCount fires on every excerpt render with the number of matches, so the
+    // host card can hide itself when there is nothing to show (the Overdue card
+    // uses this). The count comes from the view's own filter, so there is one
+    // definition of "overdue", not a duplicate in the dashboard.
+    excerpt?: { filter: (t: Task) => boolean; empty: string; onCount?: (n: number) => void }
   ) {
     this.data = data;
     this.sample = sample;
@@ -393,6 +397,7 @@ export class TasksView {
     const hits = Object.values(this.map).filter(
       (t) => !t.completed && !this.completingIds.has(t.id) && this.excerpt!.filter(t)
     );
+    this.excerpt!.onCount?.(hits.length);
     if (!hits.length) {
       this.listEl.append(el('div', { class: 'dash-due-empty', text: this.excerpt!.empty }));
       return;
@@ -1594,6 +1599,12 @@ export class TasksView {
       initial,
       (v) => {
         const { date, time } = parseDateTime(v);
+        // Past dates are refused outright (see isPastDate): nothing is written
+        // and the row keeps the date it had.
+        if (isPastDate(date)) {
+          this.notice(PAST_DATE_MSG);
+          return;
+        }
         // One due date onto every selected task: "these five are all due Friday".
         this.applyToSelection(task, (t) => ({
           ...t,

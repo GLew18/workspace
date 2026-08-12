@@ -4,7 +4,7 @@ import type { Data } from '../db';
 import type { Task, TaskMap, TaskFolder } from '../types';
 import { getTaskFolders, saveTaskFolders, makeFolder, FOLDERS_EVENT } from '../tasks/folders';
 import { makeResizeGrip, restoreSavedHeight } from '../util/resize';
-import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms } from '../util/dom';
+import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToast } from '../util/dom';
 import { makeWheel } from './wheel';
 import { genId } from '../util/ids';
 import { sortTasks, makeTask } from '../tasks/store';
@@ -80,8 +80,8 @@ function fmtPlaylistLen(sec: number): string {
   if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
   return `${m}m`;
 }
-import { parseFocusInput, parseDateTime } from '../tasks/parser';
-import { formatMetaDate, formatTimeOfDay } from '../util/dates';
+import { parseFocusInput, parseDateTime, isPastDate, PAST_DATE_MSG } from '../tasks/parser';
+import { formatMetaDate, formatShortDate, formatTimeOfDay } from '../util/dates';
 import { recordManualLabelForTask } from '../schoology/extension';
 import { getPrefs } from '../prefs';
 import { sendNotification, normalizeNotifySettings } from '../notify/notify';
@@ -237,6 +237,22 @@ const RING_C = 2 * Math.PI * RING_R;
 const MAX_FOCUS_MINUTES = 12 * 60;
 const MAX_FOCUS_SECONDS = MAX_FOCUS_MINUTES * 60;
 
+/**
+ * What the inline DATE EDITOR is seeded with: "8/6/27 3:00 PM", never the
+ * displayed "Fri 8/6/27".
+ *
+ * The editor commits on blur, so its seed has to re-parse to the SAME date.
+ * The display string leads with a weekday, and the parser matches a bare
+ * weekday first, so seeding with it meant opening a date and clicking away
+ * silently moved the task to next Friday. This mirrors what the Tasks tab
+ * seeds (formatShortDate + time), which round-trips exactly.
+ */
+function dateEditSeed(dueDate?: string, dueTime?: string): string {
+  return [dueDate ? formatShortDate(dueDate) : '', dueTime ? formatTimeOfDay(dueTime) : '']
+    .filter(Boolean)
+    .join(' ');
+}
+
 export class FocusView {
   private data: Data;
   private panel!: HTMLElement;
@@ -294,6 +310,8 @@ export class FocusView {
   // the owner so stop/cancel hits the right window after pip↔tab transitions.
   private tickerWin: Window = window;
   private ringWin: Window = window;
+  /** Refreshes the "Ends …" line while PAUSED, when the main ticker is stopped. */
+  private pausedClock: number | null = null;
 
   // DOM
   private overlay: HTMLElement | null = null;
@@ -339,7 +357,21 @@ export class FocusView {
         this.redrawSessionTodos?.();
       });
     });
+    // COMING BACK TO A BACKGROUNDED TAB: snap the clock to the truth on the spot.
+    // Browsers throttle a hidden tab's timers to roughly once a minute, so both
+    // the countdown and the "Ends …" line can be up to a minute stale at the
+    // moment the tab is looked at again. Recomputing here means the first frame
+    // you see is correct, rather than a stale number that corrects itself a beat
+    // later (Gabe, 8/11: that lag "can be deceiving").
+    document.addEventListener('visibilitychange', this.onVisible);
   }
+
+  private onVisible = (): void => {
+    if (document.hidden) return;
+    if (this.interval === null && !this.paused) return; // no live session here
+    this.refreshEndTime();
+    if (!this.paused) this.updateDisplay(this.currentRemaining());
+  };
 
   /** Subscribe once to task updates, so the import window and every linked todo
    *  (setup draft + live session) follow the Tasks tab. Idempotent. */
@@ -538,7 +570,7 @@ export class FocusView {
     const total = (saved.todos ?? []).length;
     const minutes = Math.max(0, Math.round((saved.totalSeconds ?? 0) / 60));
     if (this.endSoundEnabled) this.endCue = playEndSound(this.endSoundKey, this.endSoundVolume);
-    void this.notify('⏰ Focus session complete!', `${minutes} min focused • ${done}/${total} tasks done`);
+    void this.notify('Focus session complete!', `${minutes} min focused • ${done}/${total} tasks done`);
     this.showEndToast(true, minutes, done, total);
   }
 
@@ -942,11 +974,14 @@ export class FocusView {
         row.addEventListener('click', (e) => {
           const tgt = e.target as HTMLElement;
           // Chips (.course-chip/.meta-date) are NOT excluded here: their own
-        // handlers stopPropagation on plain clicks (edit) and bubble modifier
-        // clicks up to this selection routing.
-        if (tgt.closest('button, a, input, textarea, .inline-edit-block')) return;
+          // handlers stopPropagation on plain clicks (edit) and bubble modifier
+          // clicks up to this selection routing.
+          if (tgt.closest('button, a, input, textarea, .inline-edit-block, .focus-todo-handle')) return;
           if (this.selClick('todo', visIds, t.id, e)) drawTodos();
         });
+        // NO drag grip on this list (Gabe, 8/11, reversing the same day's
+        // addition): the running session's list keeps one, the setup draft does
+        // not. Nothing here is ordered yet, so a grip was clutter.
         // Title dblclick to edit; course/date are one-click and bulk-aware.
         row.append(this.buildTodoLabel(t, drawTodos, this.todos));
         // 🗀 — file into a shared folder. On a selected row: the whole selection.
@@ -1519,7 +1554,7 @@ export class FocusView {
         // Chips (.course-chip/.meta-date) are NOT excluded here: their own
         // handlers stopPropagation on plain clicks (edit) and bubble modifier
         // clicks up to this selection routing.
-        if (tgt.closest('button, a, input, textarea, .inline-edit-block')) return;
+        if (tgt.closest('button, a, input, textarea, .inline-edit-block, .focus-todo-handle')) return;
         if (this.selClick('imp', importVisIds, t.id, e)) drawImportBody();
       });
       const main = el('div', { class: 'focus-import-task-main' });
@@ -1585,6 +1620,7 @@ export class FocusView {
           'due date',
           (v) => {
             const { date, time } = parseDateTime(v);
+            if (isPastDate(date)) { showToast(PAST_DATE_MSG); return; } // refused, nothing written
             void this.applyTaskEditBulk(bulkIds(), { dueDate: date, dueTime: time });
           },
           drawImportBody
@@ -1596,7 +1632,7 @@ export class FocusView {
           .filter(Boolean)
           .join(' ');
         const dateEl = el('span', { class: 'meta-date', text: when });
-        editClick(dateEl, () => editDate(dateEl, when));
+        editClick(dateEl, () => editDate(dateEl, dateEditSeed(t.dueDate, t.dueTime)));
         tags.append(dateEl);
       } else {
         // Undated tasks sort LAST, so this row is also the explanation for why
@@ -1799,6 +1835,10 @@ export class FocusView {
     armAudioContext();
     this.buildOverlay();
     this.updateDisplay(remaining);
+    // Every restore lands paused, so the "Ends …" line is a projection from now
+    // and must keep moving (see startPausedClock) instead of freezing at the
+    // moment of restore.
+    this.startPausedClock();
     document.title = '⏸ PAUSED · Focus';
     void this.resumeMusicForRestore(s.musicIndex);
     void this.acquireWakeLock();
@@ -1852,6 +1892,36 @@ export class FocusView {
     this.interval = null;
   }
 
+  /**
+   * Keep "⏰ Ends 2:34 PM" honest WHILE PAUSED (Gabe, 8/11: "it says ends at
+   * 2:20 but in reality it ends at 2:30").
+   *
+   * A paused session has no fixed end timestamp: refreshEndTime() projects
+   * `now + remaining`, which slides one minute later every real minute you stay
+   * paused. The main ticker is stopped while paused, so nothing was recomputing
+   * it and the line froze at the moment of pausing, drifting further from the
+   * truth the longer the pause ran. This runs a light 5s refresh of JUST that
+   * line for the duration of the pause.
+   *
+   * A hidden tab throttles this to about once a minute, which is exactly the
+   * granularity displayed, and the visibilitychange snap below covers the gap.
+   */
+  private startPausedClock(): void {
+    this.stopPausedClock();
+    this.pausedClock = this.tickerWin.setInterval(() => this.refreshEndTime(), 5000);
+  }
+
+  private stopPausedClock(): void {
+    if (this.pausedClock !== null) {
+      try {
+        this.tickerWin.clearInterval(this.pausedClock);
+      } catch {
+        /* the PiP window may already be gone */
+      }
+      this.pausedClock = null;
+    }
+  }
+
   private startTicker(): void {
     this.stopTicker();
     // Run the clock in the PiP window while the mini player is detached: the main
@@ -1876,6 +1946,7 @@ export class FocusView {
    *  and by the cross-tab handoff (another tab adopted the session). */
   private suspendUI(): void {
     this.stopTicker();
+    this.stopPausedClock();
     this.stopRing();
     document.title = this.originalTitle || 'Cobalt';
     this.engine?.destroy(); // kills the music immediately
@@ -1910,6 +1981,7 @@ export class FocusView {
     this.releaseWakeLock();
     this.suspendUI();
     window.removeEventListener('storage', this.onStorage);
+    document.removeEventListener('visibilitychange', this.onVisible);
     document.getElementById('focus-session-toast')?.remove();
   }
 
@@ -2010,7 +2082,7 @@ export class FocusView {
       // A completed session announces via the system notification (Settings ▸
       // Notifications ▸ Focus). The old "session complete" toast duplicated that, so
       // it's been removed — the sound + notification are the completion feedback now.
-      void this.notify('⏰ Focus session complete!', `${minutes} min focused • ${done}/${total} tasks done`);
+      void this.notify('Focus session complete!', `${minutes} min focused • ${done}/${total} tasks done`);
     } else {
       // Manual / early ends get NO notification — so the toast stays for them, mainly
       // to carry the "Restore" undo (a mis-tapped End can be taken back for ~10s).
@@ -2731,15 +2803,23 @@ export class FocusView {
         // Chips (.course-chip/.meta-date) are NOT excluded here: their own
         // handlers stopPropagation on plain clicks (edit) and bubble modifier
         // clicks up to this selection routing.
-        if (tgt.closest('button, a, input, textarea, .inline-edit-block')) return;
+        if (tgt.closest('button, a, input, textarea, .inline-edit-block, .focus-todo-handle')) return;
         if (this.selClick('todo', visIds, todo.id, e)) this.drawOverlayTodos(host);
       });
 
       if (draggable) {
-        const handle = el('button', { class: 'focus-todo-handle', text: '⋮⋮', title: 'Drag to reorder' });
+        // A <span>, NOT a <button> (Gabe, 8/11: the grip did nothing). Chromium
+        // will not start a draggable ANCESTOR's drag from inside a form control:
+        // the button consumes the mouse gesture for itself, so `dragstart` never
+        // fired here even though `draggable` was armed. The Tasks tab and
+        // bookmark cards always used spans, which is why only Focus was stuck.
+        const handle = el('span', { class: 'focus-todo-handle', text: '⋮⋮', title: 'Drag to reorder' });
         // The folder id is the drag GROUP: a folder's rows reorder among
         // themselves, the loose rows among themselves, and never across.
-        this.makeTodoDraggable(row, handle, host, i, todo.folderId || '');
+        this.makeTodoDraggable(row, handle, i, todo.folderId || '', this.sessionTodos, () => {
+          this.drawOverlayTodos(host);
+          this.persist();
+        });
         row.append(handle);
       }
 
@@ -2940,6 +3020,12 @@ export class FocusView {
     };
     const commitDate = (v: string) => {
       const { date, time } = parseDateTime(v);
+      // Refused before ANY mutation: the todos in memory and their source tasks
+      // both keep the date they had.
+      if (isPastDate(date)) {
+        showToast(PAST_DATE_MSG);
+        return;
+      }
       const targets = dateTargets();
       for (const m of targets) {
         m.dueDate = date;
@@ -3017,7 +3103,7 @@ export class FocusView {
       const dateEl = el('span', { class: 'meta-date', text: when });
       editClick(dateEl, () => {
         if (!taskEditUnlocked()) return;
-        this.inlineTodoEdit(dateEl, when, 'due date', commitDate, redraw);
+        this.inlineTodoEdit(dateEl, dateEditSeed(todo.dueDate, todo.dueTime), 'due date', commitDate, redraw);
       });
       meta.append(dateEl);
     } else {
@@ -3197,9 +3283,13 @@ export class FocusView {
   private makeTodoDraggable(
     row: HTMLElement,
     handle: HTMLElement,
-    host: HTMLElement,
     index: number,
-    group: string
+    group: string,
+    // WHICH list is being reordered, and how to repaint it. Both todo lists use
+    // this now: the running session's (this.sessionTodos) and the setup screen's
+    // draft (this.todos), which got grips on 8/11.
+    list: FocusTodo[],
+    redraw: () => void
   ): void {
     handle.addEventListener('pointerdown', () => row.setAttribute('draggable', 'true'));
     handle.addEventListener('pointerup', () => row.removeAttribute('draggable'));
@@ -3226,10 +3316,9 @@ export class FocusView {
       if (!from || from.index === index || from.group !== group) return;
       // The move happens in the FLAT list; the folder grouping is applied at draw
       // time, so reordering two members of one folder lands exactly as it looks.
-      const [moved] = this.sessionTodos.splice(from.index, 1);
-      this.sessionTodos.splice(index, 0, moved);
-      this.drawOverlayTodos(host);
-      this.persist();
+      const [moved] = list.splice(from.index, 1);
+      list.splice(index, 0, moved);
+      redraw();
     });
   }
 
@@ -3296,11 +3385,13 @@ export class FocusView {
         this.engine?.play();
         this.musicPlaying = true;
       }
+      this.stopPausedClock();
       this.startTicker();
     } else {
       this.pausedRemainingSec = this.currentRemaining();
       this.paused = true;
       this.stopTicker();
+      this.startPausedClock();
       // Snap the clock to the TRUE remaining right now. In a throttled background tab
       // the display can lag the real time by up to a minute — without this, pressing
       // Pause freezes a stale number and looks like the button did nothing.
@@ -3567,7 +3658,18 @@ export class FocusView {
     const onDown = (e: PointerEvent) => {
       // Interactive + scrollable children handle their own pointer (a carousel wheel
       // must scroll, not drag the widget).
-      if ((e.target as HTMLElement).closest('button, input, textarea, select, a, .focus-wheel')) return;
+      //
+      // .focus-todo-handle is in this list for a NON-obvious reason (Gabe, 8/11:
+      // "still can't move todos"). setPointerCapture below routes every later
+      // pointer event to the widget, and a captured pointer never starts a
+      // native HTML5 drag — so grabbing a todo's grip silently dragged the whole
+      // widget instead of reordering the list. The grip must opt out of capture.
+      if (
+        (e.target as HTMLElement).closest(
+          'button, input, textarea, select, a, .focus-wheel, .focus-todo-handle'
+        )
+      )
+        return;
       startX = e.clientX;
       startY = e.clientY;
       const r = node.getBoundingClientRect();

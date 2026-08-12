@@ -113,10 +113,50 @@ function mkDate(year: number, monthIdx: number, day: number): string | null {
   return formatDate(new Date(year, monthIdx, day));
 }
 
+/**
+ * THE past-date guard (Gabe, 8/11): "reject past dates. It can only be currently
+ * and in the future."
+ *
+ * Every place a human types or edits a date runs this before writing: the
+ * quick-add bar, the Tasks-tab date editor, and the three Focus editors. A bare
+ * "8/6" can no longer produce one (it rolls to the next occurrence), so what
+ * this actually catches is an explicit past year like "8/6/25".
+ *
+ * IT DOES NOT APPLY TO TASKS THAT SIMPLY AGED. A task due yesterday is overdue,
+ * not invalid, and the Schoology feed may move a deadline on its own. This
+ * guards the ENTRY POINTS only, never stored data or the importer, which is why
+ * it lives here rather than inside parseDateTime.
+ */
+export function isPastDate(ds: string): boolean {
+  return !!ds && ds < todayStr();
+}
+
+/** The one sentence shown when a past date is refused. */
+export const PAST_DATE_MSG = '📅 That date has already passed. Pick today or later.';
+
+/**
+ * A month/day with NO year means THE NEXT TIME THAT DATE HAPPENS (Gabe, 8/11).
+ * On 8/11/26, "8/6" is next year's 8/6, not the one that already went by: a
+ * student typing a bare date is always scheduling something, never backdating
+ * it, and the old this-year assumption silently created an overdue task.
+ *
+ * Today itself counts as "the next time", so "8/11" on 8/11 stays today.
+ *
+ * A date typed WITH a year is left exactly as typed, including into the past.
+ * Saying the year out loud is unambiguous, and a deliberately backdated task is
+ * a real thing (that is what the overdue state is for).
+ */
+function nextOccurrence(monthIdx: number, day: number): string | null {
+  const now = new Date();
+  const thisYear = mkDate(now.getFullYear(), monthIdx, day);
+  if (!thisYear) return null;
+  return thisYear >= todayStr() ? thisYear : mkDate(now.getFullYear() + 1, monthIdx, day);
+}
+
 /** Try to parse a date starting at tokens[i]; returns the date and tokens consumed. */
 function parseDateAt(tokens: string[], i: number): { date: string; consumed: number } | null {
   const tok = tokens[i].toLowerCase().replace(/,$/, ''); // tolerate a trailing comma
-  const thisYear = new Date().getFullYear();
+
 
   // --- relative words ---
   if (TODAY.has(tok)) return { date: todayStr(), consumed: 1 };
@@ -161,9 +201,10 @@ function parseDateAt(tokens: string[], i: number): { date: string; consumed: num
   // rejected. Slash and dash are conventional date separators; a dot is not.
   const mdy = tok.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})$/);
   if (mdy) { const d = mkDate(fullYear(mdy[3]), +mdy[1] - 1, +mdy[2]); if (d) return { date: d, consumed: 1 }; }
-  // M/D or M-D (no year → current year). Same reasoning: slash/dash yes, dot no.
+  // M/D or M-D (no year → the NEXT time that date occurs, this year or next).
+  // Same separator reasoning: slash/dash yes, dot no.
   const md = tok.match(/^(\d{1,2})[\/-](\d{1,2})$/);
-  if (md) { const d = mkDate(thisYear, +md[1] - 1, +md[2]); if (d) return { date: d, consumed: 1 }; }
+  if (md) { const d = nextOccurrence(+md[1] - 1, +md[2]); if (d) return { date: d, consumed: 1 }; }
 
   // --- month-name forms (multi-token) ---
   // "<month> <day>[ <year>]"  → "jan 11", "january 11th", "jan 11 2026"
@@ -172,7 +213,7 @@ function parseDateAt(tokens: string[], i: number): { date: string; consumed: num
     if (day) {
       const yTok = tokens[i + 2] ?? '';
       const hasYear = /^\d{2}(\d{2})?$/.test(yTok);
-      const d = mkDate(hasYear ? fullYear(yTok) : thisYear, MONTHS[tok], day);
+      const d = hasYear ? mkDate(fullYear(yTok), MONTHS[tok], day) : nextOccurrence(MONTHS[tok], day);
       if (d) return { date: d, consumed: hasYear ? 3 : 2 };
     }
   }
@@ -183,7 +224,7 @@ function parseDateAt(tokens: string[], i: number): { date: string; consumed: num
     if (mWord in MONTHS) {
       const yTok = tokens[i + 2] ?? '';
       const hasYear = /^\d{2}(\d{2})?$/.test(yTok);
-      const d = mkDate(hasYear ? fullYear(yTok) : thisYear, MONTHS[mWord], dFirst);
+      const d = hasYear ? mkDate(fullYear(yTok), MONTHS[mWord], dFirst) : nextOccurrence(MONTHS[mWord], dFirst);
       if (d) return { date: d, consumed: hasYear ? 3 : 2 };
     }
   }

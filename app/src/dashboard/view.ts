@@ -82,9 +82,11 @@ export class DashboardView {
   private sample: boolean; // landing preview → external links (schedule) are inert
   private panelEl: HTMLElement | null = null; // kept so a prefs change can re-render
   private wired = false; // watchTasks/onRegistryChange subscribed exactly once
-  // The Today's-Tasks excerpt view's own container. Built once, then moved
-  // between rebuilt cards, so its subscription is never duplicated.
+  // The excerpt views' own containers. Built once each, then moved between
+  // rebuilt cards, so their subscriptions are never duplicated.
   private dueBody: HTMLElement | null = null;
+  private overdueBox!: HTMLElement;
+  private overdueBody: HTMLElement | null = null;
   private onPrefsChange = (): void => {
     if (this.panelEl) this.mount(this.panelEl);
   };
@@ -138,6 +140,12 @@ export class DashboardView {
     // The boxes always exist (update()/refreshSchedule() write into them); the
     // Settings toggles decide whether they're APPENDED — an off card renders into
     // a detached node, harmlessly.
+    // OVERDUE sits ABOVE Today's Tasks (Gabe, 8/11) and shouts in red: it is the
+    // one thing on this screen that is already going wrong. It rides the same
+    // Settings toggle as the tasks card, since it is the same family of card.
+    this.overdueBox = el('div', { class: 'dash-overdue' });
+    if (this.sample || prefs.tasksCard) wrap.append(this.overdueBox);
+
     this.dueBox = el('div', { class: 'dash-due' });
     if (this.sample || prefs.tasksCard) wrap.append(this.dueBox);
 
@@ -149,6 +157,7 @@ export class DashboardView {
     // The Today's-Tasks card no longer needs a task subscription of its own: the
     // excerpt view inside it watches tasks, folders and the course registry
     // directly. This one stays for the SCHEDULE card.
+    this.renderOverdue();
     this.renderDue();
     if (!this.wired) {
       this.wired = true;
@@ -171,6 +180,35 @@ export class DashboardView {
    * subscription, so it repaints itself on the same tick as the Tasks tab.
    * renderDue only builds the card's header the first time.
    */
+  /**
+   * The OVERDUE card: the same real-excerpt trick as Today's Tasks, filtered to
+   * anything dated before today and still open, in red.
+   *
+   * It HIDES ITSELF when nothing is overdue (the count comes from the excerpt
+   * view's own filter, via onCount). A permanent red panel reading "nothing
+   * overdue" would be a daily false alarm, and emphasis only works when it is
+   * rare. On a clean day the dashboard looks exactly as it did before.
+   */
+  private renderOverdue(): void {
+    this.overdueBox.replaceChildren();
+    const header = el('div', { class: 'dash-schedule-header dash-overdue-header' });
+    const link = el('button', { class: 'dash-due-link', text: 'Overdue' });
+    link.addEventListener('click', () => this.goToTab('tasks'));
+    header.append(link);
+    this.overdueBox.append(header);
+    if (!this.overdueBody) {
+      this.overdueBody = el('div', { class: 'dash-due-list' });
+      new TasksView(this.data, this.sample ? { host: this.overdueBody } : undefined, {
+        // Dated, in the past, still open. todayStr() is read per render so the
+        // card rolls over correctly on a session left open past midnight.
+        filter: (t) => !!t.dueDate && t.dueDate < todayStr(),
+        empty: '', // never seen: the card hides itself at zero
+        onCount: (n) => this.overdueBox.classList.toggle('on', n > 0),
+      }).mount(this.overdueBody);
+    }
+    this.overdueBox.append(this.overdueBody);
+  }
+
   private renderDue(): void {
     this.dueBox.replaceChildren();
     // SAME CLASS as the Schedule card's header (Gabe, 8/10) so the two cards are

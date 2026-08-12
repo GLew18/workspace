@@ -1730,8 +1730,8 @@ export class SettingsView {
     const fsToast = buildToast();
     const fsMail = buildMail();
     const refreshFs = (): void => {
-      fsToast.set('⏰ Focus session complete!', '25 min focused • 3/4 tasks done');
-      fsMail.set('⏰ Focus session complete!', '25 min focused • 3/4 tasks done');
+      fsToast.set('Focus session complete!', '25 min focused • 3/4 tasks done');
+      fsMail.set('Focus session complete!', '25 min focused • 3/4 tasks done');
     };
     const fsCap = el('div', { class: 'nwheel-cap', text: 'Fires when your focus timer reaches zero. No setup. It just cheers you on.' });
     const fsTest = buildTest(() => fsToast.get());

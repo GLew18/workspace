@@ -1,10 +1,9 @@
 // Cobalt: quick-add input + submit guard (spec §6.2 finalize / tryAddTask).
 
 import type { ParsedTask, TaskFolder } from '../types';
-import { parseQuickAdd } from './parser';
+import { parseQuickAdd, isPastDate, PAST_DATE_MSG } from './parser';
 import { normFolder } from './folders';
-import { todayStr } from '../util/dates';
-import { el, textInput } from '../util/dom';
+import { el, textInput, showToast } from '../util/dom';
 
 // The folder token is ONE WORD (per Gabe): "f:English" — everything after the
 // next space belongs to the task title, wherever the token sits in the line. Use
@@ -162,8 +161,11 @@ export function buildQuickAdd(
       return;
     }
     if (folderName) parsed.folderName = folderName;
-    if (parsed.dueDate && parsed.dueDate < todayStr()) {
-      flashInvalid(); // reject past due dates
+    // Past due dates are refused (see isPastDate). The typed text is LEFT IN
+    // THE BOX so the date can be corrected instead of retyped from scratch.
+    if (isPastDate(parsed.dueDate)) {
+      flashInvalid();
+      showToast(PAST_DATE_MSG);
       return;
     }
     onSubmit(parsed);

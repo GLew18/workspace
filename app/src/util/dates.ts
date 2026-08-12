@@ -28,8 +28,17 @@ export const todayStr = (): string => formatDate(new Date());
 
 /** 'YYYY-MM-DD' -> 'M/D' */
 export const formatShortDate = (ds: string): string => {
-  const [, m, d] = ds.split('-');
-  return +m + '/' + +d;
+  const [y, m, d] = ds.split('-');
+  // A date in ANOTHER YEAR spells the year out (Gabe, 8/11): "8/6" and "8/6/27"
+  // look identical at a glance otherwise, which is exactly the confusion the
+  // next-occurrence parsing rule can create. Same-year dates stay short, since
+  // the year would be noise on every row.
+  //
+  // This also keeps the inline editor round-tripping: it seeds itself with this
+  // string, so a 2027 task opens as "8/6/27" and re-parses to 2027. Seeding it
+  // with a bare "8/6" would have let an unrelated edit silently move the date.
+  const yearSuffix = +y === new Date().getFullYear() ? '' : '/' + y.slice(-2);
+  return +m + '/' + +d + yearSuffix;
 };
 
 /** Build a local Date from a 'YYYY-MM-DD' string, anchored at noon to avoid TZ drift. */

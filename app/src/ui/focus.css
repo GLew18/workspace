@@ -454,7 +454,9 @@
 }
 .focus-import-tags .meta-date {
   cursor: text;
-  font-variant-numeric: tabular-nums;
+  /* NO font-variant-numeric here: the Tasks tab renders dates with proportional
+     figures, and tabular figures set digits on a fixed, wider advance, which is
+     what made the same date look like a different font over here (Gabe, 8/11). */
 }
 .focus-import-tags .meta-date.empty {
   cursor: pointer;
@@ -600,7 +602,7 @@
 }
 .focus-todo-meta .meta-date {
   cursor: text;
-  font-variant-numeric: tabular-nums;
+  /* See .focus-import-tags .meta-date: proportional figures, to match Tasks. */
 }
 .focus-todo-meta .meta-date.empty {
   cursor: pointer;
@@ -1244,13 +1246,15 @@
   display: flex;
   align-items: center;
   background: none;
-  border: none;
+  border: none; /* vestigial button resets: this is a <span> now, see view.ts */
   color: var(--text-dim);
-  font-size: 13px;
+  /* 16px to match .task-handle / .bm-card-handle: one move grip, one size. */
+  font-size: 16px;
   line-height: 1;
   cursor: grab;
   letter-spacing: -2px;
   opacity: 0.5;
+  user-select: none; /* a span CAN be text-selected; a grip must not be */
 }
 .focus-todo-handle:hover {
   opacity: 1;

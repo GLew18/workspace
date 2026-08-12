@@ -121,7 +121,7 @@ const onOffToggle = (x: number, y: number, mode: 'on' | 'off' | 'turnsOn' | 'tur
 /** A checkbox. checks/unchecks animate at the click moment. */
 const checkbox = (x: number, y: number, mode: 'checks' | 'unchecks' | 'on' | 'off'): string => {
   const empty = box(x, y, 15, 15, PANEL2, 4, `stroke="${LINE}"`);
-  const filled = box(x, y, 15, 15, GOLD, 4) + `<path d="M${x + 3.5} ${y + 8} l3 3 l5.5 -6" stroke="#1a1206" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+  const filled = box(x, y, 15, 15, GOLD, 4) + `<path d="M${x + 3.5} ${y + 8} l3 3 l5.5 -6" stroke="#071433" stroke-width="2" fill="none" stroke-linecap="round"/>`;
   if (mode === 'off') return empty;
   if (mode === 'on') return empty + filled;
   if (mode === 'checks') return empty + `<g class="af">${filled}</g>`;
@@ -294,7 +294,7 @@ const testScene = (bottomLine: string): string =>
     box(30, 60, 190, 34, PANEL2, 9, `stroke="${LINE}"`) +
       txt(125, 81, 11, TXT, 'Test out notification', 600, 'middle') +
       arrow(240, 78, 280, 110) +
-      wsToast(235, 120, '⏰ Focus session complete!', '25 min focused • 3/4 tasks done') +
+      wsToast(235, 120, 'Focus session complete!', '25 min focused • 3/4 tasks done') +
       txt(230, 220, 10.5, DIM, bottomLine, 500, 'middle') +
       hl(24, 54, 202, 46) +
       cursor(90, 200, 120, 76)
@@ -366,7 +366,7 @@ export const NOTIFY_GUIDES: Guide[] = [
             hl(24, 54, 202, 46) +
             cursor(90, 200, 120, 76) +
             arrow(240, 78, 280, 110) +
-            wsToast(235, 120, '⏰ Focus session complete!', '25 min focused • 3/4 tasks done') +
+            wsToast(235, 120, 'Focus session complete!', '25 min focused • 3/4 tasks done') +
             txt(230, 220, 10.5, DIM, 'Popup shows → Cobalt is fine · No popup → keep reading', 500, 'middle')
         ),
       },
@@ -476,7 +476,11 @@ export const NOTIFY_GUIDES: Guide[] = [
     title: 'Windows Do Not Disturb is on',
     tag: 'Common',
     emoji: '🌙',
-    color: '#7db4ff',
+    // RAINBOW, not the accent (Gabe, 8/11): the guide cards descend
+    // red → orange → YELLOW → green → blue → violet, so this one stays yellow
+    // even though the brand gold it happens to match was retired. Do not sweep
+    // it with the accent.
+    color: '#e6a817',
     blurb: 'DND (and Focus sessions) silently swallow every popup, and Windows often turns them on by itself.',
     steps: [
       {
@@ -485,7 +489,7 @@ export const NOTIFY_GUIDES: Guide[] = [
         svg: scene(
           box(230, 16, 214, 196, PANEL, 12) +
             txt(246, 38, 11.5, TXT, 'Notifications', 650) +
-            `<g class="bf">${box(362, 24, 26, 20, GOLD, 7)}${icoDnd(368, 27, '#1a1206')}</g>` +
+            `<g class="bf">${box(362, 24, 26, 20, GOLD, 7)}${icoDnd(368, 27, '#071433')}</g>` +
             `<g class="af">${box(362, 24, 26, 20, PANEL2, 7)}${icoBell(368, 27)}</g>` +
             box(394, 24, 42, 20, PANEL2, 7) +
             txt(415, 37, 8, DIM, 'Clear all', 500, 'middle') +
@@ -700,7 +704,7 @@ export const NOTIFY_GUIDES: Guide[] = [
         svg: scene(
           box(60, 60, 150, 130, PANEL, 12) +
             `<circle cx="135" cy="105" r="24" fill="${GOLD}"/>` +
-            txt(135, 112, 16, '#1a1206', 'G', 800, 'middle') +
+            txt(135, 112, 16, '#071433', 'G', 800, 'middle') +
             txt(135, 150, 10.5, TXT, 'School profile', 600, 'middle') +
             txt(135, 168, 10, GREEN, '🔔 Allowed ✓', 650, 'middle') +
             box(250, 60, 150, 130, PANEL, 12) +

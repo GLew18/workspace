@@ -45,6 +45,39 @@
   border-radius: var(--radius);
   padding: 16px;
 }
+
+/* ---- Overdue card (Gabe, 8/11) ----
+   Sits ABOVE Today's Tasks and is the loudest thing on the dashboard: red
+   heading, red-tinted surface, red border, and a thick red rail down the left
+   edge. HIDDEN unless something is actually overdue (the .on class is set by
+   the excerpt view's onCount), because a red panel that is always there stops
+   being a warning and becomes furniture. */
+.dash-overdue {
+  display: none;
+  background: rgba(239, 68, 68, 0.07);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-left: 4px solid var(--red);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.dash-overdue.on {
+  display: block;
+}
+/* TWO classes on purpose (0,2,0). The element also carries
+   .dash-schedule-header for its layout, and that rule is defined LATER in this
+   file — at equal specificity it would win and this heading would render as an
+   ordinary 16px white one. */
+.dash-overdue-header.dash-schedule-header {
+  /* Bigger than the other card headings on purpose: this one is the alarm. */
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  color: var(--red);
+}
+/* The heading is a button (it jumps to Tasks); keep it red, and brighten rather
+   than switch to the accent on hover the way the Today's-Tasks link does. */
+.dash-overdue-header .dash-due-link:hover {
+  color: #ff6b6b;
+}
 /* The Today's-Tasks card wears .dash-schedule-header (one shared heading style
    for both cards). Its title is a button so it can jump to the Tasks tab, so
    strip every trace of button chrome and let it inherit the heading's type. */
