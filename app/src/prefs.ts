@@ -8,8 +8,9 @@
 export interface AppPrefs {
   /** '12h' shows 2:30pm; '24h' shows 14:30. (Persisted; display wiring is phased.) */
   timeFormat: '12h' | '24h';
-  /** Which tab the app opens to. */
-  openTo: 'dashboard' | 'tasks' | 'bookmarks' | 'focus';
+  /** Which tab the app opens to (and where the wordmark returns you). Listed in
+   *  the app's own nav order: Focus outranks Bookmarks. */
+  openTo: 'dashboard' | 'tasks' | 'focus' | 'bookmarks';
   dash: {
     /** Use the display name inside the rotating greeting. */
     greetName: boolean;
@@ -54,6 +55,19 @@ export interface AppPrefs {
     keepAwake: boolean;
     /** Start the chosen focus music the moment a session starts. */
     autoStartMusic: boolean;
+    /** Reloading the page mid-session KEEPS THE CLOCK RUNNING instead of landing
+     *  paused (Gabe, 8/11). Off by default: a reload is usually accidental or a
+     *  crash, and coming back to a paused clock loses nothing, whereas silently
+     *  resuming could burn minutes the student never meant to spend. Only the
+     *  automatic mid-session reload honors it; the sign-out "Restore?" prompt and
+     *  a cross-tab handoff still land paused, because those are questions. */
+    resumeAfterReload: boolean;
+    /** Are Focus todos and Tasks ONE list, or two independent systems?
+     *  ON (default): adding a todo in Focus creates the real task, edits and
+     *  check-offs travel both ways, and the two tabs are one system.
+     *  OFF: the Focus list is private to Focus. Import still works (it copies a
+     *  task in), but nothing written in Focus reaches the Tasks tab afterwards. */
+    linkTasks: boolean;
   };
   calendar: {
     /** Which layout the Tasks tab opens in. */
@@ -78,7 +92,7 @@ export const DEFAULT_PREFS: AppPrefs = {
   sync: { auto: true, intervalMins: 30, onOpen: true },
   importPrefs: { assignments: true, assessments: true, quizzes: true, windowDays: 30 },
   tasks: { allowEdit: true },
-  focus: { showSeconds: true, keepAwake: true, autoStartMusic: true },
+  focus: { showSeconds: true, keepAwake: true, autoStartMusic: true, resumeAfterReload: false, linkTasks: true },
   calendar: {
     defaultScreen: 'list',
     weekStart: 0,
@@ -99,7 +113,7 @@ export function normalizePrefs(raw: unknown): AppPrefs {
     allowed.includes(v as T) ? (v as T) : def;
   return {
     timeFormat: pick(r.timeFormat, ['12h', '24h'] as const, d.timeFormat),
-    openTo: pick(r.openTo, ['dashboard', 'tasks', 'bookmarks', 'focus'] as const, d.openTo),
+    openTo: pick(r.openTo, ['dashboard', 'tasks', 'focus', 'bookmarks'] as const, d.openTo),
     dash: {
       greetName: bool(r.dash?.greetName, d.dash.greetName),
       quote: bool(r.dash?.quote, d.dash.quote),
@@ -125,6 +139,8 @@ export function normalizePrefs(raw: unknown): AppPrefs {
       showSeconds: bool(r.focus?.showSeconds, d.focus.showSeconds),
       keepAwake: bool(r.focus?.keepAwake, d.focus.keepAwake),
       autoStartMusic: bool(r.focus?.autoStartMusic, d.focus.autoStartMusic),
+      resumeAfterReload: bool(r.focus?.resumeAfterReload, d.focus.resumeAfterReload),
+      linkTasks: bool(r.focus?.linkTasks, d.focus.linkTasks),
     },
     calendar: {
       defaultScreen: pick(r.calendar?.defaultScreen, ['list', 'calendar'] as const, d.calendar.defaultScreen),

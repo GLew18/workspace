@@ -383,7 +383,9 @@ body.app-mode .app-below {
   /* inherits the global 0.2s button transition (theme.css) */
 }
 .btn-primary:hover {
-  box-shadow: 0 0 0 3px var(--gold-glow);
+  /* The shared soft glow (theme.css). Hue follows --glow-rgb, so a button that
+     isn't accent-colored glows its own color instead of wearing a blue halo. */
+  box-shadow: 0 0 var(--glow-blur) var(--glow-spread) rgba(var(--glow-rgb), var(--glow-alpha));
 }
 .signin input,
 .signin textarea {
@@ -1151,6 +1153,10 @@ body.app-mode .app-below {
 }
 .cal-today {
   color: var(--gold);
+  /* 600 to sit with the rest of the row (Gabe, 8/11): .cal-seg-btn "Month"/"Week"
+     are 600 and .cal-label is 700, so at the inherited 400 this button read as
+     the odd one out. Only shown when it would actually navigate (viewingToday). */
+  font-weight: 600;
 }
 
 /* DOW header + the rigid grid: minmax(0,1fr) columns so long chips can NEVER
@@ -1896,6 +1902,7 @@ body.app-mode .app-below {
      blue premium button stopped reading as a different tier. */
   background: linear-gradient(180deg, #9b79ee, #7c56dd);
   color: #fff;
+  --glow-rgb: 139, 92, 246; /* glows violet like itself, not accent blue */
   display: flex;
   flex-direction: column;
   align-items: center;

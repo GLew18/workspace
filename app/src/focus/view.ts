@@ -449,8 +449,12 @@ export class FocusView {
       // Asked ONCE: a ✕ on that toast is a "no" that outlives the page (Gabe, 8/9).
       if (ownsSession(saved) && !saved.declined) this.showSessionToast('restore');
     } else if (ownsSession(saved)) {
-      // This tab's own session (mid-session reload): bring it right back.
-      this.restore(saved);
+      // This tab's own session (mid-session reload): bring it right back, and
+      // KEEP IT RUNNING if the student opted in and it was running when the page
+      // went away. This is the only path that auto-resumes: the sign-out prompt
+      // and a cross-tab handoff are questions, and answering one for the user
+      // would start burning their time uninvited.
+      this.restore(saved, getPrefs().focus.resumeAfterReload && !saved.paused);
     } else {
       // Another tab owns it — it stays there. This tab just gets the signpost.
       this.showSessionToast('enter');
@@ -1181,15 +1185,17 @@ export class FocusView {
     // normal page flow, so it simply extends the page downward.)
     wrap.append(musicList, makeResizeGrip({ body: musicList, storageKey: 'focus:musicListHeight' }).el);
 
-    // Start. When a session is already running, this screen is inert — you can't
-    // start a second one (matches the guard in startSession).
+    // Start. When a session is already running you still can't start a second one
+    // (matches the guard in startSession), but the button is no longer inert: it
+    // becomes the way BACK into the session, reopening the full-screen overlay. That
+    // is the rescue for a mini player lost behind other windows (Gabe, 8/12).
     const start = el('button', { class: 'btn-primary focus-start', text: 'Start focus session' });
     if (this.overlay || this.widget) {
-      start.disabled = true;
       start.textContent = 'Session in progress';
+      start.addEventListener('click', () => this.maximize());
       wrap.append(
         start,
-        el('div', { class: 'focus-field-error', text: 'A focus session is already running. End it to start a new one.' })
+        el('div', { class: 'focus-field-error', text: 'A focus session is already running. Click it to return to the full session.' })
       );
     } else {
       start.addEventListener('click', () => {
@@ -1324,6 +1330,22 @@ export class FocusView {
    * Synchronous on purpose: Data.putTask updates its cache and notifies BEFORE
    * the network settles, so the caller can push, redraw, and move on.
    */
+  /** Are Focus and Tasks ONE list? (Settings ▸ Focus ▸ "Link Focus and Tasks".)
+   *  Off means nothing written in Focus reaches the Tasks tab; importing still
+   *  works, because that is an explicit one-way copy the student asked for.
+   *
+   *  ONE EXCEPTION, and it is deliberate (Gabe, 8/12): CHECKING OFF always
+   *  travels, both ways, for any todo that has a task behind it. Adding and
+   *  editing stay separate as described above, but a todo you imported and its
+   *  source task are the same piece of work — leaving Tasks still listing it
+   *  after you finished it in Focus is misleading and is exactly the friction
+   *  the app exists to remove. See syncLinkedTasks and onTasksUpdate; neither
+   *  is gated on this flag for the done state. Todos created in Focus while
+   *  unlinked have no taskId, so nothing about them crosses over either way. */
+  private linked(): boolean {
+    return getPrefs().focus.linkTasks;
+  }
+
   private addTypedTodo(list: FocusTodo[], raw: string): void {
     const { text, course } = parseFocusInput(raw);
     if (!text) return;
@@ -1338,6 +1360,12 @@ export class FocusView {
       course,
       priority: 'normal',
     });
+    // UNLINKED: a Focus-only todo, with no taskId, so nothing about it ever
+    // reaches the Tasks tab (and every write-through below no-ops for it).
+    if (!this.linked()) {
+      list.push({ id: 'ft_' + genId(), text, done: false, course });
+      return;
+    }
     list.push({ id: 'ft_' + genId(), text, done: false, course, taskId: task.id });
     void this.data.putTask(task);
   }
@@ -1349,6 +1377,7 @@ export class FocusView {
   private async fileTodoInFolder(todo: FocusTodo, folderId: string | null): Promise<void> {
     if (folderId) todo.folderId = folderId;
     else delete todo.folderId;
+    if (!this.linked()) return; // Focus-only filing; the source task is untouched
 
     if (todo.taskId) {
       const src = this.data.getTasks()[todo.taskId];
@@ -1741,13 +1770,16 @@ export class FocusView {
         }
       }
 
-      // INDIVIDUAL TASKS — ordered soonest-due first, then by priority (undated last),
-      // the exact ordering the Tasks tab uses. Neither the date nor the priority is
-      // shown here; they only influence the order.
+      // INDIVIDUAL TASKS — DRAG ARRANGEMENT FIRST, then due date, then priority,
+      // time, course, recency. Undated tasks sort last among the un-arranged.
+      //
+      // manualFirst is the whole point (Gabe, 8/8 and reaffirmed 8/12): a hand
+      // placement is deliberate intent and outranks every automatic criterion,
+      // including the date. Tasks can afford to rank the date first because it
+      // splits into visible day headers, so a drag there can only mean "within
+      // this day"; the Focus import panel is one undivided list with no boundary
+      // to respect. (A due-date-first order was tried on 8/12 and reverted.)
       importBody.append(el('div', { class: 'focus-import-section', text: 'Individual tasks' }));
-      // manualFirst: this list has no day headers, so a ⋮⋮ arrangement made in
-      // Tasks is honored across dates here rather than only within one. See
-      // sortTasks in tasks/store.ts.
       const sorted = sortTasks(filtered, { manualFirst: true });
       // Selection housekeeping: range order = drawn order; imported/filtered-out
       // ids fall out of the selection instead of lingering invisibly.
@@ -1804,7 +1836,8 @@ export class FocusView {
     this.renderSetup();
   }
 
-  private restore(s: FocusState): void {
+  /** `keepRunning` = the mid-session-reload opt-in (focus.resumeAfterReload). */
+  private restore(s: FocusState, keepRunning = false): void {
     this.originalTitle = document.title;
     this.sessionTodos = s.todos;
     // s.folders is ignored (legacy): folders now live in the shared profile list.
@@ -1823,11 +1856,17 @@ export class FocusView {
       this.renderSetup();
       return;
     }
-    // EVERY restore — mid-session reload, sign-out Restore, tab adoption, end-undo —
-    // lands PAUSED, session and music both. Nothing runs or sounds until the user
-    // presses Resume; togglePause then brings the clock AND the music back together.
-    this.paused = true;
-    this.pausedRemainingSec = remaining;
+    // A restore lands PAUSED by default — mid-session reload, sign-out Restore,
+    // tab adoption, end-undo — session and music both. Nothing runs or sounds
+    // until the user presses Resume; togglePause then brings the clock AND the
+    // music back together.
+    //
+    // `keepRunning` is the one opt-in exception (focus.resumeAfterReload): the
+    // clock simply never stopped. endTimeMs is an absolute timestamp, so the time
+    // that passed while the page was gone has already been spent, and `remaining`
+    // above accounts for it.
+    this.paused = !keepRunning;
+    this.pausedRemainingSec = keepRunning ? null : remaining;
     // Arm the pause→resume music linkage exactly as a live Pause would have: the
     // track returns with the session iff it was audible when the session was last
     // live (older saved states without the flag: any selected track counts).
@@ -1835,11 +1874,18 @@ export class FocusView {
     armAudioContext();
     this.buildOverlay();
     this.updateDisplay(remaining);
-    // Every restore lands paused, so the "Ends …" line is a projection from now
-    // and must keep moving (see startPausedClock) instead of freezing at the
-    // moment of restore.
-    this.startPausedClock();
-    document.title = '⏸ PAUSED · Focus';
+    if (keepRunning) {
+      this.startTicker();
+      document.title = `🎯 ${this.clock(remaining)} · Focus`;
+    } else {
+      // A paused restore's "Ends …" line is a projection from now, so it must keep
+      // moving (see startPausedClock) instead of freezing at the moment of restore.
+      this.startPausedClock();
+      document.title = '⏸ PAUSED · Focus';
+    }
+    // Music: a reload has no user gesture, so autoplay may be refused. The engine
+    // already arms a one-shot retry on the next pointerdown, so a resumed session's
+    // track comes back with the first click instead of staying silent.
     void this.resumeMusicForRestore(s.musicIndex);
     void this.acquireWakeLock();
   }
@@ -1863,12 +1909,20 @@ export class FocusView {
         this.playlist = await this.buildPlaylist();
       }
     }
-    // Restores land paused (see restore()), so this wires the engine silently: same
-    // track, same queue position, working transport — no sound. Read `paused` LIVE
-    // rather than assuming: the end-undo flow (retrieveSession resumeRunning) calls
-    // togglePause synchronously after restore(), before this async step lands — in
-    // that case the session is already running again and music should start.
-    this.startMusic(musicIndex, !this.paused);
+    // A restore normally lands paused (see restore()), so this wires the engine
+    // silently: same track, same queue position, working transport, no sound.
+    //
+    // Read `paused` LIVE rather than assuming. Two flows arrive here already
+    // running: the end-undo (retrieveSession calls togglePause synchronously
+    // after restore(), before this async step lands) and "Keep running after a
+    // refresh". Both should come back with the music ON.
+    //
+    // ...but only if it WAS on. musicPlayingAtPause carries that from the saved
+    // state, so a track the student had paused by itself stays paused instead of
+    // striking up on its own after a reload. If the browser refuses autoplay
+    // (a reload has no user gesture), setOnBlocked shows ▶ and retries on the
+    // first interaction.
+    this.startMusic(musicIndex, !this.paused && this.musicPlayingAtPause);
     // Re-persist now that the engine knows the queue position: storage must reflect
     // the forced pause (frozen remaining) or a second reload would shrink the clock.
     this.persist();
@@ -3008,14 +3062,15 @@ export class FocusView {
     const dateTargets = () => (pool.length ? this.todoTargets(todo, pool) : [todo]);
     const commitTitle = (v: string) => {
       todo.text = v;
-      // Imported todos write through to the source task (→ Tasks tab + import window).
-      if (todo.taskId) void this.applyTaskEdit(todo.taskId, { title: v });
+      // Imported todos write through to the source task (→ Tasks tab + import
+      // window), unless Focus and Tasks are unlinked.
+      if (todo.taskId && this.linked()) void this.applyTaskEdit(todo.taskId, { title: v });
     };
     const commitCourse = (v: string) => {
       const course = v ? matchCourseStrict(v) : '';
       const targets = dateTargets();
       for (const m of targets) m.course = course;
-      const ids = targets.map((m) => m.taskId).filter(Boolean) as string[];
+      const ids = this.linked() ? (targets.map((m) => m.taskId).filter(Boolean) as string[]) : [];
       if (ids.length) void this.applyTaskEditBulk(ids, { course });
     };
     const commitDate = (v: string) => {
@@ -3031,7 +3086,7 @@ export class FocusView {
         m.dueDate = date;
         m.dueTime = time;
       }
-      const ids = targets.map((m) => m.taskId).filter(Boolean) as string[];
+      const ids = this.linked() ? (targets.map((m) => m.taskId).filter(Boolean) as string[]) : [];
       if (ids.length) void this.applyTaskEditBulk(ids, { dueDate: date, dueTime: time });
     };
     // ONE CLICK opens the course/date editors (same 8/10 rule as the Tasks tab);
@@ -3203,6 +3258,9 @@ export class FocusView {
    *  checked in both, and the Focus row sinks to the bottom exactly as if it had
    *  been checked here. */
   private onTasksUpdate(tasks: TaskMap): void {
+    // The import snapshot ALWAYS follows the Tasks tab: that panel is the Tasks
+    // side of the app, and importing stays available whether or not the two
+    // lists are linked.
     this.importTasks = Object.values(tasks).filter((t) => !t.completed);
     // Folders are shared: a folder created/renamed/recolored in Tasks (or a task
     // filed into one there) must show up here too. Re-read, then redraw.
@@ -3210,6 +3268,29 @@ export class FocusView {
       this.redrawTodos?.();
       this.redrawSessionTodos?.();
     });
+    // UNLINKED: title, course, date and folder stop here — copying those onto the
+    // Focus todos is exactly the connection the setting turns off. DONE is the one
+    // exception (see linked()) and is mirrored first: a task checked off in Tasks
+    // checks its Focus row and sinks it, same as when the two lists are linked.
+    if (!this.linked()) {
+      let doneChanged = false;
+      for (const list of [this.todos, this.sessionTodos]) {
+        for (const todo of list) {
+          if (!todo.taskId) continue;
+          const src = tasks[todo.taskId];
+          if (!src || todo.done === src.completed) continue;
+          todo.done = src.completed;
+          doneChanged = true;
+        }
+      }
+      this.refreshImportBody?.();
+      if (doneChanged) {
+        this.redrawTodos?.();
+        this.redrawSessionTodos?.();
+        if (this.interval) this.persist();
+      }
+      return;
+    }
     // Membership changes made in Tasks land on the linked todos as well.
     for (const list of [this.todos, this.sessionTodos]) {
       for (const todo of list) {
@@ -3336,6 +3417,10 @@ export class FocusView {
    * clobber, and writing once means a single re-render for the batch.
    */
   private async syncLinkedTasks(todos: FocusTodo[]): Promise<void> {
+    // NOT gated on linked(): check-off is the one thing that always crosses over
+    // (see linked()). Todos with no taskId — everything typed into Focus while
+    // unlinked — are filtered out below, so this still only touches work that
+    // genuinely exists on both sides.
     const linked = todos.filter((t) => t.taskId);
     if (!linked.length) return;
     const tasks = await this.data.getTasksAll();
@@ -3457,6 +3542,31 @@ export class FocusView {
     void this.buildWidget();
   }
 
+  /** The opposite of minimize(): bring the running session back to the full-screen
+   *  overlay from wherever it currently lives (the detached PiP mini player or the
+   *  in-tab float). Used by the widget's ⤢ button AND by the setup screen's "Session
+   *  in progress" button, which is the way back when the mini player gets lost
+   *  behind other windows (Gabe, 8/12). */
+  private maximize(): void {
+    if (this.overlay) return; // already full-screen
+    this.closePip();
+    this.widget?.remove();
+    this.widget = null;
+    this.buildOverlay();
+    // The clock lived in the PiP window while the mini player was detached, so its
+    // interval died with that window: re-home it to this tab. Same for the paused
+    // end-time refresher, except stop it on the window that OWNS it BEFORE re-homing,
+    // since interval ids are per-window and clearing a foreign id here could kill an
+    // unrelated timer.
+    if (this.paused) {
+      this.stopPausedClock();
+      this.tickerWin = window;
+      this.startPausedClock();
+    } else {
+      this.startTicker();
+    }
+  }
+
   /** The minimized screen: a smaller, condensed clone of the overlay's left column.
    *  It REUSES the exact same components (ring, controls, extend rows) so it looks
    *  identical, just scaled down by the .focus-widget CSS. It first tries to detach
@@ -3471,11 +3581,7 @@ export class FocusView {
     const expand = el('button', { class: 'focus-widget-expand', text: '⤢', title: 'Expand' });
     expand.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.closePip();
-      this.widget?.remove();
-      this.widget = null;
-      this.buildOverlay();
-      if (!this.paused) this.startTicker(); // re-home the clock: its pip-owned interval died with the window
+      this.maximize();
     });
 
     // Everything the max screen has, stacked vertically: quote → timer + buttons

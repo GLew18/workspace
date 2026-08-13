@@ -24,6 +24,7 @@ import {
   NOTIFY_SETTINGS_EVENT,
   normalizeNotifySettings,
   setBurstGrouping,
+  refreshLedger,
   reminderBody,
   taskInfoBody,
   intervalLabel,
@@ -36,6 +37,15 @@ import {
 } from './notify';
 
 const EVAL_MS = 30_000; // re-check twice a minute — plenty for minute-granular times
+// How late a missed DIGEST (daily agenda / tomorrow preview) may still arrive.
+//
+// Both rules are "at or after HH:MM", and this loop only runs while the app is
+// open, so a browser that was shut at 5:30 AM used to deliver the morning agenda
+// the instant it opened at 11:30 (Gabe, 8/12: "that doesn't make any sense"). A
+// digest is about a moment in the day, not a fact that keeps: open the app within
+// the hour and it still lands, later than that and it is skipped for today.
+// Delivery to a CLOSED browser is the Cloud Function's job, not this loop's.
+const DIGEST_CATCHUP_MS = 60 * 60_000;
 // (A due-soon "catch-up window" used to live here, capping how late a lead could
 //  still fire. It's gone: a lead is a window, so being deep inside it is normal,
 //  not a miss. See the due-soon rule below.)
@@ -117,6 +127,8 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
   const anyOn = (ch: Channels): boolean => ch.popup || ch.gmail;
 
   const evaluate = (): void => {
+    // Pick up anything ANOTHER TAB on this device already sent (see refreshLedger).
+    refreshLedger();
     if (stopped) return;
     // Never evaluate against the DEFAULT settings (the real read may still be in
     // flight) — a default-channel send would consume the ledger and permanently
@@ -183,7 +195,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
       const dueToday = open.filter((t) => t.dueDate === today);
       if (dueToday.length > 0) {
         const agendaMs = new Date(`${today}T${pad(settings.dailyAgenda.hour)}:${pad(settings.dailyAgenda.minute)}:00`).getTime();
-        if (!Number.isNaN(agendaMs) && now >= agendaMs) {
+        if (!Number.isNaN(agendaMs) && now >= agendaMs && now - agendaMs <= DIGEST_CATCHUP_MS) {
           const n = dueToday.length;
           fire(`agenda|${today}`, `Good morning, ${n} task${n === 1 ? '' : 's'} due today`, 'Open Cobalt to see them.', settings.dailyAgenda.channels);
         }
@@ -197,7 +209,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
       if (dueTmr.length > 0) {
         const hour24 = settings.tomorrow.hour + 12; // stored 5–11 = PM
         const fireMs = new Date(`${today}T${pad(hour24)}:${pad(settings.tomorrow.minute)}:00`).getTime();
-        if (!Number.isNaN(fireMs) && now >= fireMs) {
+        if (!Number.isNaN(fireMs) && now >= fireMs && now - fireMs <= DIGEST_CATCHUP_MS) {
           const n = dueTmr.length;
           fire(`tomorrow|${today}`, `Heads-up: ${n} task${n === 1 ? '' : 's'} due tomorrow`, 'Open Cobalt to plan ahead.', settings.tomorrow.channels);
         }

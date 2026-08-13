@@ -47,16 +47,6 @@ const FEATURES: Feature[] = [
     bullets: ['Quizzes, tests & exams auto-detected', 'Double-click to edit anything', 'Priorities, attachments, description & Schoology navigation'],
   },
   {
-    id: 'bookmarks',
-    label: 'Bookmarks',
-    emoji: '🔖',
-    kind: 'bookmarks',
-    urlPath: 'links',
-    title: 'Your websites, one click away',
-    blurb: 'Keep your most-used sites in tidy, intelligent cards that fetch each site’s icon automatically. Add as many links as you want, color-code them into groups, and pull any of them up with live search. Every card launches its site instantly with a single click.',
-    bullets: ['Unlimited links with live search', 'Rich, colorful cards', 'Add, edit & group with ease'],
-  },
-  {
     id: 'focus',
     label: 'Focus',
     emoji: '🎯',
@@ -65,6 +55,16 @@ const FEATURES: Feature[] = [
     title: 'Your unwavering focus, finally possible',
     blurb: 'A deep-work timer that pulls in what you’re working on and counts down while you go. Complete with a simple ring style, instant add & trim buttons, and music curated specifically for focus so you can get things done without distraction.',
     bullets: ['A live, ticking countdown', 'Check tasks off as you go', 'Built-in focus music'],
+  },
+  {
+    id: 'bookmarks',
+    label: 'Bookmarks',
+    emoji: '🔖',
+    kind: 'bookmarks',
+    urlPath: 'links',
+    title: 'Your websites, one click away',
+    blurb: 'Keep your most-used sites in tidy, intelligent cards that fetch each site’s icon automatically. Add as many links as you want, color-code them into groups, and pull any of them up with live search. Every card launches its site instantly with a single click.',
+    bullets: ['Unlimited links with live search', 'Rich, colorful cards', 'Add, edit & group with ease'],
   },
 ];
 

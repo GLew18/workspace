@@ -45,6 +45,13 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const pad = (n) => String(n).padStart(2, '0');
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
+// A digest (daily agenda / tomorrow preview) is due once the clock passes its time,
+// but not by more than this. The cron runs every 5 minutes so the normal path fires
+// on time; the ceiling is what stops a backlog after an outage from delivering a
+// 5:30 AM agenda at noon. Mirrors DIGEST_CATCHUP_MS in the client scheduler.
+const DIGEST_CATCHUP_MINS = 60;
+const due = (nowMin, atMin) => nowMin >= atMin && nowMin - atMin <= DIGEST_CATCHUP_MINS;
+
 /** Current date ('YYYY-MM-DD') + minutes-since-midnight, in the app's timezone. */
 function nowInTz() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -142,10 +149,14 @@ function channelsView(settings) {
       : typeof settings.leadMins === 'number'
         ? [settings.leadMins]
         : [60];
-  const agHour = Number(settings.dailyAgenda && settings.dailyAgenda.hour) || 7;
-  const agMinute = Number(settings.dailyAgenda && settings.dailyAgenda.minute) || 0;
-  const tmHour = Number(settings.tomorrow && settings.tomorrow.hour) || 8;
-  const tmMinute = Number(settings.tomorrow && settings.tomorrow.minute) || 0;
+  // Held to the same range the app's pickers can show (hour 5-11, minutes by 5),
+  // so the server can never fire at a time the student has no way to select.
+  const dHour = (h, dflt) => (Number.isFinite(h) && h ? Math.min(11, Math.max(5, Math.round(h))) : dflt);
+  const dMin = (m) => (Number.isFinite(m) ? Math.min(55, Math.max(0, Math.round(m / 5) * 5)) : 0);
+  const agHour = dHour(Number(settings.dailyAgenda && settings.dailyAgenda.hour), 7);
+  const agMinute = dMin(Number(settings.dailyAgenda && settings.dailyAgenda.minute));
+  const tmHour = dHour(Number(settings.tomorrow && settings.tomorrow.hour), 8);
+  const tmMinute = dMin(Number(settings.tomorrow && settings.tomorrow.minute));
 
   if (settings.master) {
     // NEW shape — channels stored directly. (Any stored emailAddress is IGNORED:
@@ -298,7 +309,7 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
     // --- 2. daily agenda — once per day at the chosen morning time
     if (anyOn(view.dailyAgenda)) {
       const dueToday = tasks.filter((t) => t && !t.completed && t.dueDate === today);
-      if (dueToday.length && nowMin >= view.agHour * 60 + view.agMinute) {
+      if (dueToday.length && due(nowMin, view.agHour * 60 + view.agMinute)) {
         const n = dueToday.length;
         fire(`agenda|${today}`, `Good morning, ${n} task${n === 1 ? '' : 's'} due today`, 'Open Cobalt to see them.', view.dailyAgenda);
       }
@@ -307,7 +318,7 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
     // --- 3. tomorrow preview — once per day at the chosen evening time (hour stored 5-11 = PM)
     if (anyOn(view.tomorrow)) {
       const dueTmr = tasks.filter((t) => t && !t.completed && t.dueDate === tomorrow);
-      if (dueTmr.length && nowMin >= (view.tmHour + 12) * 60 + view.tmMinute) {
+      if (dueTmr.length && due(nowMin, (view.tmHour + 12) * 60 + view.tmMinute)) {
         const n = dueTmr.length;
         fire(`tomorrow|${today}`, `Heads-up: ${n} task${n === 1 ? '' : 's'} due tomorrow`, 'Open Cobalt to plan ahead.', view.tomorrow);
       }

@@ -83,8 +83,14 @@
   line-height: 1.45;
 }
 
-/* The one gold CTA. */
+/* The one CTA. Cobalt blue in every state (Gabe, 8/12): the hover used to flip to
+   the retired brand gold, which read as a different product for a moment. Hovering
+   now stays in the gem's blue and just gets BRIGHTER: a lighter fill, a wider glow,
+   and a one-shot light sweep across the pill (same glint idiom as .gold-sheen in
+   auth.css, but fired by the hover instead of running on a loop). */
 .lp-cta {
+  position: relative;
+  overflow: hidden; /* keeps the sweep inside the pill (the glow is outside, unclipped) */
   margin-top: 30px;
   background: var(--accent);
   color: var(--on-accent);
@@ -99,8 +105,33 @@
 }
 .lp-cta:hover {
   transform: translateY(-2px);
-  box-shadow: 0 14px 38px rgba(125, 180, 255, 0.45);
-  background: #f0b62a;
+  /* A lighter tint of the SAME accent, not a second color. */
+  background: #a3caff;
+  /* Deeper drop glow keeps the lift; the halo is now the SHARED soft glow
+     (theme.css), replacing a `0 0 0 5px` ring whose edge you could trace. */
+  box-shadow: 0 14px 38px rgba(125, 180, 255, 0.5),
+    0 0 var(--glow-blur) var(--glow-spread) rgba(var(--glow-rgb), var(--glow-alpha));
+}
+.lp-cta::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 38%;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  transform: skewX(-20deg);
+  pointer-events: none;
+  opacity: 0;
+}
+/* Runs once per hover (the animation restarts every time the pointer re-enters). */
+.lp-cta:hover::after { animation: lp-cta-sweep 0.72s ease-out; }
+@keyframes lp-cta-sweep {
+  from { left: -60%; opacity: 1; }
+  to { left: 130%; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-cta:hover::after { animation: none; }
 }
 .lp-cta:active { transform: translateY(0); }
 .lp-cta-sub {

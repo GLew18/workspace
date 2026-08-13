@@ -452,7 +452,12 @@ export class TasksView {
     const next = el('button', { class: 'cal-nav-btn', text: '›', title: 'Next' });
     prev.addEventListener('click', () => step(-1));
     next.addEventListener('click', () => step(1));
-    nav.append(todayBtn, prev, label, next);
+    // "Today" only appears when it would actually GO somewhere (Gabe, 8/11): if
+    // the view already contains today, the button lands you exactly where you are,
+    // which reads as broken. Month view asks "same month + year"; week view asks
+    // whether today falls inside the seven days on screen.
+    if (!this.viewingToday()) nav.append(todayBtn);
+    nav.append(prev, label, next);
     bar.append(seg, nav);
     this.listEl.append(bar);
 
@@ -463,6 +468,22 @@ export class TasksView {
     const loose = this.calByDate((t) => !this.liveFolder(t));
     if (this.calView === 'month') this.calMonth(prefs, loose, this.listEl);
     else this.calWeek(prefs, loose, this.listEl);
+  }
+
+  /** Is TODAY already on screen? Drives whether the "Today" button is shown. */
+  private viewingToday(): boolean {
+    const now = new Date();
+    if (this.calView === 'month') {
+      return (
+        this.calCursor.getFullYear() === now.getFullYear() &&
+        this.calCursor.getMonth() === now.getMonth()
+      );
+    }
+    // Week view: today is on screen when it sits in [weekStart, weekStart + 7).
+    const start = this.weekStartDate();
+    const end = new Date(start);
+    end.setDate(end.getDate() + 7);
+    return now >= start && now < end;
   }
 
   private calLabel(): string {

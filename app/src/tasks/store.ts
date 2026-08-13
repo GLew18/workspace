@@ -58,7 +58,14 @@ function timeKey(t: Task): string {
  *
  * `manualFirst` promotes manualOrder above dueDate, giving
  * manualOrder → dueDate → priority → dueTime → has-course → addedAt → id.
- * Focus passes it; the Tasks tab does not. See the note at the check itself.
+ * Focus's import panel passes it; the Tasks tab does not. See the note at the
+ * check itself. (Gabe reaffirmed this 8/12: a deliberate drag beats the date.)
+ *
+ * CAVEAT worth knowing before reading a manualFirst list: manualOrder is written
+ * ONLY by the Tasks tab's ⋮⋮ drop (see render.ts), as an index WITHIN one day's
+ * group. So several tasks on different dates each hold a 0, a 1, a 2… Compared
+ * globally, every day's first row clusters at the top, then every day's second
+ * row, and so on. It is a per-day index being read as a global one.
  *
  * The addedAt/id tail makes ties FULLY deterministic. Without it, tied tasks fell
  * back to the backend map's key order — which is creation order for an optimistic

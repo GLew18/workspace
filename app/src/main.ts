@@ -203,7 +203,9 @@ async function renderApp(user: AuthUser): Promise<void> {
   const toggleNav = () => below.classList.toggle('nav-open');
 
   // Header left: a menu (hamburger) button that reveals the sidebar, then the
-  // wordmark. Clicking the wordmark jumps to the Dashboard.
+  // wordmark. Clicking the wordmark is "take me home", and home is whatever the
+  // student chose in Settings ▸ Preferences ▸ "Open Cobalt to" (Gabe, 8/12): the
+  // tab the app boots into is the same tab the logo returns to.
   const headerLeft = el('div', { class: 'app-header-left' });
   const menuBtn = el('button', { class: 'icon-btn nav-toggle', 'aria-label': 'Menu', title: 'Menu' });
   menuBtn.innerHTML =
@@ -213,7 +215,9 @@ async function renderApp(user: AuthUser): Promise<void> {
   const brand = el('div', { class: 'app-brand' });
   const laurel = createWordmark();
   brand.append(laurel.el);
-  brand.addEventListener('click', () => controller.goToTab('dashboard')); // logo → Dashboard
+  // Read at CLICK time, not now: changing the setting takes effect immediately,
+  // with no reload.
+  brand.addEventListener('click', () => controller.goToTab(getPrefs().openTo));
   headerLeft.append(menuBtn, brand);
 
   const userBox = el('div', { class: 'app-user' });
@@ -258,12 +262,15 @@ async function renderApp(user: AuthUser): Promise<void> {
   header.append(headerLeft, userBox);
 
   // --- Sidebar: the slide-out nav drawer (Dashboard / Tasks / Focus / Bookmarks) ---
+  // ORDER IS PRIORITY (Gabe, 8/12): higher up, or further left, means the more
+  // important tab. Focus sits above Bookmarks everywhere it appears, so keep this
+  // list, the landing showcase and the "Open Cobalt to" segment in step.
   const sidebar = el('aside', { class: 'ws-sidebar' });
   const NAV_TABS = [
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'tasks', label: 'Tasks' },
-    { id: 'bookmarks', label: 'Bookmarks' },
     { id: 'focus', label: 'Focus' },
+    { id: 'bookmarks', label: 'Bookmarks' },
   ];
   const navBtns = new Map<string, HTMLElement>();
   // "Tasks" carries a red count of what's due TODAY (Gabe, 8/10) — the one number

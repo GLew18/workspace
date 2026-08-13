@@ -482,7 +482,8 @@ export class SettingsView {
         'Open Cobalt to',
         'Which tab greets you when the app loads.',
         this.prefSeg(
-          [['dashboard', 'Dashboard'], ['tasks', 'Tasks'], ['bookmarks', 'Bookmarks'], ['focus', 'Focus']],
+          // Same order as the sidebar: Focus outranks Bookmarks (Gabe, 8/12).
+          [['dashboard', 'Dashboard'], ['tasks', 'Tasks'], ['focus', 'Focus'], ['bookmarks', 'Bookmarks']],
           () => p.openTo,
           (v) => {
             p.openTo = v;
@@ -1034,6 +1035,26 @@ export class SettingsView {
         'Stop the display from sleeping during a session (Screen Wake Lock).',
         this.prefSwitch(p.focus.keepAwake, (on) => {
           p.focus.keepAwake = on;
+          save();
+        })
+      )
+    );
+    sec.append(
+      this.prefRow(
+        'Keep running after a refresh',
+        'Reloading the page mid-session keeps the clock going instead of coming back paused. Off means a reload always lands paused, so nothing runs while you are away from it.',
+        this.prefSwitch(p.focus.resumeAfterReload, (on) => {
+          p.focus.resumeAfterReload = on;
+          save();
+        })
+      )
+    );
+    sec.append(
+      this.prefRow(
+        'Link Focus and Tasks',
+        'On, they are one list: a task added in Focus appears in Tasks, and edits travel both ways. Off, the Focus list is private to Focus, and Import Tasks is the only thing that crosses over. Checking off always counts on both sides either way, so an imported task you finish in Focus is done in Tasks too.',
+        this.prefSwitch(p.focus.linkTasks, (on) => {
+          p.focus.linkTasks = on;
           save();
         })
       )
@@ -2016,10 +2037,26 @@ export class SettingsView {
       }, 90);
     });
     items.forEach((it, i) => it.addEventListener('click', () => w.scrollTo({ top: i * ROW, behavior: 'smooth' })));
-    requestAnimationFrame(() => {
-      w.scrollTop = sel * ROW;
+    /** Park the wheel on the value it currently holds. Not a user action: `last` is
+     *  untouched, so the settle above sees no change and saves nothing. */
+    const home = (): void => {
+      w.scrollTop = last * ROW;
       mark();
-    });
+    };
+    requestAnimationFrame(home);
+    // ...but a wheel is usually born where it CANNOT scroll. The Notifications tab
+    // starts hidden (display:none until you click it) and a card whose channels are
+    // off is a zero-height grid row, and scrollTop is a silent no-op on a box with
+    // no layout. So every wheel used to open showing its FIRST value while the
+    // caption underneath read the real setting: "5:00 PM" over "Sends at 8:00 PM"
+    // (Gabe, 8/12). Re-home the instant the wheel actually gains a size.
+    let seenH = 0;
+    new ResizeObserver(() => {
+      const h = w.clientHeight;
+      const revealed = seenH === 0 && h > 0;
+      seenH = h;
+      if (revealed) home();
+    }).observe(w);
     return w;
   }
 

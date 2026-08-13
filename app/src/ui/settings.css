@@ -996,6 +996,9 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  /* Breathing room above the slider: it used to butt right up against the
+     "Play a sound…" switch above it (Gabe, 8/11: "a little too cramped"). */
+  margin-top: 16px;
   margin-bottom: 12px;
 }
 .sound-volume-label {
@@ -1009,13 +1012,12 @@
   min-width: 0;
   accent-color: var(--accent);
   cursor: pointer;
+  margin-left: 2px;
 }
 .sound-volume-pct {
   flex: none;
-  width: 36px;
   text-align: right;
   font-size: 12px;
-  font-variant-numeric: tabular-nums;
   color: var(--text-dim);
 }
 

@@ -14,7 +14,7 @@
 
 /* ============================ the field ============================ */
 /* Three layers, painted back to front: a navy ramp that starts at real COLOR
-   rather than near-black, a warm gold bloom off the top-right, and a cool blue
+   rather than near-black, a pale cobalt bloom off the top-right, and a deeper blue
    bloom off the bottom-left. The drifting orbs ride on top and supply motion. */
 .onb-deck {
   position: fixed;
@@ -162,7 +162,7 @@
      1. the MAT: a spread-only shadow painting a translucent ring OUTSIDE the
         border, like the matting around a framed print. This is what makes the
         pane look placed rather than dropped onto the background.
-     2. the HAIRLINE: a real gold-to-blue gradient border via the two-layer
+     2. the HAIRLINE: a real blue-to-blue gradient border via the two-layer
         background-clip trick: fill clipped to padding-box, gradient to
         border-box, border itself transparent so the gradient shows through.
      3. the FILL: translucent navy over a backdrop blur.
@@ -222,11 +222,16 @@
   max-width: 40ch;
   text-wrap: balance;
 }
+/* Continue / "Let's go". A GEM gradient (Gabe, 8/12): the old one ran gold into
+   blue, and gold is not in the palette anymore. Both stops are now lifted straight
+   out of the cobalt stone in the wordmark (see laurel.ts): #3d7fe8 is its mid-facet
+   blue, the accent is its glow. Dark on top, light at the bottom, so the pill reads
+   like a lit face of the stone instead of a flat fill. */
 .onb-cta {
   margin-top: 36px;
   width: 100%;
   max-width: 340px;
-  background: linear-gradient(180deg, #f0b428, var(--gold));
+  background: linear-gradient(180deg, #3d7fe8 0%, var(--accent) 100%);
   color: var(--on-accent);
   border: none;
   border-radius: 14px;
@@ -238,7 +243,7 @@
   position: relative;
   overflow: hidden;
 }
-/* the periodic gold sheen every primary action in the product shares */
+/* the periodic sheen every primary action in the product shares */
 .onb-cta::after {
   content: '';
   position: absolute;

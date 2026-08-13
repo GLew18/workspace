@@ -12,7 +12,18 @@
      where the gold was 8.27 / 7.08 / 7.70. */
   --accent: #7db4ff;
   --gold: var(--accent); /* legacy alias: every var(--gold) is the accent */
-  --gold-glow: rgba(125, 180, 255, 0.3); /* translucent --accent, for glows + ::selection */
+  /* THE hover glow, one definition shared by every button that glows (Gabe,
+     8/12). Blur does the work instead of spread: the old `0 0 0 3px` ring was a
+     hard-edged outline you could trace. Shape lives here so no button can end up
+     softer or tighter than its neighbors; only --glow-rgb is meant to be
+     overridden, so a button glows in its OWN hue (the violet premium ones do)
+     without inventing its own softness. Used at the usage site, not baked into a
+     composite token, so a per-element --glow-rgb actually takes effect. */
+  --glow-rgb: 125, 180, 255;
+  --glow-blur: 18px;
+  --glow-spread: 2px;
+  --glow-alpha: 0.34;
+  --gold-glow: rgba(var(--glow-rgb), 0.3); /* translucent --accent, for glows + ::selection */
   --on-accent: #071433; /* the ONE near-black for text on an accent fill (deep navy, matches the blue) */
   --green: #27ae60;
   --red-fill: rgba(239, 68, 68, 0.85); /* hover fill for labeled delete buttons */

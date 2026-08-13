@@ -125,10 +125,17 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
   if (typeof r.groupBursts === 'boolean') out.groupBursts = r.groupBursts;
   const ds = r.dueSoon as { leads?: unknown } | undefined;
   if (ds) { const leads = Array.isArray(ds.leads) ? ds.leads.filter((n): n is number => typeof n === 'number') : []; if (leads.length) out.dueSoon.leads = leads; }
+  // Digest times are held to what the pickers can actually SHOW: hour 5-11 (the
+  // agenda reads it as AM, the preview adds 12 for PM) and minutes in steps of 5.
+  // A value outside that is unrepresentable on the wheel, so it would sit there
+  // displaying something other than the setting it is meant to be editing.
+  // (NaN falls back to the default rather than poisoning the clock string.)
+  const digestHour = (h: number, dflt: number): number => (Number.isFinite(h) ? Math.min(11, Math.max(5, Math.round(h))) : dflt);
+  const digestMin = (m: number, dflt: number): number => (Number.isFinite(m) ? Math.min(55, Math.max(0, Math.round(m / 5) * 5)) : dflt);
   const da = r.dailyAgenda as { hour?: unknown; minute?: unknown } | undefined;
-  if (da) { if (typeof da.hour === 'number') out.dailyAgenda.hour = da.hour; if (typeof da.minute === 'number') out.dailyAgenda.minute = da.minute; }
+  if (da) { if (typeof da.hour === 'number') out.dailyAgenda.hour = digestHour(da.hour, d.dailyAgenda.hour); if (typeof da.minute === 'number') out.dailyAgenda.minute = digestMin(da.minute, d.dailyAgenda.minute); }
   const tm = r.tomorrow as { hour?: unknown; minute?: unknown } | undefined;
-  if (tm) { if (typeof tm.hour === 'number') out.tomorrow.hour = tm.hour; if (typeof tm.minute === 'number') out.tomorrow.minute = tm.minute; }
+  if (tm) { if (typeof tm.hour === 'number') out.tomorrow.hour = digestHour(tm.hour, d.tomorrow.hour); if (typeof tm.minute === 'number') out.tomorrow.minute = digestMin(tm.minute, d.tomorrow.minute); }
   const na = r.newAssignment as { mode?: unknown; intervalMins?: unknown } | undefined;
   if (na) { out.newAssignment.mode = na.mode === 'batched' ? 'batched' : 'each'; if (typeof na.intervalMins === 'number' && na.intervalMins >= 30) out.newAssignment.intervalMins = na.intervalMins; }
 
@@ -499,6 +506,34 @@ export function attachLedger(
 
 export function alreadySent(key: string): boolean {
   return key in ledger;
+}
+
+/**
+ * Re-read the on-device ledger, so a SECOND TAB can see what this device has
+ * already sent (Gabe, 8/11: the same four reminders arrived twice, in two
+ * batches with different orderings).
+ *
+ * `ledger` is a module-level object, so it is per-JS-CONTEXT: two tabs of Cobalt
+ * on one machine each hold their own copy. Both evaluate the same tasks, both
+ * find their own copy empty, and both send. The cloud ledger does not save it
+ * either, since that write is fire-and-forget and lands long after the decision.
+ * localStorage IS shared between tabs and is written synchronously by markSent,
+ * so re-reading it before an evaluation pass makes the first tab's marks visible
+ * to the second.
+ *
+ * Union, not replace: keys this tab just marked must survive even if the stored
+ * copy is momentarily behind.
+ */
+export function refreshLedger(): void {
+  ledger = { ...loadLocal(), ...ledger };
+}
+
+// Another tab wrote the ledger → merge it in immediately, so a tab that is
+// mid-evaluation still sees it without waiting for its next refresh.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === LEDGER_KEY()) refreshLedger();
+  });
 }
 
 /** Record `key` as sent today, pruning entries older than LEDGER_KEEP_DAYS. */
