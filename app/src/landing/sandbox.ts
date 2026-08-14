@@ -164,12 +164,13 @@ function sampleSchedule() {
   };
 }
 
-/** Link cards for the Bookmarks preview — eight of them, rendered two-per-row
- *  inside the frame (see landing.css .bm-grid override) so the panel fills its
- *  height the way the real multi-column tab does. Three share a "School" group to
- *  show off grouping (colored accent + named chip); the rest stay ungrouped so
- *  the "+ Group" affordance is visible too. The "+ Shortcut" chip is hidden in
- *  the frame (landing.css) — that's what keeps rows short enough for 4 rows. */
+/** Link cards for the Bookmarks preview — SIX of them, rendered two-per-row
+ *  inside the frame (see landing.css .bm-grid override): three rows that fit the
+ *  560px frame with NO scrollbar (Gabe, 8/13: the preview must not scroll; it
+ *  had 8 cards and grew one). Two share a "Test Study" group to show off
+ *  grouping (colored accent + named chip); the rest stay ungrouped so the
+ *  "+ Group" affordance is visible too. The "+ Shortcut" chip is hidden in the
+ *  frame (landing.css) — that's what keeps rows at standard height. */
 function sampleBookmarks() {
   return {
     list: [
@@ -178,9 +179,7 @@ function sampleBookmarks() {
       { id: 'bm3', name: 'Google Drive', url: 'https://drive.google.com', },
       { id: 'bm4', name: 'Google Docs', url: 'https://docs.google.com' },
       { id: 'bm5', name: 'Gmail', url: 'https://gmail.com' },
-      { id: 'bm6', name: 'Wikipedia', url: 'https://wikipedia.org' },
       { id: 'bm7', name: 'Quizlet', url: 'https://quizlet.com', groupId: 'grp_test-study' },
-      { id: 'bm8', name: 'Desmos', url: 'https://desmos.com/calculator' },
     ],
     groups: [{ id: 'grp_test-study', name: 'Test Study', color: '#ff00dd' }],
   };

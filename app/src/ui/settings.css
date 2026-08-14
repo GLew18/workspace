@@ -182,6 +182,33 @@
   height: 19px;
   flex: none;
 }
+/* PREMIUM group: paid-tier tabs live at the bottom of the sidebar under a
+   "Premium" subheader in their own bordered block. NEUTRAL on purpose (Gabe,
+   8/13): the full violet theme (shell glow, violet section) was tried and
+   pulled the same day. The ONE violet mark is the ACTIVE state: sitting on a
+   premium tab swaps the blue for violet (hover is the standard white tint,
+   same as every other tab; Gabe settled on this after trying violet-on-hover). */
+.settings-side-prem {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 24px; /* clear air between the free tabs and the premium block */
+  padding: 7px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+.settings-side-subhead {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 2px 12px 3px; /* left-aligns with the button labels' 12px inset */
+}
+.settings-side-btn.premium.active {
+  color: #a78bfa; /* lighter violet: #8b5cf6 sits below 4.5:1 on this navy */
+  background: rgba(139, 92, 246, 0.18);
+}
 
 /* Per-tab page head: title + one-line purpose (artifact parity). */
 .settings-page-head {
@@ -203,11 +230,14 @@
   flex: 1;
   min-width: 0;
 }
-/* Narrow screens: the nav collapses to a horizontal row above the content. */
+/* Narrow screens: the nav collapses to a horizontal row above the content.
+   The premium shell rides along: it becomes a row chip-group inside the row. */
 @media (max-width: 620px) {
   .settings-shell { flex-direction: column; gap: 14px; }
   .settings-side { position: static; width: auto; flex-direction: row; flex-wrap: wrap; gap: 6px; }
   .settings-side-title { width: 100%; margin-bottom: 6px; }
+  .settings-side-prem { flex-direction: row; flex-wrap: wrap; align-items: center; margin-top: 0; padding: 4px 7px; }
+  .settings-side-subhead { padding: 0 6px 0 4px; }
 }
 .settings-pagehead {
   padding: 4px 0 12px;
@@ -1078,6 +1108,11 @@
   color: var(--accent);
   box-shadow: 0 0 0 2px var(--gold-glow);
 }
+/* (The full-violet premium section, wash + accent re-point, lived here for a
+   few hours on 8/13 and was removed the same day: Gabe disliked the purple
+   theme inside the tabs. Premium violet now exists ONLY on the sidebar
+   group's hover.) */
+
 #sec-notify .settings-status {
   margin-top: 8px;
 }

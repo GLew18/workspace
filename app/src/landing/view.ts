@@ -1,10 +1,15 @@
 // Cobalt: landing / welcome screen (the signed-out front door).
 //
-// The showcase runs the REAL app views live against a throwaway in-memory sandbox
-// (see sandbox.ts): the "how it works" section pairs the pitch with a live
-// Dashboard, and "see it in action" lets visitors actually play with the Tasks and
-// Bookmarks tabs — click, edit, check off, add — plus a genuinely ticking Focus
-// session. Nothing persists; every visitor gets the same pristine sample.
+// A fixed nav bar (always solid, so the brand is always on screen) links to
+// every section below. The showcase runs the REAL app views live against a
+// throwaway in-memory sandbox (see sandbox.ts): the "how it works" section
+// pairs the pitch with a live Dashboard, and "see it in action" lets visitors
+// actually play with the Tasks and Bookmarks tabs — click, edit, check off,
+// add — plus a genuinely ticking Focus session. Nothing persists; every
+// visitor gets the same pristine sample. The personalization section is a
+// static (non-interactive) juxtaposition of three students' task lists built
+// from the SAME real app CSS classes, and "Cobalt vs Schoology" makes the
+// pitch explicit.
 
 import { el } from '../util/dom';
 import { createWordmark } from '../ui/laurel';
@@ -14,14 +19,88 @@ import { buildFocusDemo } from './focusDemo';
 import { TasksView } from '../tasks/render';
 import { BookmarksView } from '../bookmarks/view';
 import { DashboardView } from '../dashboard/view';
+import { priorityDef } from '../tasks/priorities';
+import type { Priority } from '../types';
 
 export interface LandingOpts {
   /** Fired by "Try now" — wired to Google sign-in by main.ts. */
   onTryNow: () => void;
-  /** "Already have an account? Log in" — same auth screen, different intent.
+  /** "Log in" — same auth screen, different intent.
    *  Optional: falls back to onTryNow when the caller doesn't distinguish them. */
   onLogIn?: () => void;
 }
+
+// #region Nav + shared scroll helpers ---------------------------------------------
+// ONE list of {id, label} drives the nav bar AND the footer, so they can never
+// drift out of sync with each other or with the sections they point at.
+const NAV_LINKS: Array<{ id: string; label: string }> = [
+  { id: 'how', label: 'How it works' },
+  { id: 'demo', label: 'Demo' },
+  { id: 'play', label: 'Try it' },
+  { id: 'yours', label: 'Make it yours' },
+  { id: 'compare', label: 'Why Cobalt' },
+  { id: 'caps', label: 'Capabilities' },
+];
+
+const reducedMotion = (): boolean => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+
+function scrollToSection(root: HTMLElement, id: string): void {
+  root.querySelector(`#${id}`)?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' });
+}
+
+/** The fixed nav: wordmark (→ top) · section links (center) · Log in + Get
+ *  started (right). Buttons, not `<a href="#…">`, so clicking never touches the
+ *  URL hash. Always solid (Gabe, 8/13): the bar keeps its contrast even over
+ *  the hero, no transparent-then-solid scroll trick. */
+function navBar(opts: LandingOpts, root: HTMLElement): HTMLElement {
+  const nav = el('nav', { class: 'lp-nav' });
+
+  const brand = el('button', { class: 'lp-nav-brand', 'aria-label': 'Cobalt, back to top' });
+  brand.append(createWordmark().el);
+  brand.addEventListener('click', () => window.scrollTo({ top: 0, behavior: reducedMotion() ? 'auto' : 'smooth' }));
+
+  const links = el('div', { class: 'lp-nav-links' });
+  for (const l of NAV_LINKS) {
+    const b = el('button', { class: 'lp-nav-link', text: l.label }) as HTMLButtonElement;
+    b.dataset.target = l.id;
+    // The Demo link stays hidden until the film actually exists (see demoSection:
+    // a public page must never navigate to a "coming soon" slot — council verdict
+    // 8/13, unanimous across three reviewers).
+    if (l.id === 'demo') b.hidden = true;
+    b.addEventListener('click', () => scrollToSection(root, l.id));
+    links.append(b);
+  }
+
+  const actions = el('div', { class: 'lp-nav-actions' });
+  const login = el('button', { class: 'lp-nav-login', text: 'Log in' });
+  login.addEventListener('click', opts.onLogIn ?? opts.onTryNow);
+  const cta = el('button', { class: 'lp-nav-cta', text: 'Get started' });
+  cta.addEventListener('click', opts.onTryNow);
+  actions.append(login, cta);
+
+  nav.append(brand, links, actions);
+  return nav;
+}
+
+/** Active-link tracking: whichever id'd section currently owns the vertical
+ *  middle band of the viewport gets `.active`. The observer dies naturally with
+ *  the DOM (no window-level listeners), same as setupReveal below. */
+function setupNav(nav: HTMLElement, root: HTMLElement): void {
+  if (!('IntersectionObserver' in window)) return;
+  const links = [...nav.querySelectorAll<HTMLElement>('.lp-nav-link')];
+  const sections = NAV_LINKS.map((l) => root.querySelector(`#${l.id}`)).filter((s): s is Element => !!s);
+  if (!sections.length) return;
+  const activeIO = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) links.forEach((b) => b.classList.toggle('active', b.dataset.target === e.target.id));
+      }
+    },
+    { rootMargin: '-40% 0px -55% 0px', threshold: 0 }
+  );
+  sections.forEach((s) => activeIO.observe(s));
+}
+// #endregion
 
 // #region Feature showcase data -------------------------------------------------
 interface Feature {
@@ -82,7 +161,9 @@ const CLOUD: Array<[string, number]> = [
 
 // Deterministic palette + font mix for the cloud — chosen to feel like a classic
 // multilingual "welcome" cloud: many typefaces, many hues, tightly packed.
-const CLOUD_COLORS = ['#2c6e7f', '#d1567f', '#e0913d', '#7a8b3a', '#8a6bbf', '#c0453f', '#3a7d5d', '#b0742a', '#5a6b8c', '#cf5a2a'];
+// Hues lightened 8/13: the old set was picked for a white page and four of them
+// sat near 3:1 on this navy, below the 4.5:1 floor for text this small.
+const CLOUD_COLORS = ['#4a9ab0', '#d1567f', '#e0913d', '#95a84e', '#8a6bbf', '#e0685f', '#5aa87f', '#c98f45', '#8b9cc0', '#cf5a2a'];
 const CLOUD_FONTS = [
   'Georgia, serif',
   "'Times New Roman', Times, serif",
@@ -93,42 +174,129 @@ const CLOUD_FONTS = [
   'Verdana, Geneva, sans-serif',
   "'Lucida Sans', sans-serif",
 ];
+// #endregion
 
-// Personalization showcase: the SAME three subjects, set up three different ways,
-// so visitors see every student tailors names, colors, and parse words to their own
-// classes. Parse-word counts vary per card (some overlap, some unique) but every
-// list is kept short enough that its chips fit on ONE line at desktop widths — so
-// all nine cards are the same height and the three columns end level.
-interface PersonaCourse {
-  name: string;
-  color: string;
-  words: string[];
+// #region Personalization showcase data -------------------------------------------
+// Three students' task lists over the exact SAME four assignments. Everything
+// that is NOT personalization is identical on every card: titles, courses, due
+// dates and times, day-group headers, the QUIZ badge (auto-detected), the
+// translation row (automatic), and the full action row in the app's real order.
+// What differs is only what a student actually shapes: course colors,
+// priorities, folders, and attachments — a hierarchy from untouched defaults to
+// fully organized. No preset names, no fabricated minimal/power modes (Gabe,
+// 8/13: priorities and buttons are intrinsic, you cannot strip them; and no
+// checked rows, since a checked task glides away in the real app).
+interface ShowTask {
+  id: string;
+  title: string;
+  /** SHORT names on purpose (Gabe, 8/13): three narrow columns leave the bottom
+   *  row no room, and students rename courses to shorthand anyway. */
+  course: 'Eng' | 'Ivrit' | 'Math' | 'Sci';
+  /** Real meta format (formatMetaDate + fmtTime): "Thu 8/14 10:15am". Identical everywhere. */
+  due: string;
+  translated?: string;
+  quiz?: boolean;
 }
-const PERSONAS: Array<{ label: string; courses: PersonaCourse[] }> = [
+
+const SHOW_TASKS: Record<string, ShowTask> = {
+  dikduk: { id: 'dikduk', title: 'דקדוק worksheet', course: 'Ivrit', due: 'Thu 8/14 8:00am', translated: 'Grammar worksheet' },
+  vocab: { id: 'vocab', title: 'Vocabulary quiz: unit 7', course: 'Eng', due: 'Thu 8/14 10:15am', quiz: true },
+  lab: { id: 'lab', title: 'Lab report: photosynthesis', course: 'Sci', due: 'Fri 8/15 3:00pm' },
+  pset: { id: 'pset', title: 'Problem set 12', course: 'Math', due: 'Fri 8/15 11:59pm' },
+};
+
+/** The card's content layout, mirroring the Tasks tab's real structure:
+ *  optional "Folders" label + open folders (each grouping its own tasks under
+ *  date headers, exactly like the app), then the loose list under date headers. */
+type CardBlock =
+  | { kind: 'label' }
+  | { kind: 'header'; text: string; tone?: 'orange' }
+  | { kind: 'row'; task: string }
+  | { kind: 'folder'; name: string; color: string; blocks: CardBlock[] };
+
+interface StudentSetup {
+  courseColors: Record<ShowTask['course'], string>;
+  priorities: Record<string, Priority>;
+  /** taskId → attachment count (shows as the 📎 superscript). */
+  attachments: Record<string, number>;
+  /** taskId → folder color (tints the row's folder button, like the real app). */
+  folderColorOf: Record<string, string>;
+  blocks: CardBlock[];
+}
+
+const H_TOMORROW: CardBlock = { kind: 'header', text: 'Tomorrow · Thursday, Aug 14', tone: 'orange' };
+const H_FRIDAY: CardBlock = { kind: 'header', text: 'Friday, Aug 15' };
+
+// Row order is identical on every card AND sort-correct for each card's
+// priorities (dikduk ≥ vocab, lab ≥ pset within their days; ties break by time).
+const STUDENT_SETUPS: StudentSetup[] = [
+  // 1 · Untouched: a fresh account. Default course colors (unconfigured courses
+  // sit at the catalog gray), every priority at normal, no folders, nothing
+  // attached yet. This is literally what day one looks like.
   {
-    label: 'Ava',
-    courses: [
-      { name: 'Hebrew', color: '#70c0e0', words: ['hebrew', 'ivrit'] },
-      { name: 'English Language Arts', color: '#e091a8', words: ['ela', 'english'] },
-      { name: 'Social Studies', color: '#e05050', words: ['sost', 'history', 'hist'] },
+    courseColors: { Eng: '#9ca3af', Ivrit: '#70c0e0', Math: '#9ca3af', Sci: '#9b7ec8' },
+    priorities: {},
+    attachments: {},
+    folderColorOf: {},
+    blocks: [H_TOMORROW, { kind: 'row', task: 'dikduk' }, { kind: 'row', task: 'vocab' }, H_FRIDAY, { kind: 'row', task: 'lab' }, { kind: 'row', task: 'pset' }],
+  },
+  // 2 · Settling in: courses recolored, some priority spread, one folder, a
+  // first attachment.
+  {
+    courseColors: { Eng: '#e091a8', Ivrit: '#70c0e0', Math: '#e0913d', Sci: '#9b7ec8' },
+    priorities: { dikduk: 'high', pset: 'low' },
+    attachments: { lab: 1 },
+    folderColorOf: { dikduk: '#60a5fa', vocab: '#60a5fa' },
+    blocks: [
+      { kind: 'label' },
+      { kind: 'folder', name: 'This week', color: '#60a5fa', blocks: [H_TOMORROW, { kind: 'row', task: 'dikduk' }, { kind: 'row', task: 'vocab' }] },
+      H_FRIDAY,
+      { kind: 'row', task: 'lab' },
+      { kind: 'row', task: 'pset' },
     ],
   },
+  // 3 · Fully organized: every course recolored, the full priority range,
+  // everything filed into folders, links attached where they help.
   {
-    label: 'Ben',
-    courses: [
-      { name: 'Ivrit', color: '#3a7d5d', words: ['ivrit', 'hebrew', 'shiur'] },
-      { name: 'English', color: '#e0913d', words: ['eng', 'ela', 'essay'] },
-      { name: 'History', color: '#7a8b3a', words: ['hist', 'sost'] },
+    courseColors: { Eng: '#e05050', Ivrit: '#3a7d5d', Math: '#8a6bbf', Sci: '#d1567f' },
+    priorities: { dikduk: 'highest', vocab: 'high', lab: 'low', pset: 'lowest' },
+    attachments: { vocab: 2, lab: 1, pset: 1 },
+    folderColorOf: { vocab: '#e05050', dikduk: '#3a7d5d', lab: '#3a7d5d', pset: '#3a7d5d' },
+    blocks: [
+      { kind: 'label' },
+      { kind: 'folder', name: 'Quizzes', color: '#e05050', blocks: [H_TOMORROW, { kind: 'row', task: 'vocab' }] },
+      {
+        kind: 'folder',
+        name: 'Homework',
+        color: '#3a7d5d',
+        blocks: [H_TOMORROW, { kind: 'row', task: 'dikduk' }, H_FRIDAY, { kind: 'row', task: 'lab' }, { kind: 'row', task: 'pset' }],
+      },
     ],
   },
-  {
-    label: 'Maya',
-    courses: [
-      { name: 'עברית', color: '#2c6e7f', words: ['עברית', 'hebrew'] },
-      { name: 'ELA', color: '#d1567f', words: ['english', 'lit'] },
-      { name: 'SoSt', color: '#be4b2e', words: ['history', 'ss'] },
-    ],
-  },
+];
+
+// Local copies of the real task-row glyphs (tasks/render.ts) — the landing never
+// imports render.ts for icons (that would drag the whole Tasks module in).
+const LP_SCHOOLOGY_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>';
+const LP_FOLDER_BTN_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+const LP_FOLDER_SVG = (color: string) =>
+  `<svg class="task-folder-ico" viewBox="0 0 24 24" fill="${color}"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
+// #endregion
+
+// #region Cobalt vs Schoology data -----------------------------------------------
+// Two self-contained columns (no criteria column, per Gabe 8/13): each cell is a
+// full statement, ✗ on the Schoology side, ✓ on the Cobalt side. Claims stay
+// checkable against the app — nothing here is aspirational.
+const VS_ROWS: Array<{ sch: string; cob: string }> = [
+  { sch: 'Assignments scattered across course pages', cob: 'Every assignment in one list, grouped by day' },
+  { sch: 'Nothing to check off', cob: 'One-click check-off with a satisfying glide' },
+  { sch: 'Deadlines are easy to miss', cob: 'Popup and email reminders, on your schedule' },
+  { sch: 'Hebrew titles stay in Hebrew', cob: 'Hebrew titles translated automatically' },
+  { sch: 'No priorities on your work', cob: 'Five priority levels, color-coded on every task' },
+  { sch: 'Your study links live somewhere else', cob: 'Attach links to any task and open them in one click' },
+  { sch: 'Slow pages, dated design', cob: 'Instant, dark, and clean' },
 ];
 // #endregion
 
@@ -136,7 +304,10 @@ const PERSONAS: Array<{ label: string; courses: PersonaCourse[] }> = [
 export function renderLanding(opts: LandingOpts): HTMLElement {
   const root = el('div', { class: 'landing' });
 
-  // A soft gold glow that drifts behind the hero — pure decoration.
+  const nav = navBar(opts, root);
+  root.append(nav);
+
+  // A soft blue glow that drifts behind the hero — pure decoration.
   root.append(el('div', { class: 'lp-glow' }));
 
   // TWO independent sandboxes so the "how it works" Dashboard and the "see it in
@@ -148,44 +319,53 @@ export function renderLanding(opts: LandingOpts): HTMLElement {
   root.append(
     heroSection(opts),
     howItWorksSection(howSandbox),
+    demoSection(root),
     featuresSection(seeSandbox),
-    personalizeSection(),
+    setupsSection(),
+    compareSection(),
     capabilitiesSection(),
-    footerSection()
+    closerSection(opts),
+    footerSection(opts, (id) => scrollToSection(root, id))
   );
 
   setupReveal(root);
+  setupNav(nav, root);
   return root;
 }
 // #endregion
 
 // #region Hero ------------------------------------------------------------------
+// No "WELCOME TO Cobalt" (Gabe, 8/13): real landing pages lead with what the
+// product does, not its name — the nav above already carries the wordmark. The
+// headline IS the motto.
 function heroSection(opts: LandingOpts): HTMLElement {
   const sec = el('section', { class: 'lp-hero' });
   const inner = el('div', { class: 'lp-hero-inner lp-reveal' });
 
-  inner.append(el('div', { class: 'lp-eyebrow', text: 'WELCOME TO' }));
-  const mark = el('div', { class: 'lp-hero-mark' });
-  mark.append(createWordmark().el);
-  inner.append(mark);
   inner.append(
-    el('p', { class: 'lp-tagline', text: 'The best Schoology alternative for Heschel students' })
+    el('h1', { class: 'lp-hero-title', text: 'One clean space, built from your Schoology feed' }),
+    el('p', {
+      class: 'lp-tagline',
+      text: 'Cobalt pulls every assignment out of Schoology into one clear list, reminds you by popup and email, and hands you a focus timer to finish it all.',
+    })
   );
 
-  inner.append(ctaButton('Get started', opts.onTryNow));
-  inner.append(el('p', { class: 'lp-cta-sub', text: 'Free, and it takes about a minute.' }));
+  // Log in + Get started, matching the nav's pairing (Gabe, 8/13).
+  const actions = el('div', { class: 'lp-hero-actions' });
+  const login = el('button', { class: 'lp-cta-ghost', text: 'Log in' });
+  login.addEventListener('click', opts.onLogIn ?? opts.onTryNow);
+  actions.append(login, ctaButton('Get started', opts.onTryNow));
+  inner.append(actions);
+  inner.append(el('p', { class: 'lp-cta-sub', text: 'Free, about a minute to set up, built for Heschel students.' }));
 
-  // A returning student who is signed out lands here too, and onboarding is not
-  // for them. This is their one-tap way to say so. Kept quiet (a link, not a
-  // second button) so it never competes with the primary path for a new user —
-  // the flow deliberately gives value before asking for commitment.
-  // Both routes open the same auth screen; the account's own `onboarded` flag is
-  // what actually decides whether onboarding runs (see main.ts).
-  const logIn = el('p', { class: 'lp-login-line' });
-  const logInBtn = el('button', { class: 'lp-login-link', text: 'Log in' });
-  logInBtn.addEventListener('click', opts.onLogIn ?? opts.onTryNow);
-  logIn.append(document.createTextNode('Already have an account? '), logInBtn);
-  inner.append(logIn);
+  // Three quick-glance chips, one per tab: Tasks, Focus, Bookmarks.
+  const chips = el('div', { class: 'lp-hero-chips' });
+  chips.append(
+    el('span', { class: 'lp-hero-chip', text: '⚡ Auto-import from Schoology' }),
+    el('span', { class: 'lp-hero-chip', text: '🎯 Focus timer with music' }),
+    el('span', { class: 'lp-hero-chip', text: '🔖 Your sites, one click away' })
+  );
+  inner.append(chips);
 
   sec.append(inner);
   const hint = el('div', { class: 'lp-scroll-hint' });
@@ -200,7 +380,7 @@ function heroSection(opts: LandingOpts): HTMLElement {
 
 // #region How it works (blurb + live Dashboard) ---------------------------------
 function howItWorksSection(sandbox: Promise<Data>): HTMLElement {
-  const sec = el('section', { class: 'lp-section lp-how lp-reveal' });
+  const sec = el('section', { class: 'lp-section lp-how lp-reveal', id: 'how' });
 
   const row = el('div', { class: 'lp-split' });
   const frame = deviceFrame('cobalt.app/dashboard');
@@ -210,11 +390,10 @@ function howItWorksSection(sandbox: Promise<Data>): HTMLElement {
   frame.body.classList.add('lp-frame-static');
   const text = el('div', { class: 'lp-split-text' });
   text.append(
-    el('div', { class: 'lp-tag', text: 'HOW IT WORKS' }),
-    el('h2', { class: 'lp-h2 lp-h2-left', text: 'One clean space, built from your Schoology feed' }),
+    el('h2', { class: 'lp-h2 lp-h2-left', text: 'Stop digging through Schoology' }),
     el('p', {
       class: 'lp-lead',
-      text: 'Cobalt reads your Schoology calendar and automatically imports every assignment into one organized place. Stop digging through Schoology; start getting things done with clarity.',
+      text: 'Cobalt reads your Schoology calendar and imports every assignment, test, and quiz into one organized place, automatically. Open one tab and know exactly what is due, when, and what to hit first.',
    })
   );
   row.append(scaleToFit(frame.frame, 560), text); // frame LEFT, copy RIGHT
@@ -242,9 +421,67 @@ function howItWorksSection(sandbox: Promise<Data>): HTMLElement {
 }
 // #endregion
 
+// #region Demo film ---------------------------------------------------------------
+/** A framed 16:9 video slot. The WHOLE SECTION (and its nav/footer links) stays
+ *  hidden until `/landing-demo.mp4` actually exists in app/public/ — a public
+ *  page advertising its own missing film reads pre-launch (council verdict,
+ *  8/13; the placeholder inside remains as the film-failed fallback once the
+ *  video has started loading). Drop the file in and everything appears, zero
+ *  code change: `loadedmetadata` unhides the section and its links. */
+function demoSection(root: HTMLElement): HTMLElement {
+  const sec = el('section', { class: 'lp-section lp-demo lp-reveal', id: 'demo' });
+  sec.hidden = true;
+  sec.append(
+    el('h2', { class: 'lp-h2', text: 'Cobalt in sixty seconds' }),
+    el('p', { class: 'lp-sub', text: 'The whole flow, from Schoology import to a finished focus session.' })
+  );
+
+  const frame = el('div', { class: 'lp-demo-frame' });
+  const bar = el('div', { class: 'lp-frame-bar' });
+  bar.append(
+    el('span', { class: 'lp-dot r' }),
+    el('span', { class: 'lp-dot y' }),
+    el('span', { class: 'lp-dot g' }),
+    el('div', { class: 'lp-frame-url', text: 'cobalt.app/demo' })
+  );
+  const body = el('div', { class: 'lp-demo-body' });
+
+  const ph = el('div', { class: 'lp-demo-ph' });
+  ph.append(
+    el('div', { class: 'lp-demo-play', text: '▶' }),
+    el('div', { class: 'lp-demo-ph-title', text: 'Demo film coming soon' }),
+    el('div', {
+      class: 'lp-demo-ph-sub',
+      text: 'A quick tour of Cobalt is being filmed. Everything below is live right now.',
+    })
+  );
+
+  const video = el('video', {
+    class: 'lp-demo-video',
+    controls: true,
+    playsinline: true,
+    preload: 'metadata',
+    hidden: true,
+  }) as HTMLVideoElement;
+  video.src = '/landing-demo.mp4';
+  video.addEventListener('loadedmetadata', () => {
+    ph.remove();
+    video.hidden = false;
+    sec.hidden = false; // the film exists → the section joins the page
+    root.querySelectorAll<HTMLElement>('[data-target="demo"]').forEach((b) => (b.hidden = false));
+  });
+  video.addEventListener('error', () => video.remove()); // no file — section stays hidden
+
+  body.append(ph, video);
+  frame.append(bar, body);
+  sec.append(frame);
+  return sec;
+}
+// #endregion
+
 // #region See it in action (tabbed live previews) -------------------------------
 function featuresSection(sandbox: Promise<Data>): HTMLElement {
-  const sec = el('section', { class: 'lp-section lp-features lp-reveal' });
+  const sec = el('section', { class: 'lp-section lp-features lp-reveal', id: 'play' });
   sec.append(
     el('h2', { class: 'lp-h2', text: 'See it in action' }),
     el('p', { class: 'lp-sub', text: 'A real, playable sample. Click around, it’s all live.' })
@@ -280,7 +517,10 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
           else void new BookmarksView(data, { host: frame.body }).mount(panel!);
           if (current === f.id) revealPanel(); // if still selected, drop the loader
         })
-        .catch(() => panel!.append(el('div', { class: 'lp-frame-err', text: 'Preview unavailable' })));
+        .catch(() => {
+          panel!.append(el('div', { class: 'lp-frame-err', text: 'Preview unavailable' }));
+          revealPanel(); // drop the loader, or the error would sit hidden behind it forever
+        });
     }
     return panel;
   };
@@ -335,7 +575,7 @@ function bulletList(items: string[]): HTMLElement {
  *  whole element shrinks proportionally (transform: scale) — like a photo —
  *  instead of rewrapping or squeezing its contents. A media query can set
  *  --fit-off: 1 on the target to suspend scaling where a stacked layout
- *  takes over (e.g. the persona row going single-column). */
+ *  takes over. */
 function scaleToFit(target: HTMLElement, designWidth: number): HTMLElement {
   const wrap = el('div', { class: 'lp-fit' });
   wrap.append(target);
@@ -375,9 +615,165 @@ function deviceFrame(url: string): { frame: HTMLElement; body: HTMLElement; url:
 }
 // #endregion
 
+// #region Personalization — three students, same assignments ----------------------
+function setupsSection(): HTMLElement {
+  const sec = el('section', { class: 'lp-section lp-setups-sec lp-reveal', id: 'yours' });
+  sec.append(
+    el('h2', { class: 'lp-h2', text: 'Endless personalization' }),
+    el('p', {
+      class: 'lp-sub',
+      text: 'The same four assignments on three students’ screens. Course colors, priorities, folders, and attachments are all yours to shape, from day-one defaults to fully organized.',
+    })
+  );
+
+  const grid = el('div', { class: 'lp-setups' });
+  STUDENT_SETUPS.forEach((s, i) => grid.append(setupCard(s, i)));
+  sec.append(grid);
+  return sec;
+}
+
+function setupCard(s: StudentSetup, index: number): HTMLElement {
+  const card = el('div', { class: 'lp-setup-card lp-reveal' });
+  card.style.transitionDelay = `${index * 70}ms`;
+  const body = el('div', { class: 'lp-setup-body' });
+  // `inert`, not just pointer-events: the rows are full of real <button>s, and
+  // without this every one of them is a keyboard tab stop that does nothing.
+  body.setAttribute('inert', '');
+  for (const block of s.blocks) body.append(...renderBlock(block, s));
+  card.append(body);
+  return card;
+}
+
+function renderBlock(block: CardBlock, s: StudentSetup): HTMLElement[] {
+  switch (block.kind) {
+    case 'label':
+      return [el('div', { class: 'task-folders-label', text: 'Folders' })];
+    case 'header':
+      return [el('div', { class: `task-group-header${block.tone ? ` tone-${block.tone}` : ''}`, text: block.text })];
+    case 'row':
+      return [staticTaskRow(SHOW_TASKS[block.task], s)];
+    case 'folder': {
+      const folder = el('div', { class: 'task-folder open' });
+      const head = el('button', { class: 'task-folder-head' });
+      head.append(el('span', { class: 'task-folder-handle', text: '⋮⋮' }));
+      head.insertAdjacentHTML('beforeend', LP_FOLDER_SVG(block.color));
+      const n = countRows(block.blocks);
+      head.append(
+        el('span', { class: 'task-folder-name', text: block.name }),
+        el('span', { class: 'task-folder-count', text: `${n} task${n === 1 ? '' : 's'}` }),
+        el('span', { class: 'task-folder-arrow', text: '▶' })
+      );
+      const body = el('div', { class: 'task-folder-body' });
+      for (const b of block.blocks) body.append(...renderBlock(b, s));
+      folder.append(head, body);
+      return [folder];
+    }
+  }
+}
+
+function countRows(blocks: CardBlock[]): number {
+  return blocks.reduce((n, b) => n + (b.kind === 'row' ? 1 : b.kind === 'folder' ? countRows(b.blocks) : 0), 0);
+}
+
+/** One hand-built `.task-item` with the REAL row anatomy, in the real order:
+ *  priority strip, ⋮⋮ handle, checkbox, title (+ translation), then the bottom
+ *  row of meta (course · date time), the QUIZ badge inside the meta wrap, and
+ *  the full action cluster: ↗ ⓘ · 🌐 📎 folder priority ⎘. */
+function staticTaskRow(t: ShowTask, s: StudentSetup): HTMLElement {
+  const row = el('div', { class: 'task-item' });
+  const pri = priorityDef(s.priorities[t.id] ?? 'normal');
+  row.append(el('div', { class: `task-priority ${pri.key}` }));
+  // No ⋮⋮ grip on these rows (Gabe, 8/13: the bottom rows read smushed at three
+  // columns): the grip's 23px is what lets meta + QUIZ badge + all buttons share
+  // one line. Same no-grip treatment the Focus import rows already use; the
+  // folder heads keep theirs, where space is free.
+  row.append(el('button', { class: 'task-cb' }));
+
+  const info = el('div', { class: 'task-info' });
+  info.append(el('div', { class: 'task-title', text: t.title }));
+  if (t.translated) {
+    const tr = el('div', { class: 'task-translation' });
+    tr.append(el('span', { class: 'task-translation-badge', text: '🌐' }), document.createTextNode(t.translated));
+    info.append(tr);
+  }
+
+  const bottom = el('div', { class: 'task-bottom-row' });
+  const metaWrap = el('div', { class: 'task-meta-wrap' });
+  const meta = el('div', { class: 'task-meta' });
+  const chip = el('span', { class: 'course-chip', text: t.course });
+  chip.style.color = s.courseColors[t.course];
+  meta.append(chip, el('span', { class: 'meta-dot', text: '·' }), el('span', { class: 'meta-date', text: t.due }));
+  metaWrap.append(meta);
+  // The assessment badge sits INSIDE the meta wrap, right after the meta line —
+  // the real position (tasks/render.ts), not out by the action cluster.
+  if (t.quiz) metaWrap.append(el('span', { class: 'task-test-badge', text: 'QUIZ' }));
+  bottom.append(metaWrap);
+
+  // Action cluster, real order: [↗ Schoology] [ⓘ] · [🌐] [📎] [folder] [priority] [⎘].
+  const actions = el('div', { class: 'task-actions' });
+  const sgy = el('button', { class: 'act-schoology' });
+  sgy.innerHTML = LP_SCHOOLOGY_SVG;
+  actions.append(sgy, el('button', { text: 'ⓘ' }), el('span', { class: 'act-sep', text: '·' }));
+  if (t.translated) actions.append(el('button', { class: 'act-translate active', text: '🌐' }));
+  const attach = el('button', {});
+  const count = s.attachments[t.id];
+  attach.innerHTML = `📎${count ? `<span class="attach-count">${count}</span>` : ''}`;
+  actions.append(attach);
+  const fold = el('button', { class: 'act-folder' });
+  fold.innerHTML = LP_FOLDER_BTN_SVG;
+  const folderColor = s.folderColorOf[t.id];
+  if (folderColor) fold.style.color = folderColor;
+  actions.append(fold);
+  const prio = el('button', { text: pri.arrow });
+  prio.style.color = pri.color;
+  actions.append(prio, el('button', { text: '⎘' }));
+  bottom.append(actions);
+
+  info.append(bottom);
+  row.append(info);
+  return row;
+}
+// #endregion
+
+// #region Cobalt vs Schoology -----------------------------------------------------
+function compareSection(): HTMLElement {
+  const sec = el('section', { class: 'lp-section lp-compare lp-reveal', id: 'compare' });
+  sec.append(
+    el('h2', { class: 'lp-h2', text: 'Cobalt vs Schoology' }),
+    el('p', { class: 'lp-sub', text: 'Schoology is where teachers post. Cobalt is where students get it done.' })
+  );
+
+  const grid = el('div', { class: 'lp-vs' });
+  const head = el('div', { class: 'lp-vs-row lp-vs-headrow' });
+  const cobHead = el('div', { class: 'lp-vs-cell lp-vs-head cobalt' });
+  cobHead.append(createWordmark().el);
+  head.append(el('div', { class: 'lp-vs-cell lp-vs-head', text: 'Schoology' }), cobHead);
+  grid.append(head);
+
+  VS_ROWS.forEach((r, i) => {
+    const row = el('div', { class: 'lp-vs-row lp-reveal' });
+    row.style.transitionDelay = `${i * 60}ms`;
+    const sch = el('div', { class: 'lp-vs-cell' });
+    sch.append(el('span', { class: 'lp-vs-no', text: '✗' }), el('span', { class: 'lp-vs-note', text: r.sch }));
+    const cob = el('div', { class: 'lp-vs-cell lp-vs-hi' });
+    cob.append(el('span', { class: 'lp-check lp-vs-yes', text: '✓' }), el('span', { class: 'lp-vs-note', text: r.cob }));
+    row.append(sch, cob);
+    grid.append(row);
+  });
+
+  sec.append(grid);
+  // The disarming line: Cobalt is a companion, not a replacement. Pre-empts the
+  // "is this allowed?" question from parents and school in one sentence.
+  sec.append(
+    el('p', { class: 'lp-vs-foot', text: 'You will still open Schoology to submit work. Cobalt handles everything before that.' })
+  );
+  return sec;
+}
+// #endregion
+
 // #region Capabilities word cloud ----------------------------------------------
 function capabilitiesSection(): HTMLElement {
-  const sec = el('section', { class: 'lp-section lp-caps lp-reveal' });
+  const sec = el('section', { class: 'lp-section lp-caps lp-reveal', id: 'caps' });
   // The section reads as one sentence: "The capacity to [cloud] your Schoology
   // assignments" — every cloud word slots into the blank grammatically.
   sec.append(el('h2', { class: 'lp-h2', text: 'The capacity to' }));
@@ -403,145 +799,64 @@ function capabilitiesSection(): HTMLElement {
 }
 // #endregion
 
-// #region Personalization showcase ---------------------------------------------
-// A wide, side-by-side look at THREE settings tabs — Profile, Courses, Alerts —
-// so a visitor sees at a glance how much of Cobalt bends to them: their name +
-// greeting + clock, their own course names/colors/parse-words, and exactly which
-// notifications reach them. Static replicas (display-only), built from the same
-// UI classes the real settings screens use so they look authentic.
-function personalizeSection(): HTMLElement {
-  const sec = el('section', { class: 'lp-section lp-personalize lp-reveal' });
-  sec.append(
-    el('h2', { class: 'lp-h2', text: 'Endless personalization' }),
-    el('p', {
-      class: 'lp-sub',
-      text: 'Make Cobalt your own: set your name, greeting and clock, rename and recolor every course with your own parse words, and choose exactly which alerts reach you.',
-    })
-  );
-  // ONE settings window whose three columns read as a single screen — no separate
-  // card chrome, just hairline dividers. Each column is built from the SAME UI
-  // classes the real settings screens use (.srow, .nswitch, .nseg, the course
-  // cards, .ncard) so it mirrors the app exactly. Display-only (pointer-events off
-  // on the whole panel), so nothing here saves or prompts. No scale-to-fit wrapper:
-  // the panel is naturally responsive (columns stack on narrow screens), which also
-  // removes the height-mis-reservation that let the word cloud ride up over it.
-  const win = el('div', { class: 'lp-settings' });
-  const cols = el('div', { class: 'lp-settings-cols' });
-  cols.append(
-    settingsCol('Profile', profileCol()),
-    settingsCol('Courses', coursesCol()),
-    settingsCol('Alerts', alertsCol())
-  );
-  win.append(cols);
-  sec.append(win);
-  return sec;
-}
-
-/** One labelled column inside the single settings window. */
-function settingsCol(label: string, items: HTMLElement[]): HTMLElement {
-  const col = el('div', { class: 'lp-settings-col' });
-  col.append(el('div', { class: 'lp-settings-col-head', text: label }), ...items);
-  return col;
-}
-
-/** A non-interactive on/off switch identical to the settings `.nswitch`. */
-function fauxSwitch(on: boolean): HTMLElement {
-  const sw = el('span', { class: 'nswitch' });
-  sw.setAttribute('role', 'switch');
-  sw.setAttribute('aria-checked', String(on));
-  return sw;
-}
-
-/** The real settings preference row: title + sub on the left, a control on the right. */
-function srow(title: string, sub: string, ctrl: HTMLElement): HTMLElement {
-  const row = el('div', { class: 'srow' });
-  const main = el('div', { class: 'srow-main' });
-  main.append(el('div', { class: 'srow-title', text: title }), el('div', { class: 'srow-sub', text: sub }));
-  const c = el('div', { class: 'srow-ctrl' });
-  c.append(ctrl);
-  row.append(main, c);
-  return row;
-}
-
-/** The real 12-hour/24-hour segmented control (first option active). */
-function twoWaySeg(a: string, b: string): HTMLElement {
-  const s = el('div', { class: 'nseg', style: 'grid-template-columns: repeat(2, 1fr)' });
-  s.append(el('span', { class: 'nseg-btn active', text: a }), el('span', { class: 'nseg-btn', text: b }));
-  return s;
-}
-
-/** Profile column — display name + the real preference rows. */
-function profileCol(): HTMLElement[] {
-  return [
-    el('div', { class: 'lp-set-label', text: 'Display name' }),
-    el('div', { class: 'settings-input lp-set-input', text: 'Gabe' }),
-    srow('Time format', 'How times show across Cobalt.', twoWaySeg('12-hour', '24-hour')),
-    srow('Personalized greeting', 'Use your name in the greeting.', fauxSwitch(true)),
-    srow('Daily quote', 'A rotating quote each day.', fauxSwitch(true)),
-  ];
-}
-
-/** Courses column — the real course-editor cards (name / color / parse chips). */
-function coursesCol(): HTMLElement[] {
-  return PERSONAS[0].courses.map(courseCard);
-}
-
-/** Alerts column — the real notification cards (icon + title/desc + switch). */
-function alertsCol(): HTMLElement[] {
-  const rows: [string, string, string, boolean][] = [
-    ['⏰', 'Due-soon reminders', 'A heads-up before it’s due.', true],
-    ['☀️', 'Daily agenda', 'Your morning rundown of today.', true],
-    ['🌙', 'Tomorrow preview', 'An evening look at what’s ahead.', false],
-  ];
-  return rows.map(([icon, title, desc, on]) => {
-    const card = el('div', { class: 'ncard' });
-    const bar = el('div', { class: 'ncard-bar' });
-    const main = el('div', { class: 'ncard-main' });
-    main.append(el('div', { class: 'ncard-title', text: title }), el('div', { class: 'ncard-desc', text: desc }));
-    bar.append(el('div', { class: 'ncard-ico', text: icon }), main, fauxSwitch(on));
-    card.append(bar);
-    return card;
-  });
-}
-
-/** A static replica of the Settings course editor row (see settings/view.ts
- *  courseRow): color swatch + boxed name + ✕, parse-word chips with ×, and the
- *  dashed "+ parse word" field. Purely decorative — nothing here is interactive. */
-function courseCard(c: PersonaCourse): HTMLElement {
-  const card = el('div', { class: 'lp-course-card' });
-  card.style.setProperty('--course', c.color);
-
-  const head = el('div', { class: 'lp-course-head' });
-  head.append(
-    el('span', { class: 'lp-course-swatch' }),
-    el('span', { class: 'lp-course-name', text: c.name }),
-    el('span', { class: 'lp-course-x', text: '✕' })
-  );
-  card.append(head);
-
-  const tags = el('div', { class: 'lp-course-tags' });
-  for (const w of c.words) {
-    const tag = el('span', { class: 'lp-course-tag', text: w });
-    tag.append(el('span', { class: 'lp-course-tag-x', text: '×' }));
-    tags.append(tag);
-  }
-  card.append(tags);
-
-  card.append(el('div', { class: 'lp-course-add', text: '+ parse word' }));
-  return card;
-}
-// #endregion
-
-// #region Shared bits -----------------------------------------------------------
+// #region Closer + shared bits ----------------------------------------------------
 function ctaButton(label: string, onClick: () => void): HTMLElement {
   const btn = el('button', { class: 'lp-cta', text: label });
   btn.addEventListener('click', onClick);
   return btn;
 }
 
-function footerSection(): HTMLElement {
+/** The page's final ask, right before the footer: the strongest close is a CTA,
+ *  not decoration (peak-end). The privacy line answers the parent question
+ *  ("what does it read?") with the checkable truth: Cobalt's import is the
+ *  Schoology CALENDAR feed, nothing else. */
+function closerSection(opts: LandingOpts): HTMLElement {
+  const sec = el('section', { class: 'lp-section lp-closer lp-reveal' });
+  sec.append(
+    el('h2', { class: 'lp-h2', text: 'Ready when you are' }),
+    el('p', { class: 'lp-sub', text: 'One Google sign-in and about a minute of setup.' }),
+    ctaButton('Get started', opts.onTryNow),
+    el('p', {
+      class: 'lp-closer-privacy',
+      text: 'Cobalt reads only your Schoology calendar feed. Grades and messages stay untouched.',
+    })
+  );
+  return sec;
+}
+
+/** Wordmark + the same nav links (as a small chip row) + Log in / Get started,
+ *  so the footer doubles as a second way to navigate or convert once a visitor
+ *  has scrolled all the way down. */
+function footerSection(opts: LandingOpts, scrollTo: (id: string) => void): HTMLElement {
   const f = el('footer', { class: 'lp-footer' });
-  f.append(el('span', { text: 'Cobalt · built for Heschel students' }));
+  const top = el('div', { class: 'lp-footer-top' });
+
+  const mark = el('div', { class: 'lp-footer-mark' });
+  mark.append(createWordmark().el);
+
+  const links = el('div', { class: 'lp-footer-links' });
+  for (const l of NAV_LINKS) {
+    const b = el('button', { class: 'lp-footer-link', text: l.label }) as HTMLButtonElement;
+    b.dataset.target = l.id; // demoSection unhides all [data-target="demo"] links at once
+    if (l.id === 'demo') b.hidden = true;
+    b.addEventListener('click', () => scrollTo(l.id));
+    links.append(b);
+  }
+
+  const actions = el('div', { class: 'lp-footer-actions' });
+  const login = el('button', { class: 'lp-footer-login', text: 'Log in' });
+  login.addEventListener('click', opts.onLogIn ?? opts.onTryNow);
+  const cta = el('button', { class: 'lp-footer-cta', text: 'Get started' });
+  cta.addEventListener('click', opts.onTryNow);
+  actions.append(login, cta);
+
+  top.append(mark, links, actions);
+
+  f.append(
+    top,
+    el('div', { class: 'lp-footer-rule' }),
+    el('div', { class: 'lp-footer-base', text: 'Cobalt · built for Heschel students. Everything due, one calm place.' })
+  );
   return f;
 }
 

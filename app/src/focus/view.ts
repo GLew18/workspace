@@ -1191,11 +1191,15 @@ export class FocusView {
     // is the rescue for a mini player lost behind other windows (Gabe, 8/12).
     const start = el('button', { class: 'btn-primary focus-start', text: 'Start focus session' });
     if (this.overlay || this.widget) {
-      start.textContent = 'Session in progress';
+      // "Open focus session" mirrors "Start focus session" on purpose (Gabe, 8/13):
+      // same diction, so the button reads as an action you take rather than a status
+      // label. The red line underneath already says a session is running, which is
+      // what the old "Session in progress" wording duplicated.
+      start.textContent = 'Open focus session';
       start.addEventListener('click', () => this.maximize());
       wrap.append(
         start,
-        el('div', { class: 'focus-field-error', text: 'A focus session is already running. Click it to return to the full session.' })
+        el('div', { class: 'focus-field-error', text: 'A focus session is already running. Click the button above to return to the full session.' })
       );
     } else {
       start.addEventListener('click', () => {
@@ -1770,17 +1774,17 @@ export class FocusView {
         }
       }
 
-      // INDIVIDUAL TASKS — DRAG ARRANGEMENT FIRST, then due date, then priority,
-      // time, course, recency. Undated tasks sort last among the un-arranged.
+      // INDIVIDUAL TASKS — the app's standard order, DUE DATE FIRST: date, then the
+      // drag arrangement within a date, then priority, time, course, recency.
+      // Undated tasks sort last. Both copies of this panel get it, the setup
+      // screen's and the session's, because both are built right here.
       //
-      // manualFirst is the whole point (Gabe, 8/8 and reaffirmed 8/12): a hand
-      // placement is deliberate intent and outranks every automatic criterion,
-      // including the date. Tasks can afford to rank the date first because it
-      // splits into visible day headers, so a drag there can only mean "within
-      // this day"; the Focus import panel is one undivided list with no boundary
-      // to respect. (A due-date-first order was tried on 8/12 and reverted.)
+      // This drops the old manualFirst exception (Gabe, 8/13): these rows have no
+      // ⋮⋮ grips, so ranking a hand-arrangement above the date meant an order the
+      // student could not see the cause of or change from this panel. It came in
+      // from the Tasks tab and simply looked like the dates were being ignored.
       importBody.append(el('div', { class: 'focus-import-section', text: 'Individual tasks' }));
-      const sorted = sortTasks(filtered, { manualFirst: true });
+      const sorted = sortTasks(filtered);
       // Selection housekeeping: range order = drawn order; imported/filtered-out
       // ids fall out of the selection instead of lingering invisibly.
       importVisIds = sorted.filter((t) => !imported.has(t.id)).map((t) => t.id);

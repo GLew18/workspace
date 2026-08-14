@@ -231,14 +231,25 @@ export class SettingsView {
       navButtons.forEach((b, i) => b.classList.toggle('active', i === idx));
       content.scrollTop = 0;
     };
+    // PREMIUM group (Gabe, 8/13): paid-tier tabs sit at the bottom of the
+    // sidebar under their own "Premium" subheader in a separated block. The
+    // block is NEUTRAL: a full violet theme was tried and pulled the same day;
+    // the one violet mark is the ACTIVE state on these buttons (settings.css),
+    // violet where every other tab goes blue. Hover is the standard white.
+    // Today that's Notifications; future premium tabs just join this set.
+    const PREMIUM_TABS = new Set(['Notifications']);
+    const premWrap = el('div', { class: 'settings-side-prem' });
+    premWrap.append(el('div', { class: 'settings-side-subhead', text: 'Premium' }));
     tabs.forEach(([label], i) => {
       const b = el('button', { class: 'settings-side-btn' }) as HTMLButtonElement;
+      if (PREMIUM_TABS.has(label)) b.classList.add('premium');
       b.innerHTML = NAV_ICONS[label] ?? '';
       b.append(el('span', { text: label }));
       b.addEventListener('click', () => show(i));
       navButtons.push(b);
-      side.append(b);
+      (PREMIUM_TABS.has(label) ? premWrap : side).append(b);
     });
+    side.append(premWrap);
 
     const shell = el('div', { class: 'settings-shell' });
     shell.append(side, content);
