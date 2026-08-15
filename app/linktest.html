@@ -1,0 +1,108 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>link extraction test</title>
+<body style="background:#0b1020;color:#e6edf7;font-family:ui-monospace,monospace;padding:16px;font-size:12px">
+<pre id="out">running…</pre>
+<script type="module">
+import { extractLinks } from '/src/tasks/attachments.ts';
+
+let n = 0;
+const ids = () => 'id' + ++n;
+
+// Each case is a title/description a teacher or student would really type, and the
+// attachment TITLES we expect out, in order. `urls` optionally asserts the hrefs.
+const CASES = [
+  // ---------- 1. the colon pattern (the most common shape by far) ----------
+  { name: 'colon after noun phrase', details: 'Read Chapter 7 and annotate for tone. The reading: https://drive.google.com/file/d/1a2b3c/view', expect: ['Reading'] },
+  { name: 'colon, one word', details: 'Worksheet: https://example.com/sheet', expect: ['Worksheet'] },
+  { name: 'colon, two words', details: 'Study guide: https://example.com/sg', expect: ['Study guide'] },
+  { name: 'colon with no space', details: 'Rubric:https://example.com/r', expect: ['Rubric'] },
+  { name: 'em dash instead of colon', details: 'The packet — https://example.com/packet', expect: ['Packet'] },
+  { name: 'equals sign', details: 'Slides = https://docs.google.com/presentation/d/x', expect: ['Slides'] },
+
+  // ---------- 2. trailing / leading filler ----------
+  { name: 'find it here:', details: 'You can find the study guide here: https://example.com/guide', expect: ['Study guide'] },
+  { name: 'is at', details: 'The practice set is at https://desmos.com/calculator/abc', expect: ['Practice set'] },
+  { name: 'please see', details: 'Please see the lab safety sheet: https://example.com/safety', expect: ['Lab safety sheet'] },
+  { name: 'check out', details: 'Check out this simulation: https://phet.colorado.edu/sims/a', expect: ['Simulation'] },
+  { name: 'link to', details: 'Link to the recording: https://example.com/rec', expect: ['Recording'] },
+  { name: 'available at', details: 'The syllabus is available at https://example.com/syl', expect: ['Syllabus'] },
+
+  // ---------- 3. multiple links must not steal each other's words ----------
+  { name: 'two links joined by and', details: 'The reading: https://drive.google.com/file/d/1/view and the worksheet: https://example.com/ws.pdf', expect: ['Reading', 'Worksheet'] },
+  { name: 'three links', details: 'Notes: https://example.com/n Slides: https://example.com/s Quiz: https://example.com/q', expect: ['Notes', 'Slides', 'Quiz'] },
+  { name: 'bulleted list', details: 'Materials\n• Slides: https://docs.google.com/presentation/d/xyz\n• Rubric: https://example.com/rubric.pdf', expect: ['Slides', 'Rubric'] },
+  { name: 'numbered list', details: '1. Reading: https://example.com/a\n2. Response form: https://example.com/b', expect: ['Reading', 'Response form'] },
+  { name: 'semicolon separated', details: 'Handout: https://example.com/h; Answer key: https://example.com/k', expect: ['Handout', 'Answer key'] },
+
+  // ---------- 4. no usable context, fall back to the URL ----------
+  { name: 'bare link, opaque drive id', details: 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUv/view', expect: ['Google Drive'] },
+  { name: 'bare link, descriptive path', details: 'https://example.com/files/worksheet-3.pdf', expect: ['Worksheet 3'] },
+  { name: 'bare youtube /watch', details: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', expect: ['YouTube'] },
+  { name: 'bare youtu.be', details: 'https://youtu.be/dQw4w9WgXcQ', expect: ['YouTube'] },
+  { name: 'bare google doc /edit', details: 'https://docs.google.com/document/d/1AbCdEfGhIjKlMn/edit', expect: ['Google Doc'] },
+  { name: 'bare unknown domain', details: 'https://desmos.com/', expect: ['Desmos'] },
+  { name: 'underscores in path', details: 'https://example.com/unit_4_review_packet.pdf', expect: ['Unit 4 review packet'] },
+  { name: 'percent-encoded path', details: 'https://example.com/Lab%20Report%20Template.docx', expect: ['Lab Report Template'] },
+  { name: 'quizlet', details: 'https://quizlet.com/12345/set', expect: ['Quizlet'] },
+  { name: 'khan academy', details: 'https://www.khanacademy.org/math/algebra', expect: ['Algebra'] },
+
+  // ---------- 5. SCHEMELESS domains are IGNORED (Gabe, 8/13: scheme required) ----------
+  { name: 'renaming a task with a bare domain does nothing', title: 'Study for quiz google.com', expect: [] },
+  { name: 'bare domain alone ignored', details: 'google.com', expect: [] },
+  { name: 'bare domain with path ignored', details: 'Practice here: quizlet.com/98765', expect: [] },
+  { name: 'www. without scheme ignored', details: 'www.desmos.com/calculator', expect: [] },
+  { name: 'bare ignored, schemeful still caught', details: 'Notes: example.com/n and slides: https://example.org/s', expect: ['Slides'] },
+  { name: 'filler-only context falls back to host', details: 'See https://example.com/a', expect: ['Example'] },
+
+  // ---------- 6. things that must NOT become links ----------
+  { name: 'abbreviation e.g.', details: 'Bring materials, e.g. a ruler and protractor.', expect: [] },
+  { name: 'sentence with Ch. 7', details: 'Read Ch. 7 before Friday.', expect: [] },
+  { name: 'decimal number', details: 'Round to 3.5 significant figures.', expect: [] },
+  { name: 'etc.', details: 'Bring a pencil, eraser, etc.', expect: [] },
+  { name: 'email address is not a link', details: 'Email me at teacher@school.edu with questions.', expect: [] },
+  { name: 'version number', details: 'Use version 2.1 of the template.', expect: [] },
+  { name: 'no links at all', details: 'Study chapters 4 through 6 for the quiz.', expect: [] },
+  { name: 'empty everything', expect: [] },
+
+  // ---------- 7. punctuation, wrappers, boundaries ----------
+  { name: 'trailing period not part of url', details: 'Use the simulator: https://phet.colorado.edu/sims/wave.', expect: ['Simulator'] },
+  { name: 'link in parentheses', details: 'Submit the form (https://forms.gle/abc123) by Friday.', expect: ['Submit the form'] },
+  { name: 'link in brackets', details: 'Reading [https://example.com/r] is required.', expect: ['Reading'] },
+  { name: 'trailing comma', details: 'Slides: https://example.com/s, then answer the questions.', expect: ['Slides'] },
+  { name: 'previous sentence excluded', details: 'This unit covers cell division and mitosis in depth. Notes: https://example.com/notes.pdf', expect: ['Notes'] },
+  { name: 'very long context is truncated', details: 'The complete annotated bibliography and works cited reference packet for the research unit: https://example.com/x', expectLen: 44 },
+
+  // ---------- 8. title + description, dedup, self-link ----------
+  { name: 'title link', title: 'Turn in essay https://docs.google.com/document/d/abc/edit', expect: ['Turn in essay'] },
+  { name: 'title and description both', title: 'Lab writeup https://example.com/lab-template.docx', details: 'Rubric: https://example.com/rubric.pdf', expect: ['Lab writeup', 'Rubric'] },
+  { name: 'same url twice → one', details: 'Reading: https://example.com/a and again https://example.com/a', expect: ['Reading'] },
+  { name: 'duplicate names numbered', details: 'Handout: https://example.com/one\nHandout: https://example.com/two', expect: ['Handout', 'Handout 2'] },
+  { name: 'self link skipped', details: 'See https://heschel.schoology.com/assignment/999 and the reading: https://example.com/r.pdf', skipUrls: ['https://heschel.schoology.com/assignment/999'], expect: ['Reading'] },
+  { name: 'self link is the only link', details: 'Details at https://heschel.schoology.com/assignment/5', skipUrls: ['https://heschel.schoology.com/assignment/5'], expect: [] },
+
+  // ---------- 9. non-latin + odd input ----------
+  { name: 'hebrew context', details: 'דף עבודה: https://example.com/x', expect: ['דף עבודה'] },
+  { name: 'hebrew with schemeful link', details: 'תרגול: https://quizlet.com/5', expect: ['תרגול'] },
+  { name: 'all caps context', details: 'HOMEWORK PACKET: https://example.com/p', expect: ['HOMEWORK PACKET'] },
+  { name: 'digits-only context falls back', details: '12345: https://desmos.com/x', expect: ['Desmos'] },
+];
+
+const lines = [];
+let pass = 0, fail = 0;
+for (const c of CASES) {
+  const got = extractLinks({ title: c.title, details: c.details, skipUrls: c.skipUrls }, ids).map((x) => x.title);
+  let ok;
+  if (c.expectLen != null) ok = got.length === 1 && got[0].length <= c.expectLen && got[0].length > 8;
+  else ok = JSON.stringify(got) === JSON.stringify(c.expect);
+  ok ? pass++ : fail++;
+  lines.push(`${ok ? 'PASS' : 'FAIL'}  ${c.name}`);
+  if (!ok) {
+    lines.push(`        expected ${c.expectLen != null ? '≤' + c.expectLen + ' chars' : JSON.stringify(c.expect)}`);
+    lines.push(`        got      ${JSON.stringify(got)}`);
+  }
+}
+lines.unshift(`${pass} passed, ${fail} failed, of ${CASES.length}\n`);
+document.getElementById('out').textContent = lines.join('\n');
+window.__result = { pass, fail };
+</script>

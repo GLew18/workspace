@@ -223,7 +223,7 @@ export function buildFocusDemo(): HTMLElement {
   // tasks; clicking one pulls it into the session.
   const importable: DemoTodo[] = [
     { label: 'Unit 5 Test', course: 'Math', color: '#f0c040', done: false },
-    { label: 'tell coach about being late', course: 'Basketball', color: '#e07b3a', done: false },
+    { label: 'start outlining the history essay', course: 'Social Studies', color: '#e05050', done: false },
   ];
   const importBtn = el('button', { class: 'lpf-import', text: 'Import Tasks' });
   const importPanel = el('div', { class: 'lpf-import-panel' });

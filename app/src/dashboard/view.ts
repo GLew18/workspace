@@ -78,6 +78,12 @@ export class DashboardView {
   private goToTab: (id: string) => void;
   private dueBox!: HTMLElement;
   private scheduleBox!: HTMLElement;
+  /** Last rendered schedule week, kept so a REMOUNT can paint the card instantly.
+   *  Without it, every remount built an empty .dash-schedule and only filled it
+   *  once getProfile('schedule') resolved, so the card visibly blinked out and
+   *  back (Gabe, 8/13, spotted when pinning a task-row action, which fires
+   *  PREFS_EVENT → mount()). null = never fetched, so there is nothing to paint. */
+  private scheduleWeek: ScheduleItem[] | null = null;
   private greetingEl: HTMLElement | null = null;
   private sample: boolean; // landing preview → external links (schedule) are inert
   private panelEl: HTMLElement | null = null; // kept so a prefs change can re-render
@@ -151,6 +157,10 @@ export class DashboardView {
 
     this.scheduleBox = el('div', { class: 'dash-schedule' });
     if (this.sample || prefs.scheduleCard) wrap.append(this.scheduleBox);
+    // Paint the cached week SYNCHRONOUSLY, before this frame is shown. The async
+    // refreshSchedule() below still runs and quietly replaces it with fresh data;
+    // this just means the card is never briefly blank on a remount.
+    if (this.scheduleWeek) this.renderSchedule(this.scheduleWeek);
 
     panel.append(wrap);
 
@@ -284,6 +294,13 @@ export class DashboardView {
       .filter((it) => (seen.has(it.title) ? false : (seen.add(it.title), true)))
       .sort((a, b) => a.date.localeCompare(b.date));
 
+    this.scheduleWeek = week; // cached so the next mount() can paint without waiting
+    this.renderSchedule(week);
+  }
+
+  /** Build the Schedule card's contents. Split out of refreshSchedule so it can
+   *  run synchronously from the cache on mount, with no await in front of it. */
+  private renderSchedule(week: ScheduleItem[]): void {
     this.scheduleBox.replaceChildren();
     const header = el('div', { class: 'dash-schedule-header' });
     header.append(el('span', { text: 'Schedule' }));

@@ -5,6 +5,14 @@
 // synchronous everywhere (main.ts loads it once at boot; Settings updates it and
 // fires PREFS_EVENT so live views — e.g. the Dashboard — can repaint).
 
+/** The OPTIONAL task-row controls, i.e. everything that can be demoted into the
+ *  row's "…" menu. ↗ Schoology, ⓘ description and the priority arrow are
+ *  deliberately NOT here: those three are permanent. The first two are what the
+ *  student actually presses, and priority is the only way to set priority now
+ *  that the colored strip is dormant, so hiding it would strand the feature. */
+export type PinnedAction = 'translate' | 'attach' | 'folder' | 'duplicate';
+export const PINNABLE: PinnedAction[] = ['translate', 'attach', 'folder', 'duplicate'];
+
 export interface AppPrefs {
   /** '12h' shows 2:30pm; '24h' shows 14:30. (Persisted; display wiring is phased.) */
   timeFormat: '12h' | '24h';
@@ -47,6 +55,15 @@ export interface AppPrefs {
      *  Subjective fields (priority, folders, attachments, done) ignore this and
      *  are always editable. */
     allowEdit: boolean;
+    /** Which OPTIONAL row controls the student has pinned to the task row (Gabe,
+     *  8/13). Everything not listed here lives behind the row's "…" menu.
+     *
+     *  Phrased POSITIVELY (a pinned id is present) to match every other pref in
+     *  this file, and because the natural default is "nothing pinned": a control
+     *  that has real content behind it, an attachment, a folder, a translation,
+     *  promotes itself onto the row without ever being listed here. Pinning is
+     *  only for forcing an EMPTY control to stay visible. */
+    pinnedActions: PinnedAction[];
   };
   focus: {
     /** Persisted; the M:SS vs minutes-only display option is phased. */
@@ -91,7 +108,7 @@ export const DEFAULT_PREFS: AppPrefs = {
   dash: { greetName: true, quote: true, quoteStyle: 'modern', tasksCard: true, scheduleCard: true },
   sync: { auto: true, intervalMins: 30, onOpen: true },
   importPrefs: { assignments: true, assessments: true, quizzes: true, windowDays: 30 },
-  tasks: { allowEdit: true },
+  tasks: { allowEdit: true, pinnedActions: [] },
   focus: { showSeconds: true, keepAwake: true, autoStartMusic: true, resumeAfterReload: false, linkTasks: true },
   calendar: {
     defaultScreen: 'list',
@@ -134,6 +151,13 @@ export function normalizePrefs(raw: unknown): AppPrefs {
     },
     tasks: {
       allowEdit: bool(r.tasks?.allowEdit, d.tasks.allowEdit),
+      // Filtered against PINNABLE, so a stale id from an older build (or a hand-
+      // edited profile) can never reach the renderer as an unknown control.
+      pinnedActions: Array.isArray(r.tasks?.pinnedActions)
+        ? (r.tasks!.pinnedActions as unknown[]).filter((a): a is PinnedAction =>
+            PINNABLE.includes(a as PinnedAction)
+          )
+        : d.tasks.pinnedActions,
     },
     focus: {
       showSeconds: bool(r.focus?.showSeconds, d.focus.showSeconds),

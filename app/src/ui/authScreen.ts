@@ -183,40 +183,20 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
       if (busy) return;
       setError('');
       setBusy(true, undefined);
-      gLabel.textContent = 'Opening Google…';
+      gLabel.textContent = 'Heading to Google…';
 
-      // STUCK-BUTTON FIX (Gabe, 8/8): closing the Google window used to leave this
-      // reading "Opening Google…" forever. Firebase detects a closed popup by
-      // polling `popup.closed`, and Chrome's Cross-Origin-Opener-Policy severs that
-      // handle once Google navigates — so the promise never settles and the catch
-      // below never runs. Nothing to await, so we need our own signal: this tab
-      // getting focus back means the user is here, not at Google. Wait a moment in
-      // case a real sign-in is still landing, then give the button back.
-      let done = false;
-      const finish = (): void => {
-        if (done) return;
-        done = true;
-        window.removeEventListener('focus', onReturn);
+      // FULL-PAGE redirect (Gabe, 8/13): the whole tab goes to Google and comes
+      // back signed in, no popup window. That also retires the 8/8 COOP
+      // stuck-button workaround that used to live here: there is no popup handle
+      // to lose anymore. On success this page is navigating away, so the button
+      // deliberately STAYS busy (re-enabling it would flash mid-departure) and no
+      // teardown runs; the return trip lands via onAuthStateChanged in main.ts.
+      // Only a failure to even START the redirect (offline, bad config) returns.
+      signInWithGoogle().catch(() => {
         setBusy(false);
         gLabel.textContent = 'Continue with Google';
-      };
-      const onReturn = (): void => void window.setTimeout(finish, 1500);
-      window.addEventListener('focus', onReturn);
-
-      signInWithGoogle()
-        .then(() => {
-          done = true; // success: leave the button alone, the screen is going away
-          window.removeEventListener('focus', onReturn);
-          teardown();
-        })
-        .catch((err: Error) => {
-          finish();
-          // A closed/cancelled popup isn't a real error — stay quiet for that one.
-          const code = (err as unknown as { code?: string }).code || '';
-          if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
-            setError('Google sign-in failed. Please try again.');
-          }
-        });
+        setError('Google sign-in failed. Please try again.');
+      });
     });
 
     // --- footer: swap modes, and the login-only reset link ------------------

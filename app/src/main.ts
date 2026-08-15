@@ -50,6 +50,7 @@ import { queueEmail } from './notify/email';
 import { enablePush } from './notify/push';
 import { capitalizeName } from './util/names';
 import { getPrefs, setPrefsCache, normalizePrefs, DEFAULT_PREFS, PREFS_EVENT } from './prefs';
+import { openSuggestionBox } from './suggest';
 import type { SchoologySettings, TaskMap } from './types';
 import { todayStr } from './util/dates';
 // #endregion
@@ -253,12 +254,23 @@ async function renderApp(user: AuthUser): Promise<void> {
   window.addEventListener(NOTIFY_LOG_EVENT, paintBell);
   bellBtn.addEventListener('click', () => controller.goToTab('notifications'));
 
+  // 💡 Suggestions — one box, straight to Gabe, anonymous (see src/suggest.ts).
+  // It passes the CURRENT TAB along, so "the timer thing is confusing" arrives
+  // already knowing it came from Focus and the student doesn't have to explain
+  // where they were.
+  const suggestBtn = el('button', { class: 'icon-btn', 'aria-label': 'Suggest something', title: 'Suggest something' });
+  suggestBtn.innerHTML =
+    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1v.2h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>';
+  suggestBtn.addEventListener('click', () => openSuggestionBox(controller.current()));
+
   // No sign-out pill up here on purpose (per Gabe): the only way to sign out is
   // Settings → Sign out, behind its confirm dialog. One easy top-bar button made
   // it too casual to leave; this adds the friction back.
   // Icons first, name last (per Gabe): the two controls sit together as a pair on
   // the left, with the name reading as the label at the end of the cluster.
-  userBox.append(bellBtn, settingsBtn, nameSpan);
+  // 💡 sits FIRST: it is the only one of the three that is not a destination, so
+  // putting it left of the bell keeps the two navigating icons adjacent.
+  userBox.append(suggestBtn, bellBtn, settingsBtn, nameSpan);
   header.append(headerLeft, userBox);
 
   // --- Sidebar: the slide-out nav drawer (Dashboard / Tasks / Focus / Bookmarks) ---

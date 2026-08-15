@@ -74,7 +74,7 @@ function navBar(opts: LandingOpts, root: HTMLElement): HTMLElement {
   const actions = el('div', { class: 'lp-nav-actions' });
   const login = el('button', { class: 'lp-nav-login', text: 'Log in' });
   login.addEventListener('click', opts.onLogIn ?? opts.onTryNow);
-  const cta = el('button', { class: 'lp-nav-cta', text: 'Get started' });
+  const cta = el('button', { class: 'lp-nav-cta', text: 'Get started free' });
   cta.addEventListener('click', opts.onTryNow);
   actions.append(login, cta);
 
@@ -177,15 +177,20 @@ const CLOUD_FONTS = [
 // #endregion
 
 // #region Personalization showcase data -------------------------------------------
-// Three students' task lists over the exact SAME four assignments. Everything
-// that is NOT personalization is identical on every card: titles, courses, due
-// dates and times, day-group headers, the QUIZ badge (auto-detected), the
-// translation row (automatic), and the full action row in the app's real order.
-// What differs is only what a student actually shapes: course colors,
-// priorities, folders, and attachments — a hierarchy from untouched defaults to
-// fully organized. No preset names, no fabricated minimal/power modes (Gabe,
-// 8/13: priorities and buttons are intrinsic, you cannot strip them; and no
-// checked rows, since a checked task glides away in the real app).
+// Three students' task lists over the exact SAME four assignments. Titles,
+// courses, due dates and times, day-group headers and the QUIZ badge are
+// identical on every card. What differs is only what a student actually shapes:
+// course colors, priorities, folders, attachments, whether translation is on,
+// and WHICH OPTIONAL CONTROLS SIT ON THE ROW — a hierarchy from untouched
+// defaults to fully organized.
+//
+// That last one changed on 8/13, when the real row stopped showing all seven
+// controls to everyone: ↗, ⓘ and priority are permanent, a control auto-appears
+// once the task has content behind it, anything else waits behind "⋯" until it
+// is pinned. So card 1 is simply what the rules give you, card 2 has a single
+// pin, card 3 has pinned the lot. (Still no preset names and no fabricated
+// minimal/power modes, and still no checked rows, since a checked task glides
+// away in the real app.)
 interface ShowTask {
   id: string;
   title: string;
@@ -221,6 +226,17 @@ interface StudentSetup {
   attachments: Record<string, number>;
   /** taskId → folder color (tints the row's folder button, like the real app). */
   folderColorOf: Record<string, string>;
+  /** Rows drawn mid-multi-select (.task-item.selected, the real Tasks-tab class).
+   *  Purely a visible selection: no bulk-action bar, nothing is being changed. */
+  selectedIds?: string[];
+  /** Card 1 only: the Hebrew row shows NO translation and its 🌐 sits inactive,
+   *  so the three cards read as a progression into the feature. */
+  hideTranslation?: boolean;
+  /** Optional controls this student has PINNED onto every row, mirroring the real
+   *  `tasks.pinnedActions` pref. Empty/absent means the row shows only what the
+   *  auto-promote rules give it. ('translate' is never listed: it can only appear
+   *  where a translation exists, so pinning it would be a no-op.) */
+  pinned?: ('attach' | 'folder' | 'duplicate')[];
   blocks: CardBlock[];
 }
 
@@ -238,6 +254,7 @@ const STUDENT_SETUPS: StudentSetup[] = [
     priorities: {},
     attachments: {},
     folderColorOf: {},
+    hideTranslation: true,
     blocks: [H_TOMORROW, { kind: 'row', task: 'dikduk' }, { kind: 'row', task: 'vocab' }, H_FRIDAY, { kind: 'row', task: 'lab' }, { kind: 'row', task: 'pset' }],
   },
   // 2 · Settling in: courses recolored, some priority spread, one folder, a
@@ -247,9 +264,13 @@ const STUDENT_SETUPS: StudentSetup[] = [
     priorities: { dikduk: 'high', pset: 'low' },
     attachments: { lab: 1 },
     folderColorOf: { dikduk: '#60a5fa', vocab: '#60a5fa' },
+    // ONE pin, and 📎 is the legible one to choose: it puts the paperclip on EVERY
+    // row, including the three with nothing attached, which is exactly what pinning
+    // means and cannot be mistaken for the auto-promote rule doing it.
+    pinned: ['attach'],
     blocks: [
       { kind: 'label' },
-      { kind: 'folder', name: 'This week', color: '#60a5fa', blocks: [H_TOMORROW, { kind: 'row', task: 'dikduk' }, { kind: 'row', task: 'vocab' }] },
+      { kind: 'folder', name: 'Complete today', color: '#60a5fa', blocks: [H_TOMORROW, { kind: 'row', task: 'dikduk' }, { kind: 'row', task: 'vocab' }] },
       H_FRIDAY,
       { kind: 'row', task: 'lab' },
       { kind: 'row', task: 'pset' },
@@ -262,6 +283,13 @@ const STUDENT_SETUPS: StudentSetup[] = [
     priorities: { dikduk: 'highest', vocab: 'high', lab: 'low', pset: 'lowest' },
     attachments: { vocab: 2, lab: 1, pset: 1 },
     folderColorOf: { vocab: '#e05050', dikduk: '#3a7d5d', lab: '#3a7d5d', pset: '#3a7d5d' },
+    // The two bottom rows caught mid-multi-select (Gabe, 8/13) — the busiest card
+    // gets one more real thing happening in it.
+    selectedIds: ['lab', 'pset'],
+    // Everything pinned: the student who wants every tool on every row at all times.
+    // This is the far end of the progression, and the only card where a row can be
+    // as dense as the app used to be for everyone.
+    pinned: ['attach', 'folder', 'duplicate'],
     blocks: [
       { kind: 'label' },
       { kind: 'folder', name: 'Quizzes', color: '#e05050', blocks: [H_TOMORROW, { kind: 'row', task: 'vocab' }] },
@@ -343,10 +371,17 @@ function heroSection(opts: LandingOpts): HTMLElement {
   const inner = el('div', { class: 'lp-hero-inner lp-reveal' });
 
   inner.append(
-    el('h1', { class: 'lp-hero-title', text: 'One clean space, built from your Schoology feed' }),
+    // "Schoology" carries the accent (Gabe, 8/13), so the one word the visitor is
+    // scanning for is the one that reads first. Built from children rather than a
+    // text attr because `el`'s `text` sets textContent and would erase the span.
+    el('h1', { class: 'lp-hero-title' }, [
+      'Your ',
+      el('span', { class: 'lp-hero-accent', text: 'Schoology' }),
+      ', revolutionized',
+    ]),
     el('p', {
       class: 'lp-tagline',
-      text: 'Cobalt pulls every assignment out of Schoology into one clear list, reminds you by popup and email, and hands you a focus timer to finish it all.',
+      text: 'Cobalt pulls every assignment out of Schoology into one organized list, while adding helpful functions to streamline homework completion.',
     })
   );
 
@@ -354,16 +389,22 @@ function heroSection(opts: LandingOpts): HTMLElement {
   const actions = el('div', { class: 'lp-hero-actions' });
   const login = el('button', { class: 'lp-cta-ghost', text: 'Log in' });
   login.addEventListener('click', opts.onLogIn ?? opts.onTryNow);
-  actions.append(login, ctaButton('Get started', opts.onTryNow));
+  actions.append(login, ctaButton('Get started free', opts.onTryNow));
   inner.append(actions);
-  inner.append(el('p', { class: 'lp-cta-sub', text: 'Free, about a minute to set up, built for Heschel students.' }));
 
-  // Three quick-glance chips, one per tab: Tasks, Focus, Bookmarks.
+  // The byline (Gabe, 8/13): the cheapest real trust signal on the page. A tool
+  // by one of their own beats any feature claim for this audience.
+  inner.append(el('p', { class: 'lp-cta-sub', text: 'Built by a Heschel student, for Heschel students.' }));
+
+  // Three quick-glance chips, one per tab: Tasks, Focus, Bookmarks. Each chip wears
+  // its tab's OWN emoji from FEATURES above (✅ / 🎯 / 🔖), so the hero and the
+  // "see it in action" tabs read as the same three things. (Tasks used a ⚡ here
+  // until 8/13, the one chip that didn't match its tab.)
   const chips = el('div', { class: 'lp-hero-chips' });
   chips.append(
-    el('span', { class: 'lp-hero-chip', text: '⚡ Auto-import from Schoology' }),
-    el('span', { class: 'lp-hero-chip', text: '🎯 Focus timer with music' }),
-    el('span', { class: 'lp-hero-chip', text: '🔖 Your sites, one click away' })
+    el('span', { class: 'lp-hero-chip', text: '✅ Auto-import from Schoology' }),
+    el('span', { class: 'lp-hero-chip', text: '🎯 Curated focus timer with music' }),
+    el('span', { class: 'lp-hero-chip', text: '🔖 Optimized website navigation' })
   );
   inner.append(chips);
 
@@ -390,7 +431,7 @@ function howItWorksSection(sandbox: Promise<Data>): HTMLElement {
   frame.body.classList.add('lp-frame-static');
   const text = el('div', { class: 'lp-split-text' });
   text.append(
-    el('h2', { class: 'lp-h2 lp-h2-left', text: 'Stop digging through Schoology' }),
+    el('h2', { class: 'lp-h2 lp-h2-left', text: 'Every assignment, organized in one calm place' }),
     el('p', {
       class: 'lp-lead',
       text: 'Cobalt reads your Schoology calendar and imports every assignment, test, and quiz into one organized place, automatically. Open one tab and know exactly what is due, when, and what to hit first.',
@@ -680,7 +721,9 @@ function countRows(blocks: CardBlock[]): number {
  *  row of meta (course · date time), the QUIZ badge inside the meta wrap, and
  *  the full action cluster: ↗ ⓘ · 🌐 📎 folder priority ⎘. */
 function staticTaskRow(t: ShowTask, s: StudentSetup): HTMLElement {
-  const row = el('div', { class: 'task-item' });
+  // `.selected` is the Tasks tab's OWN multi-select class, so the outline and tint
+  // match the real thing exactly rather than being re-invented here.
+  const row = el('div', { class: `task-item${s.selectedIds?.includes(t.id) ? ' selected' : ''}` });
   const pri = priorityDef(s.priorities[t.id] ?? 'normal');
   row.append(el('div', { class: `task-priority ${pri.key}` }));
   // No ⋮⋮ grip on these rows (Gabe, 8/13: the bottom rows read smushed at three
@@ -691,7 +734,7 @@ function staticTaskRow(t: ShowTask, s: StudentSetup): HTMLElement {
 
   const info = el('div', { class: 'task-info' });
   info.append(el('div', { class: 'task-title', text: t.title }));
-  if (t.translated) {
+  if (t.translated && !s.hideTranslation) {
     const tr = el('div', { class: 'task-translation' });
     tr.append(el('span', { class: 'task-translation-badge', text: '🌐' }), document.createTextNode(t.translated));
     info.append(tr);
@@ -709,24 +752,48 @@ function staticTaskRow(t: ShowTask, s: StudentSetup): HTMLElement {
   if (t.quiz) metaWrap.append(el('span', { class: 'task-test-badge', text: 'QUIZ' }));
   bottom.append(metaWrap);
 
-  // Action cluster, real order: [↗ Schoology] [ⓘ] · [🌐] [📎] [folder] [priority] [⎘].
+  // Action cluster, mirroring the REAL row's rules (see tasks/render.ts, 8/13):
+  //   ALWAYS  [↗ Schoology] [ⓘ] · [priority]        then [⋯] to close it out
+  //   AUTO    a control appears when the task has content behind it: a translation,
+  //           an attachment, a folder
+  //   PINNED  the student forced an empty control to stay put (s.pinned)
+  // This is what makes the three cards a real progression: card 1 is what the rules
+  // give you untouched, card 3 is someone who has pinned the lot.
   const actions = el('div', { class: 'task-actions' });
   const sgy = el('button', { class: 'act-schoology' });
   sgy.innerHTML = LP_SCHOOLOGY_SVG;
   actions.append(sgy, el('button', { text: 'ⓘ' }), el('span', { class: 'act-sep', text: '·' }));
-  if (t.translated) actions.append(el('button', { class: 'act-translate active', text: '🌐' }));
-  const attach = el('button', {});
-  const count = s.attachments[t.id];
-  attach.innerHTML = `📎${count ? `<span class="attach-count">${count}</span>` : ''}`;
-  actions.append(attach);
-  const fold = el('button', { class: 'act-folder' });
-  fold.innerHTML = LP_FOLDER_BTN_SVG;
-  const folderColor = s.folderColorOf[t.id];
-  if (folderColor) fold.style.color = folderColor;
-  actions.append(fold);
+
   const prio = el('button', { text: pri.arrow });
   prio.style.color = pri.color;
-  actions.append(prio, el('button', { text: '⎘' }));
+  actions.append(prio);
+
+  const pinned = s.pinned ?? [];
+  const count = s.attachments[t.id];
+  const folderColor = s.folderColorOf[t.id];
+
+  // 🌐 exists only where there IS a translation, so pinning it can't conjure one.
+  // On card 1 it stays un-`.active` (the app's own 0.4-opacity "off" look) rather
+  // than disappearing, so card 1 reads as an earlier state of the same row.
+  if (t.translated) {
+    actions.append(el('button', { class: `act-translate${s.hideTranslation ? '' : ' active'}`, text: '🌐' }));
+  }
+  if (count || pinned.includes('attach')) {
+    const attach = el('button', {});
+    attach.innerHTML = `📎${count ? `<span class="attach-count">${count}</span>` : ''}`;
+    actions.append(attach);
+  }
+  if (folderColor || pinned.includes('folder')) {
+    const fold = el('button', { class: 'act-folder' });
+    fold.innerHTML = LP_FOLDER_BTN_SVG;
+    if (folderColor) fold.style.color = folderColor;
+    actions.append(fold);
+  }
+  // ⎘ never auto-promotes: nothing about a task makes duplicating it likelier, so
+  // it is on the row only when pinned.
+  if (pinned.includes('duplicate')) actions.append(el('button', { text: '⎘' }));
+
+  actions.append(el('button', { class: 'act-more', text: '⋯' }));
   bottom.append(actions);
 
   info.append(bottom);
@@ -815,7 +882,7 @@ function closerSection(opts: LandingOpts): HTMLElement {
   sec.append(
     el('h2', { class: 'lp-h2', text: 'Ready when you are' }),
     el('p', { class: 'lp-sub', text: 'One Google sign-in and about a minute of setup.' }),
-    ctaButton('Get started', opts.onTryNow),
+    ctaButton('Get started free', opts.onTryNow),
     el('p', {
       class: 'lp-closer-privacy',
       text: 'Cobalt reads only your Schoology calendar feed. Grades and messages stay untouched.',
@@ -846,7 +913,7 @@ function footerSection(opts: LandingOpts, scrollTo: (id: string) => void): HTMLE
   const actions = el('div', { class: 'lp-footer-actions' });
   const login = el('button', { class: 'lp-footer-login', text: 'Log in' });
   login.addEventListener('click', opts.onLogIn ?? opts.onTryNow);
-  const cta = el('button', { class: 'lp-footer-cta', text: 'Get started' });
+  const cta = el('button', { class: 'lp-footer-cta', text: 'Get started free' });
   cta.addEventListener('click', opts.onTryNow);
   actions.append(login, cta);
 
@@ -855,7 +922,7 @@ function footerSection(opts: LandingOpts, scrollTo: (id: string) => void): HTMLE
   f.append(
     top,
     el('div', { class: 'lp-footer-rule' }),
-    el('div', { class: 'lp-footer-base', text: 'Cobalt · built for Heschel students. Everything due, one calm place.' })
+    el('div', { class: 'lp-footer-base', text: '© 2026 Cobalt · All rights reserved' })
   );
   return f;
 }

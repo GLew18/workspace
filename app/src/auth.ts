@@ -101,7 +101,12 @@ export async function signInWithGoogle(): Promise<void> {
   if (isLocalMode()) throw new Error('Google sign-in requires Firebase config');
   const { auth, instance } = await firebaseAuth();
   const provider = new auth.GoogleAuthProvider();
-  await auth.signInWithPopup(instance, provider);
+  // FULL-PAGE redirect, not the small popup window (Gabe, 8/13): the whole tab
+  // navigates to Google's account chooser and comes back signed in. This also
+  // retires the popup's COOP "stuck button" saga wholesale — there is no popup
+  // handle to lose. On success this promise never usefully resolves here (the
+  // page is leaving); the return trip is handled by getRedirectResult in onAuth.
+  await auth.signInWithRedirect(instance, provider);
 }
 
 /**
@@ -326,6 +331,14 @@ export function onAuth(cb: AuthCb): void {
     return;
   }
   firebaseAuth().then(({ auth, instance }) => {
+    // Consume the pending Google-redirect result, if this page load IS the
+    // return trip from the full-page sign-in. Success needs nothing from us
+    // (onAuthStateChanged below fires with the user); this call exists because
+    // redirect ERRORS are only observable here, and swallowing them silently
+    // would make a failed sign-in look like the button did nothing.
+    auth.getRedirectResult(instance).catch((err) => {
+      console.warn('Google sign-in (redirect) failed:', (err as { code?: string }).code || err);
+    });
     auth.onAuthStateChanged(instance, (u) => {
       cb(
         u

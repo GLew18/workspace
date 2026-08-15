@@ -680,3 +680,118 @@ exports.fetchSchoologyIcal = onCall({ region: 'us-central1' }, async (req) => {
   // messages and there is exactly ONE place that decides what a feed means.
   return { ok: true, status: res.status, text: buf.toString('utf8') };
 });
+
+// #region sendSuggestion — the in-app Suggestions box ----------------------------
+//
+// A student writes a suggestion; it arrives in Gabe's inbox. Deliberately narrow:
+//
+// ANONYMOUS (Gabe, 8/13). The email carries the TEXT ONLY — no uid, no email, no
+// display name — because the point is that a 14-year-old can say "this is
+// confusing" without worrying about being judged by a classmate, and that nobody
+// feels owed a personal reply. That is a real promise, so the code has to keep it:
+// the throttle below keys on a SHA-256 of the uid (the same trick throttleOk uses
+// for addresses), so the stored node cannot be read backwards into a person, and
+// the body is never logged.
+//
+// The cost of meaning it: there is no per-person block. If someone floods the box,
+// the lever is SUGGESTIONS_ENABLED below, which is all-or-nothing.
+//
+// Auth is still REQUIRED even though identity is discarded — otherwise there is no
+// key to rate-limit on at all, and the endpoint is an open mailer.
+const SUGGEST_TO = 'gabriel.lewinsohn@gmail.com'; // where the box delivers
+const SUGGEST_MAX_CHARS = 2000;
+const SUGGEST_MIN_GAP_MS = 5 * 60_000; // one per person per 5 minutes (Gabe, 8/13)
+const SUGGEST_DAILY_CAP = 5; // and no more than this per person per day
+const SUGGEST_GLOBAL_DAILY_CAP = 300; // circuit breaker across ALL users
+
+/** One-way hash of a uid. The first 32 chars key the throttle node; the first 6 are
+ *  the FINGERPRINT shown in the email (Gabe, 8/13), which is what makes a per-sender
+ *  block possible without ever naming the sender.
+ *
+ *  The honest trade: a fingerprint is stable, so every message from one student
+ *  carries the same tag. That means their messages are linkable to EACH OTHER, and
+ *  enough linked messages plus content clues could point at a person. This is
+ *  pseudonymity, not anonymity, which is why the form's wording avoids the word. */
+const suggestHash = (uid) => require('crypto').createHash('sha256').update(uid).digest('hex');
+
+/** Per-person throttle, keyed by a hash of the uid so the node never names anyone. */
+async function suggestThrottleOk(uid) {
+  const key = suggestHash(uid).slice(0, 32);
+  const ref = admin.database().ref(`suggestThrottle/${key}`);
+  const now = Date.now();
+  const cur = (await ref.get()).val() || {};
+  const today = new Date(now).toISOString().slice(0, 10);
+  const count = cur.day === today ? Number(cur.count) || 0 : 0;
+  if (cur.last && now - Number(cur.last) < SUGGEST_MIN_GAP_MS) return false;
+  if (count >= SUGGEST_DAILY_CAP) return false;
+  await ref.set({ last: now, day: today, count: count + 1 });
+  return true;
+}
+
+/** One counter for everyone. Per-user caps do NOT bound the total: 500 students at
+ *  5/day is 2500 emails. This is the number that actually protects the sender. */
+async function suggestGlobalOk() {
+  const ref = admin.database().ref('suggestGlobal');
+  const today = new Date().toISOString().slice(0, 10);
+  const cur = (await ref.get()).val() || {};
+  const count = cur.day === today ? Number(cur.count) || 0 : 0;
+  if (count >= SUGGEST_GLOBAL_DAILY_CAP) return false;
+  await ref.set({ day: today, count: count + 1 });
+  return true;
+}
+
+exports.sendSuggestion = onCall({ region: 'us-central1' }, async (req) => {
+  if (!req.auth || !req.auth.uid) {
+    throw new HttpsError('unauthenticated', 'Sign in first.');
+  }
+  const text = String((req.data && req.data.text) || '').trim();
+  if (!text) throw new HttpsError('invalid-argument', 'Write something first.');
+  if (text.length > SUGGEST_MAX_CHARS) {
+    throw new HttpsError('invalid-argument', 'That is too long. Keep it under 2000 characters.');
+  }
+  // Free text from the student, so the screen name is capped and escaped downstream
+  // by mailDoc. `screen` is the tab they were on, not anything about them.
+  const screen = String((req.data && req.data.screen) || '').trim().slice(0, 40);
+
+  // A kill switch that does not need a redeploy: flip suggestionsEnabled to false
+  // in the Realtime Database and the box goes quiet immediately.
+  const enabled = (await admin.database().ref('suggestionsEnabled').get()).val();
+  if (enabled === false) {
+    throw new HttpsError('unavailable', 'Suggestions are paused right now. Try again later.');
+  }
+
+  const fp = suggestHash(req.auth.uid).slice(0, 6);
+
+  // Per-sender block, by fingerprint. Set suggestBlocked/<fp> to true in the
+  // Realtime Database and that sender goes quiet, with everyone else unaffected.
+  //
+  // It returns ok rather than an error ON PURPOSE: telling someone they are blocked
+  // just prompts them to make a second account, and a new account is a new uid and
+  // therefore a new fingerprint. Silence buys more than honesty does here.
+  const blocked = (await admin.database().ref(`suggestBlocked/${fp}`).get()).val();
+  if (blocked === true) return { ok: true };
+
+  if (!(await suggestGlobalOk())) {
+    console.warn('sendSuggestion global cap reached');
+    throw new HttpsError('resource-exhausted', 'Too many suggestions today. Try again tomorrow.');
+  }
+  if (!(await suggestThrottleOk(req.auth.uid))) {
+    throw new HttpsError('resource-exhausted', 'You have sent a few already. Try again later.');
+  }
+
+  // The fingerprint rides in the SUBJECT so it is visible in the inbox list without
+  // opening anything, which is what makes "these six are all the same person"
+  // obvious at a glance.
+  const subject = screen ? `Cobalt suggestion #${fp} (${screen})` : `Cobalt suggestion #${fp}`;
+  try {
+    // mailDoc escapes both fields, so a pasted <script> is inert in the email.
+    await admin.firestore().collection(MAIL_COLLECTION).add(mailDoc(SUGGEST_TO, subject, text));
+  } catch (err) {
+    // NOTE the message is not logged: logging it would quietly undo the anonymity
+    // promise by pairing the text with a function invocation the uid also touched.
+    console.error('sendSuggestion queue failure', err && err.message);
+    throw new HttpsError('internal', 'Could not send that. Try again in a moment.');
+  }
+  return { ok: true };
+});
+// #endregion

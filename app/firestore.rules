@@ -2,11 +2,30 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // Cobalt uses Firestore ONLY as the outbox for the Trigger Email extension.
-    // Signed-in users may QUEUE an email (create); nobody may read/alter the queue —
-    // only the extension (which runs with admin privileges, bypassing these rules)
-    // reads and sends them. Every other path is denied by the absence of a rule.
+    // The extension runs with admin privileges and bypasses these rules entirely,
+    // so anything that lands in /mail WILL be sent from the verified Cobalt sender.
+    // That makes this rule the only thing standing between a signed-in student and
+    // an open mail relay. Every other path is denied by the absence of a rule.
     match /mail/{docId} {
-      allow create: if request.auth != null;
+      // A client may queue mail ONLY TO ITSELF (8/13). Previously this was just
+      // `request.auth != null`, with the recipient taken from a client-supplied
+      // `to` field: any student could open DevTools and send arbitrary HTML from
+      // workspace.reminders@gmail.com to any address, wearing Cobalt's branding.
+      // The real cost was never the spam, it was Gmail suspending the sender for
+      // abuse and taking every reminder email in the app down with it.
+      //
+      // Cloud Functions are admin and bypass rules, so sendAuthEmail, the reminder
+      // scheduler and sendSuggestion are unaffected: anything that must reach a
+      // DIFFERENT recipient goes through a function, where it can be rate-limited
+      // and validated. The client keeps only the self-send path.
+      // Deliberately does NOT also require email_verified: that gate already lives
+      // in the notification code, and duplicating it here risks silently killing a
+      // working channel for an edge case (e.g. a Google account Firebase reports
+      // differently). The recipient constraint is what closes the relay.
+      allow create: if request.auth != null
+        && request.resource.data.to is list
+        && request.resource.data.to.size() == 1
+        && request.resource.data.to[0] == request.auth.token.email;
       allow read, update, delete: if false;
     }
   }

@@ -20,6 +20,8 @@ import type { Task, ScheduleItem, SchoologySettings } from '../types';
 import { parseIcal, taskEvents, scheduleEvents, type IcalEvent } from './ical';
 import { classifyBatch } from './classify';
 import { loadLabels, labelFor } from './extension';
+import { extractLinks } from '../tasks/attachments';
+import { genId } from '../util/ids';
 import { todayStr, addDays } from '../util/dates';
 import { getPrefs } from '../prefs';
 import { firebaseConfig } from '../firebase';
@@ -155,7 +157,15 @@ function newTask(key: string, e: IcalEvent, course: string): Task {
     completedAt: null,
     priority: 'normal',
     addedAt: new Date().toISOString(),
-    notes: [],
+    // Links a teacher pasted into the title or the instructions become real
+    // attachments on arrival, named from the words in front of them. Without this
+    // the reading sits buried in the ⓘ popup: no 📎 count, no "open all as a tab
+    // group", and no 📎 on the row (which promotes itself only when a task has
+    // attachments). `skipUrls` keeps the assignment from attaching itself.
+    notes: extractLinks(
+      { title: e.summary, details: e.description, skipUrls: [e.url] },
+      genId
+    ),
     details: e.description || undefined,
     schoologyUrl: e.url || undefined,
   };
@@ -262,6 +272,20 @@ export async function runSync(data: Data): Promise<SyncResult> {
       else delete next.details; // delete, not undefined — Firebase rejects undefined fields
       changes.add('instructions');
       changed = true;
+
+      // A teacher who edits the instructions usually does it to ADD the link. Pull
+      // in any that are new, and only new ones: this APPENDS and never removes, so
+      // attachments the student added by hand, and names they renamed, both survive
+      // a re-sync. Matching is by URL, so an edit elsewhere in the text is a no-op.
+      const have = new Set((cur.notes ?? []).map((n) => n.url.trim().replace(/\/+$/, '')));
+      const fresh = extractLinks(
+        { title: e.summary, details: e.description, skipUrls: [e.url] },
+        genId
+      ).filter((n) => !have.has(n.url.trim().replace(/\/+$/, '')));
+      if (fresh.length) {
+        next.notes = [...(cur.notes ?? []), ...fresh];
+        changes.add(fresh.length === 1 ? 'an attachment' : 'attachments');
+      }
     }
     if ((cur.schoologyUrl ?? '') !== e.url) {
       if (e.url) next.schoologyUrl = e.url;

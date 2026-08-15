@@ -503,7 +503,14 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  
+  /* 12px below the pref row above (Gabe, 8/13). Renders at exactly 12px, verified in
+     a browser: this is a block-level flex box, so its margin COLLAPSES with the .srow's
+     8px margin-bottom, giving max(8, 12).
+     Deliberately NOT the same as "+ Add course", which renders 20px despite declaring
+     margin-top: 12px, because a <button> is inline-block and never margin-collapses,
+     so its 12px ADDS to that 8px. Gabe chose the literal 12px here. Don't "fix" the
+     mismatch by bumping this to 20px. */
+  margin-top: 12px;
 }
 /* The add button sits inside the flex list, so the 8px gap already spaces it off
    the last row — its own margin-top would stack on top of that. */
@@ -547,6 +554,7 @@
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
+ 
 }
 .settings-playlist-btn:hover {
   border-color: var(--accent);

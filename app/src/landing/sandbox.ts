@@ -85,8 +85,8 @@ function sampleTasks(): Record<string, Task> {
     translationChecked: true,
   };
   // The three class tasks look Schoology-imported: a description (the ⓘ button) and
-  // a Schoology link (the ↗ button, inert in the preview). Basketball stays a plain
-  // manual task (no description, no link).
+  // a Schoology link (the ↗ button, inert in the preview). The student's own task
+  // stays a plain manual one (no description, no link) — that contrast is the point.
   const SCH = 'https://heschel.schoology.com';
   const list: Task[] = [
     {
@@ -121,13 +121,14 @@ function sampleTasks(): Record<string, Task> {
     },
     {
       // A calendar-event assessment: shows off auto-detected tests (TEST badge).
-      // Same date as the Ivrit task so it joins the Tomorrow group — no third
-      // date heading, and the frame stays scrollbar-free.
+      // Sits under TODAY (Gabe, 8/13), so the frame reads 2 tasks today and Ivrit
+      // alone tomorrow. Still only two date headings, so the frame stays
+      // scrollbar-free, which was the original reason it shared a day at all.
       ...base,
       id: 'sample_test',
       title: 'Unit 5 Test',
       course: 'Math',
-      dueDate: tomorrow,
+      dueDate: today,
       dueTime: '10:15',
       priority: 'normal',
       source: 'schoology-ical',
@@ -137,10 +138,14 @@ function sampleTasks(): Record<string, Task> {
       notes: [],
     },
     {
+      // The one task the STUDENT typed rather than imported: lowercase, no due date,
+      // self-assigned. Academic now (Gabe, 8/13), but it keeps the same job it always
+      // had, which is showing that a quick-add auto-tags its course from a parse word
+      // ("essay" and "history" both map to Social Studies) without any deadline.
       ...base,
-      id: 'sample_bball',
-      title: 'tell coach about being late',
-      course: 'Basketball',
+      id: 'sample_own',
+      title: 'start outlining the history essay',
+      course: 'Social Studies',
       dueDate: '',
       priority: 'normal',
       notes: [],

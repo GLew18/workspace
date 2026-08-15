@@ -629,6 +629,9 @@ body.app-mode .app-below {
   bottom: 0;
   width: 4px;
 }
+/* The strip is DORMANT (Gabe, 8/13): a color band you read, not a control. It was
+   briefly a <button> with a widened hit area; the arrow in the action cluster is
+   the only way to set priority now. */
 .task-priority.highest {
   background: #ef4444;
 }
@@ -1418,6 +1421,112 @@ body.app-mode .app-below {
   background: var(--surface2);
   color: var(--text);
 }
+/* The "…" that holds every optional control. Slightly wider than its siblings and
+   letter-spaced, so the three dots read as a menu affordance rather than as a
+   fourth icon in the row. */
+.task-actions .act-more {
+  font-size: 15px;
+  letter-spacing: 1px;
+  padding: 4px 5px;
+}
+
+/* ---- The "…" dropdown (anchored to the row's ⋯, not a centered modal) ---- */
+/* Invisible full-cover layer: catches the outside click and, just as importantly,
+   is the box the menu measures itself against. Fixed in the app; a landing frame
+   overrides it to absolute (below) so the menu stays inside the fake browser. */
+.row-menu-back {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+.lp-frame-body .row-menu-back {
+  position: absolute;
+}
+.row-menu {
+  position: absolute;
+  min-width: 208px;
+  max-width: 280px;
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+}
+.row-menu-empty {
+  padding: 10px 11px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+/* ---- One row per optional control: action | pin ---- */
+.more-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.more-go {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.more-go:hover {
+  background: var(--surface2);
+}
+.more-ico {
+  flex: none;
+  width: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.more-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Pinned/auto-promoted reads as lit; unpinned sits back so the column is scannable. */
+.more-pin {
+  flex: none;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  padding: 8px;
+  line-height: 1;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0.28;
+  filter: grayscale(1);
+  transition: opacity 0.14s ease, filter 0.14s ease;
+}
+.more-pin:hover {
+  opacity: 0.75;
+  filter: grayscale(0.3);
+  background: var(--surface2);
+}
+.more-pin.on {
+  opacity: 1;
+  filter: none;
+}
+/* Auto-promoted: on the row by its own merit, so the pin is informational only. */
+.more-pin:disabled {
+  cursor: default;
+}
+.more-pin:disabled:hover {
+  background: none;
+  opacity: 1;
+}
 .task-actions .act-schoology:hover {
   color: #06b6d4;
 }
@@ -1934,4 +2043,140 @@ body.app-mode .app-below {
 .verify-bar.pw-dropped {
   background: rgba(120, 145, 200, 0.1);
   border-color: rgba(120, 145, 200, 0.38);
+}
+
+/* ===================== Suggestions box (top-bar 💡) ===================== */
+/* Rides the shared .popup shell, so it inherits the backdrop, the width grip and
+   the Esc/click-away behavior. Only the inside is bespoke. */
+/* NAVY, not the flat neutral --surface (#1a1a1a) the popup shell defaults to.
+   Same reasoning already written down for .nlog-row in notifylog.css: the app's
+   body is a blue gradient, so a neutral gray card sits ON Cobalt rather than
+   belonging to it. Gabe called the default "anomalous" (8/13) and he was right,
+   the white textarea just made it obvious. */
+.sg-popup {
+  background: #16203a;
+  border-color: rgba(125, 180, 255, 0.16);
+  /* Much wider than the 360px shared popup: this one holds a paragraph of prose
+     and a big writing area, and a narrow column makes both feel cramped. */
+  max-width: 560px;
+  padding: 20px 22px 18px;
+}
+.sg-popup .popup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* Centered title, ✕ parked in the corner. The ✕ is absolute so the title stays
+   centered on the CARD rather than on the leftover space beside the button. */
+.sg-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 34px 14px;
+}
+.sg-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text);
+}
+.sg-x {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+.sg-x:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+/* The ask, as prose. No panel: it should read as someone talking, not as a notice. */
+.sg-prompt {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
+}
+/* The anonymity promise. Deliberately prominent rather than fine print: it is the
+   thing that decides whether a 14-year-old presses send. */
+/* Its own full-width line, not a column beside the button. Quiet, but readable. */
+.sg-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  margin-top: -4px;
+}
+/* .ws-textbox is ONLY resets + wrapping (see its comment): it expects the element
+   to carry its own look-class too. Without one this fell back to the browser's
+   default white textarea, which looked like a hole punched in the app (Gabe, 8/13).
+   These are .attach-input's values, so the box matches every other input in a popup
+   rather than being a second opinion about what a Cobalt text field looks like. */
+.sg-input {
+  width: 100%;
+  /* A FIXED height, not min-height. The field is deliberately large (a short box
+     silently tells the writer to keep it to one line) and it does not grow, so it
+     scrolls only once the text genuinely passes the bottom. `resize: vertical`
+     hands the choice to anyone who wants more room. */
+  height: 190px;
+  resize: vertical;
+  overflow-y: auto;
+  /* Deeper than the card, so the field reads as inset rather than as a second card. */
+  background: #101a2e;
+  border: 1px solid rgba(125, 180, 255, 0.14);
+  border-radius: 12px;
+  color: var(--text);
+  padding: 12px 13px;
+  font-family: inherit;
+  font-size: 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.sg-input::placeholder {
+  color: var(--text-dim);
+}
+.sg-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--gold-glow);
+}
+.sg-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.sg-count {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+/* A PILL, matching the reference. Sits at the right EDGE OF THE CONTENT, flush with
+   the textarea above it.
+   `width: auto` is the load-bearing line: .btn-primary is `width: 100%`, so without
+   it the button was a full-width box that `margin-left: auto` then shoved further
+   right, past the card and into a horizontal scrollbar (Gabe, 8/13). */
+.sg-send {
+  flex: none;
+  width: auto;
+  margin-left: auto;
+  border-radius: 999px;
+  padding: 11px 26px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.sg-send:disabled {
+  opacity: 0.45;
+  cursor: default;
 }

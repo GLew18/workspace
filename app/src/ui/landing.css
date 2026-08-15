@@ -24,6 +24,10 @@
   z-index: 100; /* above .lp-glow (0) and every section (1) */
   display: flex;
   align-items: center;
+  /* space-between keeps Log in + Get started pinned to the RIGHT edge even
+     below 940px, where the center links hide and their margin:auto (which was
+     doing the pushing) disappears with them (Gabe, 8/13). */
+  justify-content: space-between;
   gap: 16px;
   padding: 10px 24px;
   background: rgba(9, 19, 46, 0.78);
@@ -32,7 +36,9 @@
   border-bottom: 1px solid var(--border);
 }
 .lp-nav-brand { background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: center; }
-.lp-nav .ws-mark { font-size: 19px; }
+/* 22px, up from 19px (Gabe, 8/13). Only the SIZE moves: .ws-mark scales the whole
+   lockup off its font-size, so the C + gem + balt proportions stay exact. */
+.lp-nav .ws-mark { font-size: 22px; }
 .lp-nav-links { display: flex; gap: 2px; margin: 0 auto; }
 .lp-nav-link {
   background: none;
@@ -72,8 +78,9 @@
 }
 .lp-nav-cta:hover { filter: brightness(1.08); }
 
-/* Every id'd section clears the fixed nav when scrolled/linked to. */
-.landing section[id] { scroll-margin-top: 64px; }
+/* Every id'd section clears the fixed nav when scrolled/linked to. 72px, up from 64px,
+   because the bar itself grew to ~60px with the larger wordmark (Gabe, 8/13). */
+.landing section[id] { scroll-margin-top: 72px; }
 
 @media (max-width: 940px) {
   .lp-nav-links { display: none; } /* wordmark + both CTAs stay */
@@ -125,7 +132,11 @@
   padding: 80px 22px 70px;
 }
 .lp-hero-inner {
-  max-width: 640px;
+  /* 800px, not 640px, so the headline fits on ONE line (Gabe, 8/13). Measured: at the
+     clamp's 54px ceiling "Your Schoology, revolutionized" needs 788px, so the old 640
+     cap was what forced the wrap, not the title's own max-width.
+     The tagline does NOT stretch with this: it carries its own 52ch (~604px) cap. */
+  max-width: 800px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -138,7 +149,15 @@
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.1;
-  max-width: 21ch;
+  margin-bottom: -1px;
+  /* ONE LINE (Gabe, 8/13). The old 21ch cap was narrower than the 29-character
+     headline, so it always wrapped. No max-width and no nowrap: the line fits on
+     its own at every width the clamp produces, and leaving wrapping legal means a
+     very narrow phone degrades gracefully instead of overflowing the viewport. */
+}
+/* The one word the visitor is scanning for. */
+.lp-hero-accent {
+  color: var(--accent);
 }
 .lp-tagline {
   margin: 18px 0 0;
@@ -246,6 +265,10 @@
   flex-wrap: wrap;
   justify-content: center;
   margin-top: 26px;
+  /* 900px so all three chips share one line past the 800px hero column (Gabe,
+     8/13); min() keeps that exact look on desktop while letting phones shrink
+     it instead of overflowing the viewport. */
+  width: min(900px, 100%);
 }
 .lp-hero-chip {
   font-size: 12.5px;
@@ -459,10 +482,17 @@
    kept a phantom scrollbar alive at ANY frame height.) */
 .lp-tabpanel { min-height: 0; }
 
-/* The Dashboard preview uses the SAME base .lp-frame height as the tabbed demos —
-   one box size everywhere, so no frame reads as the odd one out. (A snugger custom
-   height was tried to avoid dead space under the schedule card, but the mismatched
-   margins were more noticeable than the dead space.) */
+/* The Dashboard preview is the ONE frame with its own height (Gabe, 8/13). It used to
+   share the tabbed demos' 560px, but once Today's Tasks gained its second task the
+   content ran 36px past the box, and .lp-frame-static clips (overflow: hidden), so the
+   Schedule card was sliced off with no scrollbar to reveal it. 600px clears the
+   measured 550px of content with a small buffer for OS font-metric differences.
+   Earlier note, still true and the reason this stayed shared for so long: a snugger
+   custom height reads as "the odd frame out". That was worth avoiding when the only
+   cost was dead space. It is not worth a chopped-off card. */
+.lp-how .lp-frame {
+  height: 600px;
+}
 
 /* Scope the live app views inside a frame: hide the Tasks-tab refresh header
    (it can't sync in a sample) and tame the top spacing. The Dashboard schedule's

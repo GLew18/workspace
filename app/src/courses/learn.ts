@@ -20,6 +20,8 @@ let data: Data | null = null;
 // Confidence gates — conservative on purpose: leave blank rather than guess wrong.
 const MIN_EVIDENCE = 2; // need at least this much weight behind the winner
 const MIN_CONFIDENCE = 0.6; // winner must hold ≥60% of the total score
+const MIN_FEATURES = 2; // ...spread across ≥2 DISTINCT features, not one stray word
+const STRONG_SINGLE = 4; // ...unless that one feature is a well-established signal
 
 const STOP = new Set([
   'the', 'a', 'an', 'and', 'or', 'for', 'to', 'of', 'in', 'on', 'at', 'by', 'with',
@@ -62,12 +64,15 @@ async function persist(): Promise<void> {
 export function predictCourse(title: string, description = ''): string {
   const feats = extractFeatures(title, description);
   const score: Record<string, number> = {};
+  /** How many DISTINCT features voted for each course (not their summed weight). */
+  const hits: Record<string, number> = {};
   let total = 0;
   for (const f of feats) {
     const row = model[f];
     if (!row) continue;
     for (const course in row) {
       score[course] = (score[course] || 0) + row[course];
+      hits[course] = (hits[course] || 0) + 1;
       total += row[course];
     }
   }
@@ -81,6 +86,16 @@ export function predictCourse(title: string, description = ''): string {
   }
   if (!best || bestScore < MIN_EVIDENCE) return '';
   if (bestScore / total < MIN_CONFIDENCE) return '';
+  // ONE incidental word is not a classification (Gabe, 8/13: typing "hello
+  // google.com" tagged a course with no parse word involved).
+  //
+  // MIN_CONFIDENCE cannot catch this on its own, and the reason is structural: it
+  // measures the winner's SHARE of the total, which is 1.0 whenever only one course
+  // has any evidence at all. For a student whose corrections pile onto one course,
+  // that gate is permanently satisfied, so a single stray word that happens to be in
+  // the table is enough. Require corroboration instead: two different features
+  // pointing the same way, or one feature seen often enough to stand alone.
+  if (hits[best] < MIN_FEATURES && bestScore < STRONG_SINGLE) return '';
   return best;
 }
 

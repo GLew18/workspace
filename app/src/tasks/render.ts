@@ -1,4 +1,11 @@
 // Cobalt: Tasks tab view (spec §6.6).
+//
+// TASK-ROW ACTIONS (Gabe, 8/13). ↗ Schoology and ⓘ description are always on the
+// row: they are the two a student actually presses, and Cobalt showing the real
+// description is why it can stand in for Schoology rather than just linking to it.
+// Every other control is OPTIONAL and lives behind the row's "…" unless it earns
+// its slot by having content behind it (a translation, an attachment, a folder),
+// or the student pins it there. See rowActions / openMoreMenu.
 
 import type { Task, TaskMap, Priority, ParsedTask, TaskFolder } from '../types';
 import type { Data, TasksUpdate } from '../db';
@@ -6,7 +13,7 @@ import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToa
 import { extensionActive } from '../bookmarks/shortcuts';
 import { popupGuideButton } from '../ui/popupGuide';
 import { formatMetaDate, formatShortDate, formatTimeOfDay, formatDate, todayStr } from '../util/dates';
-import { getPrefs, PREFS_EVENT, type AppPrefs } from '../prefs';
+import { getPrefs, setPrefsCache, PREFS_EVENT, type AppPrefs, type PinnedAction } from '../prefs';
 import { makeWidthGrip } from '../util/resize';
 import { genId } from '../util/ids';
 import { buildQuickAdd } from './quickadd';
@@ -39,6 +46,23 @@ const CHECK_SVG =
 // rows, and an OUTLINE folder (currentColor) for the per-task toolbox button.
 const FOLDER_SVG = (color: string) =>
   `<svg class="task-folder-ico" viewBox="0 0 24 24" fill="${color}"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
+/** One optional row control, in both of its forms: the button that sits on the
+ *  task row, and the entry that represents it inside the "…" menu. */
+interface RowAction {
+  id: PinnedAction;
+  /** Menu wording. Reflects live state ("Hide translation", "Folder: Homework"). */
+  label: string;
+  iconHtml: string;
+  iconColor?: string;
+  /** True when the control has real content behind it, so it belongs on the row
+   *  without anyone pinning it. */
+  auto: boolean;
+  /** Run the action straight from the menu. */
+  run: () => void;
+  /** Build the row button. */
+  build: () => HTMLElement;
+}
+
 const FOLDER_BTN_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 
@@ -1006,7 +1030,17 @@ export class TasksView {
       if ((e.shiftKey || e.ctrlKey || e.metaKey) && this.mode === 'list') e.preventDefault();
     });
     item.addEventListener('click', (e) => this.onRowClick(task, e));
-    item.append(el('div', { class: `task-priority ${task.priority}` }));
+    // The strip is DORMANT (Gabe, 8/13): a color band you read, never a control
+    // you press. It was briefly clickable; the arrow button in the action cluster
+    // is the one way to change priority now. It still carries the label as a
+    // tooltip, and it is still the visible cause of the list's order, since
+    // `sortTasks` tie-breaks on priority.
+    item.append(
+      el('div', {
+        class: `task-priority ${task.priority}`,
+        title: `Priority: ${priorityDef(task.priority).label}`,
+      })
+    );
 
     // ⋮⋮ drag-to-reorder (same handle as bookmark cards). A drop is only accepted
     // WITHIN the same due-date group — the group is determined by the due date, so
@@ -1198,52 +1232,34 @@ export class TasksView {
     // assignment cluster exists — manual tasks have no ↗/ⓘ, so no stray dot).
     if (actions.childNodes.length) actions.append(el('span', { class: 'act-sep', text: '·' }));
 
-    // Translation toggle — only when there's a translation to show/hide.
-    if (task.translatedTitle) {
-      const trBtn = el('button', {
-        class: `act-translate${task.translationHidden ? '' : ' active'}`,
-        title: task.translationHidden ? 'Show translation' : 'Hide translation',
-        text: '🌐',
-      }) as HTMLButtonElement;
-      trBtn.addEventListener('click', () => {
-        // Note the target state is computed ONCE from the clicked row and then
-        // written to all of them. Flipping each task's own flag would leave a
-        // mixed selection mixed, just inverted, which is not what a toggle means.
-        const hidden = !task.translationHidden;
-        this.applyToSelection(task, (t) => ({ ...t, translationHidden: hidden }));
-      });
-      actions.append(trBtn);
-    }
-
-    const attachBtn = el('button', { title: 'Attachments' });
-    const noteCount = task.notes?.length ?? 0;
-    attachBtn.innerHTML = `📎${noteCount ? `<span class="attach-count">${noteCount}</span>` : ''}`;
-    attachBtn.addEventListener('click', () => this.openAttachments(task));
-    actions.append(attachBtn);
-
-    // Folder — join/leave/create a folder for this task. Tinted with the
-    // folder's color once the task belongs to one.
-    const inFolder = this.liveFolder(task);
-    const foldBtn = el('button', {
-      class: 'act-folder',
-      title: inFolder ? `Folder: ${inFolder.name}` : 'Add to folder',
-    });
-    foldBtn.innerHTML = FOLDER_BTN_SVG;
-    if (inFolder) foldBtn.style.color = inFolder.color;
-    foldBtn.addEventListener('click', () => this.openFolderPicker(task));
-    actions.append(foldBtn);
-
+    // PRIORITY is always on the row (Gabe, 8/13), the third permanent control
+    // after ↗ and ⓘ. It is the only way to change priority now that the strip is
+    // dormant, so it cannot be optional or the setting would be unreachable.
     const prioBtn = el('button', { title: 'Priority', text: priorityDef(task.priority).arrow });
     prioBtn.style.color = priorityDef(task.priority).color;
     prioBtn.addEventListener('click', () => this.openPriority(task));
     actions.append(prioBtn);
 
-    const dupBtn = el('button', { title: 'Duplicate', text: '⎘' });
-    dupBtn.addEventListener('click', () => {
-      // Duplicating a selected row duplicates the whole selection.
-      this.applyToSelection(task, (t) => duplicateTask(t));
+    // The OPTIONAL tools. Each one is built here but only reaches the row if it
+    // EARNS its slot; everything else waits in the "…" menu (see openMoreMenu).
+    //
+    // A control earns its slot by having real content behind it: a translation to
+    // toggle, a link attached, a folder it belongs to. That rule is what makes the
+    // row calm without asking the student to configure anything — the tasks that
+    // use a feature show it, the ones that don't, don't. Pinning is the manual
+    // override on top, for forcing an EMPTY control to stay put.
+    const optional = this.rowActions(task);
+    const pinned = getPrefs().tasks.pinnedActions;
+    for (const a of optional) if (a.auto || pinned.includes(a.id)) actions.append(a.build());
+
+    // The "…" is ALWAYS present, even with nothing hidden: it is the only door to
+    // the pin controls, so a stable door beats a row whose button count shifts.
+    const more = el('button', { class: 'act-more', title: 'More', text: '⋯' });
+    more.addEventListener('click', (e) => {
+      e.stopPropagation(); // the row itself has click/dblclick behaviors
+      this.openMoreMenu(task, more);
     });
-    actions.append(dupBtn);
+    actions.append(more);
 
     bottom.append(actions);
     info.append(bottom);
@@ -1721,6 +1737,214 @@ export class TasksView {
   }
 
   // --- popups -------------------------------------------------------------
+
+  /** The optional row controls, in row order, each knowing whether it has earned
+   *  its slot (`auto`) and how to render both as a row button and as a menu entry. */
+  private rowActions(task: Task): RowAction[] {
+    const out: RowAction[] = [];
+    const noteCount = task.notes?.length ?? 0;
+    const inFolder = this.liveFolder(task);
+
+    // TRANSLATE — only exists at all when there IS a translation, so when it's
+    // here it has content by definition and always earns the row.
+    if (task.translatedTitle) {
+      const shown = !task.translationHidden;
+      const run = () => {
+        // Target state computed ONCE from the clicked row, then written to all of
+        // them. Flipping each task's own flag would leave a mixed selection mixed,
+        // just inverted, which is not what a toggle means.
+        const hidden = shown;
+        this.applyToSelection(task, (t) => ({ ...t, translationHidden: hidden }));
+      };
+      out.push({
+        id: 'translate',
+        label: shown ? 'Hide translation' : 'Show translation',
+        iconHtml: '🌐',
+        auto: true,
+        run,
+        build: () => {
+          const b = el('button', {
+            class: `act-translate${shown ? ' active' : ''}`,
+            title: shown ? 'Hide translation' : 'Show translation',
+            text: '🌐',
+          });
+          b.addEventListener('click', run);
+          return b;
+        },
+      });
+    }
+
+    // ATTACH — earns the row once the task actually has links on it.
+    out.push({
+      id: 'attach',
+      label: noteCount ? `Attachments (${noteCount})` : 'Attachments',
+      iconHtml: '📎',
+      auto: noteCount > 0,
+      run: () => this.openAttachments(task),
+      build: () => {
+        const b = el('button', { title: 'Attachments' });
+        b.innerHTML = `📎${noteCount ? `<span class="attach-count">${noteCount}</span>` : ''}`;
+        b.addEventListener('click', () => this.openAttachments(task));
+        return b;
+      },
+    });
+
+    // FOLDER — earns the row once the task belongs to one, and wears its color.
+    out.push({
+      id: 'folder',
+      label: inFolder ? `Folder: ${inFolder.name}` : 'Add to folder',
+      iconHtml: FOLDER_BTN_SVG,
+      auto: !!inFolder,
+      run: () => this.openFolderPicker(task),
+      build: () => {
+        const b = el('button', {
+          class: 'act-folder',
+          title: inFolder ? `Folder: ${inFolder.name}` : 'Add to folder',
+        });
+        b.innerHTML = FOLDER_BTN_SVG;
+        if (inFolder) b.style.color = inFolder.color;
+        b.addEventListener('click', () => this.openFolderPicker(task));
+        return b;
+      },
+    });
+
+    // PRIORITY is deliberately NOT here: it is a permanent row control now, so it
+    // is neither hideable nor pinnable. See the action cluster in renderTask.
+
+    // DUPLICATE — never auto. Kept (Gabe, 8/13: don't delete it), but off the row
+    // by default: sitting one target away from ↗ Schoology, the button students
+    // press constantly, made it a mis-tap that silently forges a second copy.
+    out.push({
+      id: 'duplicate',
+      label: 'Duplicate',
+      iconHtml: '⎘',
+      auto: false,
+      run: () => this.applyToSelection(task, (t) => duplicateTask(t)),
+      build: () => {
+        const b = el('button', { title: 'Duplicate', text: '⎘' });
+        // Duplicating a selected row duplicates the whole selection.
+        b.addEventListener('click', () => this.applyToSelection(task, (t) => duplicateTask(t)));
+        return b;
+      },
+    });
+
+    return out;
+  }
+
+  /** Persist a pinned-actions change: live cache first (so every open view
+   *  repaints synchronously off PREFS_EVENT), then write. Mirrors SettingsView's
+   *  savePrefs exactly — the pin is a real preference, not row-local state. */
+  private async setPinned(next: PinnedAction[]): Promise<void> {
+    const prefs = { ...getPrefs(), tasks: { ...getPrefs().tasks, pinnedActions: next } };
+    setPrefsCache(structuredClone(prefs));
+    window.dispatchEvent(new CustomEvent(PREFS_EVENT, { detail: prefs }));
+    await this.data.setProfile('prefs', prefs);
+  }
+
+  /** An anchored dropdown hanging off `anchor`, instead of a centered modal
+   *  (Gabe, 8/13: a dropdown reads more naturally for a row's own menu).
+   *
+   *  Positioning mirrors the popup idiom exactly: a full-cover backdrop catches the
+   *  outside click, and the menu is placed relative to THAT backdrop's measured
+   *  box. The backdrop is `fixed` in the real app and `absolute` inside a landing
+   *  frame (see components.css), so measuring it instead of assuming the viewport
+   *  is what makes one code path correct in both places. */
+  private dropdown(anchor: HTMLElement, build: (body: HTMLElement, close: () => void) => void): void {
+    const host = this.sample?.host ?? document.body;
+    const back = el('div', { class: 'row-menu-back' });
+    const menu = el('div', { class: 'row-menu' });
+    back.append(menu);
+    host.append(back);
+
+    const close = () => {
+      back.remove();
+      document.removeEventListener('keydown', onKey, true);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        close();
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    back.addEventListener('click', (e) => {
+      if (e.target === back) close();
+    });
+
+    build(menu, close);
+
+    // Placed AFTER build so the menu has its real size to measure against.
+    const a = anchor.getBoundingClientRect();
+    const b = back.getBoundingClientRect();
+    const m = menu.getBoundingClientRect();
+    const GAP = 6;
+    // Right-aligned to the button (the "…" sits at the row's right edge, so a
+    // left-aligned menu would immediately run off), then clamped inside the box.
+    let left = a.right - b.left - m.width;
+    left = Math.max(8, Math.min(left, b.width - m.width - 8));
+    // Below by default, flipped above when there isn't room, which is what keeps
+    // the last rows of a long list usable.
+    const below = a.bottom - b.top + GAP;
+    const above = a.top - b.top - m.height - GAP;
+    const top = below + m.height <= b.height - 8 || above < 8 ? below : above;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${Math.max(8, top)}px`;
+  }
+
+  /** The row's "…" menu: the optional controls that are NOT already on the row,
+   *  each runnable right here, each with a 📌 that promotes it onto the row.
+   *
+   *  A PIN, not a "+" (Gabe, 8/13): a "+" next to 📎 reads as "add an attachment",
+   *  which is a completely different action one pixel away from this one. */
+  private openMoreMenu(task: Task, anchor: HTMLElement): void {
+    this.dropdown(anchor, (body, close) => {
+      const note = this.bulkNote(task);
+      if (note) body.append(note);
+      const pinned = getPrefs().tasks.pinnedActions;
+
+      // AUTO-promoted controls are left out entirely (Gabe, 8/13): the folder
+      // button is already sitting on the row, so listing "Folder: Homework" in
+      // here too was the same control offered twice. PINNED ones DO stay listed,
+      // because their lit 📌 is the only way to unpin them again.
+      const entries = this.rowActions(task).filter((a) => !a.auto);
+      if (!entries.length) {
+        body.append(el('div', { class: 'row-menu-empty', text: 'Everything is already on this task.' }));
+        return;
+      }
+
+      for (const a of entries) {
+        const row = el('div', { class: 'more-row' });
+
+        // Left side: the action itself.
+        const go = el('button', { class: 'more-go', title: a.label });
+        const ico = el('span', { class: 'more-ico' });
+        ico.innerHTML = a.iconHtml;
+        if (a.iconColor) ico.style.color = a.iconColor;
+        go.append(ico, el('span', { class: 'more-label', text: a.label }));
+        go.addEventListener('click', () => {
+          a.run();
+          close();
+        });
+
+        // Right side: the pin. Only ever a real two-way toggle now, since anything
+        // auto-promoted was filtered out above and never reaches this list.
+        const isPinned = pinned.includes(a.id);
+        const pin = el('button', {
+          class: `more-pin${isPinned ? ' on' : ''}`,
+          text: '📌',
+          title: isPinned ? 'Unpin from the task row' : 'Pin to the task row',
+        }) as HTMLButtonElement;
+        pin.addEventListener('click', () => {
+          const next = isPinned ? pinned.filter((p) => p !== a.id) : [...pinned, a.id];
+          void this.setPinned(next);
+          close();
+        });
+
+        row.append(go, pin);
+        body.append(row);
+      }
+    });
+  }
 
   private popup(title: string, build: (body: HTMLElement, close: () => void) => void): void {
     const backdrop = el('div', { class: 'popup-backdrop' });
