@@ -45,6 +45,20 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const pad = (n) => String(n).padStart(2, '0');
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
+/** Priority DISPLAY names. Must stay identical to PRIORITIES in
+ *  src/tasks/priorities.ts (Gabe, 8/15: the names read the same everywhere).
+ *  Capitalizing the storage KEY instead produced "Highest priority" in reminder
+ *  emails while every screen in the app said "Very High". Duplicated rather than
+ *  imported because functions/ is plain CommonJS and shares no build with src/. */
+const PRIORITY_LABELS = {
+  highest: 'Very High',
+  high: 'High',
+  normal: 'Normal',
+  low: 'Low',
+  lowest: 'Very Low',
+};
+const priorityLabel = (p) => PRIORITY_LABELS[p] || cap(p);
+
 // A digest (daily agenda / tomorrow preview) is due once the clock passes its time,
 // but not by more than this. The cron runs every 5 minutes so the normal path fires
 // on time; the ceiling is what stops a backlog after an outage from delivering a
@@ -101,7 +115,7 @@ function leadLabel(mins) {
 function reminderBody(t, remaining, a, sameDay, untimed) {
   const parts = [];
   if (a.course && t.course) parts.push(t.course);
-  if (a.priority && t.priority) parts.push(`${cap(t.priority)} priority`);
+  if (a.priority && t.priority) parts.push(`${priorityLabel(t.priority)} priority`);
   if (a.dueTime) {
     const day = sameDay ? '' : weekdayOf(t.dueDate);
     const when = untimed ? day || 'today' : [day, fmt12h(t.dueTime)].filter(Boolean).join(' ');
@@ -795,3 +809,4 @@ exports.sendSuggestion = onCall({ region: 'us-central1' }, async (req) => {
   return { ok: true };
 });
 // #endregion
+

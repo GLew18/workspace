@@ -35,6 +35,7 @@ import {
   markSent,
   attachLedger,
 } from './notify';
+import { PRIORITIES } from '../tasks/priorities';
 
 const EVAL_MS = 30_000; // re-check twice a minute — plenty for minute-granular times
 // How late a missed DIGEST (daily agenda / tomorrow preview) may still arrive.
@@ -51,7 +52,13 @@ const DIGEST_CATCHUP_MS = 60 * 60_000;
 //  not a miss. See the due-soon rule below.)
 
 const pad = (n: number): string => String(n).padStart(2, '0');
-const cap = (s?: string): string | undefined => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+/** A priority's DISPLAY name, never its storage key (Gabe, 8/15: the names must be
+ *  identical everywhere in the app). The keys are 'highest'/'lowest', so capitalizing
+ *  them produced "Highest priority" in notifications while every screen in the app
+ *  said "Very High". One list of labels, in tasks/priorities.ts, is the source. */
+const priorityLabel = (p?: string): string | undefined =>
+  p ? PRIORITIES.find((d) => d.key === p)?.label : undefined;
 const tomorrowStr = (): string => {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -120,7 +127,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
   let batchStartMs = 0; // when the current batch window opened
 
   const announceNewTask = (t: TaskMap[string]): void => {
-    const body = taskInfoBody({ course: t.course, priority: cap(t.priority), dueMs: dueMsOf(t) }, settings.appearance);
+    const body = taskInfoBody({ course: t.course, priority: priorityLabel(t.priority), dueMs: dueMsOf(t) }, settings.appearance);
     fire(`new|${t.id}`, `New assignment: ${t.title}`, body, settings.newAssignment.channels, t.title);
   };
 
@@ -183,7 +190,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
         const lead = leads.find((l) => remainingMins <= l);
         if (lead === undefined) continue; // still outside every window
         const body = reminderBody(
-          { course: t.course, priority: cap(t.priority), nowMs: now, dueMs, leadMins: lead, untimed: !t.dueTime },
+          { course: t.course, priority: priorityLabel(t.priority), nowMs: now, dueMs, leadMins: lead, untimed: !t.dueTime },
           settings.appearance
         );
         fire(`rem|${t.id}|${t.dueDate}|${t.dueTime}|${lead}`, `Due soon: ${t.title}`, body, settings.dueSoon.channels, t.title);

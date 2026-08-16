@@ -46,64 +46,115 @@ function timeKey(t: Task): string {
 }
 
 /**
- * dueDate → manualOrder → priority → dueTime → has-course → addedAt → id.
- * Undated tasks sort last. Coursed tasks rank above uncoursed ones, but WHICH
- * course carries no weight — all courses are equal, so coursed ties fall through
- * to recency like everything else.
+ * dueDate → priority → dueTime → has-course → addedAt → id, with hand-placed tasks
+ * seated back into their chosen slot afterwards. Undated tasks sort last. Coursed
+ * tasks rank above uncoursed ones, but WHICH course carries no weight — all courses
+ * are equal, so coursed ties fall through to recency like everything else.
  *
- * manualOrder is the user's ⋮⋮ drag arrangement within a due-date group: an
- * explicit hand-placement outranks every automatic criterion after the date
- * itself. Tasks never hand-placed sort naturally BELOW the arranged ones (a new
- * import appends under the curated order instead of barging into it).
+ * HOW manualOrder WORKS NOW (rewritten 8/15). It is no longer a sort key. The list
+ * is ordered by the automatic criteria, and only then is a PINNED task lifted into
+ * the index it was dropped at, with everything else closing up around it in priority
+ * order. Two consequences, both of them the point:
  *
- * `manualFirst` promotes manualOrder above dueDate, giving
- * manualOrder → dueDate → priority → dueTime → has-course → addedAt → id.
- * Focus's import panel passes it; the Tasks tab does not. See the note at the
- * check itself. (Gabe reaffirmed this 8/12: a deliberate drag beats the date.)
+ *   · a task the student never moved keeps obeying the hierarchy even when its
+ *     position shifts to make room for a neighbour, and
+ *   · a newly imported task lands in its priority band instead of at the bottom.
  *
- * CAVEAT worth knowing before reading a manualFirst list: manualOrder is written
- * ONLY by the Tasks tab's ⋮⋮ drop (see render.ts), as an index WITHIN one day's
- * group. So several tasks on different dates each hold a 0, a 1, a 2… Compared
- * globally, every day's first row clusters at the top, then every day's second
- * row, and so on. It is a per-day index being read as a global one.
+ * Only ONE task per due-date group can be pinned: a ⋮⋮ drop pins the dragged task
+ * and clears every other pin in that group (reorderWithinGroup in render.ts). The
+ * previous design stamped an index onto every task in the group, which froze it —
+ * priority stopped applying there forever and later imports sank. seatGroup() below
+ * detects and discards that legacy shape.
+ *
+ * manualOrder is an index WITHIN one day's group, so it is only ever compared
+ * against tasks sharing that due date (sortTasks seats each date's run separately).
  *
  * The addedAt/id tail makes ties FULLY deterministic. Without it, tied tasks fell
  * back to the backend map's key order — which is creation order for an optimistic
  * local write but lexicographic-by-random-id in a Firebase snapshot — so a freshly
  * added task would visibly "teleport" a second later when the echo arrived.
  */
-export function sortTasks(tasks: Task[], opts: { manualFirst?: boolean } = {}): Task[] {
-  return [...tasks].sort((a, b) => {
-    const ma = a.manualOrder ?? Infinity;
-    const mb = b.manualOrder ?? Infinity;
-    // manualFirst (Focus only, per Gabe 8/8): the drag arrangement outranks the
-    // due date itself, so a hand-placement can cross a date boundary. It's the
-    // right rule for a FLAT list. The Tasks tab splits into visible day headers,
-    // so a drag there can only ever mean "within this day" and letting it jump
-    // the date would fling the row into another header. Focus shows one
-    // undivided list, so there is no boundary to respect: a row dragged to the
-    // top is expected to STAY at the top, whatever it's due.
-    if (opts.manualFirst && ma !== mb) return ma - mb;
-    if (!a.dueDate && b.dueDate) return 1;
-    if (a.dueDate && !b.dueDate) return -1;
-    if (a.dueDate !== b.dueDate) return a.dueDate < b.dueDate ? -1 : 1;
-    // The user's drag arrangement (same-date group) beats the automatic criteria.
-    if (ma !== mb) return ma - mb;
-    // Within a day, higher priority comes first.
-    const pw = PRIORITY_WEIGHT[a.priority] - PRIORITY_WEIGHT[b.priority];
-    if (pw !== 0) return pw;
-    const ta = timeKey(a);
-    const tb = timeKey(b);
-    if (ta !== tb) return ta < tb ? -1 : 1;
-    // Coursed above uncoursed (a boolean — course names never compared).
-    const ca = a.course ? 0 : 1;
-    const cb = b.course ? 0 : 1;
-    if (ca !== cb) return ca - cb;
-    // Recency: earlier-created tasks stay above later ones (new tasks append below).
-    if (a.addedAt !== b.addedAt) return a.addedAt < b.addedAt ? -1 : 1;
-    // Absolute last resort (bulk imports can share an addedAt timestamp).
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
+/** The AUTOMATIC order, with manualOrder ignored completely. */
+function autoCompare(a: Task, b: Task): number {
+  if (!a.dueDate && b.dueDate) return 1;
+  if (a.dueDate && !b.dueDate) return -1;
+  if (a.dueDate !== b.dueDate) return a.dueDate < b.dueDate ? -1 : 1;
+  // Within a day, higher priority comes first.
+  const pw = PRIORITY_WEIGHT[a.priority] - PRIORITY_WEIGHT[b.priority];
+  if (pw !== 0) return pw;
+  const ta = timeKey(a);
+  const tb = timeKey(b);
+  if (ta !== tb) return ta < tb ? -1 : 1;
+  // Coursed above uncoursed (a boolean — course names never compared).
+  const ca = a.course ? 0 : 1;
+  const cb = b.course ? 0 : 1;
+  if (ca !== cb) return ca - cb;
+  // Recency: earlier-created tasks stay above later ones (new tasks append below).
+  if (a.addedAt !== b.addedAt) return a.addedAt < b.addedAt ? -1 : 1;
+  // Absolute last resort (bulk imports can share an addedAt timestamp).
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * Seat one due-date group: pinned tasks hold their slot, everything else fills in
+ * around them in priority order. `group` arrives already in AUTO order.
+ *
+ * A pin whose index MATCHES where the automatic order already put it is dropped as
+ * redundant. That is the whole rule (Gabe, 8/15): a task that was never actually
+ * moved has no business overriding the hierarchy just because a neighbour shifted.
+ * It also self-heals the old data, where a single drag stamped an index onto every
+ * task in the group — those stamps mostly agree with the automatic order, so they
+ * evaporate here instead of freezing the group forever.
+ */
+function seatGroup(group: Task[]): Task[] {
+  const n = group.length;
+  // AT MOST ONE PIN PER GROUP is an invariant of the writer: a drop pins the dragged
+  // task and clears every other pin in that group (see reorderWithinGroup). So a
+  // group holding two or more pins can only be LEGACY data, from when a single drag
+  // stamped an index onto every task. Ignore all of them and fall back to pure
+  // priority order, which is what those stamps were never meant to override.
+  //
+  // Without this, legacy stamps that no longer match their automatic index — which
+  // happens the moment anything new is imported above them — would each look like a
+  // deliberate placement and re-freeze the group (Gabe, 8/15: a task that was not
+  // actually moved must still submit to the hierarchy).
+  if (group.filter((t) => t.manualOrder != null).length > 1) return group;
+
+  const pinned = group.filter((t, i) => t.manualOrder != null && t.manualOrder !== i);
+  if (!pinned.length) return group;
+  pinned.sort((a, b) => (a.manualOrder as number) - (b.manualOrder as number));
+  const pinnedSet = new Set(pinned);
+  const rest = group.filter((t) => !pinnedSet.has(t));
+
+  const slots: (Task | null)[] = new Array(n).fill(null);
+  for (const p of pinned) {
+    let idx = Math.max(0, Math.min(p.manualOrder as number, n - 1));
+    // Two pins wanting one slot: the later one takes the next free seat. Bounded by
+    // n, and there are never more pins than seats, so this always terminates.
+    while (slots[idx] !== null) idx = (idx + 1) % n;
+    slots[idx] = p;
+  }
+  let r = 0;
+  for (let k = 0; k < n; k++) if (slots[k] === null) slots[k] = rest[r++];
+  return slots as Task[];
+}
+
+export function sortTasks(tasks: Task[]): Task[] {
+  const auto = [...tasks].sort(autoCompare);
+  // Nothing pinned anywhere: the common case, and pure priority order.
+  if (!auto.some((t) => t.manualOrder != null)) return auto;
+  // Pins are indexes WITHIN a due-date group, so seat each date's run separately.
+  // autoCompare sorts by date first, so those runs are already contiguous.
+  const out: Task[] = [];
+  let i = 0;
+  while (i < auto.length) {
+    const key = auto[i].dueDate || '';
+    let j = i;
+    while (j < auto.length && (auto[j].dueDate || '') === key) j++;
+    out.push(...seatGroup(auto.slice(i, j)));
+    i = j;
+  }
+  return out;
 }
 
 // --- grouping -------------------------------------------------------------

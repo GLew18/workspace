@@ -88,19 +88,22 @@ body {
   line-height: 1.45;
 }
 
-/* Mobile-first: a comfortable single column. On larger screens the app fills
-   the width like a desktop app instead of a narrow centered strip. */
+/* A comfortable single column on a phone, the full width of a desktop app on a
+   large screen, and a CONTINUOUS ride between the two.
+   
+   This used to be two fixed states either side of a 700px media query: 480px wide
+   below it, 1180px above. That produced a visible jump at exactly 699px — the app
+   snapped from filling a window to a 480px strip floating in the middle of it — and
+   below 700px every tab was squeezed into that strip no matter how much room the
+   window actually had (Gabe, 8/15). clamp() removes the breakpoint entirely: the
+   width is simply the window, capped at 1180px, and the gutters grow with it. The
+   phone case is unchanged, because at 390px the cap never binds and the padding
+   clamps to its old 14px floor. */
 .app {
   width: 100%;
-  max-width: 480px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 16px 14px 80px;
-}
-@media (min-width: 700px) {
-  .app {
-    max-width: 1180px;
-    padding: 24px 48px 96px;
-  }
+  padding: clamp(16px, 1.6vw, 24px) clamp(14px, 4.6vw, 48px) 88px;
 }
 
 button {

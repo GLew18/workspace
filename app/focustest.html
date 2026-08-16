@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>focus session-state test</title>
+<body style="font:13px/1.6 system-ui;background:#0b1a3a;color:#dbe6ff;padding:20px">
+  <pre id="out">running…</pre>
+  <script type="module">
+    // Does the Focus setup screen know a session is running when NOTHING is on
+    // screen? Dismissing the mini player leaves the session going with no visible
+    // surface, and the button was reading "is something rendered" instead of "is a
+    // session running", so it offered to start a second one (Gabe, 8/15).
+    import { FocusView } from '/src/focus/view.ts';
+    import { saveFocusState, clearFocusState, getTabId } from '/src/focus/persist.ts';
+
+    const R = [];
+    const ok = (name, cond, extra = '') => R.push(`${cond ? 'PASS' : 'FAIL'}  ${name} ${extra}`);
+
+    // sessionRunningHere() only touches this.overlay/widget/pipWindow plus the
+    // persisted state, so an object carrying those three fields exercises it exactly.
+    // It has to inherit from the prototype, since it calls sessionLive() on itself.
+    const check = (surfaces) =>
+      FocusView.prototype['sessionRunningHere'].call(Object.assign(Object.create(FocusView.prototype), surfaces));
+    const NONE = { overlay: null, widget: null, pipWindow: null };
+    const base = () => ({
+      sessionActive: true,
+      suspended: false,
+      declined: false,
+      ownerTab: getTabId(),
+      endTimeMs: Date.now() + 20 * 60_000,
+      paused: false,
+      totalSeconds: 1200,
+      todos: [],
+    });
+
+    clearFocusState();
+    ok('no saved session and nothing rendered = not running', check(NONE) === false);
+
+    saveFocusState(base());
+    ok('THE BUG: session saved, nothing on screen (mini player dismissed) = RUNNING', check(NONE) === true);
+
+    ok('a visible overlay is running even so', check({ ...NONE, overlay: document.createElement('div') }) === true);
+    ok('a widget is running', check({ ...NONE, widget: document.createElement('div') }) === true);
+    ok('a PiP window is running', check({ ...NONE, pipWindow: {} }) === true);
+
+    saveFocusState({ ...base(), suspended: true });
+    ok('a SUSPENDED session (signed out) is not running', check(NONE) === false);
+
+    saveFocusState({ ...base(), sessionActive: false });
+    ok('an inactive session is not running', check(NONE) === false);
+
+    saveFocusState({ ...base(), ownerTab: 'some-other-tab' });
+    ok("another tab's session is not running HERE", check(NONE) === false,
+      '(that tab keeps it; this one shows the "enter" signpost instead)');
+
+    clearFocusState();
+    ok('ending the session clears it', check(NONE) === false);
+
+    const pass = R.filter((r) => r.startsWith('PASS')).length;
+    window.__focus = { pass, fail: R.length - pass, total: R.length, results: R };
+    document.getElementById('out').textContent = R.join('\n') + `\n\n${pass}/${R.length} passed`;
+  </script>
+</body>

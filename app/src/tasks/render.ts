@@ -37,7 +37,12 @@ import {
   FOLDERS_EVENT,
 } from './folders';
 import { runSync } from '../schoology/sync';
-import { analyzeTitle, languageName } from '../util/translate';
+import { analyzeTitle, languageName, TRANSLATE_LANGS_EVENT } from '../util/translate';
+
+/** The language list a stored translation verdict was reached under. See
+ *  autoTranslatePass: when this stops matching the current list, every stored
+ *  verdict is thrown away and the titles are read again. */
+const TX_LANG_SIG_KEY = 'cobalt:tx-langs';
 
 const CHECK_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
@@ -104,6 +109,7 @@ export class TasksView {
   private listEl!: HTMLElement;
   private bannerHost!: HTMLElement;
   private autoTx = false; // guards the auto-translate pass against re-entry
+  private langListener = false; // TRANSLATE_LANGS_EVENT is registered once, not per mount
   // The task being ⋮⋮-dragged (id + its due-date group), null when idle.
   private dragFrom: { id: string; group: string } | null = null;
   // The folder being ☰-dragged, null when idle. Separate from dragFrom so a task
@@ -225,6 +231,14 @@ export class TasksView {
     this.listEl = el('div', { class: 'task-list' });
     panel.append(this.bannerHost, header, quickAdd, this.listEl);
 
+    // The student changed which languages get translated → every task's stored
+    // verdict is stale (see util/translate.ts resetTranslationCache). Registered
+    // ONCE: mount() runs on every visit to the Tasks tab, and a stacked listener
+    // would fire one rescan per visit ever made.
+    if (!this.langListener) {
+      this.langListener = true;
+      window.addEventListener(TRANSLATE_LANGS_EVENT, () => void this.autoTranslatePass());
+    }
     this.data.watchTasks((u) => this.onUpdate(u));
     // Re-render when course colors/names change in Preferences.
     onRegistryChange(() => this.render());
@@ -338,11 +352,24 @@ export class TasksView {
     const ti = ids.indexOf(toId);
     if (fi < 0 || ti < 0) return;
     ids.splice(ti, 0, ...ids.splice(fi, 1));
+    const landed = ids.indexOf(fromId);
+
+    // ONLY THE DRAGGED TASK IS PINNED (Gabe, 8/15). This used to stamp an index onto
+    // every task in the group, which meant one drag froze the whole group: priority
+    // stopped mattering there forever, and anything imported later fell to the
+    // bottom because it had no stamp at all. The rule now is that a task the student
+    // never touched keeps obeying the hierarchy even though its position shifted to
+    // make room, so every other pin in this group is CLEARED here.
     const changed: Task[] = [];
-    ids.forEach((id, i) => {
-      const t = this.map[id];
-      if (t && t.manualOrder !== i) changed.push({ ...t, manualOrder: i });
-    });
+    for (const t of group.tasks) {
+      if (t.id === fromId) {
+        if (t.manualOrder !== landed) changed.push({ ...t, manualOrder: landed });
+      } else if (t.manualOrder != null) {
+        const cleared = { ...t };
+        delete cleared.manualOrder; // delete, not undefined — Firebase rejects undefined
+        changed.push(cleared);
+      }
+    }
     if (!changed.length) return;
     this.map = { ...this.map, ...Object.fromEntries(changed.map((t) => [t.id, t])) };
     this.render();
@@ -1072,7 +1099,15 @@ export class TasksView {
       if (!from || from.id === task.id || from.group !== group.key) return;
       void this.reorderWithinGroup(group, from.id, task.id);
     });
-    item.append(handle);
+    // NOT in an excerpt card (Gabe, 8/15). renderExcerpt wraps its hits in ONE
+    // synthetic group on the assumption that they are "already one date's worth".
+    // That holds for Today's Tasks but is FALSE for the Overdue card, whose filter
+    // is `dueDate < today` and therefore spans many past dates. Dragging there wrote
+    // an index counted across those dates AND, because reorderWithinGroup clears
+    // every other pin in the group it is handed, silently wiped the student's
+    // arrangements in several real date groups at once. An excerpt is a read-only
+    // summary; reordering belongs on the Tasks tab where the groups are real.
+    if (!this.excerpt) item.append(handle);
 
     const cb = el('button', { class: `task-cb${task.completed ? ' checked' : ''}` });
     cb.innerHTML = CHECK_SVG;
@@ -1643,13 +1678,16 @@ export class TasksView {
           return;
         }
         // One due date onto every selected task: "these five are all due Friday".
-        this.applyToSelection(task, (t) => ({
-          ...t,
-          dueDate: date,
-          dueTime: time,
-          timeLabel: '',
-          _manualDueDate: true,
-        }));
+        this.applyToSelection(task, (t) => {
+          const next = { ...t, dueDate: date, dueTime: time, timeLabel: '', _manualDueDate: true };
+          // manualOrder is an index WITHIN a due-date group, so it is meaningless
+          // once the task changes date: it used to travel to the new day and seize
+          // whatever slot that number happened to point at. Two tasks moved onto one
+          // day could even land two pins in a group, which seatGroup then reads as
+          // legacy data and discards wholesale, destroying the real pin too.
+          if (t.dueDate !== date) delete next.manualOrder;
+          return next;
+        });
       },
       this.selCount(task) > 1 // bulk: retyping the same date still pushes it to the rest
     );
@@ -1690,8 +1728,54 @@ export class TasksView {
    * re-entry, throttles to be polite to the endpoint, and stops on the first
    * network error (retries on the next update) so it never hammers.
    */
+  /**
+   * The language list changed → forget every stored verdict and check again.
+   *
+   * `translationChecked` is written onto the task and outlives the page, which is
+   * what made the picker look broken (Gabe, 8/15): a task judged before a language
+   * was turned on kept its old answer forever, so switching Portuguese on did
+   * nothing to the Portuguese task already sitting there, and a translation made
+   * back when everything was allowed stayed on screen after its language was
+   * removed. Clearing the flag is what puts them back in front of the translator.
+   *
+   * ONE read, ONE bulk write. Looping a per-task helper here would re-read the
+   * cache each time and silently drop most of the changes.
+   */
+  private async clearStoredVerdicts(): Promise<boolean> {
+    const stale = Object.values(this.map).filter((t) => t.translationChecked || t.translatedTitle);
+    if (!stale.length) return false;
+    await this.data.putTasksBulk(
+      stale.map((t) => ({ ...t, translatedTitle: '', translatedLang: '', translationChecked: false }))
+    );
+    return true;
+  }
+
   private async autoTranslatePass(): Promise<void> {
     if (this.autoTx) return;
+
+    // THE LANGUAGE LIST IS PART OF THE ANSWER, so a stored answer is only valid for
+    // the list that produced it. Comparing signatures here — rather than relying on
+    // the Settings event alone — is what makes this hold even when the change was
+    // made on another device, or while this view had never been mounted. Without it
+    // the picker silently did nothing to tasks that already existed.
+    const sig = getPrefs().tasks.translateFrom.join(',');
+    // The two guards on the left of `&&` are not decoration. Recording the new
+    // signature before the tasks were actually re-checked is a one-way door: the
+    // rescan is skipped forever after, and the picker goes back to doing nothing.
+    // So it is only recorded AFTER a successful clear, and never while this view is
+    // still empty — a language changed before the task list has loaded (Settings is
+    // its own tab) would otherwise burn the signature against zero tasks.
+    if (localStorage.getItem(TX_LANG_SIG_KEY) !== sig && Object.keys(this.map).length) {
+      this.autoTx = true;
+      try {
+        const cleared = await this.clearStoredVerdicts();
+        localStorage.setItem(TX_LANG_SIG_KEY, sig); // only now, and only if that didn't throw
+        if (cleared) return; // the write comes back through watchTasks → this runs again
+      } finally {
+        this.autoTx = false;
+      }
+    }
+
     const pending = Object.values(this.map).filter(
       (t) => t.title && !t.completed && !t.translationChecked
     );

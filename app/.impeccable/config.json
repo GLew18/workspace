@@ -1,0 +1,23 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "bounce-easing",
+        "value": "lp-bounce",
+        "createdAt": "2026-08-16T01:54:35.477Z",
+        "reason": "Scroll-down cue: the periodic bob IS the affordance (domain-appropriate motion, not an easing choice on UI state); shipped on the landing 8/13 and reviewed by Gabe on the live page since without objection"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/bookmarks/view.ts"
+        ],
+        "createdAt": "2026-08-16T02:30:43.870Z",
+        "reason": "Bookmark group color accent is the feature itself: user-picked group colors coding grouped cards, shipped by Gabe in Bookmarks v1 on 8/6 and reviewed live since; today's edit only touched the shortcut modal options"
+      }
+    ]
+  }
+}

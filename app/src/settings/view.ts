@@ -25,7 +25,9 @@ import {
   sendSetPasswordEmail,
 } from '../auth';
 import { getPrefs, setPrefsCache, PREFS_EVENT, type AppPrefs } from '../prefs';
-import { END_SOUNDS, DEFAULT_END_SOUND, DEFAULT_END_VOLUME, playEndSound } from '../focus/sounds';
+import { searchLanguages, findLanguage, type LanguageDef } from '../util/languages';
+import { resetTranslationCache } from '../util/translate';
+import { END_SOUNDS, DEFAULT_END_SOUND, DEFAULT_END_VOLUME, playEndSound, FOCUS_SOUND_EVENT } from '../focus/sounds';
 import { armAudioContext } from '../focus/timer';
 import { LIBRARY_TRACKS, MUSIC_GENRES } from '../focus/library';
 import { loadPlaylists, playlistEmoji, playlistKey, type CustomPlaylist } from '../focus/playlists';
@@ -276,11 +278,15 @@ export class SettingsView {
 
   /** Focus end-sound choice + volume + on/off. */
   private async saveSound(): Promise<void> {
-    await this.data.setProfile('focusEndSound', {
+    const next = {
       key: this.draft.endSound,
       volume: this.draft.endVolume,
       enabled: this.draft.endSoundEnabled,
-    });
+    };
+    // Announce BEFORE the write, like savePrefs does: a running session should go
+    // quiet the instant the switch flips, not after a database round-trip.
+    window.dispatchEvent(new CustomEvent(FOCUS_SOUND_EVENT, { detail: next }));
+    await this.data.setProfile('focusEndSound', next);
   }
 
   /** App prefs — update the live cache first (so views repaint synchronously on
@@ -289,6 +295,109 @@ export class SettingsView {
     setPrefsCache(structuredClone(this.draft.prefs));
     window.dispatchEvent(new CustomEvent(PREFS_EVENT, { detail: this.draft.prefs }));
     await this.data.setProfile('prefs', this.draft.prefs);
+  }
+
+  /**
+   * Settings ▸ Tasks ▸ Languages: chips for what's on, a search box to add more.
+   *
+   * Chips rather than a list of switches because the ON set is short (four by
+   * default) and the OFF set is the entire catalog. A switch per language would be
+   * thirty-five rows to express four choices.
+   */
+  private languagePicker(): HTMLElement {
+    const p = this.draft.prefs;
+    const wrap = el('div', { class: 'lang-picker' });
+    const chips = el('div', { class: 'lang-chips' });
+    const searchWrap = el('div', { class: 'lang-search' });
+    const results = el('div', { class: 'lang-results' });
+
+    const save = (): void => {
+      void this.savePrefs();
+      // The session cache holds verdicts reached under the OLD list, so a title
+      // judged English because Spanish was off would stay that way until a reload.
+      resetTranslationCache();
+    };
+
+    const input = textInput({ class: 'settings-input lang-input', placeholder: 'Add a language…' });
+    let query = '';
+
+    const drawResults = (): void => {
+      results.replaceChildren();
+      const open = document.activeElement === input || !!query;
+      results.hidden = !open;
+      if (!open) return;
+      const picked = new Set(p.tasks.translateFrom.map((c) => findLanguage(c)?.code ?? c));
+      const hits = searchLanguages(query).filter((l) => !picked.has(l.code));
+      if (!hits.length) {
+        results.append(el('div', { class: 'lang-empty', text: query ? 'No language matches that.' : 'All of them are already on.' }));
+        return;
+      }
+      // NO cap. The list used to stop at 8, which made a 100-language catalog look
+      // like a 8-language one (Gabe, 8/15). The box scrolls instead.
+      for (const l of hits) {
+        const row = el('button', { class: 'lang-result' });
+        row.append(el('span', { class: 'lang-result-name', text: l.label }), el('span', { class: 'lang-result-native', text: l.native }));
+        row.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus so blur doesn't close first
+        row.addEventListener('click', () => {
+          p.tasks.translateFrom = [...p.tasks.translateFrom, l.code];
+          save();
+          query = '';
+          input.value = '';
+          draw();
+          input.focus();
+        });
+        results.append(row);
+      }
+    };
+
+    const draw = (): void => {
+      chips.replaceChildren();
+      if (!p.tasks.translateFrom.length) {
+        chips.append(el('div', { class: 'lang-off', text: 'None. Task titles are left exactly as they arrive.' }));
+      }
+      for (const code of p.tasks.translateFrom) {
+        const def: LanguageDef | undefined = findLanguage(code);
+        const chip = el('span', { class: 'lang-chip' });
+        chip.append(el('span', { class: 'lang-chip-name', text: def?.label ?? code.toUpperCase() }));
+        if (def) chip.append(el('span', { class: 'lang-chip-native', text: def.native }));
+        const x = el('button', { class: 'lang-chip-x', text: '✕', title: `Stop translating ${def?.label ?? code}` });
+        x.addEventListener('click', () => {
+          p.tasks.translateFrom = p.tasks.translateFrom.filter((c) => c !== code);
+          save();
+          draw();
+        });
+        chip.append(x);
+        chips.append(chip);
+      }
+      drawResults();
+    };
+
+    input.addEventListener('input', () => {
+      query = input.value;
+      drawResults();
+    });
+    input.addEventListener('focus', () => drawResults());
+    input.addEventListener('blur', () => {
+      // A frame's grace so a click on a result lands before the list closes.
+      window.setTimeout(() => {
+        if (document.activeElement === input) return;
+        query = '';
+        input.value = '';
+        drawResults();
+      }, 120);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') input.blur();
+    });
+
+    searchWrap.append(input, results);
+    wrap.append(
+      el('div', { class: 'lang-lead', text: 'Titles written in these languages get an English translation. Everything else is left alone, which is what keeps a short English word from being read as a foreign one.' }),
+      chips,
+      searchWrap
+    );
+    draw();
+    return wrap;
   }
 
   // --- shared pref-row builders (artifact-style rows: title + sub | control) ---
@@ -323,7 +432,16 @@ export class SettingsView {
     onPick: (v: T) => void
   ): HTMLElement {
     const seg = el('div', { class: 'nseg' });
-    seg.style.gridTemplateColumns = `repeat(${options.length}, 1fr)`;
+    // ONE ROW OF EQUAL COLUMNS, ALWAYS. auto-fit was tried on 8/15 and reverted: it
+    // reflowed each control at whatever width its own option count happened to hit,
+    // so a two-option row went vertical while a four-option row beside it stayed
+    // horizontal. Reflowing is now the ROW's job, at one shared breakpoint (see
+    // settings.css), which is what makes every row look the same at every width.
+    // minmax(0, 1fr), not 1fr: a plain 1fr track has an automatic MINIMUM of its
+    // content, so at a narrow width the buttons refused to shrink and the control
+    // spilled out of its card instead. The zero floor lets them give ground.
+    seg.style.gridTemplateColumns = `repeat(${options.length}, minmax(0, 1fr))`;
+    seg.style.maxWidth = `${options.length * 116}px`; // don't stretch on a wide row
     const btns = options.map(([v, label]) => {
       const b = el('button', { class: 'nseg-btn', text: label }) as HTMLButtonElement;
       b.addEventListener('click', () => {
@@ -778,12 +896,34 @@ export class SettingsView {
       )
     );
 
+    // --- Sound. Lives on the TASKS tab (Gabe, 8/15), not Focus, because the only
+    // sound it governs is the task check-off chime. The Focus tab owns the END
+    // SOUND, which is a different, deliberately-chosen sound with its own switch.
+    sec.append(el('div', { class: 'settings-group-label', text: '🔉 Sound' }));
+    sec.append(
+      this.prefRow(
+        'Check-off sound',
+        'The short chime when you check a task off.',
+        // Reads AND writes the draft, like every other pref row here. Reading the
+        // live cache instead would show a stale value against unsaved edits.
+        this.prefSwitch(this.draft.prefs.sound.system, (on) => {
+          this.draft.prefs.sound.system = on;
+          void this.savePrefs();
+        })
+      )
+    );
+
+    // --- Languages. Which languages a task title may be translated FROM. See
+    // prefs.ts translateFrom for why this is an allowlist and not a blocklist.
+    sec.append(el('div', { class: 'settings-group-label', text: '🌐 Languages' }));
+    sec.append(this.languagePicker());
+
     // --- Editing (the intrinsic-field lock; see tasks/render.ts editingUnlocked) ---
     sec.append(el('div', { class: 'settings-group-label', text: '✏️ Editing' }));
     sec.append(
       this.prefRow(
         'Edit task details',
-        'Allow changing a task’s title, course, and due date (double-click them). Off keeps them exactly as posted; priority, folders, and attachments stay editable either way.',
+        'Allow changing a task’s title, course, and due date (double-click them).',
         this.prefSwitch(p.tasks.allowEdit, (on) => {
           p.tasks.allowEdit = on;
           save();
@@ -944,6 +1084,7 @@ export class SettingsView {
    *  Both the choice and the volume save the moment they change. */
   private sectionSound(): HTMLElement {
     const sec = el('section', { class: 'settings-section', id: 'sec-sound' });
+
     sec.append(el('div', { class: 'settings-group-label', text: '🔊 End Sound' }));
 
     // Parent switch: the sound picker + volume below exist only while this is on.

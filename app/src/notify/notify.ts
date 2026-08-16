@@ -9,6 +9,7 @@
 // never fire the same reminder twice. Entries are date-stamped and pruned after a
 // few days so the ledger can't grow forever.
 
+import { NOTIF_ICON } from './icon';
 import { logNotification } from './log';
 import { scopedKey } from '../util/userScope';
 
@@ -403,7 +404,9 @@ function deliver(
   if (opts.popup) {
     try {
       if (notificationsSupported() && Notification.permission === 'granted') {
-        const n = new Notification(title, { body, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png' });
+        // NOTIF_ICON, not a URL: a referenced icon is fetched when the popup is
+        // shown, so a slow or failed request produces a logo-less notification.
+        const n = new Notification(title, { body, icon: NOTIF_ICON, badge: NOTIF_ICON });
         n.onclick = () => {
           try {
             window.focus();

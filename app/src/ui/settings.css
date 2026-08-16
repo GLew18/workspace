@@ -115,6 +115,13 @@
      of the sticky nav) stretches to use it — no more empty right half. */
   max-width: none;
   margin: 0;
+  /* The measuring stick for the shell's stacked layout below. A CONTAINER query, not
+     a viewport one: what decides whether a sidebar plus a content column still fits
+     is the room this page HAS, which is the window minus the app's gutters — not the
+     window itself. Keying on the viewport meant the threshold was wrong by however
+     wide the gutters happened to be at that size. */
+  container-type: inline-size;
+  container-name: settingspage;
   padding-right: 34px;
 }
 /* Settings is the one tab that hugs the left. Every other tab keeps the centered
@@ -229,10 +236,28 @@
 .settings-content {
   flex: 1;
   min-width: 0;
+  /* The measuring stick for every row's narrow layout below. A CONTAINER query, not
+     a viewport one: the sidebar eats a fixed slice of the window, so viewport width
+     is not what the rows actually get. */
+  container-type: inline-size;
+  container-name: settings;
 }
 /* Narrow screens: the nav collapses to a horizontal row above the content.
-   The premium shell rides along: it becomes a row chip-group inside the row. */
-@media (max-width: 620px) {
+   The premium shell rides along: it becomes a row chip-group inside the row.
+   
+   470px of PAGE, not 620px of window: the sidebar is a constant 172px that never
+   shrinks (flex: none above), so a two-column layout stays comfortable much further
+   down than the old threshold assumed, and every pixel it survives is a pixel with
+   no layout jump in it (Gabe, 8/15). Below this there genuinely is not room for a
+   172px rail and a usable column beside it, so the rail becomes a row of chips on
+   top and the content takes the whole width. */
+@container settingspage (max-width: 470px) {
+  /* WIDTH IS EXPLICIT HERE ON PURPOSE. .settings-content is a size CONTAINER (see
+     container-type above), and .settings-shell sets align-items: flex-start — so the
+     moment the shell became a column, the content was sized shrink-to-fit against a
+     box whose size is contained, and collapsed to a sliver with its cards spilling
+     out of it. This is the line that stops that. */
+  .settings-content { width: 100%; align-self: stretch; }
   .settings-shell { flex-direction: column; gap: 14px; }
   .settings-side { position: static; width: auto; flex-direction: row; flex-wrap: wrap; gap: 6px; }
   .settings-side-title { width: 100%; margin-bottom: 6px; }
@@ -1418,8 +1443,11 @@
 .ntoast-src { font-size: 10.5px; color: var(--text-faint, rgba(255,255,255,0.32)); margin-top: 5px; }
 
 /* new-assignment: delivery-mode segmented control + revealed interval block */
-.nseg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
-.nseg-btn { background: none; border: none; color: var(--text-dim); font-family: inherit; font-size: 12.5px; font-weight: 600; padding: 8px 0; border-radius: 7px; cursor: pointer; transition: background 0.18s ease, color 0.18s ease; }
+.nseg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
+.nseg-btn { background: none; border: none; color: var(--text-dim); font-family: inherit; font-size: 12.5px; font-weight: 600; padding: 8px 0; border-radius: 7px; cursor: pointer; transition: background 0.18s ease, color 0.18s ease;
+  /* Last resort at a very small width: clip the label rather than push the control
+     out of its card. The padding step below means this almost never triggers. */
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nseg-btn:hover { color: var(--text); }
 .nseg-btn.active { background: var(--accent); color: var(--on-accent); }
 
@@ -1447,9 +1475,39 @@
 .srow-main { flex: 1; min-width: 0; }
 .srow-title { font-size: 13.5px; font-weight: 600; }
 .srow-sub { font-size: 12px; color: var(--text-dim); margin-top: 3px; line-height: 1.45; }
-.srow-ctrl { flex: none; display: flex; align-items: center; gap: 10px; }
-.srow-ctrl .nseg { min-width: 0; }
+.srow-ctrl { flex: none; display: flex; align-items: center; gap: 10px; max-width: 100%; }
+.srow-ctrl .nseg { min-width: 0; max-width: 100%; }
 .srow-ctrl .nseg-btn { padding: 8px 12px; }
+
+/* ===== Narrow settings: EVERY row becomes the same centered column =====
+   ONE breakpoint for all of them, deliberately (Gabe, 8/15). The first attempt let
+   each row reflow on its own terms, so a two-option control went vertical and
+   right-aligned while a four-option control beside it stayed horizontal and centered
+   — two different layouts in one list. Reflowing per row can never be consistent,
+   because each row's break point depends on its own label length and button count.
+   A shared threshold flips the whole list at once: label above, control below, both
+   centered, identical for every row regardless of what is in it. */
+@container settings (max-width: 560px) {
+  .srow {
+    /* COLUMN, and nothing else moves. The row stops being [label ....... control]
+       side by side and becomes label-then-control stacked, but each keeps exactly
+       the horizontal position it had: the label stays left, the control stays right.
+       Centering both was tried on 8/15 and reverted the same day — it re-laid-out
+       the whole tab to solve a fitting problem. */
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .srow-main { flex: none; width: 100%; }
+  /* flex-end keeps the control on the right, where it sits in the wide layout. */
+  .srow-ctrl { width: 100%; justify-content: flex-end; }
+  /* Capped so a two-button control doesn't stretch into two slabs. It stays one row
+     of equal columns at every width. */
+  .srow-ctrl .nseg { max-width: min(100%, 380px); }
+  /* Tighter buttons before anything has to be clipped, which buys enough room for a
+     four-option control down to a phone. */
+  .srow-ctrl .nseg-btn { padding: 8px 4px; font-size: 12px; }
+}
 
 /* ===== Music credits tab ===== */
 .settings-credits-intro { font-size: 13px; color: var(--text-dim); line-height: 1.55; margin: 4px 0 10px; max-width: 620px; }
@@ -1612,4 +1670,107 @@ a.settings-credits-lic:hover { color: var(--accent); border-color: var(--accent)
   padding: 10px 12px;
   margin-top: 14px;
   line-height: 1.5;
+}
+
+/* ===== Settings ▸ Tasks ▸ Languages (Gabe, 8/15) =====
+   Which languages a task title may be translated FROM. Chips for what's on, a search
+   box for the rest — the ON set is four by default and the OFF set is the whole
+   catalog, so a switch per language would be thirty-five rows to express four
+   choices. Sits in the same card shell as a .srow so the group reads as one block. */
+.lang-picker {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px 15px;
+  margin-bottom: 8px;
+}
+.lang-lead {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+.lang-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.lang-off {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+.lang-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 6px 5px 11px;
+  background: rgba(125, 180, 255, 0.1);
+  border: 1px solid rgba(125, 180, 255, 0.32);
+  border-radius: 999px;
+  font-size: 12.5px;
+  line-height: 1;
+}
+.lang-chip-name { font-weight: 600; color: var(--text); }
+/* The language's own name, so it's recognizable to someone who reads it and not
+   only to someone who knows its English label. */
+.lang-chip-native { color: var(--text-dim); font-size: 11.5px; }
+.lang-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.lang-chip-x:hover { background: rgba(255, 255, 255, 0.14); color: var(--text); }
+.lang-search { position: relative; }
+.lang-input { width: 100%; }
+/* Absolutely positioned so opening the list can't push the rest of the tab down. */
+.lang-results {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 5px);
+  z-index: 30;
+  max-height: 244px;
+  overflow-y: auto;
+  background: var(--surface-2, #0f2352);
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  padding: 5px;
+}
+.lang-results[hidden] { display: none; }
+.lang-result {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.lang-result:hover { background: rgba(255, 255, 255, 0.07); }
+.lang-result-name { font-weight: 600; }
+.lang-result-native { color: var(--text-dim); font-size: 11.5px; }
+.lang-empty {
+  padding: 9px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
 }

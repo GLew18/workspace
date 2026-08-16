@@ -184,20 +184,54 @@ body.app-mode .app-below {
   align-items: center;
   gap: 8px;
 }
-.nav-count {
-  display: none;
-  min-width: 18px;
-  height: 18px;
-  padding: 2 5px;
+/* ===================== THE COUNT BADGE — one recipe =====================
+   Geometry lifted verbatim from .nav-count, the red circle on the Tasks sidebar
+   item, because Gabe picked that one as the reference every other circle-and-number
+   should match (8/15). Anything that is a NUMBER INSIDE A CIRCLE uses this; things
+   that merely show a count as text (.focus-import-count, the folder "2/5" counts,
+   the 📎 superscript) deliberately do not, since they have no circle to center in.
+
+   What actually makes it read right:
+   · min-width == height, so ONE digit is a true circle and TWO stay the same box
+     (measured: both 18x18) instead of the pill widening under the second digit.
+   · Flex centering, NOT line-height. A digit's glyph box is taller than its ink, so
+     line-height centers the box and leaves the ink riding high; align-items centers
+     the ink. `line-height: 1` stops the box re-introducing the offset.
+   · padding-top 2px plus `top: 1px` is the optical nudge that settles the number
+     into the circle. It is deliberate, not drift.
+
+   ONE NOTE, because it is a real defect and the reason the padding looks odd: the
+   original declared `padding: 2 5px`, and `2` has no unit, so the WHOLE shorthand
+   was invalid and dropped. Only `padding-top: 2px` ever applied, leaving 0 left and
+   right. The 5px side padding has therefore never rendered. This is written out
+   longhand below so the CSS finally says what it does; the RESULT is byte-identical
+   to what shipped. Adding the intended 5px sides would change the look Gabe likes,
+   so it is deliberately not done here. */
+.count-badge {
+  --badge-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--badge-size);
+  height: var(--badge-size);
+  padding: 2px 0 0; /* the optical nudge — see above */
   border-radius: 999px;
+  line-height: 1;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums; /* digits keep one width, so it never jitters */
+  flex: none;
+}
+
+.nav-count {
+  display: none; /* .on flips it back to the badge's inline-flex */
+  /* RED on white. Accent blue was tried on 8/15 and reverted the same day: this
+     number is a deadline count, and red is what says deadline. Blue made it read as
+     one more accent control among many. */
   background: #ef4444;
   color: #fff;
   font-size: 10.5px;
   position: relative;
   top: 1px;
-  padding-top: 2px;
-  font-weight: 800;
-  flex: none;
 }
 /* Centered by FLEX, not line-height (Gabe, 8/10: the number sat high). A digit's
    glyph box is taller than its ink, so line-height centers the box and leaves the
@@ -205,9 +239,6 @@ body.app-mode .app-below {
    keeps the box from re-introducing the offset. */
 .nav-count.on {
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
 }
 
 /* ---- "Cobalt" wordmark: the "o" is a round cobalt gem (monitor retired 8/10) ---- */
@@ -282,26 +313,28 @@ body.app-mode .app-below {
 /* 🔔 unread badge — rides the bell's top-right corner. Hidden at zero (never a
    "0" chip), so the bell is quiet until something has actually arrived. */
 .bell-dot {
+  /* Wears .count-badge for its geometry, so the digit centers the same way the
+     sidebar's red circle does. It previously centered with `line-height: 15px` +
+     text-align, which is exactly the approach that left the number riding high and
+     was already fixed once on .nav-count (8/10). Same bug, second instance. */
+  /* 18px, matching .nav-count and .focus-finished-count — all three circles are
+     now one size (Gabe, 8/15). It was 15px, which read as a different component
+     sitting next to them rather than the same one. */
   position: absolute;
-  top: -2px;
-  right: -2px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
-  border-radius: 999px;
-  /* Gold, not red: nothing here is an error, it's Cobalt with something for
-     you. The dark-on-accent pair is the same one every filled accent control uses. */
+  top: -3px;
+  right: -3px;
+  /* Gold, not red: nothing here is an error, it's Cobalt with something for you.
+     The dark-on-accent pair is the same one every filled accent control uses.
+     Red/white was tried on 8/15 and reverted the same day — the SIZE was the real
+     complaint, and that stays fixed at 18px. */
   background: var(--accent);
   color: var(--on-accent);
-  font-size: 9.5px;
-  font-weight: 800;
-  line-height: 15px;
-  text-align: center;
-  display: none;
+  font-size: 10.5px;
+  display: none; /* .on flips it back to the badge's inline-flex */
   box-shadow: 0 0 0 2px #0e2049, 0 0 10px var(--gold-glow);
 }
 .bell-dot.on {
-  display: block;
+  display: inline-flex;
 }
 
 /* ---- Tabs ----

@@ -1,0 +1,280 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>languages test</title>
+<link rel="stylesheet" href="/src/ui/settings.css" />
+<body style="font:13px/1.6 system-ui;background:#0b1a3a;color:#dbe6ff;padding:20px">
+  <pre id="out">running…</pre>
+  <h3 style="margin-top:26px">Rendered picker (styling check)</h3>
+  <div id="demo" style="max-width:520px"></div>
+  <script type="module">
+    import { LANGUAGES, DEFAULT_TRANSLATE_FROM, findLanguage, languageLabel, expandCodes, searchLanguages } from '/src/util/languages.ts';
+    import { normalizePrefs, DEFAULT_PREFS, setPrefsCache } from '/src/prefs.ts';
+    import { analyzeTitle, resetTranslationCache } from '/src/util/translate.ts';
+    import { TasksView } from '/src/tasks/render.ts';
+
+    const R = [];
+    const ok = (name, cond, extra = '') => R.push(`${cond ? 'PASS' : 'FAIL'}  ${name} ${extra}`);
+    const eq = (name, got, want) => ok(name, JSON.stringify(got) === JSON.stringify(want), `got ${JSON.stringify(got)}`);
+
+    // --- catalog ---
+    eq('defaults are Hebrew, Spanish, Arabic, French', DEFAULT_TRANSLATE_FROM, ['he', 'es', 'ar', 'fr']);
+    ok('the catalog is the full detectable set, not a short list', LANGUAGES.length >= 100, `${LANGUAGES.length} languages`);
+    ok('every default resolves in the catalog', DEFAULT_TRANSLATE_FROM.every((c) => !!findLanguage(c)));
+    ok('the four defaults come first', LANGUAGES.slice(0, 4).map((l) => l.code).join(',') === 'he,es,ar,fr');
+    ok('the rest are alphabetical by English name', (() => {
+      const rest = LANGUAGES.slice(4).map((l) => l.label);
+      return rest.every((n, i) => i === 0 || rest[i - 1].localeCompare(n) <= 0);
+    })());
+    ok('no duplicate codes', new Set(LANGUAGES.map((l) => l.code)).size === LANGUAGES.length);
+    ok('every entry has a native name', LANGUAGES.every((l) => !!l.native && !!l.label));
+    ok('the languages Gabe named are all present', ['pt', 'sw', 'ru', 'de', 'zh', 'ja', 'ko', 'la', 'yi', 'it'].every((c) => !!findLanguage(c)));
+    eq("'iw' still resolves to Hebrew", findLanguage('iw')?.code, 'he');
+    eq("'zh-CN' resolves to Chinese", findLanguage('zh-CN')?.code, 'zh');
+    eq("'jw' resolves to Javanese", findLanguage('jw')?.code, 'jv');
+    eq('label for a detected code', languageLabel('iw'), 'Hebrew');
+    eq('label for an unknown code falls back', languageLabel('qq'), 'QQ');
+
+    // --- alias expansion: picking Hebrew must also match what Google actually says ---
+    const he = expandCodes(['he']);
+    ok("expandCodes('he') covers 'iw'", he.has('he') && he.has('iw'), [...he].join(','));
+    ok('expandCodes honors an unknown code literally', expandCodes(['qq']).has('qq'));
+    ok('expandCodes([]) is empty', expandCodes([]).size === 0);
+
+    // --- search ---
+    ok('search by English name', searchLanguages('portu').some((l) => l.code === 'pt'));
+    ok('search by native name', searchLanguages('עברית').some((l) => l.code === 'he'));
+    ok('search by code', searchLanguages('sw').some((l) => l.code === 'sw'));
+    ok('search is case-insensitive', searchLanguages('HEBREW').some((l) => l.code === 'he'));
+    ok('empty query returns the whole catalog', searchLanguages('  ').length === LANGUAGES.length);
+    ok('nonsense query returns nothing', searchLanguages('zzzzz').length === 0);
+
+    // --- prefs normalization ---
+    eq('absent key falls back to the defaults', normalizePrefs({}).tasks.translateFrom, ['he', 'es', 'ar', 'fr']);
+    eq('an EMPTY array is a real choice, not a missing one', normalizePrefs({ tasks: { translateFrom: [] } }).tasks.translateFrom, []);
+    eq('a saved list survives', normalizePrefs({ tasks: { translateFrom: ['he', 'ru'] } }).tasks.translateFrom, ['he', 'ru']);
+    eq('junk entries are dropped', normalizePrefs({ tasks: { translateFrom: ['he', 42, '', null, 'RU'] } }).tasks.translateFrom, ['he', 'ru']);
+    eq('a non-array is ignored', normalizePrefs({ tasks: { translateFrom: 'he' } }).tasks.translateFrom, ['he', 'es', 'ar', 'fr']);
+    ok('normalize does NOT hand back the defaults array by reference',
+      normalizePrefs({}).tasks.translateFrom !== DEFAULT_PREFS.tasks.translateFrom);
+
+    // --- the gate ---
+    //
+    // Driven by a STUBBED fetch, so the suite is deterministic and runs anywhere,
+    // including the sandboxed browser this is verified in (no outbound network).
+    // Canned MyMemory responses, captured from the live API on 8/15. Shape:
+    //   { responseStatus, responseData: { translatedText, detectedLanguage } }
+    // English input really does come back as a 403 "PLEASE SELECT TWO DISTINCT
+    // LANGUAGES", and the junk words really do come back UNCHANGED — both verified
+    // against the real endpoint, which is what the gate now leans on.
+    const CANNED = {
+      'שיעורי בית בדקדוק': ['Grammar homework', 'he'],
+      'tarea de matemáticas': ['math homework', 'es'],
+      'O homem está usando um chapéu onipresente.': ['The man is wearing an omnipresent hat.', 'pt'],
+      huu: ['huu', 'fr'],           // unchanged → not a translation
+      heybo: ['heybo', 'es'],       // unchanged → not a translation
+      asdf: ['asdf', 'es'],         // unchanged → not a translation
+      tarea: ['task', 'es'],        // one word, but genuinely translated
+      'chapitre 3': ['chapter 3', 'fr'],
+    };
+    let quotaOut = false;
+    const realFetch = window.fetch;
+    window.fetch = async (url) => {
+      const u = String(url);
+      if (!u.startsWith('https://api.mymemory.translated.net/get')) {
+        throw new Error('translate used an unexpected transport: ' + u);
+      }
+      const q = decodeURIComponent(new URL(u).searchParams.get('q') || '');
+      if (quotaOut) {
+        return { ok: true, json: async () => ({ responseStatus: 429, quotaFinished: true, responseData: {} }) };
+      }
+      const hit = CANNED[q];
+      if (!hit) {
+        // Anything not canned is treated the way the real API treats English.
+        return { ok: true, json: async () => ({ responseStatus: 403, responseDetails: 'PLEASE SELECT TWO DISTINCT LANGUAGES', responseData: {} }) };
+      }
+      const [tr, det] = hit;
+      return { ok: true, json: async () => ({ responseStatus: 200, responseData: { translatedText: tr, detectedLanguage: det } }) };
+    };
+
+    const withLangs = async (codes) => {
+      const p = structuredClone(DEFAULT_PREFS);
+      p.tasks.translateFrom = codes;
+      setPrefsCache(p);
+      resetTranslationCache();
+    };
+    try {
+      await withLangs([]);
+      eq('no languages picked = translation off', (await analyzeTitle('שיעורי בית בדקדוק')).status, 'english');
+
+      await withLangs(['he', 'es', 'ar', 'fr']);
+      ok('Hebrew translates on the default list', (await analyzeTitle('שיעורי בית בדקדוק')).status === 'foreign');
+      ok('Spanish translates', (await analyzeTitle('tarea de matemáticas')).status === 'foreign');
+      ok('a ONE-WORD real translation is kept ("tarea" → "task")', (await analyzeTitle('tarea')).status === 'foreign');
+      ok('French translates', (await analyzeTitle('chapitre 3')).status === 'foreign');
+      eq('an English title comes back English', (await analyzeTitle('Read Ch. 7 and annotate')).status, 'english');
+
+      // The three that started all of this. None of them is refused by a confidence
+      // number any more — they are refused because the translation is the input.
+      eq('"huu" stays English: the text came back unchanged', (await analyzeTitle('huu')).status, 'english');
+      eq('"heybo" stays English', (await analyzeTitle('heybo')).status, 'english');
+      eq('"asdf" stays English', (await analyzeTitle('asdf')).status, 'english');
+      // …and it holds even with the detected language deliberately switched ON,
+      // which the old confidence gate could not do.
+      await withLangs(['fr']);
+      eq('"huu" stays English even with French ON', (await analyzeTitle('huu')).status, 'english');
+      await withLangs(['es']);
+      eq('"heybo" stays English even with Spanish ON', (await analyzeTitle('heybo')).status, 'english');
+
+      eq("Gabe's Portuguese title is untouched while Portuguese is OFF",
+        (await analyzeTitle('O homem está usando um chapéu onipresente.')).status, 'english');
+      await withLangs(['he', 'es', 'ar', 'fr', 'pt']);
+      ok('turning Portuguese ON translates it',
+        (await analyzeTitle('O homem está usando um chapéu onipresente.')).status === 'foreign');
+      await withLangs(['he', 'es', 'ar', 'fr']);
+      eq('turning it back off applies immediately, no reload',
+        (await analyzeTitle('O homem está usando um chapéu onipresente.')).status, 'english');
+
+      // Quota / network failures must read as "ask again later", never as English —
+      // an 'english' verdict gets STORED on the task and would stick forever.
+      quotaOut = true;
+      await withLangs(['he']);
+      eq('a quota failure is an error, not a verdict', (await analyzeTitle('שיעורי בית בדקדוק')).status, 'error');
+      quotaOut = false;
+      ok('and the failure was not cached', (await analyzeTitle('שיעורי בית בדקדוק')).status === 'foreign');
+    } catch (e) {
+      R.push('FAIL  gate stage threw: ' + e.message);
+    }
+
+    // --- END TO END: the picker must change what EXISTING tasks show ---
+    //
+    // This is the stage that would have caught the bug Gabe reported. The gate above
+    // only proves analyzeTitle answers correctly; a task carries `translationChecked`
+    // written onto it, so a correct answer never reaches a task that was already
+    // judged. Everything here runs against a real TasksView.
+    //
+    // NOTE for whoever edits this next: it has to live INSIDE this page's module
+    // script. Evaluating it from the devtools console loads a SEPARATE copy of
+    // prefs.ts, so setPrefsCache there is invisible to TasksView and every
+    // assertion silently reads the wrong list.
+    // (the stub installed above is still in place — same shape, same canned answers)
+    try {
+      const SIG_KEY = 'cobalt:tx-langs';
+      const writes = [];
+      const view = new TasksView({
+        putTasksBulk: async (ts) => {
+          writes.push(ts.length);
+          for (const t of ts) view.map[t.id] = t;
+        },
+      });
+      const mk = (id, title, checked, translated, lang) => ({
+        id, title, completed: false, priority: 'normal', addedAt: '2026-01-01', dueDate: '',
+        translationChecked: checked, translatedTitle: translated || '', translatedLang: lang || '',
+      });
+      const runPass = () => view.autoTranslatePass();
+      const setLangs = async (codes) => { await withLangs(codes); };
+
+      // The starting state Gabe actually had: a Portuguese task already judged
+      // English (Portuguese was off), and a "huu" task carrying a translation from
+      // before the picker existed.
+      localStorage.setItem(SIG_KEY, 'he,es,ar,fr');
+      await setLangs(['he', 'es', 'ar', 'fr']);
+      view.map = {
+        p1: mk('p1', 'O homem está usando um chapéu onipresente.', true, '', ''),
+        h1: mk('h1', 'huu', true, 'this one', 'sw'),
+      };
+      writes.length = 0;
+      await runPass();
+      ok('an unchanged list writes nothing', writes.length === 0, `${writes.length} writes`);
+
+      await setLangs(['he', 'es', 'ar', 'fr', 'pt']);
+      await runPass();
+      ok('turning a language on clears every stored verdict', writes.length === 1, `${writes.length} writes`);
+      await runPass(); // the re-entry watchTasks causes for real
+      ok('the Portuguese task NOW translates',
+        view.map.p1.translatedTitle === 'The man is wearing an omnipresent hat.' && view.map.p1.translatedLang === 'pt',
+        JSON.stringify(view.map.p1.translatedTitle));
+      ok('the stale "huu" translation is gone (Swahili still off)',
+        view.map.h1.translatedTitle === '' && view.map.h1.translationChecked === true,
+        JSON.stringify(view.map.h1.translatedTitle));
+
+      await setLangs(['he', 'es', 'ar', 'fr']);
+      await runPass(); await runPass();
+      ok('turning it back OFF removes the translation again', view.map.p1.translatedTitle === '', JSON.stringify(view.map.p1.translatedTitle));
+
+      // "huu" now stays clean no matter what is enabled, because the provider hands
+      // the word back unchanged. Turning its detected language on cannot resurrect
+      // the bogus translation — which the old confidence gate could not promise.
+      await setLangs(['fr']);
+      await runPass(); await runPass();
+      ok('"huu" stays clean even with its detected language ON', view.map.h1.translatedTitle === '', JSON.stringify(view.map.h1.translatedTitle));
+
+      // A real one-word translation still comes through.
+      view.map.t1 = mk('t1', 'tarea', false, '', '');
+      await setLangs(['es']);
+      await runPass(); await runPass();
+      ok('a one-word REAL translation lands', view.map.t1.translatedTitle === 'task', JSON.stringify(view.map.t1.translatedTitle));
+
+      await setLangs([]);
+      await runPass(); await runPass();
+      ok('emptying the list clears everything', view.map.t1.translatedTitle === '' && view.map.p1.translatedTitle === '');
+
+      await setLangs(['he']);
+      await runPass(); await runPass();
+      view.map.n1 = mk('n1', 'שיעורי בית בדקדוק', false, '', '');
+      await runPass();
+      ok('a brand-new task is translated by the ordinary pass', view.map.n1.translatedTitle === 'Grammar homework', JSON.stringify(view.map.n1.translatedTitle));
+
+      // THE ONE-WAY DOOR: a language changed while the task list has not loaded yet
+      // (Settings is its own tab). Recording the signature there would skip the
+      // rescan forever, which is the "Portuguese on, still nothing" report.
+      localStorage.setItem(SIG_KEY, 'he');
+      const empty = new TasksView({ putTasksBulk: async () => { throw new Error('should not write'); } });
+      empty.map = {};
+      await setLangs(['he', 'pt']);
+      await empty.autoTranslatePass();
+      ok('an empty task list does NOT burn the signature', localStorage.getItem(SIG_KEY) === 'he', localStorage.getItem(SIG_KEY));
+      // …and the same change then lands properly once the tasks are there.
+      empty.map = { z1: mk('z1', 'O homem está usando um chapéu onipresente.', true, '', '') };
+      empty.data = { putTasksBulk: async (ts) => { for (const t of ts) empty.map[t.id] = t; } };
+      await empty.autoTranslatePass();
+      await empty.autoTranslatePass();
+      ok('the change lands once the tasks load', empty.map.z1.translatedTitle === 'The man is wearing an omnipresent hat.', JSON.stringify(empty.map.z1.translatedTitle));
+
+      await setLangs(['he']);
+      view.map = { k1: mk('k1', 'x', true, '', '') };
+      await runPass(); // clears (the list just changed)
+      await runPass(); // re-reads the cleared task
+      ok('the signature is persisted', localStorage.getItem(SIG_KEY) === 'he', localStorage.getItem(SIG_KEY));
+      writes.length = 0;
+      await runPass();
+      ok('a settled list writes nothing on a repeat pass', writes.length === 0, `${writes.length} writes`);
+      localStorage.removeItem(SIG_KEY);
+    } catch (e) {
+      R.push('FAIL  end-to-end stage threw: ' + e.message);
+    } finally {
+      window.fetch = realFetch;
+      await withLangs(DEFAULT_TRANSLATE_FROM);
+    }
+
+    const pass = R.filter((r) => r.startsWith('PASS')).length;
+    window.__lang = { pass, fail: R.length - pass, total: R.length, results: R };
+    document.getElementById('out').textContent = R.join('\n') + `\n\n${pass}/${R.length} passed`;
+
+    // --- a static render of the picker markup, purely to eyeball the CSS ---
+    const chips = DEFAULT_TRANSLATE_FROM.map((c) => {
+      const l = findLanguage(c);
+      return `<span class="lang-chip"><span class="lang-chip-name">${l.label}</span><span class="lang-chip-native">${l.native}</span><button class="lang-chip-x">✕</button></span>`;
+    }).join('');
+    const results = LANGUAGES.slice(4, 14).map((l) => `<button class="lang-result"><span class="lang-result-name">${l.label}</span><span class="lang-result-native">${l.native}</span></button>`).join('');
+    document.getElementById('demo').innerHTML = `
+      <div class="settings-group-label">🌐 Languages</div>
+      <div class="lang-picker">
+        <div class="lang-lead">Titles written in these languages get an English translation. Everything else is left alone.</div>
+        <div class="lang-chips">${chips}</div>
+        <div class="lang-search" style="position:static">
+          <input class="settings-input lang-input" placeholder="Add a language…" />
+          <div class="lang-results" style="position:static;margin-top:6px">${results}</div>
+        </div>
+      </div>`;
+  </script>
+</body>

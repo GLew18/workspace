@@ -368,7 +368,9 @@ export function renderLanding(opts: LandingOpts): HTMLElement {
 // headline IS the motto.
 function heroSection(opts: LandingOpts): HTMLElement {
   const sec = el('section', { class: 'lp-hero' });
-  const inner = el('div', { class: 'lp-hero-inner lp-reveal' });
+  // Text LEFT, the live demo screen RIGHT (vault note, 8/15).
+  const grid = el('div', { class: 'lp-hero-grid lp-reveal' });
+  const inner = el('div', { class: 'lp-hero-inner' });
 
   inner.append(
     // "Schoology" carries the accent (Gabe, 8/13), so the one word the visitor is
@@ -408,7 +410,18 @@ function heroSection(opts: LandingOpts): HTMLElement {
   );
   inner.append(chips);
 
-  sec.append(inner);
+  // The hero stage: Dan's live demo (landing/demo/script.ts) — the real app,
+  // driven by the ghost cursor, looping. The stage reserves its aspect via CSS
+  // so the hero never reflows when the demo pops in a beat after first paint.
+  const stage = el('div', { class: 'lp-hero-stage' });
+  void import('./demo/script')
+    .then(({ startHeroDemo }) => startHeroDemo(stage))
+    .catch(() => {
+      /* demo unavailable — the hero text stands alone, nothing breaks */
+    });
+
+  grid.append(inner, stage);
+  sec.append(grid);
   const hint = el('div', { class: 'lp-scroll-hint' });
   hint.append(
     el('span', { class: 'lp-scroll-word', text: 'scroll' }),
@@ -437,7 +450,7 @@ function howItWorksSection(sandbox: Promise<Data>): HTMLElement {
       text: 'Cobalt reads your Schoology calendar and imports every assignment, test, and quiz into one organized place, automatically. Open one tab and know exactly what is due, when, and what to hit first.',
    })
   );
-  row.append(scaleToFit(frame.frame, 560), text); // frame LEFT, copy RIGHT
+  row.append(scaleToFit(frame.frame, 620), text); // frame LEFT, copy RIGHT
   sec.append(row);
 
   // Mount the real Dashboard once the sandbox is ready. The frame is static
@@ -532,7 +545,7 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
   const row = el('div', { class: 'lp-split lp-split-reverse' });
   const text = el('div', { class: 'lp-split-text' });
   const frame = deviceFrame('cobalt.app/tasks');
-  row.append(text, scaleToFit(frame.frame, 560)); // copy LEFT, frame RIGHT
+  row.append(text, scaleToFit(frame.frame, 620)); // copy LEFT, frame RIGHT
 
   // Each tab's panel is built + mounted once, then just shown/hidden — so state
   // (an edit in progress, a ticking clock) survives switching away and back.

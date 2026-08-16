@@ -175,6 +175,10 @@
 .focus-add-todo {
   display: flex;
   gap: 6px;
+  /* Positioning context for the "f:" folder menu, which hangs off this row the
+     same way it hangs off .quick-add in the Tasks tab (Gabe, 8/15). Without it the
+     drop would anchor to the page instead of the input. */
+  position: relative;
 }
 .focus-add-todo .focus-todo-input {
   flex: 1;
@@ -1810,22 +1814,7 @@
   cursor: default;
   justify-content: center;
 }
-.focus-widget-expand {
-  position: absolute;
-  top: 8px;
-  left: 10px; /* maximize sits in the LEFT corner (mirrors the overlay's minimize) */
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  font-size: 16px;
-  line-height: 1;
-  padding: 4px 6px;
-  border-radius: 6px;
-}
-.focus-widget-expand:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text);
-}
+/* (.focus-widget-expand removed 8/15 — the mini player has no embedded ⤢.) */
 /* Scale the shared components down — same look, smaller. */
 .focus-widget .focus-ring-wrap,
 .focus-widget .focus-ring {
@@ -1995,4 +1984,128 @@
 }
 .focus-session-mini .focus-end-toast-close {
   font-size: 14px;
+}
+
+/* ---- The mini player's own control bar (Gabe, 8/15) ----
+   Chrome's PiP title bar sits directly above this and cannot be hidden or relabeled,
+   and its two buttons are indistinguishable to us (both fire one `pagehide`). So the
+   widget carries its own pair plus a caption saying which to use. */
+.focus-widget-bar {
+  display: flex;
+  /* STRETCH, not shrink-wrap. The parent .focus-widget is align-items:center, which
+     sized this bar to its content and parked it in the middle — so the buttons drifted
+     off Chrome's as the (resizable) PiP window widened. Full width + a flex:1 spacer
+     pins the group to the right edge at every size (Gabe, 8/15). */
+  align-self: stretch;
+  align-items: flex-start;
+  margin-bottom: 6px;
+  /* ⇦⇦ GABE: TUNING KNOB 2 of 2 — VERTICAL. ⇨⇨
+     Pulls the pair up toward Chrome's row. It eats the widget's 20px top padding (see
+     .focus-widget-pip), so MORE NEGATIVE = closer to Chrome's buttons. -16px leaves a
+     4px gap. -20px is the floor: past that the buttons cross the window's top edge and
+     get clipped. */
+  margin-top: -16px;
+}
+.focus-widget-spacer {
+  flex: 1;
+  min-width: 0; /* lets it collapse instead of forcing the group off-edge when narrow */
+}
+.focus-widget-group {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end; /* buttons and caption share the same right edge */
+  gap: 3px;
+  /* ⇦⇦ GABE: TUNING KNOB 1 of 2 — HORIZONTAL. ⇨⇨
+     How far our pair sits from the window's right edge, against the widget's own 16px
+     gutter. Chrome paints its buttons closer to the edge than that, so this pulls ours
+     out to meet them. MORE NEGATIVE = further right. Your -10px is now -11px, the one
+     pixel you asked for, which lands the pair 5px from the edge. Chrome's own inset
+     shifts with OS and zoom, which is why this is a knob and not a computed value. */
+  margin-right: -11px;
+}
+.focus-widget-hint {
+  font-size: 9px;
+  line-height: 1.25;
+  color: var(--text-dim);
+  text-align: right;
+}
+.focus-widget-btns {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+.focus-widget-expand,
+.focus-widget-close {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+.focus-widget-expand:hover,
+.focus-widget-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* ---- "Finished (N)" — checked todos, collapsed out of the way (Gabe, 8/15) ---- */
+.focus-finished-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 10px;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  /* Green, matching the checked checkbox (--green), so the header reads as part of
+     the same "done" idea rather than as another gray control (Gabe, 8/15). */
+  color: var(--green);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+.focus-finished-head:hover {
+  background: rgba(255, 255, 255, 0.05);
+  filter: brightness(1.15);
+}
+/* Wears .count-badge (components.css) for its geometry — same circle, same
+   centering, same optical nudge as the Tasks sidebar badge (Gabe, 8/15). Only the
+   color is its own. */
+.focus-finished-count {
+  background: rgba(39, 174, 96, 0.22);
+  color: var(--green);
+  font-size: 10.5px;
+}
+/* Todo-list folder heads keep the ▶ hard right. The IMPORT row is different: its
+   arrow sits LEFT of the count (Gabe, 8/15), so the LABEL takes the slack instead
+   and the arrow + count + button stay as one cluster on the right. */
+.focus-folder-head .focus-folder-arrow {
+  margin-left: auto;
+}
+.focus-import-bulk .focus-import-bulk-label {
+  flex: 1;
+  min-width: 0;
+}
+.focus-import-bulk .focus-folder-arrow {
+  flex: none;
+  margin-left: 0;
+}
+/* Pushes the ▶ to the right edge, matching every other folder head in the app. */
+.focus-finished-head .focus-folder-arrow {
+  margin-left: auto;
 }

@@ -10,6 +10,8 @@
  *  deliberately NOT here: those three are permanent. The first two are what the
  *  student actually presses, and priority is the only way to set priority now
  *  that the colored strip is dormant, so hiding it would strand the feature. */
+import { DEFAULT_TRANSLATE_FROM } from './util/languages';
+
 export type PinnedAction = 'translate' | 'attach' | 'folder' | 'duplicate';
 export const PINNABLE: PinnedAction[] = ['translate', 'attach', 'folder', 'duplicate'];
 
@@ -64,6 +66,25 @@ export interface AppPrefs {
      *  promotes itself onto the row without ever being listed here. Pinning is
      *  only for forcing an EMPTY control to stay visible. */
     pinnedActions: PinnedAction[];
+    /** WHICH LANGUAGES COBALT WILL TRANSLATE A TASK TITLE FROM (Gabe, 8/15).
+     *
+     *  An allowlist, not a blocklist, and that direction is the whole point. Asking
+     *  the detector "is this any language at all" is what turned "huu" into "this
+     *  one" (real Swahili, reported at full confidence) and "heybo" into "Hey
+     *  there" — short English-ish tokens will always hit a real word somewhere.
+     *  Asking "is this one of the languages MY classes are in" removes that entire
+     *  class of false positive at once. Anything omitted is simply left alone.
+     *
+     *  Empty is a legitimate value: it turns translation off. */
+    translateFrom: string[];
+  };
+  sound: {
+    /** The app's incidental sounds: today that means the two-note chime when a task
+     *  is checked off. ON by default. Deliberately does NOT cover the sounds the
+     *  student asked for on purpose (the focus end cue, which has its own switch,
+     *  and music), because those are the point rather than background feedback
+     *  (Gabe, 8/15). Any future incidental sound belongs behind this same flag. */
+    system: boolean;
   };
   focus: {
     /** Persisted; the M:SS vs minutes-only display option is phased. */
@@ -108,7 +129,8 @@ export const DEFAULT_PREFS: AppPrefs = {
   dash: { greetName: true, quote: true, quoteStyle: 'modern', tasksCard: true, scheduleCard: true },
   sync: { auto: true, intervalMins: 30, onOpen: true },
   importPrefs: { assignments: true, assessments: true, quizzes: true, windowDays: 30 },
-  tasks: { allowEdit: true, pinnedActions: [] },
+  tasks: { allowEdit: true, pinnedActions: [], translateFrom: [...DEFAULT_TRANSLATE_FROM] },
+  sound: { system: true },
   focus: { showSeconds: true, keepAwake: true, autoStartMusic: true, resumeAfterReload: false, linkTasks: true },
   calendar: {
     defaultScreen: 'list',
@@ -157,7 +179,20 @@ export function normalizePrefs(raw: unknown): AppPrefs {
         ? (r.tasks!.pinnedActions as unknown[]).filter((a): a is PinnedAction =>
             PINNABLE.includes(a as PinnedAction)
           )
-        : d.tasks.pinnedActions,
+        : [...d.tasks.pinnedActions],
+      // An ABSENT key means an older profile that predates the picker → fall back to
+      // the defaults. An empty ARRAY is a real choice (translation off) and is kept.
+      translateFrom: Array.isArray(r.tasks?.translateFrom)
+        ? (r.tasks!.translateFrom as unknown[])
+            .filter((c): c is string => typeof c === 'string' && !!c.trim())
+            .map((c) => c.toLowerCase().trim())
+        // COPIED, not shared. Returning the defaults array by reference would hand
+        // every caller the same live array as DEFAULT_PREFS, so one in-place edit
+        // anywhere would silently rewrite the defaults for the whole session.
+        : [...d.tasks.translateFrom],
+    },
+    sound: {
+      system: bool(r.sound?.system, d.sound.system),
     },
     focus: {
       showSeconds: bool(r.focus?.showSeconds, d.focus.showSeconds),

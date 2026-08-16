@@ -265,6 +265,10 @@ export async function runSync(data: Data): Promise<SyncResult> {
       if (cur.dueTime !== e.time) changes.add('due time');
       next.dueDate = e.date;
       next.dueTime = e.time;
+      // A pin is an index within a DUE-DATE group, so a re-sync that moves the
+      // deadline invalidates it (same reasoning as the Tasks-tab date editor).
+      // Leaving it would carry the old day's slot number into the new day.
+      if (cur.dueDate !== e.date) delete next.manualOrder;
       changed = true;
     }
     if ((cur.details ?? '') !== e.description) {

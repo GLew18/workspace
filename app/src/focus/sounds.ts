@@ -43,6 +43,19 @@ export const END_SOUNDS: EndSound[] = [
   { key: 'ambient', label: 'Ambient', emoji: '🌊', desc: 'Soft calming swell' },
 ];
 
+/** Fired by Settings the moment the end-sound choice/volume/switch changes, so a
+ *  RUNNING session picks it up (Gabe, 8/15: turning the end sound off mid-session
+ *  still played it at the end). FocusView caches these three values, and without a
+ *  signal it only re-read them on mount/start — a change made during a session
+ *  applied to the NEXT one, which is not what anyone means by turning a sound off.
+ *  Same shape as PREFS_EVENT / FOLDERS_EVENT / NOTIFY_SETTINGS_EVENT. */
+export const FOCUS_SOUND_EVENT = 'ws:focus-sound-changed';
+export interface FocusSoundSettings {
+  key: string;
+  volume: number;
+  enabled: boolean;
+}
+
 export const DEFAULT_END_SOUND = 'fanfare';
 
 /** Default Volume slider position (0..1). 0.8 reads as "clearly audible" once it

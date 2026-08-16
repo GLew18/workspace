@@ -57,6 +57,13 @@ export function makeWheel(values: number[], onChange: () => void): Wheel {
       snapTimer = window.setTimeout(() => {
         const top = centreIndex() * WHEEL_ITEM_H;
         if (wheel.scrollTop !== top) wheel.scrollTop = top;
+        // Settle state HERE too, not only in the rAF above: hidden or throttled
+        // documents (a background tab, the landing demo's headless smoke run)
+        // never deliver animation frames, so the rAF path can starve and leave
+        // value consumers reading a stale dial. Idempotent when rAF already ran.
+        recenter();
+        updateActive();
+        onChange();
       }, 120);
     },
     { passive: true }

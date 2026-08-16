@@ -1,9 +1,42 @@
 // Cobalt completion feedback: chime + 5s undo toast (spec §6.6).
 
+import { getPrefs } from '../prefs';
+
 let audioCtx: AudioContext | null = null;
 
-/** A short pleasant two-note chime via Web Audio. Created lazily on first use. */
+/** THE LANDING PAGE'S DEMO IS NOT A USER (Gabe, 8/15).
+ *
+ *  The hero demo drives the real app with a ghost cursor that dispatches real
+ *  events, so checking a task off in the demo reached this function and played the
+ *  chime — on a loop, forever, on the landing page. And the "Check-off sound"
+ *  switch could not stop it: that setting lives in the signed-in profile, and the
+ *  landing page is signed out, so the prefs read below returns the default (on).
+ *
+ *  This is what Gabe kept hearing on every reload while I worked. It took a stack
+ *  trace to find, because nothing about the symptom pointed at the landing page:
+ *
+ *    playCompleteChime  ← tasks/complete.ts
+ *    TasksView.bulkComplete
+ *    HTMLButtonElement.<anonymous>
+ *    GhostCursor.fire   ← landing/demo/cursor.ts
+ *    loop               ← landing/demo/script.ts
+ *
+ *  The demo raises this for its lifetime. Deliberately a plain module flag and not
+ *  a preference: it describes who is clicking, which is not the student's business. */
+let demoSilent = false;
+export function setDemoSilent(on: boolean): void {
+  demoSilent = on;
+}
+
+/** A short pleasant two-note chime via Web Audio. Created lazily on first use.
+ *
+ *  Silent when Settings ▸ Sound ▸ "App sounds" is off (Gabe, 8/15). Gated HERE, at
+ *  the one place the sound is produced, rather than at the two call sites, so a
+ *  future caller cannot reintroduce it by forgetting the check. The focus end cue
+ *  and music are deliberately NOT gated by this: those are sounds the student
+ *  chose, not incidental feedback. */
 export function playCompleteChime(): void {
+  if (demoSilent || !getPrefs().sound.system) return;
   try {
     audioCtx ??= new (window.AudioContext || (window as any).webkitAudioContext)();
     const ctx = audioCtx;

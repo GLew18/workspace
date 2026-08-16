@@ -129,31 +129,39 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 80px 22px 70px;
+  padding: 100px 24px 70px; /* top clears the fixed nav */
+}
+/* Text LEFT, the live Dan-demo screen RIGHT (vault note, 8/15): the hero stops
+   being a centered column and becomes the landing's widest band, with the
+   animation as the visual anchor. Below 980px it stacks, text first, like every
+   other split on the page. */
+.lp-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 430px) minmax(0, 1fr);
+  gap: 44px;
+  align-items: center;
+  width: 100%;
+  max-width: 1380px;
 }
 .lp-hero-inner {
-  /* 800px, not 640px, so the headline fits on ONE line (Gabe, 8/13). Measured: at the
-     clamp's 54px ceiling "Your Schoology, revolutionized" needs 788px, so the old 640
-     cap was what forced the wrap, not the title's own max-width.
-     The tagline does NOT stretch with this: it carries its own 52ch (~604px) cap. */
-  max-width: 800px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
+  text-align: left;
 }
 /* The headline IS the motto (Gabe, 8/13): no "WELCOME TO Cobalt" — the nav
    already carries the wordmark, so the hero leads with what Cobalt does. */
 .lp-hero-title {
   margin: 0;
-  font-size: clamp(32px, 5.4vw, 54px);
+  /* Ceiling down from 54px with the split layout (8/15): in a ~430px text column
+     the headline breaks after "Your Schoology," — two lines is the intended
+     shape now (the 8/13 one-line rule belonged to the old centered hero), and
+     46px keeps those two lines balanced against the demo screen beside them. */
+  font-size: clamp(32px, 3.6vw, 46px);
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.1;
   margin-bottom: -1px;
-  /* ONE LINE (Gabe, 8/13). The old 21ch cap was narrower than the 29-character
-     headline, so it always wrapped. No max-width and no nowrap: the line fits on
-     its own at every width the clamp produces, and leaving wrapping legal means a
-     very narrow phone degrades gracefully instead of overflowing the viewport. */
 }
 /* The one word the visitor is scanning for. */
 .lp-hero-accent {
@@ -263,12 +271,9 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start; /* left column now — chips rag left with the text */
   margin-top: 26px;
-  /* 900px so all three chips share one line past the 800px hero column (Gabe,
-     8/13); min() keeps that exact look on desktop while letting phones shrink
-     it instead of overflowing the viewport. */
-  width: min(900px, 100%);
+  width: 100%;
 }
 .lp-hero-chip {
   font-size: 12.5px;
@@ -277,6 +282,148 @@
   border: 1px solid var(--border);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.04);
+}
+
+/* ---------------- Hero demo stage (the live Dan animation) ---------------- */
+.lp-hero-stage {
+  min-width: 0;
+  /* Reserve the screen's aspect before the shell mounts, so the hero never
+     reflows when the demo pops in a beat after first paint. */
+  aspect-ratio: 1040 / 702;
+}
+/* The miniature app shell: a real 1040x702 Cobalt "screen" (browser bar + app),
+   scaled into its column by scaleToFit. Sizes here are the DESIGN size; the
+   transform does all responsive work, so the app inside stays pixel-true. */
+/* Double class: .lp-frame declares width/height 620/560 LATER in this file, and
+   at equal specificity the later rule was winning — the shell must stay 1040. */
+.lp-frame.lp-demoshell {
+  width: 1040px;
+  height: 702px;
+  display: flex;
+  flex-direction: column;
+  /* A permanent no-op transform: position:fixed descendants (focus overlay,
+     music panel) must anchor to this frame even at scale 1, where scaleToFit
+     clears ITS transform (see landing/view.ts scaleToFit). */
+  transform: translateZ(0);
+}
+.lp-demoshell-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  /* The app's own page gradient (theme.css body), painted locally: this box IS
+     the app's viewport. */
+  background: linear-gradient(165deg, #0e2457 0%, #091a43 50%, #07132e 100%);
+  --header-h: 64px; /* the real 92px header reads too heavy at demo scale */
+}
+/* Re-anchor the app chrome inside the shell: sticky/fixed become absolute
+   against the shell body, so the "screen" is self-contained. */
+.lp-demoshell-body .app-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 0 18px;
+}
+.lp-demoshell-body .app-header .ws-mark { font-size: 24px; }
+/* The real app scrolls .app-below; here the TAB HOST (.app) scrolls instead,
+   because the sidebar is a DOM child of .app-below and an absolute sidebar
+   inside the scroller would ride away with the content (the real app dodges
+   this with position:fixed, which inside a frame has nothing safe to fix to). */
+.lp-demoshell-body .app-below {
+  position: absolute;
+  inset: var(--header-h) 0 0 0;
+  overflow: hidden;
+}
+.lp-demoshell-body .ws-sidebar {
+  position: absolute; /* real one is fixed; absolute pins it to the shell */
+  top: 0;
+  bottom: 0;
+  width: 200px;
+}
+.lp-demoshell-body .app-below.nav-open { padding-left: 200px; }
+.lp-demoshell-body .app {
+  max-width: none;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none; /* a screen this small reads cleaner without a track */
+  padding: 18px 26px 60px;
+}
+.lp-demoshell-body .app::-webkit-scrollbar { display: none; }
+/* Placeholder panel for tabs that join in a later phase (Focus, Phase D). */
+.lp-demoshell-soon { min-height: 200px; }
+
+/* The try-it frames hide app chrome that can't work in a static preview
+   (.lp-frame .tasks-header/.quick-add/.bm-add-wrap, landing.css below). The
+   demo shell is the opposite: Dan USES the quick-add, the calendar toggle and
+   "+ Add link" on camera — restore them inside this frame only. */
+/* Double-class selectors: the hide rules live LATER in this file at equal
+   specificity, so these need the extra class to win the cascade. */
+.lp-frame.lp-demoshell .tasks-header { display: flex; }
+.lp-frame.lp-demoshell .quick-add { display: block; }
+.lp-frame.lp-demoshell .bm-add-wrap { display: block; }
+
+/* Visitors watch; they can't grab. Synthetic events dispatched by the ghost
+   cursor bypass hit-testing entirely, so the script is unaffected. */
+.lp-hero-stage { pointer-events: none; }
+
+/* The ghost cursor: a drawn pointer riding the shell body's design-pixel space
+   (it inherits the frame's scale). Above everything, including the focus
+   overlay's z-2000. */
+.lp-demo-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3000;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.5));
+}
+.lp-demo-cursor svg { display: block; transition: transform 0.1s ease; }
+.lp-demo-cursor.pressed svg { transform: scale(0.85); transform-origin: 6px 4px; }
+
+/* The morning-briefing card (scene 1): styled like an OS notification, carrying
+   the scheduler's real daily-agenda strings. Demo chrome by necessity — the
+   real popup channel is an OS notification, which can't render in-page. */
+.lp-demo-brief {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 300px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: rgba(17, 27, 55, 0.96);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 12px 14px;
+  z-index: 2600;
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.4s ease, transform 0.45s cubic-bezier(0.2, 0.7, 0.3, 1);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+}
+.lp-demo-brief.show { opacity: 1; transform: none; }
+.lp-demo-brief img { width: 34px; height: 34px; border-radius: 8px; flex: none; }
+.lp-demo-brief-app {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+}
+.lp-demo-brief-title { font-size: 13px; font-weight: 700; }
+.lp-demo-brief-body { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+
+/* The loop seam: the whole screen fades, the world rebuilds, the next pass
+   fades back in on the same Dashboard the story returned to. */
+.lp-demoshell.leaving { opacity: 0; transition: opacity 0.6s ease; }
+
+@media (max-width: 980px) {
+  .lp-hero-grid { grid-template-columns: 1fr; gap: 30px; }
+  .lp-hero-inner { align-items: center; text-align: center; }
+  .lp-hero-chips { justify-content: center; }
 }
 
 .lp-scroll-hint {
@@ -310,7 +457,10 @@
 .lp-section {
   position: relative;
   z-index: 1;
-  max-width: 1120px;
+  /* 1280, up from 1120 (vault note, 8/15): the hero's demo screen widened the
+     top band, and every section below matches it so the page reads as one
+     consistent viewport ("I value my continuity"). */
+  max-width: 1280px;
   margin: 0 auto;
   padding: 78px 22px;
   text-align: center;
@@ -339,13 +489,13 @@
 /* ---------------- Split layout (copy + device frame) ---------------- */
 .lp-split {
   display: grid;
-  grid-template-columns: 560px 1fr; /* frame LEFT */
+  grid-template-columns: 620px 1fr; /* frame LEFT (620, widened with the page 8/15) */
   gap: 44px;
   align-items: center;
   text-align: left;
 }
 .lp-split-reverse {
-  grid-template-columns: 1fr 560px; /* frame RIGHT */
+  grid-template-columns: 1fr 620px; /* frame RIGHT (620, widened with the page 8/15) */
 }
 .lp-split-text {
   min-width: 0;
@@ -389,7 +539,7 @@
 .lp-frame {
   /* FIXED design width — never squishes. When space runs out, the scale-to-fit
      wrapper shrinks the whole frame instead (contents stay pixel-identical). */
-  width: 560px;
+  width: 620px; /* 620, up from 560 (8/15 width pass) */
   /* Sized so the 4-task demo fits scrollbar-free with the app's REAL spacing
      (no condensed margins) plus ~15px buffer for OS font-metric differences. */
   height: 560px;
@@ -537,7 +687,7 @@
    code change (video 'loadedmetadata' fires → placeholder removed). */
 .lp-demo-frame {
   width: 100%;
-  max-width: 900px;
+  max-width: 1040px; /* matches the hero screen's design width (8/15) */
   margin: 0 auto;
   background: #0c1b43;
   border: 1px solid var(--border);
@@ -987,7 +1137,7 @@
   align-items: center;
   justify-content: center;
   gap: 12px 24px; /* generous row + column gaps so no two words ever touch */
-  max-width: 900px;
+  max-width: 1000px;
   margin: 10px auto 0;
   line-height: 1.05;
 }
@@ -1021,10 +1171,8 @@
    cards in ONE row for juxtaposition (Gabe, 8/13); no preset labels, no checked
    rows, nothing stripped — every row carries the full real anatomy, and only
    course colors / priorities / folders / attachments differ. */
-/* Wider than the standard 1120px section: three REAL task lists side by side
-   need ~400px each for a row's meta + full action cluster to share one line at
-   desktop widths. Below that the bottom row wraps gracefully (flex-wrap). */
-.lp-section.lp-setups-sec { max-width: 1320px; }
+/* (No special cap since the 8/15 width pass: the shared 1280px section gives the
+   three cards the same ~400px each the old 1320px override existed to provide.) */
 .lp-setups {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1089,7 +1237,7 @@
 /* Two self-contained columns, no criteria column (Gabe, 8/13). Row-based markup
    so each pair can hover-highlight and reveal together. */
 .lp-vs {
-  max-width: 860px;
+  max-width: 980px;
   margin: 0 auto;
   text-align: left;
   border: 1px solid var(--border);
@@ -1138,7 +1286,7 @@
 .lp-vs-hi .lp-vs-note { color: var(--text); }
 /* The one-sentence complement disclaimer under the table. */
 .lp-vs-foot {
-  max-width: 860px;
+  max-width: 980px;
   margin: 14px auto 0;
   font-size: 12.5px;
   color: var(--text-dim);
@@ -1171,7 +1319,7 @@
   justify-content: space-between;
   gap: 18px;
   flex-wrap: wrap;
-  max-width: 1020px;
+  max-width: 1280px;
   margin: 0 auto;
 }
 .lp-footer-mark { display: flex; align-items: center; }
@@ -1213,7 +1361,7 @@
 .lp-footer-rule {
   height: 1px;
   background: var(--border);
-  max-width: 1020px;
+  max-width: 1280px;
   margin: 22px auto;
 }
 .lp-footer-base {

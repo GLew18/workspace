@@ -487,6 +487,11 @@ export class BookmarksView {
       }
       openShortcutModal(bm as ShortcutBookmark, {
         existingCombos,
+        // Sample mode (landing demos): contain the modal in the demo screen and
+        // skip the extension gate — the capture UI itself is the showcase, and
+        // a "install the extension" prompt inside an animation would be noise.
+        host: this.sample?.host,
+        detect: this.sample ? async () => ({ installed: true }) : undefined,
         onSaved: (combo) => {
           bm.shortcut = combo;
           void this.save().then(() => syncShortcutsToExtension(this.state.list as ShortcutBookmark[]));

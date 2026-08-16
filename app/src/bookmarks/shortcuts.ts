@@ -66,6 +66,9 @@ export interface OpenShortcutModalOptions {
   onSaved: (combo: string) => void;
   onCleared?: () => void;
   detect?: () => Promise<DetectResult>;
+  /** Sample-mode container (the landing previews): the modal mounts here instead
+   *  of document.body, so it stays inside the demo "screen". */
+  host?: HTMLElement;
 }
 // #endregion
 
@@ -714,7 +717,7 @@ export function openShortcutModal(bm: ShortcutBookmark, opts: OpenShortcutModalO
   back.addEventListener('click', (e) => {
     if (e.target === back) close();
   });
-  document.body.append(back);
+  (opts.host ?? document.body).append(back);
 
   // --- Installed → the "Select Keys" capture UI (keys only) ---
   const buildInstalled = (): void => {

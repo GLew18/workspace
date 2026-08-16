@@ -198,7 +198,7 @@ function sampleBookmarks() {
  * Dashboard demo — real, connected behavior.
  */
 export async function createSandbox(): Promise<Data> {
-  const backend = new MemoryBackend({
+  return createSandboxData({
     tasks: sampleTasks(),
     profile: {
       courses: { list: SAMPLE_COURSES },
@@ -207,8 +207,26 @@ export async function createSandbox(): Promise<Data> {
       account: { displayName: 'Gabe', onboarded: true },
     },
   });
+}
+
+/**
+ * The generic version of createSandbox: same in-memory backend, same registry +
+ * learned-model priming, caller-supplied seed. The hero's Dan demo (landing/demo/
+ * seed.ts) builds its own richer world through this.
+ *
+ * ⚠️ The course REGISTRY is a module-level singleton shared by every view on the
+ * page: whichever sandbox initializes last wins. All landing seeds therefore keep
+ * their course NAMES + COLORS aligned (the demo seed is a superset of
+ * SAMPLE_COURSES), so the winner is indistinguishable frame to frame.
+ */
+export async function createSandboxData(
+  seed: Partial<Record<Collection, Record<string, unknown>>> & {
+    profile?: Record<string, unknown>;
+  }
+): Promise<Data> {
+  const backend = new MemoryBackend(seed);
   const data = Data.createWithBackend(backend);
-  await initRegistry(data); // loads SAMPLE_COURSES (colors + parse words) from the seed
+  await initRegistry(data); // loads the seeded courses (colors + parse words)
   try {
     await initLearn(data); // learned course model — empty sample is fine
   } catch {
@@ -216,3 +234,7 @@ export async function createSandbox(): Promise<Data> {
   }
   return data;
 }
+
+/** The try-it sample's course list + schedule builder, exported so the Dan demo
+ *  seed can stay a SUPERSET of it (see the registry note on createSandboxData). */
+export { SAMPLE_COURSES, sampleSchedule };

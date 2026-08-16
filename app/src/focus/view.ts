@@ -1,8 +1,8 @@
 // Cobalt: Focus sessions (spec §8). Single-shot deep-work countdown tied to tasks.
 
 import type { Data } from '../db';
-import type { Task, TaskMap, TaskFolder } from '../types';
-import { getTaskFolders, saveTaskFolders, makeFolder, FOLDERS_EVENT } from '../tasks/folders';
+import type { Task, TaskMap, TaskFolder, Priority } from '../types';
+import { getTaskFolders, saveTaskFolders, makeFolder, normFolder, FOLDERS_EVENT } from '../tasks/folders';
 import { makeResizeGrip, restoreSavedHeight } from '../util/resize';
 import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToast } from '../util/dom';
 import { makeWheel } from './wheel';
@@ -10,8 +10,8 @@ import { genId } from '../util/ids';
 import { sortTasks, makeTask } from '../tasks/store';
 import { getCourseColor, matchCourseStrict } from '../courses/registry';
 import { armAudioContext, formatClock } from './timer';
-import { playEndSound, DEFAULT_END_SOUND, DEFAULT_END_VOLUME, type EndSoundHandle } from './sounds';
-import { MusicEngine, type Track } from './music';
+import { playEndSound, DEFAULT_END_SOUND, DEFAULT_END_VOLUME, FOCUS_SOUND_EVENT, type EndSoundHandle, type FocusSoundSettings } from './sounds';
+import { MusicEngine, primeAudio, type Track } from './music';
 import { MUSIC_GENRES, LIBRARY_TRACKS, tracksForGenre, libraryTrack, type LibraryTrack } from './library';
 import { majorArtists, minorArtistTracks, hasMinorArtists, tracksForArtist } from './artists';
 import { loadPlaylists, playlistEmoji, type CustomPlaylist } from './playlists';
@@ -81,6 +81,7 @@ function fmtPlaylistLen(sec: number): string {
   return `${m}m`;
 }
 import { parseFocusInput, parseDateTime, isPastDate, PAST_DATE_MSG } from '../tasks/parser';
+import { attachFolderAutocomplete } from '../tasks/folderAutocomplete';
 import { formatMetaDate, formatShortDate, formatTimeOfDay } from '../util/dates';
 import { recordManualLabelForTask } from '../schoology/extension';
 import { getPrefs } from '../prefs';
@@ -255,6 +256,11 @@ function dateEditSeed(dueDate?: string, dueTime?: string): string {
 
 export class FocusView {
   private data: Data;
+  /** Landing-demo mode: overlays/widget/toasts mount HERE instead of document.body,
+   *  and every page-global side effect (tab title, wake lock, localStorage persist,
+   *  Document-PiP, audible music) is skipped. The in-frame demo shows the exact
+   *  same UI; only the globals are contained. */
+  private sample?: { host: HTMLElement };
   private panel!: HTMLElement;
 
   // setup ("creation") state — the draft you assemble before starting. Deliberately
@@ -339,11 +345,13 @@ export class FocusView {
   private endSoundEnabled = true; // Settings ▸ Focus ▸ End Sound master switch
   private wakeLock: WakeLockSentinel | null = null; // Screen Wake Lock while a session runs
 
-  constructor(data: Data) {
+  constructor(data: Data, sample?: { host: HTMLElement }) {
     this.data = data;
+    this.sample = sample;
     // Cross-tab session coordination (ownership handoffs, signpost toasts).
     // Removed in teardown() so re-sign-ins don't stack listeners.
     window.addEventListener('storage', this.onStorage);
+    window.addEventListener(FOCUS_SOUND_EVENT, this.onSoundSettings);
     // Tasks→Focus sync subscribes HERE, not in mount(). A session restored at
     // boot (or run from the mini player) never mounts the Focus tab, so a
     // mount-time subscription left those sessions deaf to Tasks-tab edits —
@@ -386,6 +394,7 @@ export class FocusView {
     this.ensureTaskWatch(); // no-op after the constructor; kept for safety on re-mount
     await this.refreshFolders(); // the folder list is shared with Tasks — load it before drawing
     this.playlist = await this.buildPlaylist();
+    this.primeSelected(); // start buffering now, not at Start
     void this.loadEndSound();
     // An active session is shown as an overlay on <body> (see bootRestore), which
     // survives tab switches on its own — so the panel just renders the setup screen.
@@ -411,6 +420,7 @@ export class FocusView {
    *  lock auto-releases when the tab is hidden; we just acquire/release around a
    *  session. Unsupported browsers silently skip it. */
   private async acquireWakeLock(): Promise<void> {
+    if (this.sample) return; // a demo never holds the visitor's screen awake
     if (!getPrefs().focus.keepAwake) return;
     try {
       this.wakeLock = (await navigator.wakeLock?.request('screen')) ?? null;
@@ -521,7 +531,7 @@ export class FocusView {
       toast.append(close);
     }
 
-    document.body.append(toast);
+    this.host().append(toast);
     requestAnimationFrame(() => toast.classList.add('show'));
     // Deliberately NO auto-dismiss: both toasts represent a standing fact.
   }
@@ -579,6 +589,15 @@ export class FocusView {
   }
 
   // --- playlist -----------------------------------------------------------
+
+  /** Pull the CHOSEN track into the browser cache while the student is still on the
+   *  setup screen picking a length (Gabe, 8/15: music was silent for a second or two
+   *  after Start). By the time they press Start the audio is already local, so the
+   *  wait that produced the dead air is gone. */
+  private primeSelected(): void {
+    if (!this.selectedMusic) return;
+    primeAudio(this.playlist.find((t) => t.key === this.selectedMusic)?.src);
+  }
 
   /** Map a library track (src/focus/library.ts) into the engine's Track shape. */
   private libraryToTrack(lt: LibraryTrack): Track {
@@ -663,6 +682,20 @@ export class FocusView {
     return this.overlay !== null || this.widget !== null || this.pipWindow !== null;
   }
 
+  /** Is a session running in this tab AT ALL, including with no visible surface?
+   *
+   *  sessionLive() asks "is there something on screen", which is a different
+   *  question and the wrong one for the setup screen's button. Dismissing the mini
+   *  player deliberately leaves the session running with nothing showing — the timer
+   *  ticks, the music plays, the tab title counts down — so a check for a visible
+   *  surface reported "no session" and the button offered to START one (Gabe, 8/15).
+   *  The persisted state is the honest answer. */
+  private sessionRunningHere(): boolean {
+    if (this.sessionLive()) return true;
+    const s = loadFocusState();
+    return !!s?.sessionActive && !s.suspended && ownsSession(s);
+  }
+
   /** SETUP-SIDE selection (browser single-click / song-window click): choose what
    *  the NEXT session plays. Never touches a live session — while one runs, the
    *  pick is parked in pendingSel and applied when the session ends. With no
@@ -679,6 +712,7 @@ export class FocusView {
     this.playlist = await this.buildPlaylist();
     const idx = Math.max(0, Math.min(startIndex, this.playlist.length - 1));
     this.selectedMusic = this.playlist[idx]?.key ?? null;
+    this.primeSelected(); // a new pick is a new download — get ahead of it
     this.refreshMusicName();
     this.redrawSetupMusic?.();
   }
@@ -786,7 +820,7 @@ export class FocusView {
       if (e.target === back) close();
     });
     enterConfirms(back, () => null); // stacked-popup guard (see util/dom.ts)
-    document.body.append(back);
+    this.host().append(back);
   }
 
   /** A heart toggle button for a track. `onChange` runs after the favorite flips
@@ -988,14 +1022,6 @@ export class FocusView {
         // not. Nothing here is ordered yet, so a grip was clutter.
         // Title dblclick to edit; course/date are one-click and bulk-aware.
         row.append(this.buildTodoLabel(t, drawTodos, this.todos));
-        // 🗀 — file into a shared folder. On a selected row: the whole selection.
-        const fold = el('button', { class: 'focus-todo-fold', title: 'Add to folder' });
-        fold.innerHTML = FOCUS_FOLDER_BTN_SVG;
-        const inFolder = this.taskFolders.find((f) => f.id === t.folderId);
-        if (inFolder) fold.style.color = inFolder.color;
-        fold.addEventListener('click', () =>
-          this.openFocusFolderPicker(t, this.taskFolders, drawTodos, this.todoTargets(t, this.todos))
-        );
         // Takes it out of THIS session only. Every todo now has a real task behind
         // it, and dropping a task from a session is not the same as deleting it —
         // so the task itself is never touched here. Delete it in the Tasks tab.
@@ -1010,7 +1036,7 @@ export class FocusView {
           drawTodos();
           importUI?.refresh();
         });
-        row.append(fold, del);
+        row.append(del);
         return row;
       };
       const { blocks, loose } = this.groupTodosByFolder(this.todos, this.taskFolders);
@@ -1097,7 +1123,12 @@ export class FocusView {
       todoInput.focus();
       drawTodos();
     };
+    // The SAME "f:" folder menu the Tasks quick-add uses (Gabe, 8/15), not a second
+    // implementation. It owns ↑/↓/Tab/Enter/Esc while open, so Enter completes the
+    // highlighted folder instead of submitting a half-typed name.
+    const todoAC = attachFolderAutocomplete(todoInput, addRow, () => this.taskFolders);
     todoInput.addEventListener('keydown', (e) => {
+      if (todoAC.handleKeydown(e)) return;
       if (e.key === 'Enter') addFreeText();
     });
     addTodoBtn.addEventListener('click', addFreeText);
@@ -1190,7 +1221,7 @@ export class FocusView {
     // becomes the way BACK into the session, reopening the full-screen overlay. That
     // is the rescue for a mini player lost behind other windows (Gabe, 8/12).
     const start = el('button', { class: 'btn-primary focus-start', text: 'Start focus session' });
-    if (this.overlay || this.widget) {
+    if (this.sessionRunningHere()) {
       // "Open focus session" mirrors "Start focus session" on purpose (Gabe, 8/13):
       // same diction, so the button reads as an action you take rather than a status
       // label. The red line underneath already says a session is running, which is
@@ -1247,6 +1278,42 @@ export class FocusView {
     const loose = todos.filter((t) => !t.folderId || !shown.has(t.folderId));
     return { blocks, loose };
   }
+
+  /** Is the "Finished" block open? Collapsed by default and NOT persisted: the
+   *  point is that finished work gets out of the way, and a fresh look at the list
+   *  should start clean rather than remembering that you once peeked. */
+  private finishedOpen = false;
+
+  /**
+   * Append checked todos under a collapsed "Finished (N)" header instead of listing
+   * them all inline (Gabe, 8/15). They used to pile up at the bottom of the list,
+   * which is honest but noisy once a few are done.
+   *
+   * Deliberately NOT a setting: a switch asks the student to predict whether they
+   * will be annoyed later, and the answer is always yes. It appears from the FIRST
+   * checked todo, because one finished row is already a row you cannot dismiss.
+   */
+  private appendFinished(host: HTMLElement, done: FocusTodo[], buildRow: (t: FocusTodo, drag: boolean) => HTMLElement, redraw: () => void): void {
+    if (!done.length) return;
+    const head = el('button', { class: 'focus-finished-head' + (this.finishedOpen ? ' open' : '') });
+    head.append(
+      el('span', { class: 'focus-finished-label', text: 'Finished' }),
+      el('span', { class: 'count-badge focus-finished-count', text: String(done.length) }),
+      el('span', { class: 'focus-folder-arrow' + (this.finishedOpen ? ' open' : ''), text: '\u25B6' })
+    );
+    head.addEventListener('click', () => {
+      this.finishedOpen = !this.finishedOpen;
+      redraw();
+    });
+    host.append(head);
+    // Done rows are never draggable — the finished zone is not a list you order.
+    if (this.finishedOpen) for (const t of done) host.append(buildRow(t, false));
+  }
+
+  /** Which folders are EXPANDED in the Import panel. Separate from
+   *  openFocusFolders (which tracks the session's own folder blocks), because
+   *  browsing what to import is a different act from arranging what you imported. */
+  private importOpenFolders = new Set<string>();
 
   /** Re-read the shared folder list (profile) into the view. */
   private async refreshFolders(): Promise<void> {
@@ -1351,27 +1418,59 @@ export class FocusView {
   }
 
   private addTypedTodo(list: FocusTodo[], raw: string): void {
-    const { text, course } = parseFocusInput(raw);
+    const { text, course, folderName, dueDate, dueTime, priority } = parseFocusInput(raw);
     if (!text) return;
-    // Only title + course: the Focus box has no date/priority grammar, so the new
-    // task lands under "No due date" in Tasks. Its row here shows the dashed
-    // "+ due date" pill, so it can be scheduled from Focus without switching tabs.
+    // Same past-date guard the Tasks quick-add uses: a typed date can only be today
+    // or later, so "tod" is fine but an explicit past date is refused rather than
+    // silently creating something already overdue.
+    if (isPastDate(dueDate)) {
+      showToast(PAST_DATE_MSG);
+      return;
+    }
+    // Title + course + f:FOLDER. Still no date/priority grammar here, so the new
+    // task lands under "No due date" at Normal priority. Its row shows the dashed
+    // "+ due date" pill and a priority arrow, so both can be set without switching
+    // tabs.
     const task = makeTask({
       title: text,
-      dueDate: '',
-      dueTime: '',
+      dueDate,
+      dueTime,
       timeLabel: '',
       course,
-      priority: 'normal',
+      priority,
     });
     // UNLINKED: a Focus-only todo, with no taskId, so nothing about it ever
     // reaches the Tasks tab (and every write-through below no-ops for it).
     if (!this.linked()) {
-      list.push({ id: 'ft_' + genId(), text, done: false, course });
+      const todo: FocusTodo = { id: 'ft_' + genId(), text, done: false, course, dueDate, dueTime };
+      list.push(todo);
+      // Folder filing still works while unlinked; it just stays inside Focus.
+      if (folderName) void this.fileTypedFolder(todo, folderName, course);
       return;
     }
-    list.push({ id: 'ft_' + genId(), text, done: false, course, taskId: task.id });
+    const todo: FocusTodo = { id: 'ft_' + genId(), text, done: false, course, dueDate, dueTime, taskId: task.id };
+    list.push(todo);
     void this.data.putTask(task);
+    if (folderName) void this.fileTypedFolder(todo, folderName, course);
+  }
+
+  /** Resolve "f:NAME" to a real folder and file the todo into it, creating the
+   *  folder when it doesn't exist yet. Mirrors the Tasks tab's quick-add rule
+   *  (render.ts): hyphen-insensitive match so "f:AP-Bio" joins an existing
+   *  "AP Bio", and a new folder takes the course color, gray without a course.
+   *  Folders are ONE shared list, so a folder made here shows up in Tasks too. */
+  private async fileTypedFolder(todo: FocusTodo, folderName: string, course: string): Promise<void> {
+    const want = normFolder(folderName);
+    let folder = this.taskFolders.find((f) => normFolder(f.name) === want);
+    if (!folder) {
+      folder = makeFolder(folderName, course ? getCourseColor(course) : '#8b97a8');
+      this.taskFolders.push(folder);
+      await saveTaskFolders(this.data, this.taskFolders); // fires FOLDERS_EVENT → Tasks re-reads
+    }
+    this.openFocusFolders.add(folder.id);
+    await this.fileTodoInFolder(todo, folder.id);
+    this.redrawTodos?.();
+    this.redrawSessionTodos?.();
   }
 
   /** File a focus todo into a shared folder — and make that true in Tasks too.
@@ -1488,7 +1587,7 @@ export class FocusView {
       if (e.target === back) close();
     });
     enterConfirms(back, () => null); // stacked-popup guard (see util/dom.ts)
-    document.body.append(back);
+    this.host().append(back);
   }
 
   private buildImportUI(
@@ -1601,8 +1700,7 @@ export class FocusView {
       });
       main.append(titleEl);
 
-      // Course + due date, the same meta line the Tasks tab shows (priority stays
-      // out: it has no chip there either, it only sorts). The date matters here
+      // Course + due date, the same meta line the Tasks tab shows. The date matters here
       // because it is what the ordering below is built on, and a list sorted by a
       // field you can't see reads as randomly ordered.
       //
@@ -1733,7 +1831,17 @@ export class FocusView {
             const label = el('div', { class: 'focus-import-bulk-label' });
             label.innerHTML = FOCUS_FOLDER_SVG(tf.color);
             label.append(el('span', { text: ' ' + tf.name }));
-            row.append(label, el('span', { class: 'focus-import-count', text: String(members.length) }));
+            // ▶ on the RIGHT, after the count — the same position the arrow holds on
+            // every other folder head in the app (Tasks and both Focus todo lists),
+            // so one glance reads the same everywhere (Gabe, 8/15).
+            const arrow = el('span', {
+              class: 'focus-folder-arrow' + (this.importOpenFolders.has(tf.id) ? ' open' : ''),
+              text: '▶',
+            });
+            // ARROW, then the count, then the + (Gabe, 8/15). It sat between the
+            // count and the + before, which read as belonging to the add button.
+            // Left of the number it reads as part of the folder line itself.
+            row.append(label, arrow, el('span', { class: 'focus-import-count', text: String(members.length) }));
             const add = el('button', { class: 'focus-import-add', text: '+', title: `Import the ${tf.name} folder` });
             add.addEventListener('click', () => {
               // Nothing folder-specific to do here any more: every member already
@@ -1744,6 +1852,25 @@ export class FocusView {
             });
             row.append(add);
             importBody.append(row);
+
+            // EXPANDABLE (Gabe, 8/15). The folder's own tasks are no longer repeated
+            // down in "Individual tasks", so without this there would be no way to
+            // import just one of them: the + above is all-or-nothing. Members are
+            // listed by DUE DATE, the same order the stray list uses.
+            row.style.cursor = 'pointer';
+            row.addEventListener('click', (e) => {
+              if ((e.target as HTMLElement).closest('.focus-import-add')) return; // + imports, never toggles
+              if (this.importOpenFolders.has(tf.id)) this.importOpenFolders.delete(tf.id);
+              else this.importOpenFolders.add(tf.id);
+              drawImportBody();
+            });
+            if (this.importOpenFolders.has(tf.id)) {
+              for (const t of sortTasks(members)) {
+                const memberRow = buildTaskRow(t, imported.has(t.id));
+                memberRow.classList.add('focus-import-in-folder');
+                importBody.append(memberRow);
+              }
+            }
           }
         }
       }
@@ -1783,8 +1910,16 @@ export class FocusView {
       // ⋮⋮ grips, so ranking a hand-arrangement above the date meant an order the
       // student could not see the cause of or change from this panel. It came in
       // from the Tasks tab and simply looked like the dates were being ignored.
+      // STRAY TASKS ONLY (Gabe, 8/15). A task that lives in a folder is shown inside
+      // that folder above, exactly as the Tasks tab does it. Listing it here as well
+      // meant every foldered task appeared twice, which is what made a folder's task
+      // look like it was sitting under the stray ones.
+      const inShownFolder = new Set(
+        this.taskFolders.filter((tf) => filtered.some((t) => t.folderId === tf.id)).map((tf) => tf.id)
+      );
+      const stray = filtered.filter((t) => !t.folderId || !inShownFolder.has(t.folderId));
       importBody.append(el('div', { class: 'focus-import-section', text: 'Individual tasks' }));
-      const sorted = sortTasks(filtered);
+      const sorted = sortTasks(stray);
       // Selection housekeeping: range order = drawn order; imported/filtered-out
       // ids fall out of the selection instead of lingering invisibly.
       importVisIds = sorted.filter((t) => !imported.has(t.id)).map((t) => t.id);
@@ -1880,12 +2015,12 @@ export class FocusView {
     this.updateDisplay(remaining);
     if (keepRunning) {
       this.startTicker();
-      document.title = `🎯 ${this.clock(remaining)} · Focus`;
+      if (!this.sample) document.title = `🎯 ${this.clock(remaining)} · Focus`;
     } else {
       // A paused restore's "Ends …" line is a projection from now, so it must keep
       // moving (see startPausedClock) instead of freezing at the moment of restore.
       this.startPausedClock();
-      document.title = '⏸ PAUSED · Focus';
+      if (!this.sample) document.title = '⏸ PAUSED · Focus';
     }
     // Music: a reload has no user gesture, so autoplay may be refused. The engine
     // already arms a one-shot retry on the next pointerdown, so a resumed session's
@@ -2006,7 +2141,7 @@ export class FocusView {
     this.stopTicker();
     this.stopPausedClock();
     this.stopRing();
-    document.title = this.originalTitle || 'Cobalt';
+    if (!this.sample) document.title = this.originalTitle || 'Cobalt';
     this.engine?.destroy(); // kills the music immediately
     this.engine = null;
     this.overlay?.remove();
@@ -2039,9 +2174,27 @@ export class FocusView {
     this.releaseWakeLock();
     this.suspendUI();
     window.removeEventListener('storage', this.onStorage);
+    window.removeEventListener(FOCUS_SOUND_EVENT, this.onSoundSettings);
     document.removeEventListener('visibilitychange', this.onVisible);
     document.getElementById('focus-session-toast')?.remove();
   }
+
+  /** Settings changed the end sound. Applies to the RUNNING session immediately,
+   *  which is the whole point: the cached copy below is otherwise only refreshed on
+   *  mount/start, so flipping the switch mid-session did nothing until the next one
+   *  (Gabe, 8/15). Also silences a cue that is already ringing — turning a sound off
+   *  while you can hear it should stop it. */
+  private onSoundSettings = (e: Event): void => {
+    const d = (e as CustomEvent<FocusSoundSettings>).detail;
+    if (!d) return;
+    this.endSoundKey = d.key || DEFAULT_END_SOUND;
+    this.endSoundVolume = d.volume ?? DEFAULT_END_VOLUME;
+    this.endSoundEnabled = d.enabled ?? true;
+    if (!this.endSoundEnabled && this.endCue) {
+      this.endCue.stop();
+      this.endCue = null;
+    }
+  };
 
   /** Cross-tab coordination via the localStorage 'storage' event (fires in every
    *  tab EXCEPT the one that wrote — perfect for ownership handoffs). */
@@ -2078,7 +2231,7 @@ export class FocusView {
   private endSession(completed: boolean): void {
     this.stopTicker();
     this.stopRing();
-    document.title = this.originalTitle || 'Cobalt';
+    if (!this.sample) document.title = this.originalTitle || 'Cobalt';
     const done = this.sessionTodos.filter((t) => t.done).length;
     const total = this.sessionTodos.length;
     // Minutes actually focused (elapsed), not the planned length — so a session
@@ -2190,6 +2343,7 @@ export class FocusView {
     const idx = this.playlist.findIndex((t) => t.key === this.sessionMusic);
     if (idx < 0) return;
     this.engine = new MusicEngine();
+    if (this.sample) this.engine.mute(true); // the demo is silent; transport still animates
     this.musicPlaying = autoplay;
     this.engine.setOnIndexChange(() => {
       // The ⏭/⏮ arrows move the engine; keep the session's track key in step so the
@@ -2293,7 +2447,7 @@ export class FocusView {
     // Music transport (bottom-right) — always shown ("No music" until a track is added).
     ov.append(this.buildMusicControls());
 
-    document.body.append(ov);
+    this.host().append(ov);
     this.overlay = ov;
     this.updateDisplay(this.currentRemaining());
   }
@@ -2334,7 +2488,9 @@ export class FocusView {
       importUI.refresh();
       this.persist();
     };
+    const addAC = attachFolderAutocomplete(addInput, addRow, () => this.taskFolders);
     addInput.addEventListener('keydown', (e) => {
+      if (addAC.handleKeydown(e)) return;
       if (e.key === 'Enter') addNow();
     });
     addBtn.addEventListener('click', addNow);
@@ -2510,7 +2666,7 @@ export class FocusView {
       if (e.target === back) close();
     });
     enterConfirms(back, () => ok); // Enter = Add/Trim the dialed amount
-    document.body.append(back);
+    this.host().append(back);
 
     // Default the picker to 5 minutes; position the wheels once the popup is laid out.
     const apply = () => {
@@ -2989,7 +3145,7 @@ export class FocusView {
         // work stays on top (same rule as the loose list below). Unchecked ones
         // are ⋮⋮-draggable WITHIN the folder, exactly as in the Tasks tab.
         for (const m of members.filter((t) => !t.done)) body.append(buildRow(m, true));
-        for (const m of members.filter((t) => t.done)) body.append(buildRow(m, false));
+        this.appendFinished(body, members.filter((t) => t.done), buildRow, () => this.drawOverlayTodos(host));
         box.append(body);
       }
       host.append(box);
@@ -3002,7 +3158,7 @@ export class FocusView {
     // This holds however it got checked — here, or over in the Tasks tab
     // (onTasksUpdate mirrors that check-off onto the todo, and the sink follows).
     for (const todo of loose.filter((t) => !t.done)) host.append(buildRow(todo, true));
-    for (const todo of loose.filter((t) => t.done)) host.append(buildRow(todo, false));
+    this.appendFinished(host, loose.filter((t) => t.done), buildRow, () => this.drawOverlayTodos(host));
   }
 
   /** Tasks-tab-style inline editor: swap `host` for a text input that commits on
@@ -3190,7 +3346,7 @@ export class FocusView {
    *  tab, the import window, and any linked session todo, so all three stay in step. */
   private async applyTaskEdit(
     taskId: string,
-    patch: { title?: string; course?: string; dueDate?: string; dueTime?: string }
+    patch: { title?: string; course?: string; dueDate?: string; dueTime?: string; priority?: Priority }
   ): Promise<void> {
     return this.applyTaskEditBulk([taskId], patch);
   }
@@ -3202,7 +3358,7 @@ export class FocusView {
    *  selection, so Focus bulk edits behave byte-for-byte like the Tasks tab's. */
   private async applyTaskEditBulk(
     taskIds: string[],
-    patch: { title?: string; course?: string; dueDate?: string; dueTime?: string }
+    patch: { title?: string; course?: string; dueDate?: string; dueTime?: string; priority?: Priority }
   ): Promise<void> {
     const tasks = await this.data.getTasksAll();
     const writes: Task[] = [];
@@ -3220,7 +3376,7 @@ export class FocusView {
    *  patch changes nothing on this task. */
   private patchedTask(
     src: Task,
-    patch: { title?: string; course?: string; dueDate?: string; dueTime?: string }
+    patch: { title?: string; course?: string; dueDate?: string; dueTime?: string; priority?: Priority }
   ): Task | null {
     const next: Task = { ...src };
     let changed = false;
@@ -3237,6 +3393,12 @@ export class FocusView {
       // Same as the Tasks tab: a hand-set course is ground truth, so it goes in the
       // cloud label store where it outranks any later extension scrape.
       void recordManualLabelForTask(this.data, next, patch.course);
+    }
+    // Priority is a SUBJECTIVE field: no _manual* flag, because an import never
+    // sets priority and so can never overwrite the student's choice.
+    if (patch.priority !== undefined && patch.priority !== src.priority) {
+      next.priority = patch.priority;
+      changed = true;
     }
     // Date and time move together: parseDateTime returns both from one string, so
     // clearing the time by retyping just a date has to actually clear it. The
@@ -3458,7 +3620,7 @@ export class FocusView {
     if (this.ringWrap) this.ringWrap.classList.toggle('urgent', remaining <= 300 && remaining > 0);
     // Live countdown in the tab title (paused title is set in togglePause and held
     // because the ticker is stopped, so we only write the running title here).
-    if (!this.paused) document.title = `🎯 ${this.clock(remaining)} · Focus`;
+    if (!this.paused && !this.sample) document.title = `🎯 ${this.clock(remaining)} · Focus`;
   }
 
   private togglePause(): void {
@@ -3492,7 +3654,7 @@ export class FocusView {
         this.engine?.pause();
         this.musicPlaying = false;
       }
-      document.title = '⏸ PAUSED · Focus';
+      if (!this.sample) document.title = '⏸ PAUSED · Focus';
     }
     // Keep the bottom-right music button's icon in step with the session (only when
     // a track is actually loaded — otherwise it stays the 🎵 "no music" glyph).
@@ -3581,17 +3743,66 @@ export class FocusView {
     this.widget?.remove();
     const w = el('div', { class: 'focus-widget' });
 
-    // Maximize → close the float (PiP window or in-tab) and reopen the full overlay.
-    const expand = el('button', { class: 'focus-widget-expand', text: '⤢', title: 'Expand' });
+    // OUR OWN expand + close, with a caption pointing at them (Gabe, 8/15).
+    //
+    // Chrome's PiP title bar has its own buttons, but they are useless to us: both
+    // its back-to-tab control and its ✕ fire the identical `pagehide`, with nothing
+    // in the event to separate them, so the two cannot be given different meanings.
+    // These two can. The caption exists because the browser's buttons sit directly
+    // above ours and there is no way to hide or relabel them.
+    const pipBar = el('div', { class: 'focus-widget-bar' });
+    const pipBtns = el('div', { class: 'focus-widget-btns' });
+    // The SAME icon Chrome draws on its own expand control directly above (Gabe,
+    // 8/15): corner arrows pushing outward, not the diagonal "⤢" arrow that was
+    // here. The pair has to read as the same action, since the caption's whole job
+    // is to say "use these, not those".
+    const expand = el('button', { class: 'focus-widget-expand', title: 'Expand to full session' });
+    // Diagonal expand arrows. Corner brackets were tried on 8/15 and reverted the
+    // same day: they read as a crop/framing mark, and the arrows say "make this
+    // bigger" more plainly.
+    expand.innerHTML =
+      '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" ' +
+      'stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M14 4h6v6"/><path d="M10 20H4v-6"/><path d="M20 4l-7 7"/><path d="M4 20l7-7"/></svg>';
     expand.addEventListener('click', (e) => {
       e.stopPropagation();
       this.maximize();
     });
+    const dismiss = el('button', { class: 'focus-widget-close', text: '✕', title: 'Close the mini player (the session keeps running)' });
+    dismiss.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // GENUINELY closes: the session keeps running and "Open focus session" on the
+      // Focus tab is the way back. Clearing pipWindow first makes closePip's own
+      // pagehide guard treat this as intentional, so it does not also expand.
+      this.closePip();
+      this.widget?.remove();
+      this.widget = null;
+      this.tickerWin = window;
+      if (this.paused) {
+        this.stopPausedClock();
+        this.startPausedClock();
+      } else {
+        this.startTicker();
+      }
+      // The Focus tab may be on screen behind the mini player, still showing the
+      // setup form. Redraw it so its button flips to "Open focus session" now,
+      // rather than the next time the tab is opened.
+      if (this.panel && !this.overlay) this.renderSetup();
+    });
+    pipBtns.append(expand, dismiss);
+    // ROW: an empty flex:1 spacer, then the button group (Gabe, 8/15). The PiP
+    // window is user-resizable, so anything that shrink-wraps drifts away from
+    // Chrome's buttons as the window widens. The spacer eats every spare pixel, so
+    // the group stays welded to the right edge at any width. Inside the group the
+    // buttons sit above the caption, which reads as a footnote to them.
+    const pipGroup = el('div', { class: 'focus-widget-group' });
+    pipGroup.append(pipBtns, el('div', { class: 'focus-widget-hint', text: '(use these, not the buttons above)' }));
+    pipBar.append(el('div', { class: 'focus-widget-spacer' }), pipGroup);
 
     // Everything the max screen has, stacked vertically: quote → timer + buttons
     // → tasks → music. Same shared components, scaled by the .focus-widget CSS.
     w.append(
-      expand,
+      pipBar,
       el('div', { class: 'focus-quote', text: this.quote }),
       this.buildRing(),
       this.buildEndTime(),
@@ -3606,7 +3817,7 @@ export class FocusView {
     if (await this.openPipWidget(w)) return;
     w.classList.remove('focus-widget-pip');
     this.makeDraggable(w);
-    document.body.append(w);
+    this.host().append(w);
     this.restoreWidgetPos(w);
   }
 
@@ -3614,6 +3825,9 @@ export class FocusView {
    *  everything and can be positioned anywhere on screen. Returns false (so the
    *  caller uses the in-tab float) when the API is missing or the request is denied. */
   private async openPipWidget(content: HTMLElement): Promise<boolean> {
+    // Sample demo: never grab a real OS window; the in-tab float fallback IS the
+    // real app behavior being showcased.
+    if (this.sample) return false;
     const dpip = (window as unknown as { documentPictureInPicture?: { requestWindow(o: { width: number; height: number }): Promise<Window> } }).documentPictureInPicture;
     if (!dpip?.requestWindow) return false;
     try {
@@ -3672,6 +3886,7 @@ export class FocusView {
         'position:absolute;inset:0;overflow-y:auto;background:linear-gradient(165deg,#0e2457 0%,#091a43 55%,#07132e 100%);';
       scroller.appendChild(content); // adopts the live nodes — listeners keep working
       pip.document.body.appendChild(scroller);
+      content.classList.add('in-pip');
       this.pipWindow = pip;
       // Re-home the clock + ring into the PiP window's event loop. The main tab is
       // about to be backgrounded (that's the point of the mini player), and Chrome
@@ -3684,8 +3899,16 @@ export class FocusView {
         if (this.pipWindow !== pip) return;
         this.pipWindow = null;
         this.widget = null;
-        this.buildOverlay(); // rebuilds the ring (re-homed to this window by buildRing)
-        if (!this.paused) this.startTicker(); // the pip-owned interval died with the window
+        // CLOSING THE MINI PLAYER RETURNS YOU TO THE FULL SESSION (Gabe, 8/15).
+        //
+        // Chrome's PiP chrome fires this same event for its back-to-tab control and
+        // for ✕, with nothing in the event to separate them, so the two cannot have
+        // different outcomes. Given the choice, "expand" is the one worth having:
+        // a working external expand button was the explicit ask, and the alternative
+        // left the session running with no visible surface at all.
+        this.tickerWin = window;
+        this.buildOverlay(); // re-homes the ring to this window (see buildRing)
+        if (!this.paused) this.startTicker(); // the pip-owned interval died with it
       });
       return true;
     } catch {
@@ -3709,6 +3932,7 @@ export class FocusView {
 
   /** Restore the widget's last dragged position, clamped into the viewport. */
   private restoreWidgetPos(node: HTMLElement): void {
+    if (this.sample) return; // each demo loop starts at the widget's default spot
     try {
       const raw = localStorage.getItem('focusMiniPos');
       if (!raw) return;
@@ -3759,7 +3983,7 @@ export class FocusView {
         node.classList.remove('dragging');
         try {
           const r = node.getBoundingClientRect();
-          localStorage.setItem('focusMiniPos', JSON.stringify({ left: r.left, top: r.top }));
+          if (!this.sample) localStorage.setItem('focusMiniPos', JSON.stringify({ left: r.left, top: r.top }));
         } catch {
           /* storage unavailable — position just won't persist */
         }
@@ -3795,7 +4019,13 @@ export class FocusView {
 
   // --- helpers ------------------------------------------------------------
 
+  /** Where body-level UI mounts: the page, or the demo shell's screen. */
+  private host(): HTMLElement {
+    return this.sample?.host ?? document.body;
+  }
+
   private persist(suspended = false): void {
+    if (this.sample) return; // the demo never persists a session across reloads
     const s: FocusState = {
       sessionActive: true,
       paused: this.paused,
@@ -3885,7 +4115,7 @@ export class FocusView {
     const close = el('button', { class: 'focus-end-toast-close', text: '✕', title: 'Dismiss' });
     toast.append(close);
 
-    document.body.append(toast);
+    this.host().append(toast);
 
     let dismissed = false;
     const dismiss = () => {

@@ -12,6 +12,23 @@ import './ui/landing.css';
 import './ui/auth.css';
 import './ui/onboarding.css';
 
+// OFF unless explicitly turned on. Names whatever is making the stray sound on
+// reload (see util/soundTrace.ts). Two switches, because the localStorage one alone
+// was not reachable (Gabe, 8/15): ?tracesound=1 in the URL works even on a build
+// where the console is awkward, and it also sets the flag so it survives reloads —
+// which matters, since the sound happens DURING a reload.
+//
+// Not DEV-gated any more. It is a few hundred bytes, it does nothing unless asked,
+// and gating it to dev is what made it unavailable on the build actually being used.
+{
+  const traceParam = new URLSearchParams(location.search).get('tracesound');
+  if (traceParam === '1') localStorage.setItem('cobalt:tracesound', '1');
+  if (traceParam === '0') localStorage.removeItem('cobalt:tracesound');
+  if (localStorage.getItem('cobalt:tracesound') === '1') {
+    void import('./util/soundTrace').then((m) => m.installSoundTrace());
+  }
+}
+
 import type { AuthUser } from './auth';
 import {
   onAuth,
@@ -243,7 +260,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   const bellBtn = el('button', { class: 'icon-btn', 'aria-label': 'Notifications', title: 'Notifications' });
   bellBtn.innerHTML =
     '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>';
-  const bellDot = el('span', { class: 'bell-dot' });
+  const bellDot = el('span', { class: 'count-badge bell-dot' });
   bellBtn.append(bellDot);
   const paintBell = (): void => {
     const n = unreadNotifyCount();
@@ -288,7 +305,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   // "Tasks" carries a red count of what's due TODAY (Gabe, 8/10) — the one number
   // worth seeing from any tab. Red, not the bell's gold, because this is a
   // deadline rather than a message. Hidden at zero: an empty badge is noise.
-  const tasksCount = el('span', { class: 'nav-count' });
+  const tasksCount = el('span', { class: 'count-badge nav-count' });
   for (const it of NAV_TABS) {
     const b = el('button', { class: 'nav-item', text: it.label });
     if (it.id === 'tasks') b.append(tasksCount);

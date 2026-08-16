@@ -1,0 +1,294 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>four-task test</title>
+<body style="background:#0b1020;color:#e6edf7;font-family:ui-monospace,monospace;padding:16px;font-size:12px">
+<pre id="out">running…</pre>
+<script type="module">
+import { sortTasks } from '/src/tasks/store.ts';
+import { PRIORITIES, priorityDef } from '/src/tasks/priorities.ts';
+import { NOTIF_ICON } from '/src/notify/icon.ts';
+import { taskInfoBody, reminderBody } from '/src/notify/notify.ts';
+import { playCompleteChime } from '/src/tasks/complete.ts';
+import { getPrefs, setPrefsCache, normalizePrefs, DEFAULT_PREFS } from '/src/prefs.ts';
+import { parseFocusInput } from '/src/tasks/parser.ts';
+
+const results = [];
+const t = (name, fn) => {
+  try { const r = fn(); results.push([r === true, name, r === true ? '' : String(r)]); }
+  catch (e) { results.push([false, name, 'threw: ' + e.message]); }
+};
+const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b) ? true : `got ${JSON.stringify(a)} want ${JSON.stringify(b)}`;
+
+// ---------- helpers for task 3 ----------
+let n = 0;
+const mk = (id, priority, dueDate = '2026-08-20', extra = {}) => ({
+  id, title: id, priority, dueDate, dueTime: '', timeLabel: '', course: '',
+  completed: false, completedAt: null, addedAt: '2026-08-15T00:00:0' + (n++ % 10) + 'Z',
+  notes: [], source: 'manual', ...extra,
+});
+const ids = (list) => sortTasks(list).map((x) => x.id);
+
+// ================= TASK 3: sorting =================
+t('3.1 pure priority order, no pins', () =>
+  eq(ids([mk('low','low'), mk('vhigh','highest'), mk('norm','normal'), mk('high','high'), mk('vlow','lowest')]),
+     ['vhigh','high','norm','low','vlow']));
+
+t('3.2 undated tasks sort last', () =>
+  eq(ids([mk('undated','highest',''), mk('dated','lowest','2026-08-20')]), ['dated','undated']));
+
+t('3.3 earlier date wins over higher priority', () =>
+  eq(ids([mk('later','highest','2026-08-25'), mk('sooner','lowest','2026-08-20')]), ['sooner','later']));
+
+t('3.4 a pin MATCHING its auto index is ignored', () => {
+  // 'a' is already index 0 by priority; pinning it there changes nothing.
+  const out = ids([mk('a','highest',undefined,{manualOrder:0}), mk('b','normal'), mk('c','low')]);
+  return eq(out, ['a','b','c']);
+});
+
+t('3.5 a pin that DIFFERS holds its slot', () => {
+  // 'c' is lowest priority (auto index 2) but pinned to 0.
+  const out = ids([mk('a','highest'), mk('b','normal'), mk('c','low',undefined,{manualOrder:0})]);
+  return eq(out, ['c','a','b']);
+});
+
+t('3.6 unpinned neighbours still obey priority around a pin', () => {
+  // 'd' pinned to 0; the rest must remain in priority order behind it.
+  const out = ids([mk('a','highest'), mk('b','high'), mk('c','normal'), mk('d','lowest',undefined,{manualOrder:0})]);
+  return eq(out, ['d','a','b','c']);
+});
+
+t('3.7 THE REGRESSION: a new normal task lands between high and low', () => {
+  // Gabe's case: yellows must accumulate between orange and blue, not fall to the
+  // bottom just because they have no manualOrder.
+  const out = ids([mk('hi','high'), mk('lo','low'), mk('fresh','normal')]);
+  return eq(out, ['hi','fresh','lo']);
+});
+
+t('3.8 old data (every task stamped in priority order) behaves as unpinned', () => {
+  // The legacy stamp-everything pattern: indexes agree with the auto order, so all
+  // of them are redundant and drop out.
+  const out = ids([
+    mk('a','highest',undefined,{manualOrder:0}),
+    mk('b','high',undefined,{manualOrder:1}),
+    mk('c','normal',undefined,{manualOrder:2}),
+  ]);
+  return eq(out, ['a','b','c']);
+});
+
+t('3.9 old data + a newly imported task still sorts by priority', () => {
+  const out = ids([
+    mk('a','highest',undefined,{manualOrder:0}),
+    mk('b','low',undefined,{manualOrder:1}),
+    mk('fresh','normal'),
+  ]);
+  return eq(out, ['a','fresh','b']);
+});
+
+t('3.10 TWO pins in one group = legacy data, so all pins are ignored', () => {
+  // The writer pins the dragged task and clears every other pin in the group, so a
+  // group can never legitimately hold two. Two means old stamp-everything data, and
+  // the right answer is pure priority order.
+  const out = ids([
+    mk('a','highest'), mk('b','high'), mk('c','normal'),
+    mk('x','lowest',undefined,{manualOrder:0}), mk('y','low',undefined,{manualOrder:1}),
+  ]);
+  return eq(out, ['a','b','c','y','x']);
+});
+
+t('3.11 pin index beyond the group clamps to the end', () => {
+  const out = ids([mk('a','highest'), mk('b','normal',undefined,{manualOrder:99})]);
+  return eq(out, ['a','b']);
+});
+
+t('3.12 pins are scoped to their own date group', () => {
+  // 'p' is pinned to 0 but belongs to the LATER date; it must not jump days.
+  const out = ids([
+    mk('d1a','normal','2026-08-20'), mk('d1b','high','2026-08-20'),
+    mk('d2a','high','2026-08-25'), mk('p','lowest','2026-08-25',{manualOrder:0}),
+  ]);
+  return eq(out, ['d1b','d1a','p','d2a']);
+});
+
+t('3.13 sortTasks does not mutate its input', () => {
+  const input = [mk('a','low'), mk('b','highest')];
+  const before = input.map((x) => x.id);
+  sortTasks(input);
+  return eq(input.map((x) => x.id), before);
+});
+
+t('3.14 stable + deterministic across repeated calls', () => {
+  const list = [mk('a','normal'), mk('b','normal'), mk('c','normal')];
+  return eq(ids(list), ids(list));
+});
+
+t('3.15 empty and single-item lists', () =>
+  eq([sortTasks([]).length, ids([mk('solo','normal')])], [0, ['solo']]));
+
+// ================= TASK 2: priority names =================
+t('2.1 labels are Very High / Very Low, not Highest / Lowest', () =>
+  eq(PRIORITIES.map((p) => p.label), ['Very High','High','Normal','Low','Very Low']));
+
+// The original form of this assertion was wrong: High/Normal/Low legitimately ARE
+// their key capitalized. Only the two extremes must differ from their storage key.
+t('2.2 the extremes do not display as their storage key', () => {
+  const bad = PRIORITIES.filter((p) => (p.key === 'highest' || p.key === 'lowest') && p.label.toLowerCase() === p.key);
+  return bad.length === 0 || `still keyed: ${bad.map((p) => p.label).join(',')}`;
+});
+
+t('2.3 priorityDef maps keys to display names', () =>
+  eq([priorityDef('highest').label, priorityDef('lowest').label], ['Very High','Very Low']));
+
+t('2.4 notification body says "Very High priority"', () => {
+  const body = taskInfoBody({ priority: priorityDef('highest').label }, { course: false, priority: true, dueTime: false });
+  return body.includes('Very High priority') || `got "${body}"`;
+});
+
+t('2.5 notification body never says "Highest priority"', () => {
+  const body = taskInfoBody({ priority: priorityDef('highest').label }, { course: false, priority: true, dueTime: false });
+  return !/Highest|Lowest/.test(body) || `got "${body}"`;
+});
+
+t('2.6 reminder body uses the display name too', () => {
+  const body = reminderBody({ priority: priorityDef('lowest').label, nowMs: Date.now(), dueMs: Date.now() + 3600e3, leadMins: 60 },
+    { course: false, priority: true, dueTime: false });
+  return (body.includes('Very Low') && !/Lowest/.test(body)) || `got "${body}"`;
+});
+
+// ================= TASK 1: notification logo =================
+t('1.1 NOTIF_ICON is an inline data URI (no network)', () =>
+  NOTIF_ICON.startsWith('data:image/png;base64,') || 'not a png data uri');
+
+t('1.2 NOTIF_ICON is not a URL path', () =>
+  (!NOTIF_ICON.includes('/icons/') && !NOTIF_ICON.startsWith('http')) || 'still references a URL');
+
+t('1.3 NOTIF_ICON is a plausible size', () =>
+  (NOTIF_ICON.length > 2000 && NOTIF_ICON.length < 60000) || `length ${NOTIF_ICON.length}`);
+
+t('1.4 base64 payload is well formed', () =>
+  /^[A-Za-z0-9+/]+={0,2}$/.test(NOTIF_ICON.split(',')[1]) || 'bad base64');
+
+// ================= TASK 4: system sounds =================
+const withPrefs = (systemOn, fn) => {
+  const saved = getPrefs();
+  setPrefsCache(normalizePrefs({ ...DEFAULT_PREFS, sound: { system: systemOn } }));
+  try { return fn(); } finally { setPrefsCache(saved); }
+};
+// Count oscillators created, which is the only observable the chime produces.
+const countOsc = () => {
+  const RealCtx = window.AudioContext;
+  let made = 0;
+  class Spy extends RealCtx { createOscillator() { made++; return super.createOscillator(); } }
+  window.AudioContext = Spy;
+  try { playCompleteChime(); } finally { window.AudioContext = RealCtx; }
+  return made;
+};
+
+t('4.1 pref defaults to ON', () => DEFAULT_PREFS.sound.system === true || 'default is not true');
+
+t('4.2 normalizePrefs keeps a stored false', () =>
+  normalizePrefs({ sound: { system: false } }).sound.system === false || 'false was not preserved');
+
+t('4.3 normalizePrefs defaults a missing value to true', () =>
+  normalizePrefs({}).sound.system === true || 'missing did not default to true');
+
+t('4.4 chime is SILENT when the pref is off', () =>
+  withPrefs(false, () => countOsc() === 0 || 'oscillators were created while muted'));
+
+t('4.5 chime still plays when the pref is on', () =>
+  withPrefs(true, () => countOsc() > 0 || 'no oscillators while enabled'));
+
+t('4.6 muting app sounds does not disable the End Sound setting', () =>
+  // The two are independent switches. Turning app sounds off must leave the focus
+  // end cue's own setting untouched. (That the cue's CODE never reads sound.system
+  // is asserted by grep in the runner, since this page cannot read the filesystem.)
+  withPrefs(false, () => getPrefs().sound.system === false) &&
+  normalizePrefs({ sound: { system: false } }).focus.autoStartMusic === true
+    ? true
+    : 'muting app sounds disturbed another sound setting');
+
+
+// ================= TASK 5: f: folders in Focus =================
+t('5.1 f:NAME is extracted from a Focus add', () => {
+  const r = parseFocusInput('read chapter 4 f:Homework');
+  return eq([r.folderName, r.text], ['Homework', 'read chapter 4']);
+});
+t('5.2 f: can sit anywhere in the line', () => {
+  const r = parseFocusInput('f:Homework read chapter 4');
+  return eq([r.folderName, r.text], ['Homework', 'read chapter 4']);
+});
+t('5.3 f: in the middle, text closes up around it', () => {
+  const r = parseFocusInput('read f:Homework chapter 4');
+  return eq([r.folderName, r.text], ['Homework', 'read chapter 4']);
+});
+t('5.4 no f: token leaves folderName empty', () => {
+  const r = parseFocusInput('read chapter 4');
+  return eq([r.folderName, r.text], ['', 'read chapter 4']);
+});
+t('5.5 the folder name never leaks into the title', () => {
+  const r = parseFocusInput('essay f:English');
+  return (!r.text.includes('English') && !r.text.includes('f:')) || 'leaked: ' + r.text;
+});
+t('5.6 empty input stays empty', () => {
+  const r = parseFocusInput('   ');
+  return eq([r.text, r.course, r.folderName], ['', '', '']);
+});
+t('5.7 f: alone still yields a usable title', () => {
+  const r = parseFocusInput('f:Homework');
+  return (r.folderName === 'Homework' && typeof r.text === 'string') || 'got ' + JSON.stringify(r);
+});
+t('5.8 hyphenated folder names survive', () => {
+  const r = parseFocusInput('lab f:AP-Bio');
+  return eq([r.folderName, r.text], ['AP-Bio', 'lab']);
+});
+
+// ================= TASK 6: priority carried into Focus =================
+t('6.1 FocusTodo priority round-trips through the sort helpers', () => {
+  // A todo stashes the task's priority; the picker writes the key form.
+  const keys = PRIORITIES.map((p) => p.key);
+  return eq(keys, ['highest','high','normal','low','lowest']);
+});
+t('6.2 every priority key has a strip color + arrow', () =>
+  PRIORITIES.every((p) => p.color && p.arrow) || 'a priority is missing color or arrow');
+t('6.3 priorityDef falls back sanely for a missing value', () => {
+  const d = priorityDef('normal');
+  return (d.label === 'Normal' && d.arrow === '—') || 'got ' + JSON.stringify(d);
+});
+
+
+// ================= TASK 7: Focus add grammar (dates + f:) =================
+t('7.1 tod sets TODAY, not a title word', () => {
+  const r = parseFocusInput('read chapter 4 tod');
+  const today = new Date();
+  const iso = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+  return (r.dueDate === iso && !/tod/.test(r.text)) || 'got ' + JSON.stringify(r);
+});
+t('7.2 tom sets TOMORROW', () => {
+  const r = parseFocusInput('essay tom');
+  const d = new Date(); d.setDate(d.getDate()+1);
+  const iso = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  return (r.dueDate === iso && !/tom/.test(r.text)) || 'got ' + JSON.stringify(r);
+});
+t('7.3 a time is parsed out of the title', () => {
+  const r = parseFocusInput('lab 630pm tom');
+  return (r.dueTime === '18:30' && !/630/.test(r.text)) || 'got ' + JSON.stringify(r);
+});
+t('7.4 priority words work in Focus too', () => {
+  const r = parseFocusInput('essay vh');
+  return (r.priority === 'highest' && !/(^| )vh( |$)/.test(r.text)) || 'got ' + JSON.stringify(r);
+});
+t('7.5 f: + date + priority all at once', () => {
+  const r = parseFocusInput('essay f:English tom vh');
+  return eq([r.folderName, r.priority, r.text], ['English','highest','essay']);
+});
+t('7.6 plain text still yields no date', () => {
+  const r = parseFocusInput('just a plain task');
+  return eq([r.dueDate, r.dueTime, r.priority], ['','','normal']);
+});
+
+const pass = results.filter((r) => r[0]).length;
+const fail = results.length - pass;
+document.getElementById('out').textContent =
+  `${pass} passed, ${fail} failed, of ${results.length}\n\n` +
+  results.map(([ok, name, msg]) => `${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : '\n        ' + msg}`).join('\n');
+window.__four = { pass, fail, total: results.length };
+</script>

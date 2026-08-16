@@ -28,6 +28,37 @@ export interface Track {
  *  still add their own custom tracks on top. */
 export const BUILTIN_TRACKS: Track[] = [];
 
+/** How long a track takes to swell to full volume when it starts (Gabe, 8/15).
+ *  Applied in the ENGINE, not baked into the 151 MP3s: the files stay lossless and
+ *  untouched, custom tracks get the same treatment for free, and the length is one
+ *  constant away from changing. */
+const FADE_IN_MS = 2500;
+/** Un-muting after ⏸. Long enough to kill the click, short enough to feel instant. */
+const RESUME_FADE_MS = 300;
+/** Fade shape. Amplitude = t^0.7 rises FAST at the start (20% by a tenth of the way
+ *  in) and eases into the target, so the fade reads as intentional rather than as
+ *  the dead air Gabe was hearing. A linear or slow-start curve would recreate it. */
+const FADE_CURVE = 0.7;
+
+/** One hidden element that does nothing but pull a track into the HTTP cache, so
+ *  pressing Start plays from memory instead of waiting on the network. The engine
+ *  primes the NEXT track too, which makes auto-advance seamless. */
+let primer: HTMLAudioElement | null = null;
+let primed = '';
+export function primeAudio(src: string | null | undefined): void {
+  if (!src || src === primed) return;
+  try {
+    primer ??= new Audio();
+    primer.crossOrigin = 'anonymous';
+    primer.preload = 'auto';
+    primer.src = src;
+    primer.load();
+    primed = src;
+  } catch {
+    /* prewarming is an optimization — never let it break playback */
+  }
+}
+
 export class MusicEngine {
   private audio: HTMLAudioElement;
   private playlist: Track[] = [];
@@ -39,6 +70,12 @@ export class MusicEngine {
   private volume01 = 0.5; // 0..1 slider fraction — the single volume source
   private graph: { gain: GainNode } | null = null; // Web Audio boost chain (lazy)
   private graphPending = false; // waiting on the AudioContext to reach 'running'
+  // Fade-in state. `fadeMul` is a 0..1 multiplier folded into applyVolume(), so the
+  // ramp and the volume slider compose instead of fighting: the slider keeps setting
+  // the TARGET while the ramp scales it.
+  private fadeMul = 1;
+  private fadeTimer = 0;
+  private pendingFade = 0; // ms of fade owed to the next 'playing' event (0 = none)
   private static readonly MAX_GAIN = 2.0; // slider 100% → 2.0× (a louder ceiling; the limiter still catches peaks)
   private static readonly VOL_CURVE = 2.2; // perceptual exponent (see applyVolume) — widens the usable range
   // "Warmth" EQ for focus: a gentle high-shelf that rolls the bright/harsh treble
@@ -68,6 +105,15 @@ export class MusicEngine {
     // keys, the PiP window's controls). Mirror its real state out so the UI can
     // never show ▶ while sound is coming out, or ⏸ while it isn't.
     this.audio.addEventListener('play', () => this.onPlayState?.(true));
+    // 'playing' — not 'play' — is the event that means SOUND IS COMING OUT. Starting
+    // the ramp here rather than at play() time is what makes the fade cover the
+    // buffering gap instead of running out during it.
+    this.audio.addEventListener('playing', () => {
+      if (!this.pendingFade) return;
+      const ms = this.pendingFade;
+      this.pendingFade = 0;
+      this.runFade(ms);
+    });
     this.audio.addEventListener('pause', () => this.onPlayState?.(false));
     // Feed playback position to whatever seek bar is currently on screen.
     this.audio.addEventListener('timeupdate', () => this.onTime?.(this.audio.currentTime, this.audio.duration || 0));
@@ -130,16 +176,28 @@ export class MusicEngine {
     if (!t) return;
     this.audio.src = t.src;
     this.audio.loop = this.playlist.length === 1; // a single track loops; otherwise advance on end
+    // Silent BEFORE play(), so the ramp owns the whole opening and no unfaded frame
+    // slips through between src and the first 'playing'.
+    if (autoplay) this.armFade(FADE_IN_MS);
     this.ensureGraph();
     this.applyVolume();
     if (autoplay) this.attemptPlay(); // autoplay may be blocked (restored session) → onBlocked fires
     this.onIndexChange?.(this.index);
+    // Pull the FOLLOWING track down while this one plays, so ⏭ and auto-advance
+    // don't pay the network cost the student would hear as a gap.
+    if (this.playlist.length > 1) primeAudio(this.playlist[(this.index + 1) % this.playlist.length]?.src);
   }
 
   play(): void {
+    // A short swell on resume rather than an instant unmute: <audio> restarting at
+    // full amplitude mid-waveform is what produces the click.
+    if (this.audio.paused) this.armFade(RESUME_FADE_MS);
     this.attemptPlay();
   }
   pause(): void {
+    // Freeze the ramp where it is. Without this the rAF keeps climbing while the
+    // element is silent, and the next resume would jump straight to full volume.
+    this.cancelFade();
     this.audio.pause();
   }
   /** Set live playback volume (0–100). Persists across ⏭/⏮ track changes. Above the
@@ -190,6 +248,8 @@ export class MusicEngine {
       limiter.release.value = 0.2;
       src.connect(gain).connect(warmth).connect(limiter).connect(ctx.destination);
       this.graph = { gain };
+      // applyVolume folds the fade multiplier in, so a fade already in flight carries
+      // straight across the switch from element.volume to the gain node.
       this.applyVolume();
     } catch {
       /* createMediaElementSource already used / unsupported → stay on element.volume */
@@ -205,7 +265,10 @@ export class MusicEngine {
     // fraction to an exponent (>1) widens the usable range: values near 0 get much
     // quieter and the top reaches a louder ceiling — while the curve stays smooth
     // and strictly increasing, so the progression still feels natural.
-    const shaped = Math.pow(this.volume01, MusicEngine.VOL_CURVE);
+    // × the fade multiplier, so the slider sets the TARGET and the fade scales it.
+    // One number, both output paths, and the two compose instead of overwriting each
+    // other: moving the slider mid-fade neither cancels nor jumps the swell.
+    const shaped = Math.pow(this.volume01, MusicEngine.VOL_CURVE) * this.fadeMul;
     if (this.graph) {
       this.graph.gain.gain.value = shaped * MusicEngine.MAX_GAIN * trackGain;
       this.audio.volume = 1; // element wide open; the gain node sets actual loudness
@@ -215,6 +278,48 @@ export class MusicEngine {
       this.audio.volume = Math.max(0, Math.min(1, shaped * trackGain));
     }
   }
+  /** Arm a fade: go silent NOW, ramp once the element actually starts producing
+   *  sound. Safe to call repeatedly — the newest arm wins. */
+  private armFade(ms: number): void {
+    this.cancelFade();
+    this.pendingFade = ms;
+    this.fadeMul = 0;
+    this.applyVolume();
+  }
+
+  /** Stop a ramp in flight and leave the level exactly where it stands. */
+  private cancelFade(): void {
+    if (this.fadeTimer) clearInterval(this.fadeTimer);
+    this.fadeTimer = 0;
+    this.pendingFade = 0;
+  }
+
+  /** The ramp: raise the multiplier on a timer and let applyVolume() push it to
+   *  whichever output is live (gain node, or element.volume before the AudioContext
+   *  unlocks).
+   *
+   *  A TIMER, not requestAnimationFrame. rAF stops dead in a hidden tab, and a focus
+   *  session spends most of its life in one — that's the entire point of the mini
+   *  player — so an rAF ramp would leave a track that auto-advanced in the background
+   *  stuck at zero, silent until you looked at the tab again. Background timers get
+   *  clamped to about a second, which makes the fade steppy there but never silent,
+   *  and in the foreground case this is actually about (the track you just started)
+   *  it runs at the full 40ms resolution. */
+  private runFade(ms: number): void {
+    if (this.fadeTimer) clearInterval(this.fadeTimer);
+    const from = this.fadeMul;
+    const t0 = performance.now();
+    this.fadeTimer = window.setInterval(() => {
+      const t = Math.min(1, (performance.now() - t0) / ms);
+      this.fadeMul = t >= 1 ? 1 : from + (1 - from) * Math.pow(t, FADE_CURVE);
+      if (t >= 1) {
+        clearInterval(this.fadeTimer);
+        this.fadeTimer = 0;
+      }
+      this.applyVolume();
+    }, 40);
+  }
+
   next(): void {
     if (!this.playlist.length) return;
     this.index = (this.index + 1) % this.playlist.length;
@@ -239,6 +344,9 @@ export class MusicEngine {
   }
 
   destroy(): void {
+    // The fade runs on an interval, and a discarded engine's interval would otherwise
+    // keep ticking for the rest of the page's life (a new engine is built per session).
+    this.cancelFade();
     this.audio.pause();
     this.audio.removeAttribute('src');
     this.audio.load(); // release the file

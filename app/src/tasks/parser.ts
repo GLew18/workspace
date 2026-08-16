@@ -417,11 +417,48 @@ export function parseQuickAdd(input: string): ParsedTask | null {
  * leaves no title, so we title it with the course too — both the text and course
  * become the course name.
  */
-export function parseFocusInput(input: string): { text: string; course: string } {
+/** "f:NAME" — the same token the Tasks tab's quick-add uses. Peeled off BEFORE the
+ *  rest of the parse so the folder name can never be mistaken for the title or a
+ *  course word, exactly as quickadd.ts does it. */
+const FOCUS_FOLDER_RE = /(^|\s)f:(\S*)/i;
+
+export function parseFocusInput(input: string): {
+  text: string;
+  course: string;
+  folderName: string;
+  dueDate: string;
+  dueTime: string;
+  priority: Priority;
+} {
   const raw = input.trim();
-  if (!raw) return { text: '', course: '' };
-  const tokens = raw.split(/\s+/).filter(Boolean);
-  const course = extractCourseTokens(tokens);
-  const text = tokens.join(' ').trim() || course || raw;
-  return { text, course };
+  const empty = { text: '', course: '', folderName: '', dueDate: '', dueTime: '', priority: 'normal' as Priority };
+  if (!raw) return empty;
+
+  // f: works in EVERY Focus add box now (Gabe, 8/15), matching the Tasks tab. It is
+  // peeled off FIRST so the folder name can never be read as a title word, a course
+  // parse word or a date.
+  let rest = raw;
+  let folderName = '';
+  const fm = rest.match(FOCUS_FOLDER_RE);
+  if (fm) {
+    folderName = fm[2].trim();
+    rest = (rest.slice(0, fm.index) + ' ' + rest.slice(fm.index! + fm[0].length)).replace(/\s+/g, ' ').trim();
+  }
+
+  // Then the SAME grammar the Tasks quick-add uses, rather than a course-only
+  // subset. Typing "tod" in a Focus box used to leave the word sitting in the title
+  // with no due date attached (Gabe, 8/15); now dates, times and priority words all
+  // behave identically in both places, which is the only thing a student could
+  // reasonably expect.
+  const parsed = parseQuickAdd(rest);
+  if (!parsed) return { ...empty, folderName };
+  return {
+    text: parsed.title || parsed.course || rest,
+    course: parsed.course,
+    folderName,
+    dueDate: parsed.dueDate,
+    dueTime: parsed.dueTime,
+    priority: parsed.priority,
+  };
 }
+

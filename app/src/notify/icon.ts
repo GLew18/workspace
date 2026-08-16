@@ -1,72 +1,19 @@
-// Cobalt service worker: PUSH NOTIFICATIONS ONLY (no asset caching).
+// Cobalt: the notification icon, INLINE as a data URI.
 //
-// Caching was intentionally removed: the old shell cache kept serving stale app code
-// during active development (a hard reload doesn't clear a service worker), which
-// caused "my fix didn't show up" over and over. This SW now does exactly one job —
-// relay closed-app push notifications — and NEVER intercepts fetches, so the browser
-// always loads the freshest files straight from the network/host.
+// Notification icons are fetched by the OS/browser at the moment the popup is
+// shown. A referenced URL therefore depends on a network round trip landing in
+// time, and when it does not, the notification appears with no logo at all. That
+// is the intermittent "very rarely the popup is devoid of the logo" Gabe reported
+// (8/15): rare, unreproducible, and entirely a timing artifact.
 //
-// On activate it PURGES every cache a previous (caching) version left behind, so an
-// existing stale install heals itself the moment this version takes over.
-
-// The notification icon, INLINE. A referenced URL is fetched when the popup is
-// shown, and a slow/failed fetch yields a notification with no logo (Gabe, 8/15).
-// Inlining removes that failure mode entirely, which matters most here: the push
-// path fires while the app is CLOSED, when nothing is warm.
-// BYTE-IDENTICAL to NOTIF_ICON in src/notify/icon.ts. Change one, change both.
-const NOTIF_ICON =
+// Inlining removes the fetch, so the logo is always present, including offline.
+// The service worker (public/sw.js) carries a byte-identical copy for the
+// closed-app push path; it cannot import from src/, so the two are duplicated
+// deliberately. IF YOU CHANGE ONE, CHANGE THE OTHER.
+//
+// 96px, ~10KB. Small enough to inline twice, large enough for a hidpi popup slot.
+// Caching it in the service worker was the alternative and was rejected: sw.js
+// deliberately has NO fetch handler, because an earlier caching version kept
+// serving stale app code.
+export const NOTIF_ICON =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAAACXBIWXMAAAAAAAAAAQCEeRdzAAAQAElEQVR4nO1d25McV3n/ndM9MzuzO3vTSrYlrSTLN2zHsgMxKBgMWC4IcYUQVwqq4tgUUJUHeKfCX+AU7+SNpMqUq8JLXogpeHBRBZgYqBgbY2N8kayLJe19Z2bn2n3OSX3fOaf79GhXlrQ3la0jzU73TE9fft/9croFrmWICHFlcn9UqT8UV6aPx9Wp+40xtwHYB6CGD/boAJgXQryTdldeSfvLL6p+64W0v3oeRl31zuKr2VjIUlSuH/xCqX7wKSlLJ4SMZ4zRoNeHaNQAHDHGHImq0yfi2gyMThe1Tp5PWueeGbTO/czoRG0pAYSMUa7PPlaqH/xOFFcfNkRpY+jA+FAPkzHfjIzKXx2ZuuOrpfrBXyStc98btM4+dyX4vC8BStU9B0b23Pu0jEeeNFrdAH2jQQxpUkhZfnhk6o6Hy/XZH/aWXvtu0l1675oIIIRAaeLIpyr1Iz+QUt75oef2Kx5WM8io9OTIzLFPiNa730wa7/7KGHN1BKjuPfZEafTm7xuVTmz04xtj40GYCSHvrE7d+T9xefzbnflXnr0yAgiJ2t77nijV9v2HUUn5Mse4Md53GBiVTBCWtX33o7Pw6rNkNy5LgPLE4U+VR2/6d63SG+Bv0TBalQnTdNA8PVg99asNCcAGt374P7VKx7fq4DeGHYQpYWv6zc+GhjkjgJQRRvbc929CRrff0PnbMwhbwlid/+WTWqsiAUr1Q4/JOH7C6A9VULWjgxibMC7VD/1Xv3HquYwAUkZRqT77XWgjdvaUPoRDG0FYJ60zP9VaKSZAqX7ob6K4/NAN7t/+YWBAWBPmJAWxEESA2acokruuokpkK++z8fsLbbYFXez1MIxhzAfNU8/FcWVqv5TxiV0zvIZCeAOtU7AECokojiFlXACMlq71DDlhSGmUNLEBkpRkEDnavxICbostkPEJwj6WlYmHpJR79A4bX/ICdJqSUcJIbQJTNx/GxMwBjO05gGp9D6LKKERUgoB0gsu0chfAf6GNXWbm8YTkJCElyeidCKuQJgOk/TX0WivorJ5HZ/Uiv6e9NRidQEZEbDrOzg3CnLCPo8r08Z3kfqVSELHHJvbgwG3HcOjuj2Pv7J2ojs9ARiMwQiJVGorQ9VzP5yeYDIy1RrbMRNDavRPgtKyzZf6OP7Pbq2SAZNBDr7WI5vxJrJz9A5pzb0H1mpQ62DFCEOaEfRxXpx/YiXw+caJKFab2HcCx4ydw518+jMrkAUDGSFOFNNVMnFRbTmbVQP8919MngRjwNtrwZ7QoHMD0R/g0cfhyxKA9RXEJtclbUJvcjz2HP4Z33ngZrff+ALXyJnS/4QixvaqJzp+wj2H00W09EsAqYGR0Ah/99BfxsYcfw+TeWxj0Zkdh0O/nnMyiSb8QmWb2spmpHy1AMDLwQmSEMMb9RhDWkhUXDd7WvwwgBdkZAeUCoU63i0SMobz/ONT0R5Au/hFq+Q1Adbnyt63D6KOxKyNuz/6NQZommL39Pjz6+Ddw6I57oZVBMhgwMKUIGKSWzRkghzpD6Za9CuIt6N1JBQHuCcdfEZPT1i6U0ciJYMUHQGSgee8Sku2FRrPZAhWY+OvKBMQtxyHGDkPN/Qamc9Gd1LZJw754u2q4rH+NwSdO/AMefuwJ1OoTSBLS/86gQiCKyBsAUi0gCVhHhfBycwmwgLMX4ySCnSbifJIK6bYkijgp0kbyfk1EvxGQOoIh7WI0ZCTRa/fQbncQycidL0mFgRy7BSg/CjX/EszKn+xZbI9Kql1VTfhKB10MuXmP/P3X8MnPP86YDJIEGYM6LhUQiCOrJogQHvrhS/UEswSwaoeMKm1H++btgyCetIskMYlIXeXAk5hIUltSQBiJVmuNbZOgdfpnJOMsSCLiGuRNx6HjUZjFl6yIbQMR4u0C/9F//Bccf+RLSFPL9fyd42QaDKYAKiWr02kQOIoLGVYieDv+4zwgSPZurNGlzyw3a6aE3Z5+WysLdAYGSaod2LRvyVJCIEcS6PcHaLZanIQkg80EIOlj7Uf/bEwi9hyDIVuw8LvAolynBGDf2xh87ktfw8c/93fM9QwYu5COi3lDex1SEtCWAOz9aI27b4mx0InRWBvw93a/XgLcvpgAgc53aocIvW+ihAePlvDauQHeONe3++CD0rEle0vCRFhbW0OaJPy91sJJgVNpwr+s9yQm74bWCQRJwhYLwZYSgLj9wc99GccffRwp6XvnGlqm90SwkuzBF5KkANADoFor4/G/KuP1CxrPvQxEBQI4ve8MLrubtCPmfEsEUmO0X96/A5E1D0tBDix5QGR8admej/2N9XvtNtYPEOxp8QEn74FJ1iAaf97SWGHLCEDcNHvbX+DTf/tPzJAUSHmu9/qZPRgHDhNAWlUTC6CfaPz1UYmpUYEHDgIvnSljoTFAFEmn+636IluraD+WOa1uZ0kAb7vUSvHz11N0+4bX6TzIHhCQTJQoYt3f6/YoGnXpD+vpeALZ8/SEcGpJSKip+xH1l2F6iy6NcZ0QgPT+SK2Oz375G6iOTViDG6ocGs6zHAafBqmOQzMVPHiEAAOqlQifucPgx69ESLRhne1VEMdS7PXwT3O1TNtoIo5BZ2AJxurFSYoF0aqvRqNpkxse8AB864g5o+x+58w9ZFRBOvVRxHM/B0x6/RCAIthjD30RB4/eg74H3/vnXt+zp2O50IOvAYyVBe45UMKDR2KMjViupnHv/hijIxF++VaCs8s6AMZHZHl6zksa+fbE6bE0IM+e7A97PRRnsJcl0e920G63mfvZYQjB98FI9nIGOVOhGmJkBmrsdsjm6zZi3m0CKKUwMX0T7vvkY2xIbQ7Heyg559O5sq/vonza4q6bYnz2rhKmx4hTc/Bp0PrRGYEDk2X86YLCr99RWGlbl5F3TC47u5RgtUQgk67nACvHL3tnqKRAo9nkc7bxhgedvnRqyDnDRQ3jpcN6Y6p+J6LOuzBpd9OqaNMEIB166wMnMDa5jwMty41OvL3KCYyidzHpvJUBumlumAv5B++Gsgtp0w5RRCrEio6R1sZIZweICB74jOv5eO6dAr5+gmaDkm65TSoQIuMWF48EBtl+4N5KNajRo5CN1zYL3+YIQCJcq0/iyLHPYJBq1tUhfhxc+QjXez9uPZISZ5Y1Fl5OcNfNER6YlZgeJQ8lc0bw1oLB/57SmG/YvE0UUcRqPStJBHDuZQ68N/QEuj+2JQIlJsj4kn1i26CcFxWkPfIYoCgChdicHQADVTuCeO0tTmfvGgFIlG++9T5M7d3PQQ8od8UXbyNKK7r2YrwEsD1wy7G0gL92XuFCU+DLxwxqFcmEe/28xvN/VlBGoFyywLN6I5DJ4CoLLOkW8ohC5s0YNgNWQCmN1dWGK+zkXJFtP0wMr5CGiOPVK0o16MpeoPPeptTQtRPAuX377zqOmDlTgWhA4EUZ5+UXkwE0ZOekFCw5rW6KVy+U8NBRoNXT+L/3JGSkEYOiY29kQw536oX1ey4FbB9CqXPGf63dRrfb4WqYUTb5lo+NAcwrJUVVRHGFqh5E3L1s7+32EYAyieR67p29i1VRfprBiQaAZyc+TBThVZLAWwvA3TcDJ5ck2n2FchzZYE7ZLChHu2wTCHCTvWeEHX45RiDpWV1ddSkHK51We+UnU5Ceoc8vuR7n/erSNGIRkzjuPAHIJ6/PzKI8OsUgRUMnObxyCY8FEgEHVKI0fvMu0BxEKMfSppqDYl0ekAUvn2NiJ9G7pNz94Qo7QLfbw1prjVWjtxsbXtcVfONTLuXaBKLaHqRrc9eshq5dArRGdXI/umkE3dOoVQQqrHs2+MEGhDD+jzOiF1qs4HFqXqM/oBQxgWmcDbBBm3VZbVDmv6NlshF2Pf+egOr1riWdPOT6+FQIdTSUyhgdG8VorYZWewZJ6+LOE4CzjtOzrAZ6AwWlJdsAIoT3huxZ53kcDL2bfJM8mILByXmNhdUki1wzInCh3deBc0LY9HSROCZYR1xFbfImNBa8vg6PfMnb0DZ54T+OY9THJ1Ct1qw3BwU5sgebGfE1F5SjCJWx6SzUp/deQlxI0iCZEJdcizOiBSIY97mj0tlFhYsrNNOkWJbx6sq7uDYQtu6mTXHbbzix4I5hc/u2LWVkdJIrca3l+Zz4GcauD+mS+qct7JPLXK9PoVob47Q2NxaoxBr48tjueEEUysfl0awlxIsqcVxnoF1OR6JathnJTBLc5VrAheNeG5wtNVOcWaT5Z5Z7M0ycBOS4hMvBzoc5OjymMahNzGDQ66LTXMmuY72GELYhLklHHD86VmeGo2wvubPetnB1Lq7sDgE4oo3LAbfkLzod0sedPhFCMCFGSi5lkJUWLahEBCLQWlfh5LyCUpRWFkMgurS2UwUZ5uupsyGV58/NrgqMTd+CpN9Dv9vOiJbvz3I8nT+BPlYfRxyXoJVGqtKA2XLOoAmMVlWaXUhFePWRGSibcwkBoQmbum+QKrIPQLkUFNMNFUcEp6LfvqjQHZC4W7cxzErkxwiasTKi+KYtt+6lK/je7siuU9ddfeYABudPQqt+DrwtMqBaG0W9Po5yucLEIK63LS7DFqKQ673msSkCZOoky/v7i84L6J5pBkSIHlBRGtWyRLlEBpWqYQZnlhTWOgqSarguPZ8VbwLwPaFzsAM7kqmajaXCq7JSpYr69M1YuXg6a+IaqYxgbHwCIyNVzm+lSlk1FBA2FD1rdYKD7woBXPufNaxWl3N2wF0oV6F8Jxv361DhhdxJjYoSbB8WVlMsNDRH0HY722zlLa65nBRkBA64PcRkeNlRg7ar1ifZHnSbS6jvmUCtNsrfUxuN9aK4/S5PeGfSlbPcVjQ0bzIb6k+o6M1wasaB7gGzNVwXwmuDXiowSBXmGr4516UWSHoc+FnGf9gOhConkLJLvvPwZd3WoboyGJvah8k6uZSCG8V0qOf5fK3P6wnrTqUodthtCfAnK8h4RVz0Jk63xW6Xs/E9PJJS0C5vTGAImzsi+2BbcF2qa+iaio5ODrgeNs4Fm7A+UTyneNtgM6O2lZF/yaVUf12O250r639vf0vMMhSq7zwBct3IvZnU3EShFNfILTcz8MFJRhS+sI5yybisydb675fkYTI7YD0mL2FFzg/V0jpGOpNOD24OpG1zyZez7TJ1lgd6rhsgDFx2lwA+UGGQyKCyCvHgUscab2RBdX49XPaSDIVw3JkFTn6DMKPBBLHgZ0m0gtEt2gS9gZH2BjMD2+0hB9gRJ/gs39Zlm9y6bQT2n2F3VRCLrON4SaG/0+Osfrw/ny1n7OvyymDdz/VhptNwHXaICC7WJanRrNrW8YwKr1AKhnR58J2NR4akIVM1w0Y+5PxdlgAbnXpu4zYpSwz+VhZ7k3k7quHawjltLZxUc2ElyFmHRRAGwOf8WUqci+SqXl5aOAcU2oeC+xjGCIF+z1SPb2d38wv8BA9PlIxpvHfkVZFf1UMqwQAADS9JREFU3iUC0ME5gPH1WALYSQH7yq6VPNMnXg1RDZd/gIzzyRPhTbPcfFgSdAabL9kWxiVJWbaty//odTg/82KG1UqgelwsUOD8bN0aZ2uEnfph4OnEPSF2UQK8DSBA9RDvs4vjZ7PYyrwDycBEnqtJdTk7IGxLed4i4g7kev+9lxTGCYXBRAjtQFGnDxPBqh3ieE8M5w0FdsFmYP32RAzP9Rm1d1ECWDy9QfPdsXbR9/0QEZjbafAEOdsewp1twkXDWRkzrJIFdsDFE373Ye4lr1j5ppGizl9Prxf1vwU8n9ZkuZ8lO1NFgZvqVY5f31031OpLXs4mSbCvyX07PiK2Ya607SNOx7vSLbwEcOsgi7VrES+oIpt5YbsxHCN41XM597LgZq6j/x0jed1v44si9w9PebLlzd20AVnhwwUormYrQyJwDMA+iwVf+2bYXO9rn1V0cQNt7RzVrNGWW084QefsRMh1YUDqOXtdrrcT9bJAKjhpYyj94Lg8mNhn9+PADlxPWwMOjfFuS4DzLnmERCBfnw0m1XfJDpCOJ0mQUKlGc62JvimjUh11P7CpaAYorN4X2tMDB7DgbnrO1ZcCrykba5dtJ6jlgl67gaQxx/2sfHRnnzJiZAbZe0nKEcHr/92UAOf728IJgWxnpjAykScCm9nMt6comC6g0WpiZXkRg24HleoIxvcdRqVWsw1P3DBlu+bo2riG4MDxbq+v+V6i6wNj6jmdtosl8NFbK5gajfDbtzpYWVPotxuYe/v3GHTWUKnVUZ/eh2qtntsQ3oWTiIDbafaMN8gZIXaDAF5/+pQtB7xBZxz5+6ROaEYKWVgyup21BpYW5tBtr3FPUalcQtLvo7VwFtg7i8pIzTbACsopWSPtjWxYA/YvyqryMs0rDn34gDgqTXFgXxWfP1ZFpVxil/W/f3EOCydfwaC7xvvurK2i01pFZXQc9cm9KFfoPHJJsNV9qtQ5YmTzyTZ/y87NdcalAxfE0Brxu5vv5dpC4CbiEeDL8/NorC7z9qVKCVLE0JSBhOC0cGvhDDAzi9JIjaWGCjOhK+o9F1tod0RQlgjcDaE8MYb9faDdU1htK0zIEt67uMqcn/bp/qtWIv17p7GMTnOZ68djkzPc/WDTDRZ8JgJLhFsnAmh7+4MdJYBtdtJIe203S90azuwvNVqJCP1ul1VNY3mJOZG4nic6pHlnmqGTMHZbM3catZmDMKNjKFFrRZYTKka4uRTY2rOVBJ0RIfT/iYgLjT5+9GsNmV7E73/3Oz5vEtc8AHN1Xk6NaLRWF9BuLHHf69jEJEpxbB2JzBbksYBRNM/Z95nuEAFoMAG6K9m9GSzn2/7zpDfA4uoSVpcXkQ7oXgxRPlmiYCSRGcpIR9BKIZ07Db13FqP1CZuicMUBs64U2PPwfaNEjIwXM0tt5yOcfm8ZF99+icG3DVrO9czOJ1ddPEVPp2itXESnucDnMjY+zgyUqR0y6ELBJJ3dIQCNfvMCczarGkHVpAFWllaxurTIM+BpLi5PAzK2OB/OPPEGUlPbB7d+KNt5oBTUhXeh1SGUKpWCeOegeRvgVY9GyrrfkSqwAfQJ3Rti8d0/QvWoO86qm9yFLkbDXiI46UHOQDpAc+kCOo1FjI6PY3SMWlNs7oslsNfYDISb64rot+a4aE0gtxorWFlaQK/bdVOQIgsWX0g+36owHUhrJHTXFBVBRRGiSPG+VJIimT/PBGHgLfqZi5ipHyIW3WOC7+i7nt/PosqMkbLBtfFEHt0GgVjm59sAy3s6HHMQcyU9rC620W6UbHPWaJVtgu7byX67RIB5LM+dQ7eXoNNes2FNRPNu7cQNim6zf2xUXdN3MCtR8IQ+0s+WkNS9HJfLiAbUGZf33ufqJw+UyGX1KiSvWhU52bquZJQq0El3KEoOOD+IcDODG+h7P8cz6XexPL+GykgF1WoZqr+2ewRQSQ9zp16GHD1ob4JEHO7aGrSbGurSZ/k/nr0SppyF3YbEnaYOEQ/KCiIM3AZBTdj75lmFypcX85LhekSwyb8KTN/q643AL77yQCv/3gaWdNRet809oZVN3sB80yVJ0T4LUzvAos5Fkmy2YfFfRgg35ZPVivDFlzy5QISkIEwn/sJ8UcQtB50KOec7r2cdNZR9hsjmk0hdDX0fGlZsIAEFYrikeKya2OzYFAEY6N4c1KANWR61eponyrlZ6RRIafKNbJ4H4Qz0rMdTFERYxhUXfdoRliDD9hBbMB+u3w5JQYEglI8qwyQD9zsHfphiHn5xciMvvthlp5J0gkhTLIHdnaSn1QBon4aJP+Ly9dJGsK4Y5iqPQ5OenS2AzclkE+T4LYLhiWLrBDdBE8BwpauQBS1Ig1U1vJUsuQjXqxee8zikdoKIN5CGYQmJVWNTEzO2dJ6wbJ9EUjsMGY9A0N1HOKVs3Tiuv4ec7ic+Z5Oi4dNjEHHZgbjehQXAZ+p/nS6HdbKgeY6IFQeM7jld7tIMwxKwkURkREoQp5tzP7eMAAxq2oFcext6/J7iPGfH3bYsmc9E9xuIrO5rCSCFDcbWGz4cyFoEHfjFdpNAKgrA5/VckgJ6DEze77mO2gmIkqch8u/jdJWJcLmZNjt7rwi61WTnFHTlFpjyFNdKrconSaC0Q6D/efvc8Ape5/sq2/wRT6Arzg1YrznLvjnuZyOady2sJwWZV+POIUsrZ2A7deTuK7euESbjq7soMfdvHvwtvVmHUQni1qtIJj/Oxo5GPis+uAlGQAwaWdVRljlNkRcWiiM3xk6fu8UC6GFH9BDwoU43MgK4M9qDHXhBPtu5nlrSCcrJYl5+vZ4IwID2lxGv/Rlp/R7rdrp7BYUzznMCuN9l9kBCsPpZn7PylITn+vw97GDz6Yci8J6jncqhGzBdou/N5cE3CqV0BZJavK/bO2ZRmbFzClJWoEePurYg6//baURhNBw6PiVb670MAcJ2uCw1EYDvQc+WQ2C9bg8B5aAxIMqQn18kgEGUNqzns8VjG+4ZJxCvvQlFaefqIVc1t597Ytj8u/2MvaAoYu8pj8byfQ1XnEJJyL/zreSek8Ny4bAkOKC9FASfXw78crq89VBtDwFoaEStN/hpQrp6OLjDVH7zppwg0vaIbuD9XDryICzLORdAz5fzNpKhtIIrk7Ia83XUglHO16N0FeWU5pRtsgl0Zwlgm4Pi9ptQugdVuxWQFdej7r73nbayAgO6Zcr7eRXOZ8pUjPtsuF8zA96rlgD8cN3dlG9YCvLlBKV0dVvUzjABOttz71ALaNQ9A5k2kdZuhy5NBNi5++/QfbOzhNYVuHZDBMh1/vqSsH4Xg3vnw4Wup8lcTVI5Une3zN3cYHSIAPP0bMTtO4aAGKyglL4CNbIfimKFqOZSA1GgFore//DIuxEDAgyDHxhgHx9kKijw9wt63rfycbVugEg1UaIkG6cZthV8GvMxhDwJo7eRAC4gMAnfZUr256EqN0GXZ2Aq0zlAV6Bls63yICBIUQxNnigAfalnlHUzcGGoj0i1EKs1JkLW0b3dQ8iTcdpdfrlUnXpkM5X9Kzyau9gu4s4poH8eujcFVdkHUxqHiao2Ebdu160fAfj8VmjTKkpBSIBg3baZpBCmD5l22MORaRuC7JA/zx0YfHOS7vLLseovv1iuTW+qteIqD+1mzAwgexcg+3M2TRyNMREM3SqYDDM/QYNU1HrnFRph/76OLcg8JsV2RtAxVZc5XlBCju986JXbzgBfKGj1l1+Mdb/xgtZ6CcDm7jpx9acAf3t4AkaopRwMjtK2+kEKXiKCmR+7ALwfhDlhH6f9lfNap89HUekrOycFw0OsczuZ0Nu5yn1tOGyv0W4Pewu15HnCPibMk9bZZ6Kp276y2T7HrR8CH8hB+r919hmCmwMxeqhYqT77QiRLD4UPkLoxtn6Qs63SwQuEOa0zAeiJbknr7NPR1G0/vvE0vW0eUpikcfZpwryQikhaZ54r1w8/K6Pon3fPFnywB/fUpumzhLX/LCMAtWv0ll791+rMfcch5O27dpYf4GG0epsw9k9SvSQZR8+5Fa3TX69N3fHcjWcKb+2QUdzsrLz19fBZwutmQweN07+Ky+Pf4keaa3XjqdpbMISMBoP23LcI2/dPR9NEhflXnqVnoJdGb/6+UWmQwrwxrm7QAyPiRtK++G3C9KrqAd2FPzxLz0Cv1I/8QEp55w3DfE2TWN7srbz5zaTx7iWc/74EIMDpAfSm33xkZM+9T8t45MmsenRjXGZQJ3gEnfZ+2Ft67bvDOv+qK2K0g/T8r58q12d/VKof/E4UVx+2zUo3CFEY3OkRQaXdXySNc98btM4+RyXZLSlJ0o7o6c+D1rmflusHv1CqH3xKytIJIeOZvNPgQziEnfNmdLqo1eD5pHXumUHr3M+MpntFbkNNmHbcb5z6Sb955idxZXJ/VKk/FNMjWatT9xtjbnPPpdyWRyPi+hlUwp0XQryTdpdfSfvLL6p+64W0v3r+Wpp1/x+GYsR0MPfPHQAAAABJRU5ErkJggg==';
-
-self.addEventListener('install', () => self.skipWaiting());
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches
-      .keys()
-      .then((keys) => Promise.all(keys.map((k) => caches.delete(k)))) // wipe ALL old caches
-      .then(() => self.clients.claim())
-  );
-});
-
-// --- Push (closed-app reminders from the Cloud Function via FCM) ---------------
-// The function sends a DATA message ({ data: { title, body } }); we show it here so
-// we control the icon + click target.
-self.addEventListener('push', (event) => {
-  let d = {};
-  try {
-    d = event.data ? event.data.json() : {};
-  } catch {
-    /* non-JSON push — ignore */
-  }
-  const data = d.data || d.notification || d;
-  const title = data.title || 'Cobalt';
-  const body = data.body || '';
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: NOTIF_ICON,
-      badge: NOTIF_ICON,
-      data: { url: '/#tasks' },
-    })
-  );
-});
-
-// Clicking the notification focuses an open Cobalt window (Tasks tab), or opens one.
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || '/#tasks';
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-      for (const client of list) {
-        if (new URL(client.url).origin === self.location.origin) {
-          client.navigate(url);
-          return client.focus();
-        }
-      }
-      return clients.openWindow(url);
-    })
-  );
-});
-
-// NOTE: deliberately NO 'fetch' handler. Without one the browser bypasses the service
-// worker for every request → you always get fresh files, never a cached stale copy.
