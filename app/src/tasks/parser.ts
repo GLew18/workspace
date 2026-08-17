@@ -17,7 +17,9 @@ const dayMap: Record<string, number> = {
   wednesday: 3, wed: 3, we: 3,
   thursday: 4, thu: 4, thurs: 4, th: 4,
   friday: 5, fri: 5, fr: 5,
-  saturday: 6, sat: 6, sa: 6,
+  // 'sa' REMOVED (Gabe, 8/16). Two letters is too small a target for a word that
+  // common — "sa" swallows real title text. 'sat' is unambiguous and stays.
+  saturday: 6, sat: 6,
 };
 
 const TOMORROW = new Set(['tomorrow', 'tom', 'tmrw', 'tmr']);

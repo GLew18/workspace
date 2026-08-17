@@ -242,27 +242,23 @@
   container-type: inline-size;
   container-name: settings;
 }
-/* Narrow screens: the nav collapses to a horizontal row above the content.
-   The premium shell rides along: it becomes a row chip-group inside the row.
+/* THE SIDEBAR NEVER CHANGES SIZE OR SHAPE, at any width (Gabe, 8/15).
    
-   470px of PAGE, not 620px of window: the sidebar is a constant 172px that never
-   shrinks (flex: none above), so a two-column layout stays comfortable much further
-   down than the old threshold assumed, and every pixel it survives is a pixel with
-   no layout jump in it (Gabe, 8/15). Below this there genuinely is not room for a
-   172px rail and a usable column beside it, so the rail becomes a row of chips on
-   top and the content takes the whole width. */
-@container settingspage (max-width: 470px) {
-  /* WIDTH IS EXPLICIT HERE ON PURPOSE. .settings-content is a size CONTAINER (see
-     container-type above), and .settings-shell sets align-items: flex-start — so the
-     moment the shell became a column, the content was sized shrink-to-fit against a
-     box whose size is contained, and collapsed to a sliver with its cards spilling
-     out of it. This is the line that stops that. */
-  .settings-content { width: 100%; align-self: stretch; }
-  .settings-shell { flex-direction: column; gap: 14px; }
-  .settings-side { position: static; width: auto; flex-direction: row; flex-wrap: wrap; gap: 6px; }
-  .settings-side-title { width: 100%; margin-bottom: 6px; }
-  .settings-side-prem { flex-direction: row; flex-wrap: wrap; align-items: center; margin-top: 0; padding: 4px 7px; }
-  .settings-side-subhead { padding: 0 6px 0 4px; }
+   It used to collapse into a row of chips above the content on a narrow screen.
+   That is a second layout to reason about, and it was the source of the one
+   remaining jump. The app's own tab rail doesn't do this — it stays exactly as wide
+   as it is however small the window gets — and Settings now matches: `flex: none`
+   plus a fixed 172px above, so ONLY the content column shrinks, one pixel per pixel,
+   the whole way down.
+   
+   What gives the content room instead is the gutters: the shell's gap and the page's
+   right padding both scale with the viewport, so at a phone width they nearly vanish
+   and the column gets those pixels rather than the whitespace. */
+.settings-shell {
+  gap: clamp(10px, 2.4vw, 26px);
+}
+.settings-page {
+  padding-right: clamp(6px, 3vw, 34px);
 }
 .settings-pagehead {
   padding: 4px 0 12px;

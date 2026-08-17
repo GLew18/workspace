@@ -1,0 +1,13 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "bounce-easing",
+        "value": "cubic-bezier(0.34, 1.45, 0.55, 1)",
+        "createdAt": "2026-08-16T21:18:11.518Z"
+      }
+    ]
+  }
+}

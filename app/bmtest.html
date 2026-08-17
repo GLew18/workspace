@@ -1,0 +1,184 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>bookmarks multi-select test</title>
+<link rel="stylesheet" href="/src/ui/bookmarks.css" />
+<body style="font:13px/1.6 system-ui;background:#0b1a3a;color:#dbe6ff;padding:20px">
+  <pre id="out">running…</pre>
+  <div id="mount" style="max-width:900px;margin-top:20px"></div>
+  <script type="module">
+    // Drives the REAL BookmarksView against a stub Data, so every assertion is about
+    // the shipped code path rather than a re-implementation of it.
+    import { BookmarksView } from '/src/bookmarks/view.ts';
+
+    const R = [];
+    const ok = (name, cond, extra = '') => R.push(`${cond ? 'PASS' : 'FAIL'}  ${name} ${extra}`);
+    const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+
+    const SEED = {
+      list: [
+        { id: 'a', name: 'Alpha', url: 'https://a.com' },
+        { id: 'b', name: 'Bravo', url: 'https://b.com' },
+        { id: 'c', name: 'Charlie', url: 'https://c.com' },
+        { id: 'd', name: 'Delta', url: 'https://d.com', shortcut: 'Alt+D' },
+        { id: 'e', name: 'Echo', url: 'https://e.com' },
+      ],
+      groups: [],
+    };
+    let saved = null;
+    const data = {
+      getProfile: async () => structuredClone(SEED),
+      setProfile: async (_k, v) => { saved = structuredClone(v); },
+    };
+
+    const mount = document.getElementById('mount');
+    const view = new BookmarksView(data);
+    await view.mount(mount);
+    await wait(60);
+
+    const cards = () => [...mount.querySelectorAll('.bm-card[data-bm-id]')];
+    const byId = (id) => cards().find((c) => c.dataset.bmId === id);
+    const selected = () => cards().filter((c) => c.classList.contains('selected')).map((c) => c.dataset.bmId);
+    const click = (id, mods = {}) => {
+      const c = byId(id);
+      const ev = new MouseEvent('click', { bubbles: true, cancelable: true, ...mods });
+      c.querySelector('.bm-card-name').dispatchEvent(ev);
+      return ev;
+    };
+
+    ok('the view rendered every seeded card', cards().length === 5, `${cards().length} cards`);
+
+    // --- a plain click with nothing selected must still OPEN the link ---
+    const plain = click('a');
+    ok('a plain click with no selection does not select', selected().length === 0);
+    ok('…and does not swallow the navigation', !plain.defaultPrevented);
+
+    // --- ctrl-click starts a selection ---
+    const ctrl = click('a', { ctrlKey: true });
+    ok('ctrl-click selects', JSON.stringify(selected()) === '["a"]', selected().join(','));
+    ok('a selecting click swallows the navigation', ctrl.defaultPrevented);
+
+    // --- once a selection exists, a PLAIN click toggles (the Tasks rule) ---
+    click('b');
+    ok('a plain click adds while a selection is live', JSON.stringify(selected()) === '["a","b"]', selected().join(','));
+    click('b');
+    ok('…and toggles back off', JSON.stringify(selected()) === '["a"]', selected().join(','));
+
+    // --- shift-click extends a range from the anchor ---
+    click('d', { shiftKey: true });
+    ok('shift-click selects a range', JSON.stringify(selected()) === '["a","b","c","d"]', selected().join(','));
+
+    // --- what grays, and where ---
+    const scOf = (id) => byId(id).querySelector('.bm-chip-shortcut');
+    const grOf = (id) => byId(id).querySelector('.bm-chip-btn:not(.bm-chip-shortcut)');
+    ok('SHORTCUT grays on the selected cards', ['a','b','c','d'].every((id) => scOf(id).disabled && scOf(id).classList.contains('bm-chip-off')));
+    ok('GROUP stays live on the selected cards', ['a','b','c','d'].every((id) => !grOf(id).disabled && !grOf(id).classList.contains('bm-chip-off')));
+    ok('a card OUTSIDE the selection is untouched', !scOf('e').disabled && !scOf('e').classList.contains('bm-chip-off') && !grOf('e').disabled);
+
+    // a grayed shortcut chip is genuinely inert, however the click arrives
+    let modalOpened = false;
+    const mo = new MutationObserver(() => { if (document.querySelector('.bm-backdrop')) modalOpened = true; });
+    mo.observe(document.body, { childList: true });
+    scOf('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(40);
+    mo.disconnect();
+    ok('a grayed shortcut chip is inert (no modal opens)', !modalOpened);
+
+    // --- BULK GROUP: the reason multi-select exists ---
+    grOf('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(50);
+    ok('the group picker opens from a selected card', !!document.querySelector('.bm-backdrop'));
+    ok('…and says how many links it will hit', /Applies to all 4 selected links/.test(document.querySelector('.popup-bulk-note')?.textContent || ''),
+      JSON.stringify(document.querySelector('.popup-bulk-note')?.textContent));
+    // create a group from inside the picker and assign the whole selection
+    const nameField = document.querySelector('.bm-backdrop .folder-pick-input');
+    if (nameField) {
+      nameField.value = 'Reading';
+      nameField.dispatchEvent(new Event('input', { bubbles: true }));
+      nameField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await wait(120);
+    }
+    ok('all four selected links landed in the new group',
+      ['a','b','c','d'].every((id) => (saved?.list.find((b) => b.id === id) || {}).groupId) &&
+      new Set(['a','b','c','d'].map((id) => saved.list.find((b) => b.id === id).groupId)).size === 1,
+      JSON.stringify(saved?.list.map((b) => [b.id, b.groupId || '-'])));
+    ok('the unselected link was NOT grouped', !saved?.list.find((b) => b.id === 'e').groupId);
+    // put the world back for the delete stage below
+    document.querySelector('.bm-backdrop')?.remove();
+    for (const b of saved.list) delete b.groupId;
+    view.state.list.forEach((b) => delete b.groupId);
+    view.state.groups = [];
+    view.renderGrid();
+    await wait(30);
+    ['a','b','c','d'].forEach((id) => view.selectedIds.add(id));
+    view.syncSelectionUI();
+
+    // --- the selection bar is the way OUT of a selection ---
+    ok('a bar appears once 2+ are selected', (() => { const b = document.querySelector('.selbar'); return b && !b.hidden; })());
+    ok('…and says how many', /4 links selected/.test(document.querySelector('.selbar-count')?.textContent || ''),
+      JSON.stringify(document.querySelector('.selbar-count')?.textContent));
+    document.querySelector('.selbar-clear').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(30);
+    ok('Deselect all clears everything', selected().length === 0);
+    ok('…and the bar hides itself again', document.querySelector('.selbar').hidden);
+    ok('there is only ever ONE bar in the document', document.querySelectorAll('.selbar').length === 1,
+      String(document.querySelectorAll('.selbar').length));
+    ['a','b','c','d'].forEach((id) => view.selectedIds.add(id));
+    view.syncSelectionUI();
+
+    // --- clicking a card's own control must never change the selection ---
+    const before = selected().join(',');
+    byId('e').querySelector('.bm-card-handle').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    ok('a click on the drag handle does not select', selected().join(',') === before);
+
+    // --- Escape clears ---
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    ok('Escape clears the selection', selected().length === 0);
+    const chipsBack = cards().every((c) => [...c.querySelectorAll('.bm-chip-btn')].every((b) => !b.disabled && !b.classList.contains('bm-chip-off')));
+    ok('…and the chips come back', chipsBack);
+
+    // --- bulk delete: one confirmation, one write ---
+    click('a', { ctrlKey: true });
+    click('c');
+    click('e');
+    ok('re-selected three', selected().length === 3, selected().join(','));
+    byId('c').querySelector('.bm-icon-danger').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(40);
+    const modal = document.querySelector('.bm-backdrop .bm-modal-title');
+    ok('the confirmation names the COUNT, not one link', /Delete 3 links\?/.test(modal?.textContent || ''), JSON.stringify(modal?.textContent));
+    ok('…and lists which ones', /Alpha.*Charlie.*Echo/.test(document.querySelector('.bm-modal-note')?.textContent || ''));
+
+    saved = null;
+    document.querySelector('.bm-backdrop .bm-btn-danger').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(80);
+    ok('all three are gone', cards().length === 2 && cards().map(c=>c.dataset.bmId).join(',') === 'b,d', cards().map(c=>c.dataset.bmId).join(','));
+    ok('it was ONE write, carrying the survivors', !!saved && saved.list.length === 2, JSON.stringify(saved?.list?.map(b=>b.id)));
+    ok('the selection cleared itself after the delete', selected().length === 0);
+
+    // --- deleting a single card still says its name ---
+    byId('b').querySelector('.bm-icon-danger').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(40);
+    ok('a single delete still names the link', /Delete “Bravo”\?/.test(document.querySelector('.bm-backdrop .bm-modal-title')?.textContent || ''),
+      JSON.stringify(document.querySelector('.bm-backdrop .bm-modal-title')?.textContent));
+    document.querySelector('.bm-backdrop .bm-btn').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); // Cancel
+    await wait(30);
+    ok('cancel leaves everything alone', cards().length === 2);
+
+    // --- Esc listener does not stack across re-mounts ---
+    const view2 = new BookmarksView(data);
+    const mount2 = document.createElement('div');
+    document.body.append(mount2);
+    await view2.mount(mount2);
+    await wait(60);
+    let escHandled = 0;
+    const count = () => escHandled++;
+    document.addEventListener('keydown', count);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    document.removeEventListener('keydown', count);
+    mount2.remove();
+    ok('re-mounting does not stack Esc listeners', escHandled === 1, `${escHandled}`);
+
+    const pass = R.filter((r) => r.startsWith('PASS')).length;
+    window.__bm = { pass, fail: R.length - pass, total: R.length, results: R };
+    document.getElementById('out').textContent = R.join('\n') + `\n\n${pass}/${R.length} passed`;
+  </script>
+</body>

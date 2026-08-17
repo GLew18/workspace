@@ -33,6 +33,15 @@
   /* secondary tokens */
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.16);
+
+  /* ===== TOAST SKIN — every floating strip wears exactly this (Gabe, 8/16) =====
+     They had drifted: radius 12 / 14 / 999, two different borders and two different
+     shadows across four surfaces that all do the same job. One token set means the
+     next one added inherits the look instead of inventing a fifth. */
+  --toast-radius: 12px;
+  --toast-bg: var(--surface);
+  --toast-border: 1px solid rgba(125, 180, 255, 0.35);
+  --toast-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   --radius: 14px;
   --red: #ef4444;
 }

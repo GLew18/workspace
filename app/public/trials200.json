@@ -1,0 +1,1202 @@
+[
+{
+"lang": "es",
+"name": "Spanish",
+"seed": "Read chapter seven and answer the questions",
+"text": "Lea el capítulo siete y responda las preguntas"
+},
+{
+"lang": "es",
+"name": "Spanish",
+"seed": "Finish your math homework before Friday",
+"text": "Termina tu tarea de matemáticas antes del viernes"
+},
+{
+"lang": "es",
+"name": "Spanish",
+"seed": "The turtle beats the hare in the race",
+"text": "La tortuga vence a la liebre en la carrera"
+},
+{
+"lang": "es",
+"name": "Spanish",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Trae una calculadora y una regla a clase mañana"
+},
+{
+"lang": "es",
+"name": "Spanish",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Escribe un breve ensayo comparando los dos personajes principales"
+},
+{
+"lang": "es",
+"name": "Spanish",
+"seed": "Study for the midterm exam next week",
+"text": "Estudiar para el examen de mitad de período la próxima semana"
+},
+{
+"lang": "es",
+"name": "Spanish",
+"seed": "Prepare five slides about the water cycle",
+"text": "Preparar cinco diapositivas sobre el ciclo del agua"
+},
+{
+"lang": "es",
+"name": "Spanish",
+"seed": "Translate the poem and explain what it means",
+"text": "Traducir el poema y explicar lo que significa"
+},
+{
+"lang": "es",
+"name": "Spanish",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Entregue su informe de laboratorio el lunes por la mañana"
+},
+{
+"lang": "es",
+"name": "Spanish",
+"seed": "Please email me if you have any questions",
+"text": "Envíame un correo electrónico a       si tienes alguna pregunta."
+},
+{
+"lang": "fr",
+"name": "French",
+"seed": "Read chapter seven and answer the questions",
+"text": "Lisez le chapitre sept et répondez aux questions"
+},
+{
+"lang": "fr",
+"name": "French",
+"seed": "Finish your math homework before Friday",
+"text": "Terminez vos devoirs de mathématiques avant vendredi"
+},
+{
+"lang": "fr",
+"name": "French",
+"seed": "The turtle beats the hare in the race",
+"text": "La tortue bat le lièvre dans la course"
+},
+{
+"lang": "fr",
+"name": "French",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Apportez une calculatrice et une règle en classe demain"
+},
+{
+"lang": "fr",
+"name": "French",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Rédiger un court essai comparant les deux personnages principaux"
+},
+{
+"lang": "fr",
+"name": "French",
+"seed": "Study for the midterm exam next week",
+"text": "Etudier pour l'examen à mi-parcours la semaine prochaine"
+},
+{
+"lang": "fr",
+"name": "French",
+"seed": "Prepare five slides about the water cycle",
+"text": "Préparez cinq diapositives sur le cycle de l'eau"
+},
+{
+"lang": "fr",
+"name": "French",
+"seed": "Translate the poem and explain what it means",
+"text": "Traduisez le poème et expliquez ce qu'il signifie"
+},
+{
+"lang": "fr",
+"name": "French",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Remettez votre rapport de laboratoire le lundi matin"
+},
+{
+"lang": "fr",
+"name": "French",
+"seed": "Please email me if you have any questions",
+"text": "Veuillez m'envoyer un courriel si vous avez des questions"
+},
+{
+"lang": "de",
+"name": "German",
+"seed": "Read chapter seven and answer the questions",
+"text": "Lesen Sie Kapitel sieben und beantworten Sie die Fragen"
+},
+{
+"lang": "de",
+"name": "German",
+"seed": "Finish your math homework before Friday",
+"text": "Beende deine Mathe-Hausaufgaben vor Freitag"
+},
+{
+"lang": "de",
+"name": "German",
+"seed": "The turtle beats the hare in the race",
+"text": "Die Schildkröte schlägt den Hasen im Rennen"
+},
+{
+"lang": "de",
+"name": "German",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Bringen Sie morgen einen Taschenrechner und ein Lineal zum Unterricht mit"
+},
+{
+"lang": "de",
+"name": "German",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Schreibe einen kurzen Aufsatz, in dem du die beiden Hauptfiguren vergleichst"
+},
+{
+"lang": "de",
+"name": "German",
+"seed": "Study for the midterm exam next week",
+"text": "Studieren für die Zwischenprüfung nächste Woche"
+},
+{
+"lang": "de",
+"name": "German",
+"seed": "Prepare five slides about the water cycle",
+"text": "Bereiten Sie fünf Folien über den Wasserkreislauf vor"
+},
+{
+"lang": "de",
+"name": "German",
+"seed": "Translate the poem and explain what it means",
+"text": "Übersetzen Sie das Gedicht und erklären Sie, was es bedeutet"
+},
+{
+"lang": "de",
+"name": "German",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Reichen Sie Ihren Laborbericht am Montagmorgen ein"
+},
+{
+"lang": "de",
+"name": "German",
+"seed": "Please email me if you have any questions",
+"text": "Bei Fragen schicken Sie uns einfach eine Mail."
+},
+{
+"lang": "it",
+"name": "Italian",
+"seed": "Read chapter seven and answer the questions",
+"text": "Leggi il capitolo sette e rispondi alle domande"
+},
+{
+"lang": "it",
+"name": "Italian",
+"seed": "Finish your math homework before Friday",
+"text": "Finisci i compiti di matematica prima di venerdì"
+},
+{
+"lang": "it",
+"name": "Italian",
+"seed": "The turtle beats the hare in the race",
+"text": "La tartaruga batte la lepre in gara"
+},
+{
+"lang": "it",
+"name": "Italian",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Domani porta in classe una calcolatrice e un righello"
+},
+{
+"lang": "it",
+"name": "Italian",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Scrivi un breve saggio confrontando i due personaggi principali"
+},
+{
+"lang": "it",
+"name": "Italian",
+"seed": "Study for the midterm exam next week",
+"text": "Studia per l'esame intermedio la prossima settimana"
+},
+{
+"lang": "it",
+"name": "Italian",
+"seed": "Prepare five slides about the water cycle",
+"text": "Preparare cinque diapositive sul ciclo dell'acqua"
+},
+{
+"lang": "it",
+"name": "Italian",
+"seed": "Translate the poem and explain what it means",
+"text": "Traduci la poesia e spiega cosa significa"
+},
+{
+"lang": "it",
+"name": "Italian",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Consegna il referto del laboratorio lunedì mattina"
+},
+{
+"lang": "it",
+"name": "Italian",
+"seed": "Please email me if you have any questions",
+"text": "\"In caso di domande, inviami una mail. "
+},
+{
+"lang": "pt",
+"name": "Portuguese",
+"seed": "Read chapter seven and answer the questions",
+"text": "Leia o capítulo sete e responda às perguntas"
+},
+{
+"lang": "pt",
+"name": "Portuguese",
+"seed": "Finish your math homework before Friday",
+"text": "Termine o seu trabalho de matemática antes de sexta-feira"
+},
+{
+"lang": "pt",
+"name": "Portuguese",
+"seed": "The turtle beats the hare in the race",
+"text": "A tartaruga vence a lebre na corrida"
+},
+{
+"lang": "pt",
+"name": "Portuguese",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Traga uma calculadora e uma régua para a aula amanhã"
+},
+{
+"lang": "pt",
+"name": "Portuguese",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Escreva um pequeno ensaio comparando os dois personagens principais"
+},
+{
+"lang": "pt",
+"name": "Portuguese",
+"seed": "Study for the midterm exam next week",
+"text": "Estude para o exame intermediário na próxima semana"
+},
+{
+"lang": "pt",
+"name": "Portuguese",
+"seed": "Prepare five slides about the water cycle",
+"text": "Preparar cinco slides sobre o ciclo da água"
+},
+{
+"lang": "pt",
+"name": "Portuguese",
+"seed": "Translate the poem and explain what it means",
+"text": "Traduza o poema e explique o que significa"
+},
+{
+"lang": "pt",
+"name": "Portuguese",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Entregue o seu relatório de laboratório na segunda-feira de manhã"
+},
+{
+"lang": "pt",
+"name": "Portuguese",
+"seed": "Please email me if you have any questions",
+"text": "Por favor, envie-me um e-mail se tiver alguma dúvida"
+},
+{
+"lang": "ru",
+"name": "Russian",
+"seed": "Read chapter seven and answer the questions",
+"text": "Прочитайте седьмую главу и ответьте на вопросы"
+},
+{
+"lang": "ru",
+"name": "Russian",
+"seed": "Finish your math homework before Friday",
+"text": "Завершите домашнее задание по математике до пятницы"
+},
+{
+"lang": "ru",
+"name": "Russian",
+"seed": "The turtle beats the hare in the race",
+"text": "Черепаха побеждает зайца в гонке"
+},
+{
+"lang": "ru",
+"name": "Russian",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Принесите калькулятор и линейку на завтрашний урок"
+},
+{
+"lang": "ru",
+"name": "Russian",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Напишите короткое эссе, сравнивая двух главных героев"
+},
+{
+"lang": "ru",
+"name": "Russian",
+"seed": "Study for the midterm exam next week",
+"text": "Учеба для сдачи промежуточного экзамена на следующей неделе"
+},
+{
+"lang": "ru",
+"name": "Russian",
+"seed": "Prepare five slides about the water cycle",
+"text": "Подготовьте пять слайдов о круговороте воды"
+},
+{
+"lang": "ru",
+"name": "Russian",
+"seed": "Translate the poem and explain what it means",
+"text": "Переведите стихотворение и объясните, что оно означает"
+},
+{
+"lang": "ru",
+"name": "Russian",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Сдайте свой лабораторный отчет в понедельник утром"
+},
+{
+"lang": "ru",
+"name": "Russian",
+"seed": "Please email me if you have any questions",
+"text": "Напишите мне, если у вас появятся вопросы."
+},
+{
+"lang": "ja",
+"name": "Japanese",
+"seed": "Read chapter seven and answer the questions",
+"text": "第7章を読み，質問に答えてください"
+},
+{
+"lang": "ja",
+"name": "Japanese",
+"seed": "Finish your math homework before Friday",
+"text": "金曜日までに数学の宿題を終わらせましょう"
+},
+{
+"lang": "ja",
+"name": "Japanese",
+"seed": "The turtle beats the hare in the race",
+"text": "カメはレースでウサギを打ち負かします"
+},
+{
+"lang": "ja",
+"name": "Japanese",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "明日クラスに電卓と定規を持ってきてください"
+},
+{
+"lang": "ja",
+"name": "Japanese",
+"seed": "Write a short essay comparing the two main characters",
+"text": "2人の主人公を比較した短いエッセイを書く"
+},
+{
+"lang": "ja",
+"name": "Japanese",
+"seed": "Study for the midterm exam next week",
+"text": "来週の中間試験のための勉強"
+},
+{
+"lang": "ja",
+"name": "Japanese",
+"seed": "Prepare five slides about the water cycle",
+"text": "水循環に関するスライドを5枚用意する"
+},
+{
+"lang": "ja",
+"name": "Japanese",
+"seed": "Translate the poem and explain what it means",
+"text": "詩を翻訳し、その意味を説明する"
+},
+{
+"lang": "ja",
+"name": "Japanese",
+"seed": "Hand in your lab report on Monday morning",
+"text": "月曜日の朝にラボレポートを提出する"
+},
+{
+"lang": "ja",
+"name": "Japanese",
+"seed": "Please email me if you have any questions",
+"text": "ご不明な点がございましたら、メールでお問い合わせください"
+},
+{
+"lang": "zh",
+"name": "Chinese",
+"seed": "Read chapter seven and answer the questions",
+"text": "阅读第七章并回答问题"
+},
+{
+"lang": "zh",
+"name": "Chinese",
+"seed": "Finish your math homework before Friday",
+"text": "周五前完成数学作业"
+},
+{
+"lang": "zh",
+"name": "Chinese",
+"seed": "The turtle beats the hare in the race",
+"text": "乌龟在比赛中击败了兔子"
+},
+{
+"lang": "zh",
+"name": "Chinese",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "明天带一台计算器和一把尺子去上课"
+},
+{
+"lang": "zh",
+"name": "Chinese",
+"seed": "Write a short essay comparing the two main characters",
+"text": "写一篇比较两个主要人物的短文"
+},
+{
+"lang": "zh",
+"name": "Chinese",
+"seed": "Study for the midterm exam next week",
+"text": "下周期中考试的学习"
+},
+{
+"lang": "zh",
+"name": "Chinese",
+"seed": "Prepare five slides about the water cycle",
+"text": "准备五张关于水循环的幻灯片"
+},
+{
+"lang": "zh",
+"name": "Chinese",
+"seed": "Translate the poem and explain what it means",
+"text": "翻译诗歌并解释其含义"
+},
+{
+"lang": "zh",
+"name": "Chinese",
+"seed": "Hand in your lab report on Monday morning",
+"text": "在周一早上提交您的实验室报告"
+},
+{
+"lang": "zh",
+"name": "Chinese",
+"seed": "Please email me if you have any questions",
+"text": "如果您有任何疑问，欢迎向我发送电子邮件或来电垂询。"
+},
+{
+"lang": "ar",
+"name": "Arabic",
+"seed": "Read chapter seven and answer the questions",
+"text": "اقرأ الفصل السابع وأجب عن الأسئلة"
+},
+{
+"lang": "ar",
+"name": "Arabic",
+"seed": "Finish your math homework before Friday",
+"text": "إنهاء واجبك في الرياضيات قبل يوم الجمعة"
+},
+{
+"lang": "ar",
+"name": "Arabic",
+"seed": "The turtle beats the hare in the race",
+"text": "السلحفاة تهزم الأرنب في السباق"
+},
+{
+"lang": "ar",
+"name": "Arabic",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "أحضر آلة حاسبة ومسطرة إلى الفصل غدًا"
+},
+{
+"lang": "ar",
+"name": "Arabic",
+"seed": "Write a short essay comparing the two main characters",
+"text": "اكتب مقالة قصيرة تقارن بين الشخصيتين الرئيسيتين"
+},
+{
+"lang": "ar",
+"name": "Arabic",
+"seed": "Study for the midterm exam next week",
+"text": "دراسة لامتحان منتصف الفصل الدراسي الأسبوع المقبل"
+},
+{
+"lang": "ar",
+"name": "Arabic",
+"seed": "Prepare five slides about the water cycle",
+"text": "إعداد خمس شرائح حول دورة المياه"
+},
+{
+"lang": "ar",
+"name": "Arabic",
+"seed": "Translate the poem and explain what it means",
+"text": "ترجمة القصيدة وشرح معناها"
+},
+{
+"lang": "ar",
+"name": "Arabic",
+"seed": "Hand in your lab report on Monday morning",
+"text": "تسليم تقرير المختبر الخاص بك صباح يوم الاثنين"
+},
+{
+"lang": "ar",
+"name": "Arabic",
+"seed": "Please email me if you have any questions",
+"text": "يرجى مراسلتي عبر البريد الإلكتروني إذا كان لديك أي أسئلة"
+},
+{
+"lang": "he",
+"name": "Hebrew",
+"seed": "Read chapter seven and answer the questions",
+"text": "קרא את פרק 7 וענה על השאלות"
+},
+{
+"lang": "he",
+"name": "Hebrew",
+"seed": "Finish your math homework before Friday",
+"text": "יש לסיים את שיעורי הבית במתמטיקה לפני יום שישי"
+},
+{
+"lang": "he",
+"name": "Hebrew",
+"seed": "The turtle beats the hare in the race",
+"text": "הצב מנצח את הארנבת במירוץ"
+},
+{
+"lang": "he",
+"name": "Hebrew",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "הבא מחר לכיתה מחשבון וסרגל"
+},
+{
+"lang": "he",
+"name": "Hebrew",
+"seed": "Write a short essay comparing the two main characters",
+"text": "כתבו חיבור קצר המשווה בין שתי הדמויות הראשיות"
+},
+{
+"lang": "he",
+"name": "Hebrew",
+"seed": "Study for the midterm exam next week",
+"text": "ללמוד לבחינת אמצע הקדנציה בשבוע הבא"
+},
+{
+"lang": "he",
+"name": "Hebrew",
+"seed": "Prepare five slides about the water cycle",
+"text": "הכינו חמש שקופיות לגבי מחזור המים"
+},
+{
+"lang": "he",
+"name": "Hebrew",
+"seed": "Translate the poem and explain what it means",
+"text": "תרגם את השיר והסבר מה משמעותו"
+},
+{
+"lang": "he",
+"name": "Hebrew",
+"seed": "Hand in your lab report on Monday morning",
+"text": "מסור את דוח המעבדה שלך ביום שני בבוקר"
+},
+{
+"lang": "he",
+"name": "Hebrew",
+"seed": "Please email me if you have any questions",
+"text": "אפשר לשלוח לי אימייל אם יש לך שאלות נוספות"
+},
+{
+"lang": "pl",
+"name": "Polish",
+"seed": "Read chapter seven and answer the questions",
+"text": "Przeczytaj rozdział siódmy i odpowiedz na pytania"
+},
+{
+"lang": "pl",
+"name": "Polish",
+"seed": "Finish your math homework before Friday",
+"text": "Ukończ zadanie domowe z matematyki przed piątkiem"
+},
+{
+"lang": "pl",
+"name": "Polish",
+"seed": "The turtle beats the hare in the race",
+"text": "Żółw pokonuje zająca w wyścigu"
+},
+{
+"lang": "pl",
+"name": "Polish",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Przynieś jutro na zajęcia kalkulator i linijkę"
+},
+{
+"lang": "pl",
+"name": "Polish",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Napisz krótki esej porównujący dwóch głównych bohaterów"
+},
+{
+"lang": "pl",
+"name": "Polish",
+"seed": "Study for the midterm exam next week",
+"text": "Ucz się do egzaminu śródokresowego w przyszłym tygodniu"
+},
+{
+"lang": "pl",
+"name": "Polish",
+"seed": "Prepare five slides about the water cycle",
+"text": "Przygotuj pięć slajdów na temat obiegu wody"
+},
+{
+"lang": "pl",
+"name": "Polish",
+"seed": "Translate the poem and explain what it means",
+"text": "Przetłumacz wiersz i wyjaśnij, co on oznacza"
+},
+{
+"lang": "pl",
+"name": "Polish",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Przekaż swój raport laboratoryjny w poniedziałek rano"
+},
+{
+"lang": "pl",
+"name": "Polish",
+"seed": "Please email me if you have any questions",
+"text": "Jeśli masz jakieś pytania, napisz do mnie"
+},
+{
+"lang": "nl",
+"name": "Dutch",
+"seed": "Read chapter seven and answer the questions",
+"text": "Lees hoofdstuk zeven en beantwoord de vragen"
+},
+{
+"lang": "nl",
+"name": "Dutch",
+"seed": "Finish your math homework before Friday",
+"text": "Voltooi je wiskunde huiswerk voor vrijdag"
+},
+{
+"lang": "nl",
+"name": "Dutch",
+"seed": "The turtle beats the hare in the race",
+"text": "De schildpad verslaat de haas in de race"
+},
+{
+"lang": "nl",
+"name": "Dutch",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Neem morgen een rekenmachine en een liniaal mee naar de les"
+},
+{
+"lang": "nl",
+"name": "Dutch",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Schrijf een kort essay waarin je de twee hoofdpersonen vergelijkt"
+},
+{
+"lang": "nl",
+"name": "Dutch",
+"seed": "Study for the midterm exam next week",
+"text": "Studie voor het tussentijds examen volgende week"
+},
+{
+"lang": "nl",
+"name": "Dutch",
+"seed": "Prepare five slides about the water cycle",
+"text": "Bereid vijf dia's voor over de watercyclus"
+},
+{
+"lang": "nl",
+"name": "Dutch",
+"seed": "Translate the poem and explain what it means",
+"text": "Vertaal het gedicht en leg uit wat het betekent"
+},
+{
+"lang": "nl",
+"name": "Dutch",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Lever maandagochtend je labrapport in"
+},
+{
+"lang": "nl",
+"name": "Dutch",
+"seed": "Please email me if you have any questions",
+"text": "Stuur me een e-mail als je vragen hebt"
+},
+{
+"lang": "tr",
+"name": "Turkish",
+"seed": "Read chapter seven and answer the questions",
+"text": "Yedinci bölümü okuyun ve soruları yanıtlayın"
+},
+{
+"lang": "tr",
+"name": "Turkish",
+"seed": "Finish your math homework before Friday",
+"text": "Cuma gününden önce matematik ödevini bitir"
+},
+{
+"lang": "tr",
+"name": "Turkish",
+"seed": "The turtle beats the hare in the race",
+"text": "Kaplumbağa yarışta tavşanı yener"
+},
+{
+"lang": "tr",
+"name": "Turkish",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Yarın sınıfa bir hesap makinesi ve cetvel getirin"
+},
+{
+"lang": "tr",
+"name": "Turkish",
+"seed": "Write a short essay comparing the two main characters",
+"text": "İki ana karakteri karşılaştıran kısa bir kompozisyon yazın"
+},
+{
+"lang": "tr",
+"name": "Turkish",
+"seed": "Study for the midterm exam next week",
+"text": "Gelecek hafta yapılacak ara sınava çalış"
+},
+{
+"lang": "tr",
+"name": "Turkish",
+"seed": "Prepare five slides about the water cycle",
+"text": "Su döngüsü hakkında beş slayt hazırlayın"
+},
+{
+"lang": "tr",
+"name": "Turkish",
+"seed": "Translate the poem and explain what it means",
+"text": "Şiiri çevir ve ne anlama geldiğini açıkla"
+},
+{
+"lang": "tr",
+"name": "Turkish",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Pazartesi sabahı laboratuvar raporunuzu teslim edin"
+},
+{
+"lang": "tr",
+"name": "Turkish",
+"seed": "Please email me if you have any questions",
+"text": "Herhangi bir sorunuz varsa lütfen bana e - posta gönderin"
+},
+{
+"lang": "vi",
+"name": "Vietnamese",
+"seed": "Read chapter seven and answer the questions",
+"text": "Đọc chương bảy và trả lời các câu hỏi"
+},
+{
+"lang": "vi",
+"name": "Vietnamese",
+"seed": "Finish your math homework before Friday",
+"text": "Hoàn thành bài tập toán trước thứ Sáu"
+},
+{
+"lang": "vi",
+"name": "Vietnamese",
+"seed": "The turtle beats the hare in the race",
+"text": "Con rùa đánh bại con thỏ trong cuộc đua"
+},
+{
+"lang": "vi",
+"name": "Vietnamese",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Mang theo máy tính và thước kẻ đến lớp vào ngày mai"
+},
+{
+"lang": "vi",
+"name": "Vietnamese",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Viết một bài luận ngắn so sánh hai nhân vật chính"
+},
+{
+"lang": "vi",
+"name": "Vietnamese",
+"seed": "Study for the midterm exam next week",
+"text": "Nghiên cứu cho kỳ thi giữa kỳ vào tuần tới"
+},
+{
+"lang": "vi",
+"name": "Vietnamese",
+"seed": "Prepare five slides about the water cycle",
+"text": "Chuẩn bị năm slide về chu trình nước"
+},
+{
+"lang": "vi",
+"name": "Vietnamese",
+"seed": "Translate the poem and explain what it means",
+"text": "Dịch bài thơ và giải thích ý nghĩa của nó"
+},
+{
+"lang": "vi",
+"name": "Vietnamese",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Nộp báo cáo xét nghiệm vào sáng thứ Hai"
+},
+{
+"lang": "vi",
+"name": "Vietnamese",
+"seed": "Please email me if you have any questions",
+"text": "Email cho anh nếu em có thắc mắc."
+},
+{
+"lang": "sk",
+"name": "Slovak",
+"seed": "Read chapter seven and answer the questions",
+"text": "Prečítajte si siedmu kapitolu a odpovedzte na otázky"
+},
+{
+"lang": "sk",
+"name": "Slovak",
+"seed": "Finish your math homework before Friday",
+"text": "Dokončite si úlohy z matematiky do piatku"
+},
+{
+"lang": "sk",
+"name": "Slovak",
+"seed": "The turtle beats the hare in the race",
+"text": "Korytnačka porazí zajaca v pretekoch"
+},
+{
+"lang": "sk",
+"name": "Slovak",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Prineste zajtra do triedy kalkulačku a pravítko"
+},
+{
+"lang": "sk",
+"name": "Slovak",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Napíšte krátku esej porovnávajúcu dve hlavné postavy"
+},
+{
+"lang": "sk",
+"name": "Slovak",
+"seed": "Study for the midterm exam next week",
+"text": "Štúdium na strednodobú skúšku budúci týždeň"
+},
+{
+"lang": "sk",
+"name": "Slovak",
+"seed": "Prepare five slides about the water cycle",
+"text": "Pripravte si päť snímok o kolobehu vody"
+},
+{
+"lang": "sk",
+"name": "Slovak",
+"seed": "Translate the poem and explain what it means",
+"text": "Preložte báseň a vysvetlite, čo to znamená"
+},
+{
+"lang": "sk",
+"name": "Slovak",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Odovzdajte svoju laboratórnu správu v pondelok ráno"
+},
+{
+"lang": "sk",
+"name": "Slovak",
+"seed": "Please email me if you have any questions",
+"text": "Ak máte akékoľvek otázky, pošlite mi e-mail"
+},
+{
+"lang": "sl",
+"name": "Slovenian",
+"seed": "Read chapter seven and answer the questions",
+"text": "Preberite sedmo poglavje in odgovorite na vprašanja"
+},
+{
+"lang": "sl",
+"name": "Slovenian",
+"seed": "Finish your math homework before Friday",
+"text": "Dokončajte domačo nalogo iz matematike pred petkom"
+},
+{
+"lang": "sl",
+"name": "Slovenian",
+"seed": "The turtle beats the hare in the race",
+"text": "Želva premaga zajca na dirki"
+},
+{
+"lang": "sl",
+"name": "Slovenian",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Jutri prinesite kalkulator in ravnilo v razred"
+},
+{
+"lang": "sl",
+"name": "Slovenian",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Napišite kratek esej, v katerem primerjate dva glavna lika"
+},
+{
+"lang": "sl",
+"name": "Slovenian",
+"seed": "Study for the midterm exam next week",
+"text": "Študij za izpit naslednji teden"
+},
+{
+"lang": "sl",
+"name": "Slovenian",
+"seed": "Prepare five slides about the water cycle",
+"text": "Pripravite pet diapozitivov o vodnem ciklu"
+},
+{
+"lang": "sl",
+"name": "Slovenian",
+"seed": "Translate the poem and explain what it means",
+"text": "Prevedite pesem in razložite, kaj pomeni"
+},
+{
+"lang": "sl",
+"name": "Slovenian",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Predajte svoj laboratorijski izvid v ponedeljek zjutraj"
+},
+{
+"lang": "sl",
+"name": "Slovenian",
+"seed": "Please email me if you have any questions",
+"text": "Če imate kakršnakoli vprašanja, mi pošljite e-sporočilo"
+},
+{
+"lang": "et",
+"name": "Estonian",
+"seed": "Read chapter seven and answer the questions",
+"text": "Lugege seitsmendat peatükki ja vastake küsimustele"
+},
+{
+"lang": "et",
+"name": "Estonian",
+"seed": "Finish your math homework before Friday",
+"text": "Lõpeta matemaatika kodutöö enne reedet"
+},
+{
+"lang": "et",
+"name": "Estonian",
+"seed": "The turtle beats the hare in the race",
+"text": "Kilpkonn võidab võidusõidul jänest"
+},
+{
+"lang": "et",
+"name": "Estonian",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Tooge kalkulaator ja joonlaud homme tundi"
+},
+{
+"lang": "et",
+"name": "Estonian",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Kirjuta lühike essee, milles võrreldakse kahte peategelast"
+},
+{
+"lang": "et",
+"name": "Estonian",
+"seed": "Study for the midterm exam next week",
+"text": "Uuring järgmise nädala vaheeksamiks"
+},
+{
+"lang": "et",
+"name": "Estonian",
+"seed": "Prepare five slides about the water cycle",
+"text": "Valmista ette viis slaidi veetsükli kohta"
+},
+{
+"lang": "et",
+"name": "Estonian",
+"seed": "Translate the poem and explain what it means",
+"text": "Tõlgi luuletus ja selgita, mida see tähendab"
+},
+{
+"lang": "et",
+"name": "Estonian",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Esita oma laboriraport esmaspäeva hommikul"
+},
+{
+"lang": "et",
+"name": "Estonian",
+"seed": "Please email me if you have any questions",
+"text": "Küsimuste korral saada mulle e-kiri"
+},
+{
+"lang": "is",
+"name": "Icelandic",
+"seed": "Read chapter seven and answer the questions",
+"text": "Lestu sjöunda kafla og svaraðu spurningunum"
+},
+{
+"lang": "is",
+"name": "Icelandic",
+"seed": "Finish your math homework before Friday",
+"text": "Ljúktu heimaverkefni í stærðfræði fyrir föstudag"
+},
+{
+"lang": "is",
+"name": "Icelandic",
+"seed": "The turtle beats the hare in the race",
+"text": "Skjaldbakan sigrar hérann í keppninni"
+},
+{
+"lang": "is",
+"name": "Icelandic",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Komdu með reiknivél og reglustiku í tíma á morgun"
+},
+{
+"lang": "is",
+"name": "Icelandic",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Skrifaðu stutta ritgerð þar sem aðalpersónurnar tvær eru bornar saman"
+},
+{
+"lang": "is",
+"name": "Icelandic",
+"seed": "Study for the midterm exam next week",
+"text": "Læra fyrir miðprófið í næstu viku"
+},
+{
+"lang": "is",
+"name": "Icelandic",
+"seed": "Prepare five slides about the water cycle",
+"text": "Undirbúðu fimm glærur um hringrás vatnsins"
+},
+{
+"lang": "is",
+"name": "Icelandic",
+"seed": "Translate the poem and explain what it means",
+"text": "Þýddu ljóðið og útskýrðu hvað það þýðir"
+},
+{
+"lang": "is",
+"name": "Icelandic",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Færðu inn rannsóknarskýrslu á mánudagsmorgni"
+},
+{
+"lang": "is",
+"name": "Icelandic",
+"seed": "Please email me if you have any questions",
+"text": "Vinsamlegast sendu mér tölvupóst ef þú hefur einhverjar spurningar"
+},
+{
+"lang": "cy",
+"name": "Welsh",
+"seed": "Read chapter seven and answer the questions",
+"text": "Darllen Pennod 7 ac ateb y cwestiynau"
+},
+{
+"lang": "cy",
+"name": "Welsh",
+"seed": "Finish your math homework before Friday",
+"text": "Gorffen eich gwaith cartref mathemateg cyn dydd Gwener"
+},
+{
+"lang": "cy",
+"name": "Welsh",
+"seed": "The turtle beats the hare in the race",
+"text": "Mae'r crwban yn curo'r ysgyfarnog yn y ras"
+},
+{
+"lang": "cy",
+"name": "Welsh",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Dewch â chyfrifiannell a phren mesur i'r dosbarth yfory"
+},
+{
+"lang": "cy",
+"name": "Welsh",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Ysgrifennu traethawd byr yn cymharu'r ddau brif gymeriad"
+},
+{
+"lang": "cy",
+"name": "Welsh",
+"seed": "Study for the midterm exam next week",
+"text": "Astudiaeth ar gyfer yr arholiad canol tymor yr wythnos nesaf"
+},
+{
+"lang": "cy",
+"name": "Welsh",
+"seed": "Prepare five slides about the water cycle",
+"text": "Paratowch bum sleid am y cylch dŵr"
+},
+{
+"lang": "cy",
+"name": "Welsh",
+"seed": "Translate the poem and explain what it means",
+"text": "Cyfieithwch y gerdd ac esboniwch beth mae'n ei olygu"
+},
+{
+"lang": "cy",
+"name": "Welsh",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Cyflwyno eich adroddiad labordy ar fore dydd Llun"
+},
+{
+"lang": "cy",
+"name": "Welsh",
+"seed": "Please email me if you have any questions",
+"text": "Anfonwch e - bost ataf os oes gennych unrhyw gwestiynau"
+},
+{
+"lang": "sw",
+"name": "Swahili",
+"seed": "Read chapter seven and answer the questions",
+"text": "Soma sura ya saba na ujibu maswali"
+},
+{
+"lang": "sw",
+"name": "Swahili",
+"seed": "Finish your math homework before Friday",
+"text": "Maliza kazi yako ya hisabati kabla ya Ijumaa"
+},
+{
+"lang": "sw",
+"name": "Swahili",
+"seed": "The turtle beats the hare in the race",
+"text": "Kobe anapiga nyati katika mbio"
+},
+{
+"lang": "sw",
+"name": "Swahili",
+"seed": "Bring a calculator and a ruler to class tomorrow",
+"text": "Leta kikokotoo na mtawala darasani kesho"
+},
+{
+"lang": "sw",
+"name": "Swahili",
+"seed": "Write a short essay comparing the two main characters",
+"text": "Andika insha fupi ukilinganisha wahusika wakuu wawili"
+},
+{
+"lang": "sw",
+"name": "Swahili",
+"seed": "Study for the midterm exam next week",
+"text": "Utafiti wa mtihani wa katikati ya muhula wiki ijayo"
+},
+{
+"lang": "sw",
+"name": "Swahili",
+"seed": "Prepare five slides about the water cycle",
+"text": "Andaa slaidi tano kuhusu mzunguko wa maji"
+},
+{
+"lang": "sw",
+"name": "Swahili",
+"seed": "Translate the poem and explain what it means",
+"text": "Tafsiri shairi na ueleze maana yake"
+},
+{
+"lang": "sw",
+"name": "Swahili",
+"seed": "Hand in your lab report on Monday morning",
+"text": "Toa ripoti yako ya maabara Jumatatu asubuhi"
+},
+{
+"lang": "sw",
+"name": "Swahili",
+"seed": "Please email me if you have any questions",
+"text": "Tafadhali nitumie barua pepe ikiwa una maswali yoyote"
+}
+]

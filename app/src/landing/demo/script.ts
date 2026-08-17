@@ -18,7 +18,7 @@
 // animation stops naturally in background tabs.
 
 import { el } from '../../util/dom';
-import { setDemoSilent } from '../../tasks/complete';
+import { setDemoSilent } from '../../util/silence';
 import { buildDemoShell, type DemoShell } from './shell';
 import { GhostCursor } from './cursor';
 import { danDueTodayCount } from './seed';
@@ -43,6 +43,36 @@ const beat = (name: string): void => {
   (window as unknown as { __demoBeat?: string }).__demoBeat = name;
 };
 
+/** #8 (Gabe, 8/16): the input→output emphasis layer. A Cobalt-dark card pops
+ *  half OUTSIDE the frame edge naming the output the last input just produced,
+ *  lingers, and slides itself away. It mounts on the fit wrapper (the frame
+ *  clips at its rounded corners) and never blocks the script — Dan keeps
+ *  moving while the viewer reads. Big wins only; six across the whole loop. */
+function callout(
+  shell: DemoShell,
+  opts: { title: string; sub?: string; at?: number; side?: 'left' | 'right'; hold?: number }
+): void {
+  const wrap = shell.root.parentElement ?? shell.root;
+  const card = el('div', { class: `lp-callout ${opts.side ?? 'right'}` });
+  card.style.top = `${Math.round((opts.at ?? 0.22) * 100)}%`;
+  card.append(el('div', { class: 'lp-callout-check', text: '✓' }));
+  const txt = el('div', { class: 'lp-callout-text' });
+  txt.append(el('div', { class: 'lp-callout-title', text: opts.title }));
+  if (opts.sub) txt.append(el('div', { class: 'lp-callout-sub', text: opts.sub }));
+  card.append(txt);
+  wrap.append(card);
+  window.setTimeout(() => card.classList.add('out'), opts.hold ?? 2100);
+  window.setTimeout(() => card.remove(), (opts.hold ?? 2100) + 420);
+}
+
+/** The output's in-app glow: two soft gem-blue pulses on the element the last
+ *  input changed, timed with its callout. */
+function pulse(target: Element | null | undefined): void {
+  if (!target) return;
+  target.classList.add('lp-emph-pulse');
+  window.setTimeout(() => target.classList.remove('lp-emph-pulse'), 1900);
+}
+
 // #region Scenes -------------------------------------------------------------
 
 /** Scene 1 — Dan lands on the Dashboard; the morning briefing arrives bottom-
@@ -55,13 +85,15 @@ const sceneDashboard: Scene = {
     await cur.wait(650);
     await cur.moveTo({ x: 640, y: 320 }, { slow: 1.25 }); // drift in like a hand settling
     const n = danDueTodayCount();
+    // Mirrors Gabe's reference screenshot of the real notification (8/16):
+    // bold greeting, count line, dim origin. No app row, no localhost origin.
     const brief = el('div', { class: 'lp-demo-brief' });
     const icon = el('img', { src: '/icons/icon.svg', alt: '' });
     const copy = el('div', {});
     copy.append(
-      el('div', { class: 'lp-demo-brief-app', text: 'Cobalt · now' }),
-      el('div', { class: 'lp-demo-brief-title', text: `Good morning, ${n} task${n === 1 ? '' : 's'} due today` }),
-      el('div', { class: 'lp-demo-brief-body', text: 'Open Cobalt to see them.' })
+      el('div', { class: 'lp-demo-brief-title', text: 'Good morning, Dan' }),
+      el('div', { class: 'lp-demo-brief-body', text: `${n} task${n === 1 ? '' : 's'} due today` }),
+      el('div', { class: 'lp-demo-brief-app', text: 'cobalt.app' })
     );
     brief.append(icon, copy);
     shell.body.append(brief);
@@ -116,6 +148,8 @@ const sceneTasksBulk: Scene = {
       4000,
       'both due-today tasks completed by the bulk check-off'
     );
+    callout(shell, { title: 'Two tasks, one click', sub: 'Select together, finish together', at: 0.3 });
+    await cur.wait(500);
   },
 };
 
@@ -169,13 +203,26 @@ const sceneHistoryProject: Scene = {
     await cur.waitUntil(async () => (await shell.data.getTasksAll())[dupId]?.title === 'Find reliable sources', 4000, 'duplicate renamed');
     await cur.wait(300);
 
-    // Cherry-pick the five chain rows (ctrl-click: the precise multi-select).
-    const chain = ['dan_hp1', 'dan_hp2', dupId, 'dan_hp3', 'dan_hp4'];
-    for (const id of chain) {
-      await cur.click(row(shell, id), { ctrl: true, ax: 0.6 });
-      await cur.wait(120);
-    }
-    expect(chain.every((id) => row(shell, id).classList.contains('selected')), 'history chain not fully selected');
+    // Range-select the chain the way the app actually works (Gabe, 8/16):
+    // ctrl-click anchors the first row, shift-click the last row sweeps
+    // EVERYTHING between — including the essay, which sits mid-range by due
+    // date. Dan then deselects the one row that doesn't belong. No skipping.
+    const chain = ['dan_hp1', 'dan_hp2', dupId, 'dan_hp4'];
+    await cur.click(row(shell, 'dan_hp1'), { ctrl: true, ax: 0.6 });
+    await cur.wait(200);
+    await cur.click(row(shell, 'dan_hp4'), { shift: true, ax: 0.6 });
+    expect(
+      row(shell, 'dan_essay').classList.contains('selected'),
+      'the essay sits inside the range and must select with it (real range behavior)'
+    );
+    await cur.wait(420); // let the over-selection read before Dan fixes it
+    await cur.click(row(shell, 'dan_essay'), { ctrl: true, ax: 0.6 });
+    await cur.wait(160);
+    expect(
+      chain.every((id) => row(shell, id).classList.contains('selected')) &&
+        !row(shell, 'dan_essay').classList.contains('selected'),
+      'history chain selected with the essay toggled back off'
+    );
 
     // File them: ⋯ → Add to folder → "+ New folder…" → type the name → Enter.
     await moreMenu(ctx, 'dan_hp1', /folder/i);
@@ -190,8 +237,10 @@ const sceneHistoryProject: Scene = {
       const all = await shell.data.getTasksAll();
       const fids = new Set(chain.map((id) => all[id]?.folderId).filter(Boolean));
       return fids.size === 1;
-    }, 4000, 'all five chain tasks filed into one folder');
+    }, 4000, 'all chain tasks filed into one folder');
     await cur.waitFor('.task-folder-name', shell.body);
+    callout(shell, { title: 'One project, filed together', sub: 'Every step of it in one folder', at: 0.34 });
+    pulse(shell.body.querySelector('.task-folder-name'));
     await cur.wait(650); // let the folder block read
   },
 };
@@ -205,16 +254,32 @@ const sceneQuickAdd: Scene = {
     await cur.scrollBy(scroller, -scroller.scrollTop, 500);
     const input = shell.body.querySelector<HTMLTextAreaElement>('.quick-add textarea')!;
     await cur.click(input);
-    await cur.typeInto(input, 'study for algebra 2 test math tod h');
+    // Natural language, no priority token (Gabe, 8/16): the parser eats
+    // "math" (course) and "today" (date); priority is set BY HAND right after,
+    // so the arrow button gets its own moment.
+    await cur.typeInto(input, 'study for algebra 2 test math today');
     await cur.wait(420); // a beat to let the line read before it transforms
     cur.pressKey(input, 'Enter');
+    let newId = '';
     await cur.waitUntil(async () => {
       const all = await shell.data.getTasksAll();
-      return Object.values(all).some(
-        (t) => t.title === 'study for algebra 2 test' && t.course === 'Math' && t.priority === 'high' && !!t.dueDate
-      );
-    }, 4000, 'quick-add parsed course/date/priority out of the typed line');
-    await cur.wait(500);
+      const hit = Object.values(all).find((t) => t.title === 'study for algebra 2 test' && t.course === 'Math' && !!t.dueDate);
+      if (hit) newId = hit.id;
+      return !!hit;
+    }, 4000, 'quick-add parsed course + date out of the typed line');
+    await cur.wait(450);
+    await cur.click(row(shell, newId).querySelector('.task-actions button[title="Priority"]')!);
+    await cur.waitFor('.priority-option', shell.body);
+    const high = [...shell.body.querySelectorAll<HTMLElement>('.priority-option')].find(
+      (b) => /high/i.test(b.textContent ?? '') && !/very/i.test(b.textContent ?? '')
+    );
+    expect(high, 'High missing from the priority popup');
+    await cur.wait(240);
+    await cur.click(high!);
+    await cur.waitUntil(async () => (await shell.data.getTasksAll())[newId]?.priority === 'high', 4000, 'priority set to High by hand');
+    callout(shell, { title: 'One line in, a full task out', sub: 'Course and date parsed as he typed', at: 0.16 });
+    pulse(shell.body.querySelector(`.task-item[data-task-id="${newId}"]`));
+    await cur.wait(700);
   },
 };
 
@@ -323,7 +388,7 @@ const sceneEssayAttachments: Scene = {
     await cur.click(fields[0]);
     await cur.typeInto(fields[0], 'essay doc');
     await cur.click(fields[1]);
-    await cur.typeInto(fields[1], 'https://docs.google.com/document/d/dan-essay-doc');
+    await cur.paste(fields[1], 'https://docs.google.com/document/d/dan-essay-doc');
     const done = [...editing.querySelectorAll<HTMLElement>('button')].find((b) => /done/i.test(b.textContent ?? ''));
     expect(done, 'attachment editor has no Done button');
     await cur.click(done!);
@@ -393,7 +458,7 @@ const sceneBookmarks: Scene = {
       await cur.click(inputs[0]);
       await cur.typeInto(inputs[0], name);
       await cur.click(inputs[1]);
-      await cur.typeInto(inputs[1], url);
+      await cur.paste(inputs[1], url);
       await cur.wait(150);
       await cur.click([...modal.querySelectorAll<HTMLElement>('button')].find((b) => /^save$/i.test(b.textContent ?? ''))!);
       await cur.waitUntil(async () => {
@@ -411,37 +476,54 @@ const sceneBookmarks: Scene = {
       return card;
     };
 
-    // New "Math" group from the Desmos card's "+ Group" chip.
+    // BULK SELECT both new cards (the 8/16 feature), then one group action
+    // covers the pair. The selection bar must appear INSIDE the demo screen.
+    await cur.click(cardOf('Desmos'), { ctrl: true, ay: 0.2 });
+    await cur.wait(200);
+    await cur.click(cardOf('GeoGebra'), { ctrl: true, ay: 0.2 });
+    await cur.waitUntil(() => {
+      const bar = shell.body.querySelector<HTMLElement>('.selbar');
+      return !!bar && !bar.hidden && /2 links selected/i.test(bar.textContent ?? '');
+    }, 3000, 'selection bar shows 2 links selected inside the frame');
+    await cur.wait(500);
     await cur.click(cardOf('Desmos').querySelector('.bm-chip-btn')!);
-    await cur.waitFor('.bm-mini-input', shell.body);
-    const groupColor = shell.body.querySelector<HTMLInputElement>('.bm-group-color')!;
+    // The picker shares the Tasks folder-picker anatomy (8/16 rebuild): color
+    // well + "+ New group…" input, Enter creates and assigns to the selection.
+    const picker = await cur.waitFor<HTMLElement>('.bm-backdrop .folder-pick', shell.body);
+    const groupColor = picker.querySelector<HTMLInputElement>('.folder-pick-color')!;
     await cur.moveTo(groupColor);
+    await cur.wait(240);
     groupColor.value = '#3a7d5d';
     groupColor.dispatchEvent(new Event('input', { bubbles: true }));
     groupColor.dispatchEvent(new Event('change', { bubbles: true }));
-    const groupName = shell.body.querySelector<HTMLTextAreaElement>('.bm-mini-input')!;
+    const groupName = picker.querySelector<HTMLTextAreaElement>('.folder-pick-input')!;
     await cur.click(groupName);
     await cur.typeInto(groupName, 'Math');
-    await cur.click(shell.body.querySelector('.bm-mini-btn')!);
+    await cur.wait(150);
+    cur.pressKey(groupName, 'Enter');
+    // ONE action, BOTH cards: the picker applies to the whole selection.
     await cur.waitUntil(async () => {
       const prof = await shell.data.getProfile<{ list?: Array<{ name: string; groupId?: string }>; groups?: Array<{ name: string }> }>('bookmarks');
-      return !!prof?.groups?.some((g) => g.name === 'Math') && !!prof?.list?.find((b) => b.name === 'Desmos')?.groupId;
-    }, 4000, 'Math group created around Desmos');
-    await cur.wait(400);
-
-    // GeoGebra joins the existing group.
-    await cur.click(cardOf('GeoGebra').querySelector('.bm-chip-btn')!);
-    await cur.waitFor('.bm-backdrop', shell.body);
-    const mathRow = [...shell.body.querySelectorAll<HTMLElement>('.bm-backdrop button')].find((b) => /math/i.test(b.textContent ?? '') && !/create/i.test(b.textContent ?? ''));
-    expect(mathRow, 'existing Math group not offered in the picker');
-    await cur.wait(260);
-    await cur.click(mathRow!);
-    await cur.waitUntil(async () => {
-      const prof = await shell.data.getProfile<{ list?: Array<{ name: string; groupId?: string }> }>('bookmarks');
-      const [d, g] = [prof?.list?.find((b) => b.name === 'Desmos'), prof?.list?.find((b) => b.name === 'GeoGebra')];
-      return !!d?.groupId && d.groupId === g?.groupId;
-    }, 4000, 'GeoGebra joined the Math group');
-    await cur.wait(400);
+      const d = prof?.list?.find((b) => b.name === 'Desmos');
+      const g = prof?.list?.find((b) => b.name === 'GeoGebra');
+      return !!prof?.groups?.some((gr) => gr.name === 'Math') && !!d?.groupId && d.groupId === g?.groupId;
+    }, 4000, 'bulk group action put BOTH links into Math');
+    await cur.wait(450);
+    // The picker stays open after a create (the new group row is the feedback);
+    // close it, then clear the selection the app's own way — a click on empty
+    // page space — because Escape is ignored while any backdrop is up, and the
+    // shortcut chip is deliberately gated while a multi-selection is live.
+    const openBack = shell.body.querySelector<HTMLElement>('.bm-backdrop');
+    if (openBack) {
+      await cur.click(openBack, { ax: 0.05, ay: 0.12 });
+      await cur.wait(280);
+    }
+    // Toggle both cards back off (ctrl-click deselects — onCardClick's own rule).
+    await cur.click(cardOf('GeoGebra'), { ctrl: true, ay: 0.2 });
+    await cur.wait(180);
+    await cur.click(cardOf('Desmos'), { ctrl: true, ay: 0.2 });
+    await cur.waitUntil(() => !shell.body.querySelector('.bm-card.selected'), 3000, 'selection cleared before the shortcut beat');
+    await cur.wait(250);
 
     // The in-app shortcut: capture box → Alt+Shift+D → Save. (Alt+D is on the
     // app's own reserved-combo blocklist — the browser owns it — and the demo
@@ -460,6 +542,7 @@ const sceneBookmarks: Scene = {
       const prof = await shell.data.getProfile<{ list?: Array<{ name: string; shortcut?: string }> }>('bookmarks');
       return /alt\+shift\+d/i.test(prof?.list?.find((b) => b.name === 'Desmos')?.shortcut ?? '');
     }, 4000, 'Alt+Shift+D saved onto Desmos');
+    callout(shell, { title: 'Alt+Shift+D opens Desmos', sub: 'Grouped, colored, one keystroke away', at: 0.2 });
     await cur.wait(500);
   },
 };
@@ -512,6 +595,8 @@ const sceneFocusSetup: Scene = {
     await cur.wait(250);
     await cur.click(shell.body.querySelector('.focus-add-preset')!);
     await cur.waitFor('.focus-preset.custom[data-seconds="6300"]', shell.body);
+    callout(shell, { title: '1:45 saved as a preset', sub: 'His timing, one tap from now on', at: 0.24 });
+    pulse(shell.body.querySelector('.focus-preset.custom[data-seconds="6300"]'));
     await cur.wait(500);
 
     // Import the two tasks for this session.
@@ -529,7 +614,7 @@ const sceneFocusSetup: Scene = {
     await importByTitle('get cobalt premium');
     // "Pick a historical figure" lives in the History project folder now, so it
     // sits under the panel's FOLDERS section: expand the folder row, then
-    // import the single member (the + on the folder row would import all five).
+    // import the single member (the + on the folder row would import them all).
     const folderRow = await cur.waitForResult(
       () => [...shell.body.querySelectorAll<HTMLElement>('.focus-import-bulk')].find((r) => /history project/i.test(r.textContent ?? '')),
       4000,
@@ -651,24 +736,26 @@ const sceneFocusSession: Scene = {
     );
     expect(!/in 2 days/.test(speechRow.querySelector('.focus-todo-text')?.textContent ?? ''), 'date words should have parsed OUT of the title');
 
-    // The auto-translate pass runs on every typed task and its write-back
-    // REDRAWS the todo list a beat later — clicking a chip captured before
-    // that redraw lands on a detached row. Wait for the pass to settle, then
-    // find the row FRESH.
-    await cur.waitUntil(async () => {
-      const all = await shell.data.getTasksAll();
-      const t = Object.values(all).find((x) => x.title === 'start working on speech');
-      return !!t && t.translationChecked === true;
-    }, 6000, 'translate pass settled on the speech task');
-    await cur.wait(300);
-    const speechRowFresh = await cur.waitForResult(
-      () => [...ov.querySelectorAll<HTMLElement>('.focus-todo-item')].find((r) => (r.textContent ?? '').includes('start working on speech')),
-      3000,
-      'speech todo (post-translate redraw)'
-    );
+    // The auto-translate pass on a typed task writes back on ITS OWN schedule
+    // (network round-trip) and each write-back redraws the todo list, which can
+    // detach a row captured moments earlier. No waiting on the network here —
+    // find fresh, click, and if the redraw won the race, find fresh again.
     beat('speech-course-chip');
-    await cur.click(speechRowFresh.querySelector('.course-chip.empty')!);
-    const courseEd = await cur.waitFor<HTMLTextAreaElement>('.inline-edit-block', ov);
+    let courseEd: HTMLTextAreaElement | null = null;
+    for (let attempt = 0; attempt < 3 && !courseEd; attempt++) {
+      const fresh = await cur.waitForResult(
+        () => [...ov.querySelectorAll<HTMLElement>('.focus-todo-item')].find((r) => (r.textContent ?? '').includes('start working on speech')),
+        3000,
+        'speech todo row'
+      );
+      await cur.click(fresh.querySelector('.course-chip.empty') ?? fresh.querySelector('.course-chip')!);
+      try {
+        courseEd = await cur.waitFor<HTMLTextAreaElement>('.inline-edit-block', ov, 1300);
+      } catch {
+        /* the write-back redraw raced the click — loop and re-find */
+      }
+    }
+    if (!courseEd) throw new Error('[focus-session-full] course editor never opened on the speech todo');
     beat('speech-course-editor-open');
     await cur.typeInto(courseEd, 'misc');
     cur.pressKey(courseEd, 'Enter');
@@ -729,6 +816,8 @@ const sceneFocusSession: Scene = {
       const d = before - toSecs(timeText());
       return d >= 470 && d <= 495; // 8:00 minus the seconds that ticked by
     }, 4000, 'timer trimmed by exactly 8 minutes');
+    callout(shell, { title: 'Trimmed 8:00 mid-session', sub: 'Sessions bend to real life', at: 0.18 });
+    pulse(ov.querySelector('.focus-time'));
     await cur.wait(600);
 
     // Minimize → the in-tab float (sample mode never grabs a real PiP window),

@@ -97,16 +97,48 @@ async function callAuthEmail(email: string, kind: 'reset' | 'verify' | 'set'): P
   }
 }
 
+/**
+ * POPUP FIRST, REDIRECT AS THE FALLBACK (Gabe, 8/16: "signing in via google is
+ * broken, just sends me right back to the landing page").
+ *
+ * That symptom is not a bug in this code — it is Chrome. `signInWithRedirect`
+ * needs the auth handler's origin (workspace-67029.firebaseapp.com) to read its own
+ * storage while the app is on a DIFFERENT origin (localhost, or the deployed site).
+ * Chrome now partitions third-party storage, so the round trip completes, the
+ * handler cannot hand the session back, getRedirectResult returns null, and the app
+ * lands on the sign-in screen as if nothing happened. Firebase documents this and
+ * names two fixes: use a popup, or serve the auth handler from your own origin.
+ *
+ * The popup is the one that needs no infrastructure. Its origin is a first party to
+ * itself, so nothing is partitioned. Redirect stays as the fallback for the cases a
+ * popup genuinely cannot serve — a blocker, or a browser without popup support —
+ * where it still works because those are usually same-origin or non-Chrome.
+ *
+ * The old "stuck button" trouble came from holding the popup's window handle and
+ * watching it; nothing here does that. The promise is the only thing awaited, and a
+ * user who closes the window resolves it as a cancel rather than an error.
+ */
 export async function signInWithGoogle(): Promise<void> {
   if (isLocalMode()) throw new Error('Google sign-in requires Firebase config');
   const { auth, instance } = await firebaseAuth();
   const provider = new auth.GoogleAuthProvider();
-  // FULL-PAGE redirect, not the small popup window (Gabe, 8/13): the whole tab
-  // navigates to Google's account chooser and comes back signed in. This also
-  // retires the popup's COOP "stuck button" saga wholesale — there is no popup
-  // handle to lose. On success this promise never usefully resolves here (the
-  // page is leaving); the return trip is handled by getRedirectResult in onAuth.
-  await auth.signInWithRedirect(instance, provider);
+  // Always show the chooser. Without this a second account can never be picked on a
+  // shared computer — Google silently reuses the last one.
+  provider.setCustomParameters({ prompt: 'select_account' });
+  try {
+    await auth.signInWithPopup(instance, provider);
+  } catch (err) {
+    const code = (err as { code?: string }).code || '';
+    // The student shut the window or clicked twice. Not a failure, and an error
+    // message here would accuse them of something they did on purpose.
+    if (code.includes('popup-closed-by-user') || code.includes('cancelled-popup-request')) return;
+    // No popup available → the full-page trip, which is better than nothing.
+    if (code.includes('popup-blocked') || code.includes('operation-not-supported')) {
+      await auth.signInWithRedirect(instance, provider);
+      return;
+    }
+    throw err;
+  }
 }
 
 /**

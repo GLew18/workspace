@@ -11,6 +11,7 @@
 // cold page load plays the element directly, which keeps it autoplay-capable.
 
 import { audioCtx } from './timer';
+import { isDemoSilent } from '../util/silence';
 
 export interface Track {
   key: string;
@@ -157,6 +158,7 @@ export class MusicEngine {
   }
   /** Start playback, reporting an autoplay block instead of swallowing it. */
   private attemptPlay(): void {
+    if (isDemoSilent()) return; // a demo drives the real app; it must not play music
     this.audio.play().then(
       () => {},
       () => this.onBlocked?.() // rejected → almost always the autoplay policy
@@ -183,9 +185,18 @@ export class MusicEngine {
     this.applyVolume();
     if (autoplay) this.attemptPlay(); // autoplay may be blocked (restored session) → onBlocked fires
     this.onIndexChange?.(this.index);
-    // Pull the FOLLOWING track down while this one plays, so ⏭ and auto-advance
-    // don't pay the network cost the student would hear as a gap.
-    if (this.playlist.length > 1) primeAudio(this.playlist[(this.index + 1) % this.playlist.length]?.src);
+    // NO NEXT-TRACK PREWARM WHILE MUSIC IS PLAYING (Gabe, 8/16: "music fades in and
+    // out, silent for a few seconds every few seconds").
+    //
+    // This used to pull the FOLLOWING track down as soon as the current one started,
+    // to make ⏭ instant. On a fat connection that is free; on anything else it is a
+    // second full-size MP3 competing with the one you are listening to, and the
+    // stream underruns — which sounds exactly like the symptom. Saving a moment on a
+    // skip is not worth interrupting the track actually playing.
+    //
+    // The prewarm that matters is still there and costs nothing: focus/view.ts
+    // primes the CHOSEN track while the student is on the setup screen picking a
+    // length, when no audio is playing at all.
   }
 
   play(): void {

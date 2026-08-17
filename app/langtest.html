@@ -70,30 +70,69 @@
       'שיעורי בית בדקדוק': ['Grammar homework', 'he'],
       'tarea de matemáticas': ['math homework', 'es'],
       'O homem está usando um chapéu onipresente.': ['The man is wearing an omnipresent hat.', 'pt'],
+      // Detection returning NOTHING is the only case the fallback covers now — a
+      // NAMED language, even a wrong one, is treated as an answer (see analyzeTitle).
+      'Korýtnačka porazila zajaca': ['Korýtnačka porazila zajaca', ''],   // no detection
+      'Domáca úloha z matematiky': ['Domáca úloha z matematiky', ''],     // no detection
+      // …and a title the provider DOES name, off the student's list, is left alone
+      // even though its script matches something they enabled. This is the CJK bug.
+      '第七章': ['Chapter Seven', 'zh'],
+      'Som v pohode': ["I'm fine", 'sk'],                                  // short: detected correctly
       huu: ['huu', 'fr'],           // unchanged → not a translation
       heybo: ['heybo', 'es'],       // unchanged → not a translation
       asdf: ['asdf', 'es'],         // unchanged → not a translation
       tarea: ['task', 'es'],        // one word, but genuinely translated
       'chapitre 3': ['chapter 3', 'fr'],
     };
+    // Auto-detect MIS-fires on longer text in closely-related languages, which is the
+    // whole reason the explicit fallback exists. Captured live on 8/15: Slovak
+    // sentences come back detected as Bosnian/Polish/Malagasy and untranslated, and
+    // translate correctly the moment the pair is named. EXPLICIT[lang][text] is what
+    // the provider answers when asked by name.
+    const EXPLICIT = {
+      sk: {
+        'Korýtnačka porazila zajaca': 'The turtle defeated the hare',
+        'Domáca úloha z matematiky': 'Math homework',
+        // What naming a language does to junk — the reason for the word-count guard.
+        huu: 'HUU,',
+        asdf: 'Eine Liste von Benutzernamen',
+      },
+      es: { huu: 'HUU,', asdf: 'Eine Liste von Benutzernamen', 'Read Ch. 7 and annotate': 'Read Ch. 7 and note' },
+    };
     let quotaOut = false;
+    let explicitCalls = 0;
     const realFetch = window.fetch;
-    window.fetch = async (url) => {
-      const u = String(url);
-      if (!u.startsWith('https://api.mymemory.translated.net/get')) {
+    // The pipeline now speaks to the deployed translateTitles Cloud Function, which
+    // calls Google Cloud Translation with the project's own credentials. httpsCallable
+    // is fetch underneath, so the stub intercepts THAT — the suite stays deterministic
+    // and offline while exercising the real code path.
+    window.fetch = async (url, init) => {
+      const u = String(url && url.url ? url.url : url);
+      if (!/cloudfunctions\.net\/translateTitles|\/translateTitles$/.test(u)) {
         throw new Error('translate used an unexpected transport: ' + u);
       }
-      const q = decodeURIComponent(new URL(u).searchParams.get('q') || '');
+      const body = JSON.parse((init && init.body) || '{}');
+      const texts = (body.data && body.data.texts) || [];
+      const from = (body.data && body.data.from) || '';
       if (quotaOut) {
-        return { ok: true, json: async () => ({ responseStatus: 429, quotaFinished: true, responseData: {} }) };
+        return new Response(JSON.stringify({ result: { results: texts.map(() => null) } }),
+          { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      const hit = CANNED[q];
-      if (!hit) {
-        // Anything not canned is treated the way the real API treats English.
-        return { ok: true, json: async () => ({ responseStatus: 403, responseDetails: 'PLEASE SELECT TWO DISTINCT LANGUAGES', responseData: {} }) };
-      }
-      const [tr, det] = hit;
-      return { ok: true, json: async () => ({ responseStatus: 200, responseData: { translatedText: tr, detectedLanguage: det } }) };
+      const results = texts.map((q) => {
+        if (from) {
+          explicitCalls++;
+          const tr = (EXPLICIT[from] || {})[q];
+          // No entry = the engine had nothing to change, which is what it does for a
+          // language the text is not actually in.
+          return { tr: tr || q, src: from };
+        }
+        const hit = CANNED[q];
+        // Not canned = Google hands English straight back with `en` detected.
+        if (!hit) return { tr: q, src: 'en' };
+        return { tr: hit[0], src: hit[1] };
+      });
+      return new Response(JSON.stringify({ result: { results } }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
     };
 
     const withLangs = async (codes) => {
@@ -136,9 +175,45 @@
 
       // Quota / network failures must read as "ask again later", never as English —
       // an 'english' verdict gets STORED on the task and would stick forever.
+      // --- the fallback: auto-detect guessed a sibling language, so ask by name ---
+      await withLangs(['sk', 'he', 'es', 'fr']);
+      explicitCalls = 0;
+      const sk1 = await analyzeTitle('Korýtnačka porazila zajaca');
+      ok('an UNDETECTED sentence still translates, by asking each language outright',
+        sk1.status === 'foreign' && sk1.text === 'The turtle defeated the hare', JSON.stringify(sk1));
+      const sk2 = await analyzeTitle('Domáca úloha z matematiky');
+      ok('…and so does the other one', sk2.status === 'foreign' && sk2.text === 'Math homework', JSON.stringify(sk2));
+      ok('the fallback only runs when the auto pass failed', explicitCalls > 0);
+
+      explicitCalls = 0;
+      const sk3 = await analyzeTitle('Som v pohode');
+      ok('a correctly-detected sentence never reaches the fallback', sk3.status === 'foreign' && explicitCalls === 0, `${explicitCalls} explicit calls`);
+
+      // GUARD 1: short junk must not be handed to a named engine, which would
+      // translate it rather than decline.
+      explicitCalls = 0;
+      eq('"huu" is still English — too short for the fallback', (await analyzeTitle('huu')).status, 'english');
+      eq('"asdf" too', (await analyzeTitle('asdf')).status, 'english');
+      ok('…and neither one even asked', explicitCalls === 0, `${explicitCalls} explicit calls`);
+
+      // GUARD 2: a title the provider already called English is never re-asked.
+      explicitCalls = 0;
+      eq('an English sentence stays English', (await analyzeTitle('Read Ch. 7 and annotate')).status, 'english');
+      ok('…and was not re-asked as Spanish (which would have reworded it)', explicitCalls === 0, `${explicitCalls} explicit calls`);
+
+      // THE CJK BUG (Gabe, 8/16). Chinese detected as Chinese, with only Japanese
+      // enabled: Han is the one script three languages share, so the old gate let the
+      // fallback ask Japanese, and a named engine translates whatever it is handed.
+      await withLangs(['ja']);
+      eq('Chinese is left alone when only Japanese is on', (await analyzeTitle('第七章')).status, 'english');
+      await withLangs(['ko']);
+      eq('…and when only Korean is on', (await analyzeTitle('第七章')).status, 'english');
+      await withLangs(['zh']);
+      ok('but it DOES translate when Chinese is on', (await analyzeTitle('第七章')).status === 'foreign');
+
       quotaOut = true;
       await withLangs(['he']);
-      eq('a quota failure is an error, not a verdict', (await analyzeTitle('שיעורי בית בדקדוק')).status, 'error');
+      eq('a provider failure is an error, not a verdict', (await analyzeTitle('שיעורי בית בדקדוק')).status, 'error');
       quotaOut = false;
       ok('and the failure was not cached', (await analyzeTitle('שיעורי בית בדקדוק')).status === 'foreign');
     } catch (e) {

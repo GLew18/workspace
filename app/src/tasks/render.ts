@@ -26,6 +26,7 @@ import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
 import { parseDateTime, isPastDate, PAST_DATE_MSG } from './parser';
 import { detectAttachmentType, normalizeUrl, openAttachment, openAll } from './attachments';
 import { playCompleteChime, showUndoToast } from './complete';
+import { selectionBar, type SelBar } from '../ui/selbar';
 import {
   getTaskFolders,
   saveTaskFolders,
@@ -108,6 +109,7 @@ export class TasksView {
   private map: TaskMap = {};
   private listEl!: HTMLElement;
   private bannerHost!: HTMLElement;
+  private selBar: SelBar | null = null; // the "N selected · Deselect all" strip
   private autoTx = false; // guards the auto-translate pass against re-entry
   private langListener = false; // TRANSLATE_LANGS_EVENT is registered once, not per mount
   // The task being ⋮⋮-dragged (id + its due-date group), null when idle.
@@ -1348,6 +1350,9 @@ export class TasksView {
   private syncSelectionUI(): void {
     for (const row of this.listEl.querySelectorAll<HTMLElement>('.task-item[data-task-id]'))
       row.classList.toggle('selected', this.selectedIds.has(row.dataset.taskId!));
+    // A selection is invisible state; the bar is how you find your way out of it.
+    this.selBar ??= selectionBar('task', () => this.clearSelection(), this.sample?.host);
+    this.selBar.update(this.selectedIds.size);
   }
 
   private clearSelection(): void {
@@ -2056,16 +2061,11 @@ export class TasksView {
   }
 
   private openDetails(task: Task): void {
-    this.popup(task.title, (body, close) => {
+    this.popup(task.title, (body) => {
+      // Description ONLY (Gabe, 8/16): the popup used to append an "Open in
+      // Schoology" button, but the row already carries the dedicated ↗ — the
+      // duplicate here was clutter, not a second feature.
       body.append(linkifyText(task.details || '', 'task-details-text'));
-      if (task.schoologyUrl) {
-        const open = el('button', { class: 'btn-primary', text: 'Open in Schoology' });
-        open.addEventListener('click', () => {
-          this.openExt(task.schoologyUrl!);
-          close();
-        });
-        body.append(open);
-      }
     });
   }
 

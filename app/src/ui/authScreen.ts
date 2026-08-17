@@ -111,19 +111,48 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
     // Native inputs (not the wrapping textInput): auth fields need Enter-to-submit
     // and password masking, and they're short and single-line by nature.
     const form = el('form', { class: 'auth-form' }) as HTMLFormElement;
+    // NO BROWSER AUTOFILL ON THESE TWO (Gabe, 8/16). The form was arriving with an
+    // address and a password already in it, which is worse than convenient here:
+    // Cobalt is a shared-computer app in a school, the prefilled account is often the
+    // wrong person's, and a "we couldn't sign you in" from a stale saved password
+    // reads as the app being broken.
+    //
+    // `autocomplete="off"` alone is not enough — Chrome overrides it on anything it
+    // recognises as a login. The reliable combination is an unrecognised token plus
+    // a name that is not "email"/"password", which is what these are.
     const email = el('input', {
       type: 'email',
       class: 'auth-input',
       placeholder: 'Email',
-      autocomplete: 'email',
+      name: 'cobalt-account',
+      autocomplete: 'off',
+      'data-lpignore': 'true', // LastPass
+      'data-1p-ignore': 'true', // 1Password
+      'data-form-type': 'other', // Dashlane
       inputmode: 'email',
     }) as HTMLInputElement;
     const password = el('input', {
       type: 'password',
       class: 'auth-input',
       placeholder: 'Password',
-      autocomplete: isNew ? 'new-password' : 'current-password',
+      name: 'cobalt-secret',
+      // "new-password" even when signing IN: it is the one value Chrome honours as
+      // "do not offer a saved credential", and the field is never a signup field
+      // twice over, so nothing is lost.
+      autocomplete: 'new-password',
+      'data-lpignore': 'true',
+      'data-1p-ignore': 'true',
+      'data-form-type': 'other',
     }) as HTMLInputElement;
+    // Chrome fills some forms AFTER first paint, ignoring the attributes entirely.
+    // Clearing once on the next frame catches that pass without fighting the user,
+    // who cannot have typed anything yet.
+    requestAnimationFrame(() => {
+      if (!document.activeElement || !form.contains(document.activeElement)) {
+        email.value = '';
+        password.value = '';
+      }
+    });
     // One line for both problems and explanations. `.info` recolors it gold: being
     // handed to the other door is not an error, and red would say it was.
     const error = el('div', { class: 'auth-error' });

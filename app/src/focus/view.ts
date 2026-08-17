@@ -1293,21 +1293,54 @@ export class FocusView {
    * will be annoyed later, and the answer is always yes. It appears from the FIRST
    * checked todo, because one finished row is already a row you cannot dismiss.
    */
-  private appendFinished(host: HTMLElement, done: FocusTodo[], buildRow: (t: FocusTodo, drag: boolean) => HTMLElement, redraw: () => void): void {
+  private appendFinished(host: HTMLElement, done: FocusTodo[], buildRow: (t: FocusTodo, drag: boolean) => HTMLElement, _redraw: () => void): void {
     if (!done.length) return;
+    const arrow = el('span', { class: 'focus-folder-arrow' + (this.finishedOpen ? ' open' : ''), text: '▶' });
     const head = el('button', { class: 'focus-finished-head' + (this.finishedOpen ? ' open' : '') });
     head.append(
       el('span', { class: 'focus-finished-label', text: 'Finished' }),
       el('span', { class: 'count-badge focus-finished-count', text: String(done.length) }),
-      el('span', { class: 'focus-folder-arrow' + (this.finishedOpen ? ' open' : ''), text: '\u25B6' })
+      arrow
     );
+    host.append(head);
+
+    // Done rows are never draggable — the finished zone is not a list you order.
+    const rows = done.map((t) => buildRow(t, false));
+    if (this.finishedOpen) for (const r of rows) host.append(r);
+
+    // THE TOGGLE DOES NOT REDRAW THE LIST (Gabe, 8/15).
+    //
+    // It used to call the parent's full redraw, which rebuilds every row with
+    // replaceChildren — and that is what threw the student back to the top of the
+    // list on a click. Two attempts to catch the scroll reset and undo it afterwards
+    // both left it jumping, which is the tell: the honest fix is not to restore the
+    // position after wrecking it, it is not to wreck it.
+    //
+    // Opening a drawer is a LOCAL change, so it makes a local change — the finished
+    // rows are inserted straight after the header, or taken back out. Every other
+    // row on screen keeps its identity, so there is nothing for the browser to
+    // re-anchor and nowhere for the scroll to go.
     head.addEventListener('click', () => {
       this.finishedOpen = !this.finishedOpen;
-      redraw();
+      head.classList.toggle('open', this.finishedOpen);
+      arrow.classList.toggle('open', this.finishedOpen);
+      if (this.finishedOpen) {
+        let after: ChildNode = head;
+        for (const r of rows) {
+          after.after(r);
+          after = r;
+        }
+        // …AND BRING THEM INTO VIEW. Finished sits at the BOTTOM of the list, so
+        // rows opened there land below the fold and the drawer looks like it did
+        // nothing (Gabe, 8/16). A folder never shows this because it opens
+        // mid-list. `block: 'nearest'` is the whole trick: it scrolls the minimum
+        // needed and does nothing at all when the rows are already visible, so
+        // this can reveal without ever becoming another jump.
+        rows[rows.length - 1]?.scrollIntoView({ block: 'nearest' });
+      } else {
+        for (const r of rows) r.remove();
+      }
     });
-    host.append(head);
-    // Done rows are never draggable — the finished zone is not a list you order.
-    if (this.finishedOpen) for (const t of done) host.append(buildRow(t, false));
   }
 
   /** Which folders are EXPANDED in the Import panel. Separate from

@@ -11,7 +11,8 @@
 //   • 'error'   → network / rate-limit; DON'T cache, so it's retried later.
 
 import { getPrefs } from '../prefs';
-import { expandCodes, languageLabel } from './languages';
+import { firebaseConfig } from '../firebase';
+import { areSiblings, expandCodes, findLanguage, languageLabel, scriptOf, writesScript } from './languages';
 
 export type TitleAnalysis =
   | { status: 'foreign'; text: string; sourceLang: string }
@@ -92,10 +93,84 @@ export async function analyzeTitle(text: string): Promise<TitleAnalysis> {
   const trustworthy = onList;
   lastCheck = { title: key, detected: lang, onList, translated: current, changed: normKey(current) !== normKey(key), accepted: trustworthy && normKey(current) !== normKey(key) };
 
-  const out: TitleAnalysis =
+  let out: TitleAnalysis =
     !trustworthy || normKey(current) === normKey(key)
       ? { status: 'english' }
       : { status: 'foreign', text: current, sourceLang };
+
+  // ---- FALLBACK: ask by NAME when auto-detect guessed wrong ----------------
+  //
+  // Auto-detect confuses closely-related languages, and it does it worse on longer
+  // text, which is exactly backwards from what you would expect. Measured against
+  // the live API on 8/15, with Slovak:
+  //
+  //   "Som v pohode"                 → detected sk  → "I'm fine"           ✓
+  //   "Prečítaj si kapitolu sedem"   → detected BS  → unchanged            ✗
+  //   "Korýtnačka porazila zajaca"   → detected BS  → unchanged            ✗
+  //   "Domáca úloha z matematiky"    → detected MG  → unchanged            ✗
+  //
+  // Every one of those translates correctly when the pair is named outright
+  // (sk|en → "Read chapter seven", "Math homework"). So a mis-detect is not a
+  // dead end; it just means the question has to be asked differently. This is
+  // Gabe's report exactly: short phrases worked, longer ones silently did not.
+  //
+  // TWO GUARDS, and both are load-bearing:
+  //
+  //   1. THREE WORDS MINIMUM. Naming a language outright forces the engine to
+  //      translate rather than decline, so it will happily turn junk into
+  //      something. Measured: "huu" as Spanish → "HUU,", "asdf" as Spanish → a
+  //      line of German. Every false positive this feature has ever produced was
+  //      one or two words; a mis-detect only bites real sentences. So the two
+  //      cases are separated by length, and the short one never reaches here.
+  //   2. NOT ALREADY ENGLISH. The provider refuses English outright ("PLEASE
+  //      SELECT TWO DISTINCT LANGUAGES"), and that answer is trusted. Without this
+  //      guard, "Read Ch. 7 and annotate" asked as Spanish comes back "Read Ch. 7
+  //      and note" — an English title quietly reworded.
+  // WHEN COBALT SECOND-GUESSES THE DETECTOR.
+  //
+  // Only two cases, and the difference between them is the whole fix for the Asian
+  // languages (Gabe, 8/16):
+  //
+  //  1. IT NAMED NOTHING. No answer is not an answer; ask the student's languages
+  //     outright.
+  //  2. IT NAMED A CLOSE RELATIVE of a language they enabled. Afrikaans against
+  //     Dutch, Bosnian against Slovak: a short sentence genuinely cannot separate
+  //     those, so it is worth asking again. THIS is what rescues "Huiswerk wiskunde"
+  //     and the Slovak sentences.
+  //
+  // Everything else stands. If it names Chinese and the student enabled Japanese,
+  // that is not a near-miss — those are unrelated families that happen to share a set
+  // of characters — so the title is left alone. Treating that as a near-miss is what
+  // translated Chinese titles out of a language nobody had turned on.
+  //
+  // The script check stays on top: a language that cannot be written this way is
+  // never asked, however close a relative it is.
+  const script = scriptOf(key);
+  const words = key.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').filter(Boolean);
+  const enabled = getPrefs().tasks.translateFrom;
+  const nearMiss = !!lang && enabled.some((c) => areSiblings(lang, findLanguage(c)?.code || c));
+  // Length only constrains LATIN text, and only when there is no near-miss to go on:
+  // it guards English-looking junk ("huu", "asdf"), all of which is Latin and none of
+  // which a detector calls a sibling of anything enabled.
+  const longEnough = script !== 'latin' || words.length >= (nearMiss ? 2 : 3);
+  if (out.status === 'english' && (!lang || nearMiss) && longEnough) {
+    for (const code of enabled) {
+      const def = findLanguage(code);
+      if (!writesScript(def, script)) continue; // it cannot be written this way
+      // With a near-miss, ask ONLY the relative — not every enabled language, which
+      // is how an unrelated one used to get a turn.
+      if (lang && !areSiblings(lang, def?.code || code)) continue;
+      const ask = def?.also?.[0] || def?.code || code; // the code the provider knows
+      const r = await translateOnce(key, ask);
+      if (!r) break; // network trouble — leave it unchecked and try again later
+      if (r.tr && normKey(r.tr) !== normKey(key)) {
+        out = { status: 'foreign', text: r.tr, sourceLang: def?.code || code };
+        lastCheck = { ...lastCheck, fallbackAskedAs: ask, accepted: true, translated: r.tr };
+        break;
+      }
+    }
+  }
+
   cache.set(key, out);
   return out;
 }
@@ -161,66 +236,53 @@ interface Raw {
 }
 
 /**
- * THE PROVIDER: MyMemory.
+ * THE PROVIDER: Google Cloud Translation, through Cobalt's own Cloud Function.
  *
- * Cobalt used Google's keyless "gtx" endpoint. That is gone. It now answers every
- * request with a 302 to a reCAPTCHA challenge page, verified two ways on 8/15:
- * Gabe's browser console showed `net::ERR_FAILED 302 (Found)` followed by a CORS
- * error on the redirect target, and a direct server-side request from outside the
- * browser returns the challenge HTML rather than JSON. So it was not a CORS problem
- * that a proxy or a Cloud Function could route around — the endpoint itself is
- * closed. A dev proxy and a server-side function were both built and both deleted
- * once that was established.
+ * Third provider, and the reasons for each move are worth keeping:
  *
- * MyMemory is a straight replacement and, for this job, a better one:
- *   • It sends `Access-Control-Allow-Origin: *`, so the browser calls it directly.
- *     No proxy, no Cloud Function, no deploy, and nothing to keep alive.
- *   • `autodetect|en` both detects and translates in one request, which is what the
- *     old endpoint was chosen for.
- *   • Handed English, it REFUSES with "PLEASE SELECT TWO DISTINCT LANGUAGES". A
- *     provider that says "that is already English" outright is worth more than a
- *     confidence score to interpret.
+ *   • Google's KEYLESS "gtx" endpoint. Free, no setup, and it died: it now answers
+ *     every request with a redirect to a reCAPTCHA page. Verified two ways on 8/15
+ *     (browser console showed `net::ERR_FAILED 302` then a CORS error on the
+ *     redirect target; a request from outside a browser returned the challenge HTML)
+ *     so it was never a CORS problem a proxy could route around.
+ *   • MyMemory. Free, CORS-open, and good enough to ship in an afternoon — but its
+ *     engine is visibly weaker on names and proper nouns. Gabe, 8/16: a Swahili
+ *     sentence about a turtle came back "Kobe beats the buffalo". No amount of
+ *     gating on this side improves a translation that is simply wrong.
+ *   • THIS. The real Cloud Translation API, on Cobalt's own project.
  *
- * Free tier is 5,000 characters per day per IP, or 50,000 with a contact address
- * attached (`de=`), which is what CONTACT below is for. Task titles run about 45
- * characters, so that is roughly a thousand a day per student, against a heavy
- * import of maybe forty.
+ * It goes through a Cloud Function rather than straight from the page, and that is
+ * not ceremony: an API key in a bundle is a key anyone can read and spend. The
+ * function authenticates as the project itself, so there is no key in the client at
+ * all. It also batches, though this module asks one title at a time because each
+ * answer feeds the next decision.
  */
-const MYMEMORY = 'https://api.mymemory.translated.net/get';
-const CONTACT = 'workspace.reminders@gmail.com'; // raises the daily allowance; see above
+async function callTranslate(texts: string[], from = ''): Promise<(Raw | null)[]> {
+  const { initializeApp, getApps, getApp } = await import('firebase/app');
+  const { getFunctions, httpsCallable } = await import('firebase/functions');
+  const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  const fn = httpsCallable(getFunctions(app, 'us-central1'), 'translateTitles');
+  const res = await fn(from ? { texts, from } : { texts });
+  const out = (res.data as { results?: (Raw | null)[] })?.results;
+  return Array.isArray(out) ? out : texts.map(() => null);
+}
 
-/** One round-trip. Returns null on a network or quota failure, which the caller
- *  treats as "ask again later" rather than "this title is English". */
-async function translateOnce(text: string): Promise<Raw | null> {
+/** One round-trip. Returns null on any failure, which the caller treats as "ask
+ *  again later" rather than "this title is English".
+ *
+ *  `from` names the source language outright instead of asking Google to detect it —
+ *  see the fallback in analyzeTitle for why that is sometimes the only way to get a
+ *  right answer. */
+async function translateOnce(text: string, from = ''): Promise<Raw | null> {
   try {
-    const url =
-      `${MYMEMORY}?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent('autodetect|en')}` +
-      `&de=${encodeURIComponent(CONTACT)}`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
-      responseStatus?: number | string;
-      responseData?: { translatedText?: string; detectedLanguage?: string };
-      responseDetails?: string;
-      quotaFinished?: boolean;
-    };
-    const status = Number(data.responseStatus);
-    const details = String(data.responseDetails || '');
-
-    // "PLEASE SELECT TWO DISTINCT LANGUAGES" = the provider read it as English
-    // already. That is an ANSWER, not a failure, so it must not be reported as an
-    // error — an error would leave the task unchecked and re-asked forever.
-    if (status === 403 && /DISTINCT LANGUAGES/i.test(details)) return { src: 'en', tr: text };
-
-    if (data.quotaFinished || status === 429) return null; // out of allowance → retry tomorrow
-    if (status !== 200) return null;
-
-    const tr = String(data.responseData?.translatedText || '').trim();
-    const src = String(data.responseData?.detectedLanguage || '').trim().toLowerCase();
-    if (!tr) return null;
-    return { src, tr };
+    const [one] = await callTranslate([text], from);
+    if (!one || !one.tr) return null;
+    // Google does not refuse English the way MyMemory did; it simply hands the text
+    // back unchanged with `en` detected. That is the same signal, said differently,
+    // and the caller already treats "unchanged" as "not a translation".
+    return { src: (one.src || '').toLowerCase(), tr: one.tr };
   } catch {
-    return null; // offline → uncached, retried on the next pass
+    return null;
   }
 }
 

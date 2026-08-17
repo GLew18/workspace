@@ -91,20 +91,8 @@ function danTasks(): Record<string, Task> {
       translatedTitle: 'Read chapter 5 and answer the questions',
       translatedLang: 'iw',
     },
-    // --- Scene 4 context: the algebra test due tomorrow (QUIZ/TEST badge) ---
-    {
-      ...base,
-      ...imported,
-      id: 'dan_test',
-      title: 'Algebra 2 Unit Test',
-      course: 'Math',
-      dueDate: addDays(today, 1),
-      dueTime: '10:15',
-      priority: 'high',
-      details: 'Unit test on polynomial division and factoring. Covers 6.1 through 6.5.',
-      notes: [],
-    },
     // --- Scene 3: the History-project chain, a clear multi-day progression --
+    // (Trimmed to three steps 8/16 — Gabe: the list read as cluttered.)
     {
       ...base,
       ...imported,
@@ -132,22 +120,10 @@ function danTasks(): Record<string, Task> {
     {
       ...base,
       ...imported,
-      id: 'dan_hp3',
-      title: 'Write outline for presentation',
-      course: 'Social Studies',
-      dueDate: addDays(today, 6),
-      dueTime: '23:59',
-      priority: 'low',
-      details: 'Outline the full presentation: hook, three body sections, and closing argument.',
-      notes: [],
-    },
-    {
-      ...base,
-      ...imported,
       id: 'dan_hp4',
       title: 'Record final presentation',
       course: 'Social Studies',
-      dueDate: addDays(today, 9),
+      dueDate: addDays(today, 6),
       dueTime: '23:59',
       priority: 'lowest',
       details: 'Record and upload the final presentation video. Five minutes maximum.',

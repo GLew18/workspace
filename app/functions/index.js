@@ -810,3 +810,74 @@ exports.sendSuggestion = onCall({ region: 'us-central1' }, async (req) => {
 });
 // #endregion
 
+
+// #region translateTitles — Google Cloud Translation, server-side ---------------
+//
+// WHY THE SERVER. Cobalt used Google's keyless "gtx" endpoint until it started
+// answering every request with a redirect to a reCAPTCHA challenge, then MyMemory,
+// whose free engine was visibly weaker on names and nouns (Gabe, 8/16: "Kobe beats
+// the buffalo" for a Swahili sentence about a turtle). This is the real Cloud
+// Translation API, which is what he actually wanted.
+//
+// It runs HERE, not in the browser, for one reason: an API key in a bundle is a key
+// anyone can read and spend. This function authenticates with the project's own
+// service account (Application Default Credentials), so there is no key in the
+// client, nothing to leak, and nothing to rotate.
+//
+// BATCHED. One call carries up to 50 titles, so importing a term's assignments is
+// one invocation rather than fifty. Google's own API takes an array of `q`, so the
+// batch is a single upstream request too.
+const { Translate } = require('@google-cloud/translate').v2;
+let translator = null;
+const TX_MAX_TITLES = 50;
+const TX_MAX_CHARS = 500; // a task title, not an essay
+const TX_DAILY_CAP = 4000; // titles per person per day; a heavy import is ~100
+
+exports.translateTitles = onCall({ region: 'us-central1' }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const raw = (req.data && req.data.texts) || [];
+  if (!Array.isArray(raw)) throw new HttpsError('invalid-argument', 'texts must be an array.');
+  const texts = raw
+    .filter((t) => typeof t === 'string' && t.trim())
+    .slice(0, TX_MAX_TITLES)
+    .map((t) => t.trim().slice(0, TX_MAX_CHARS));
+  if (!texts.length) return { results: [] };
+
+  // `from` names a source language outright, for the fallback the client runs when
+  // auto-detect lands on a language the student did not enable. Omitted = detect.
+  const from = typeof (req.data && req.data.from) === 'string' ? req.data.from : '';
+
+  // Per-person daily cap, keyed on a hash of the uid like the suggestion throttle,
+  // so the counter node cannot be read backwards into a person.
+  const key = suggestHash(req.auth.uid).slice(0, 32);
+  const ref = admin.database().ref(`translateUse/${key}`);
+  const dayKey = new Date().toISOString().slice(0, 10);
+  const snap = await ref.get();
+  const cur = snap.val() || {};
+  const used = cur.day === dayKey ? cur.count || 0 : 0;
+  if (used + texts.length > TX_DAILY_CAP) {
+    throw new HttpsError('resource-exhausted', 'Translation limit reached for today.');
+  }
+  await ref.set({ day: dayKey, count: used + texts.length });
+
+  try {
+    translator = translator || new Translate();
+    const opts = from ? { from, to: 'en', format: 'text' } : { to: 'en', format: 'text' };
+    const [out, meta] = await translator.translate(texts, opts);
+    const list = Array.isArray(out) ? out : [out];
+    // The detected language comes back alongside the text, one per input. With an
+    // explicit `from` there is nothing to detect, so the answer IS `from`.
+    const det = meta && meta.data && meta.data.translations ? meta.data.translations : [];
+    return {
+      results: list.map((tr, i) => ({
+        tr,
+        src: from || (det[i] && det[i].detectedSourceLanguage) || '',
+      })),
+    };
+  } catch (err) {
+    console.error('translateTitles failed', err && err.message);
+    // A null per item is the client's "ask again later", never "this is English".
+    return { results: texts.map(() => null), error: String((err && err.message) || 'translate failed') };
+  }
+});
+// #endregion

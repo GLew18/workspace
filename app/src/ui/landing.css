@@ -311,6 +311,9 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  /* The hero section centers text; the app inside this screen must NOT inherit
+     that (Gabe, 8/16: task names and settings were rendering centered). */
+  text-align: left;
   /* The app's own page gradient (theme.css body), painted locally: this box IS
      the app's viewport. */
   background: linear-gradient(165deg, #0e2457 0%, #091a43 50%, #07132e 100%);
@@ -368,6 +371,80 @@
    cursor bypass hit-testing entirely, so the script is unaffected. */
 .lp-hero-stage { pointer-events: none; }
 
+/* The emphasis layer (Gabe, 8/16): Cobalt-dark callouts that pop half outside
+   the frame edge, naming the output the last input produced. They mount on
+   .lp-fit (the frame clips its own children at the rounded corners), so the
+   wrapper anchors them. */
+.lp-fit { position: relative; }
+.lp-callout {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 252px;
+  padding: 13px 15px;
+  background: #10234f;
+  border: 1px solid rgba(125, 180, 255, 0.45);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 22px rgba(125, 180, 255, 0.12);
+  text-align: left;
+  animation: lp-callout-pop 0.42s cubic-bezier(0.34, 1.45, 0.55, 1) both;
+}
+.lp-callout.right { right: -30px; }
+.lp-callout.left { left: -30px; }
+/* Tighter viewports: the overhang would poke past the page edge and mint a
+   horizontal scrollbar — tuck the card back inside the frame instead. */
+@media (max-width: 1240px) {
+  .lp-callout.right { right: 10px; }
+  .lp-callout.left { left: 10px; }
+}
+.lp-callout.out {
+  transition: opacity 0.38s ease, transform 0.38s ease;
+  opacity: 0;
+  transform: translateY(-8px) scale(0.94);
+}
+.lp-callout-check {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(125, 180, 255, 0.16);
+  border: 1px solid rgba(125, 180, 255, 0.55);
+  color: #7db4ff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 20px;
+  text-align: center;
+}
+.lp-callout-title {
+  font-size: 14px;
+  font-weight: 750;
+  color: #fff;
+  line-height: 1.3;
+}
+.lp-callout-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #a9bede;
+  line-height: 1.35;
+}
+@keyframes lp-callout-pop {
+  0% { opacity: 0; transform: translateY(12px) scale(0.85); }
+  62% { opacity: 1; transform: translateY(-2px) scale(1.04); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* The output's in-app echo: two soft gem-blue pulses on the element the
+   callout is talking about. */
+.lp-emph-pulse {
+  border-radius: 10px;
+  animation: lp-emph-pulse 0.9s ease-out 2;
+}
+@keyframes lp-emph-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(125, 180, 255, 0.45); }
+  100% { box-shadow: 0 0 0 9px rgba(125, 180, 255, 0); }
+}
+
 /* The ghost cursor: a drawn pointer riding the shell body's design-pixel space
    (it inherits the frame's scale). Above everything, including the focus
    overlay's z-2000. */
@@ -385,36 +462,32 @@
 /* The morning-briefing card (scene 1): styled like an OS notification, carrying
    the scheduler's real daily-agenda strings. Demo chrome by necessity — the
    real popup channel is an OS notification, which can't render in-page. */
+/* Styled from Gabe's reference screenshot of the REAL notification (8/16):
+   neutral dark-gray card (not navy), icon left, bold greeting, count line,
+   then the dim origin. */
 .lp-demo-brief {
   position: absolute;
   right: 16px;
   bottom: 16px;
-  width: 300px;
+  width: 290px;
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: flex-start;
-  background: rgba(17, 27, 55, 0.96);
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
-  padding: 12px 14px;
+  background: #2b2b2f;
+  border-radius: 10px;
+  padding: 14px 16px;
   z-index: 2600;
   opacity: 0;
   transform: translateY(14px);
   transition: opacity 0.4s ease, transform 0.45s cubic-bezier(0.2, 0.7, 0.3, 1);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+  text-align: left;
 }
 .lp-demo-brief.show { opacity: 1; transform: none; }
-.lp-demo-brief img { width: 34px; height: 34px; border-radius: 8px; flex: none; }
-.lp-demo-brief-app {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  margin-bottom: 3px;
-}
-.lp-demo-brief-title { font-size: 13px; font-weight: 700; }
-.lp-demo-brief-body { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.lp-demo-brief img { width: 38px; height: 38px; border-radius: 8px; flex: none; }
+.lp-demo-brief-title { font-size: 13.5px; font-weight: 700; color: #fff; }
+.lp-demo-brief-body { font-size: 12.5px; color: #cfcfd4; margin-top: 2px; }
+.lp-demo-brief-app { font-size: 11px; color: #97979d; margin-top: 6px; }
 
 /* The loop seam: the whole screen fades, the world rebuilds, the next pass
    fades back in on the same Dashboard the story returned to. */

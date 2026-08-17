@@ -315,6 +315,16 @@
 .focus-folder.open .focus-folder-arrow {
   transform: rotate(90deg);
 }
+/* "Finished" is a folder in every way that matters, so its arrow turns the same way
+   (Gabe, 8/16). It needs its own rule because the folder rule keys off the .open on
+   the folder BOX, and the finished drawer is a bare header with no box around it —
+   so the state lives on the header itself. */
+.focus-finished-head .focus-folder-arrow {
+  transform: none;
+}
+.focus-finished-head.open .focus-folder-arrow {
+  transform: rotate(90deg);
+}
 .focus-folder-body {
   border-top: 1px solid var(--border);
   padding: 6px 8px 8px 18px; /* indented: members read as inside the folder */
@@ -1898,11 +1908,11 @@
   align-items: center;
   gap: 14px;
   max-width: 420px;
-  background: var(--surface);
-  border: 1px solid rgba(125, 180, 255, 0.4);
-  border-radius: 14px;
+  background: var(--toast-bg);
+  border: var(--toast-border);
+  border-radius: var(--toast-radius);
   padding: 14px 20px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--toast-shadow);
   transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .focus-end-toast.show {
@@ -1960,9 +1970,10 @@
    standing signposts, not celebrations. Single line each: the toast sizes to its
    content (width: max-content) so the gold header never wraps into a second line. */
 .focus-end-toast.focus-session-mini {
+  /* Only the PADDING differs — it is the compact variant, not a different surface.
+     Radius, background, border and shadow all come from the shared skin above. */
   gap: 10px;
   padding: 9px 14px;
-  border-radius: 12px;
   width: max-content;
   max-width: min(520px, 92vw);
 }

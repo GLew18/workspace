@@ -1,0 +1,220 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>200 live translation trials</title>
+<style>
+  body { font: 15px/1.6 system-ui; background: #0b1a3a; color: #dbe6ff; padding: 24px; }
+  /* A real scale: 12 (data) -> 15 (prose) -> 20 (title) -> 30 (the answer).
+     The score was 22px against an unstyled h2 at ~22.5px, so the one number the
+     page exists to show was the same size as its title. */
+  h2 { font-size: 20px; letter-spacing: -.01em; margin: 0 0 4px; }
+  .lead { color: #9fb0cc; max-width: 720px; margin: 0 0 18px; }
+  button { font: 600 15px system-ui; padding: 11px 20px; border-radius: 10px; border: 1px solid #7db4ff59;
+           background: #7db4ff1a; color: #dbe6ff; cursor: pointer; }
+  button:hover { background: #7db4ff2e; }
+  #score { font-size: 30px; font-weight: 800; line-height: 1.25; margin: 18px 0 6px; }
+  table { border-collapse: collapse; margin-top: 14px; font-size: 12px; width: 100%; }
+  th, .lead { font-size: 15px; }
+  td, th { border-bottom: 1px solid #22345f; padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: #9fb0cc; font-weight: 600; }
+  .bad { color: #ff8a8a; }
+  .ok { color: #7ee08a; }
+  #bar { height: 6px; background: #14264d; border-radius: 999px; overflow: hidden; margin: 12px 0; }
+  /* scaleX, not width: a transform is composited, so 200 updates don't each force a
+     layout pass. transform-origin pins the growth to the left edge. */
+  #fill { height: 100%; width: 100%; background: #7db4ff; transform: scaleX(0);
+          transform-origin: left center; transition: transform .2s; }
+  @media (prefers-reduced-motion: reduce) { #fill { transition: none; } }
+</style>
+<body>
+  <h2>200 live translation trials</h2>
+  <p class="lead">
+    Every sentence is real: produced by a translator from a known English seed, so each
+    trial has an objective expected meaning. Each one runs through Cobalt's actual
+    pipeline, which calls Google Cloud Translation through the deployed
+    <code>translateTitles</code> function — so this exercises the shipped path end to
+    end, not a stand-in. <b>You must be signed in</b>, because the function requires it.
+    <br><br>
+    This set was regenerated on 16 Aug behind a quality gate: a fixture for a language
+    must be <i>identifiable</i> as that language, not merely compatible with it. The
+    previous set contained “第7章” — three Han characters with no kana, which is exactly
+    as much Chinese as Japanese, so no answer to it could be right.
+  </p>
+  <button id="go">Run all 200</button>
+  <div id="boot" style="margin-top:12px;font-size:15px;color:#ff8a8a"></div>
+  <script>
+    // A PLAIN script, on purpose. It runs before the module below and does not depend
+    // on it, so if the module fails to parse or one of its imports 404s, this is still
+    // here to say so — instead of the button sitting there doing nothing, which is
+    // exactly what Gabe hit (8/16).
+    window.__booted = false;
+    const boot = document.getElementById('boot');
+    const say = (m) => { boot.textContent = m; };
+    // THE MOST LIKELY MISTAKE, CHECKED FIRST. Opening this file by double-clicking it
+    // gives a file:// page, where every /src/... import resolves to file:///C:/src/...
+    // and 404s — the module never runs and the button has no handler. That is exactly
+    // what happened (Gabe, 8/16), and no amount of reloading fixes it.
+    if (location.protocol === 'file:') {
+      boot.innerHTML =
+        'This page is open as a <b>file</b>, so none of its imports can load.<br>' +
+        'Open it through the dev server instead: <b>http://localhost:5173/trials200.html</b>';
+      document.getElementById('go').disabled = true;
+    }
+    window.addEventListener('error', (e) => say('Script error: ' + (e.message || e.error)));
+    window.addEventListener('unhandledrejection', (e) => say('Failed: ' + ((e.reason && e.reason.message) || e.reason)));
+    setTimeout(() => {
+      if (!window.__booted && location.protocol !== 'file:') {
+        say('The page script never loaded, so the button has no handler. Open DevTools ▸ Console for the reason — it is usually a failed import.');
+      }
+    }, 2500);
+  </script>
+  <div id="bar"><div id="fill"></div></div>
+  <div id="score"></div>
+  <div id="out"></div>
+  <script type="module">
+    import { analyzeTitle, resetTranslationCache } from '/src/util/translate.ts';
+    import { setPrefsCache, DEFAULT_PREFS } from '/src/prefs.ts';
+    window.__booted = true;
+    document.getElementById('boot').textContent = '';
+
+    const norm = (s) => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+    // WHAT COUNTS AS A BAD ROW.
+    //
+    // The first version scored each translation by how many words it shared with the
+    // English seed. Across 200 live trials that produced TWELVE flags and not one
+    // real error: it was firing on synonyms — turtle/tortoise, hare/rabbit,
+    // beats/hits/defeats, seven/7/VII. A word-overlap score cannot tell a synonym
+    // from a mistake, so it was measuring the wrong thing and has been removed. It is
+    // not loosened to make a number look better; it is dropped because every one of
+    // its hits was wrong and it never caught anything real.
+    //
+    // These four replace it, and each detects an actual failure:
+    /** Any character past Latin Extended-B, i.e. a script English does not use. */
+    const beyondLatin = (s) => {
+      for (const ch of String(s || '')) if (ch.codePointAt(0) > 0x024f) return true;
+      return false;
+    };
+    const problems = (r) => {
+      const p = [];
+      if (r.on !== 'foreign') p.push('did not translate with the language ON');
+      if (r.off !== 'english') p.push('translated with the language OFF');
+      if (r.on === 'foreign') {
+        if (!String(r.got || '').trim()) p.push('empty output');
+        else if (norm(r.got) === norm(r.text)) p.push('handed the input back');
+        // Still carrying the source's script means nothing was actually translated —
+        // this is what catches a fabricated or half-done answer. Compared by code
+        // point rather than a regex, because a literal range here is one stray escape
+        // away from a NUL byte in the file, which is exactly what happened once.
+        else if (beyondLatin(r.got) && beyondLatin(r.text))
+          p.push('output is still not English');
+      }
+      return p;
+    };
+
+    const withLangs = (codes) => {
+      const p = structuredClone(DEFAULT_PREFS);
+      p.tasks.translateFrom = codes;
+      setPrefsCache(p);
+      resetTranslationCache();
+    };
+
+    document.getElementById('go').addEventListener('click', async () => {
+      const btn = document.getElementById('go');
+      btn.disabled = true;
+      btn.textContent = 'Running…';
+      const score = document.getElementById('score');
+      score.textContent = 'Loading the 200 sentences…';
+
+      // SIGNED IN? The function refuses anonymous callers, so without this every one
+      // of the 200 comes back as an error and the page just looks broken.
+      try {
+        const { getApps, getApp, initializeApp } = await import('firebase/app');
+        const { getAuth } = await import('firebase/auth');
+        const { firebaseConfig } = await import('/src/firebase.ts');
+        const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+        await new Promise((r) => {
+          const un = getAuth(app).onAuthStateChanged((u) => { un(); window.__user = u; r(); });
+        });
+        if (!window.__user) {
+          score.innerHTML = '<span class="bad">Not signed in.</span> Open Cobalt, sign in, then reload this page — the translate function refuses anonymous callers.';
+          btn.disabled = false; btn.textContent = 'Run all 200';
+          return;
+        }
+      } catch (e) {
+        score.innerHTML = '<span class="bad">Could not check sign-in:</span> ' + e.message;
+      }
+      let fixtures;
+      try {
+        const r = await fetch('/trials200.json');
+        if (!r.ok) throw new Error('trials200.json returned ' + r.status);
+        fixtures = await r.json();
+      } catch (e) {
+        score.innerHTML = '<span class="bad">Could not load the sentences:</span> ' + e.message +
+          ' — restart the dev server so it picks up public/trials200.json.';
+        btn.disabled = false; btn.textContent = 'Run all 200';
+        return;
+      }
+      score.textContent = 'Starting…';
+      const rows = [];
+      let onOk = 0, offOk = 0, echoed = 0, empty = 0, errors = 0, done = 0;
+
+      for (const f of fixtures) {
+        // WITH the language on, it must translate.
+        withLangs([f.lang, 'es', 'fr'].filter((c, i, a) => a.indexOf(c) === i));
+        const on = await analyzeTitle(f.text);
+        // WITH it off, it must be left alone. A script deliberately unlike most of
+        // the set, so the off-list can never accidentally contain the right answer.
+        withLangs(f.lang === 'ja' ? ['ko'] : ['ja']);
+        const off = await analyzeTitle(f.text);
+
+        const t = on.status === 'foreign' ? on.text : '';
+        if (on.status === 'error' || off.status === 'error') errors++;
+        if (on.status === 'foreign') onOk++;
+        if (off.status === 'english') offOk++;
+        if (on.status === 'foreign' && !t.trim()) empty++;
+        if (on.status === 'foreign' && norm(t) === norm(f.text)) echoed++;
+
+        // The detected language and the path taken, so a failing row explains ITSELF
+        // rather than needing another run to work out why.
+        const why = window.__cobaltTranslate || {};
+        rows.push({ ...f, on: on.status, off: off.status, got: t,
+          detected: why.detected || '?', how: why.fallbackAskedAs ? 'asked ' + why.fallbackAskedAs : 'auto' });
+
+        done++;
+        document.getElementById('fill').style.transform = 'scaleX(' + done / fixtures.length + ')';
+        // EVERY item, not every tenth. The first version only painted a score after
+        // ten trials, which at two network calls each is long enough to look frozen.
+        render(rows, { onOk, offOk, echoed, empty, errors, done, total: fixtures.length });
+        // And if the very first trial errors, say so outright instead of scoring a
+        // silent zero — an unauthenticated or blocked call is not a wrong answer.
+        if (done === 1 && errors === 1) {
+          document.getElementById('out').innerHTML =
+            '<p class="bad">The first call failed. That is usually not being signed in, or the ' +
+            'translateTitles function erroring — check the console for the reason.</p>';
+        }
+      }
+      render(rows, { onOk, offOk, echoed, empty, errors, done, total: fixtures.length });
+      window.__trials = { rows, onOk, offOk, echoed, empty, errors, total: fixtures.length };
+      btn.disabled = false;
+      btn.textContent = 'Run all 200 again';
+    });
+
+    function render(rows, s) {
+      const perfect = s.onOk === s.total && s.offOk === s.total && !s.echoed && !s.empty;
+      document.getElementById('score').innerHTML =
+        `<span style="font-size:15px;color:#9fb0cc">${s.done} of ${s.total} done &nbsp;·&nbsp;</span> ` +
+        `<span class="${perfect ? 'ok' : 'bad'}">${s.onOk}/${s.done}</span> translated when the language was ON &nbsp;·&nbsp; ` +
+        `<span class="${s.offOk === s.done ? 'ok' : 'bad'}">${s.offOk}/${s.done}</span> left alone when OFF ` +
+        `<span style="font-size:15px;color:#9fb0cc">&nbsp; echoed ${s.echoed} · empty ${s.empty} · errors ${s.errors}</span>`;
+      const bad = rows.map((r) => ({ ...r, why: problems(r) })).filter((r) => r.why.length);
+      document.getElementById('out').innerHTML =
+        (bad.length
+          ? `<table><tr><th>lang</th><th>seed</th><th>source text</th><th>got</th><th>detected</th><th>what went wrong</th></tr>` +
+            bad.slice(0, 60).map((r) =>
+              `<tr class="bad"><td>${r.lang}</td><td>${r.seed}</td><td>${r.text}</td>` +
+              `<td>${r.got || '—'}</td><td>${r.detected} · ${r.how}</td><td>${r.why.join('; ')}</td></tr>`).join('') +
+            `</table><p class="lead">${bad.length} row${bad.length === 1 ? '' : 's'} need a look.</p>`
+          : '<p class="ok" style="font-size:20px;font-weight:700">Nothing to review.</p>');
+    }
+  </script>
+</body>

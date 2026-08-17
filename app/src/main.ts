@@ -2,6 +2,7 @@
 
 // #region Imports — styles + the modules this entry point wires together
 import './ui/theme.css';
+import { dropSelections } from './ui/selbar';
 import './ui/components.css';
 import './ui/focus.css';
 import './ui/dashboard.css';
@@ -364,7 +365,18 @@ async function renderApp(user: AuthUser): Promise<void> {
       // Same deal: re-mount so the log is current every time the bell is pressed.
       { id: 'notifications', label: 'Notifications', onShow: (p) => notifyLogView.mount(p) },
     ],
-    (id) => navBtns.forEach((b, k) => b.classList.toggle('active', k === id))
+    // EVERY tab change, which is the whole point of putting it here (Gabe, 8/16).
+    // A selection belongs to the list it was made in, so leaving that list ends it.
+    //
+    // This lived on each tab's `render` first and appeared to work — once. mountTabs
+    // calls `render` for a tab EXACTLY ONCE and shows the cached panel every visit
+    // after, so the clear fired on the first trip to each tab and never again. This
+    // callback runs on every switch, which is the only hook that is actually true to
+    // the name "on change".
+    (id) => {
+      dropSelections();
+      navBtns.forEach((b, k) => b.classList.toggle('active', k === id));
+    }
   );
 
   // Restore an in-progress focus session (e.g. after a mid-session reload),

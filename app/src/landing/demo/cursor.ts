@@ -246,6 +246,17 @@ export class GhostCursor {
     }
   }
 
+  /** Paste: the whole string lands at once (URLs are pasted, never typed:
+   *  nobody keys in 40 characters of href by hand, and the demo should read
+   *  like a person). One input event, inputType insertFromPaste. */
+  async paste(field: HTMLInputElement | HTMLTextAreaElement, text: string): Promise<void> {
+    field.focus();
+    await this.wait(160); // the beat of reaching for Ctrl+V
+    field.value += text;
+    field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste' }));
+    await this.wait(120);
+  }
+
   /** Select-all + retype (the rename gesture after an inline editor opens with
    *  the old value selected). */
   async retype(field: HTMLInputElement | HTMLTextAreaElement, text: string): Promise<void> {

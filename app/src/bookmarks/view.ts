@@ -14,6 +14,7 @@
 // for shortcuts that fire even when Cobalt isn't focused.
 
 import type { Data } from '../db';
+import { selectionBar, type SelBar } from '../ui/selbar';
 import { el, textInput, enterConfirms, showToast } from '../util/dom';
 import { popupGuideButton } from '../ui/popupGuide';
 import { genId } from '../util/ids';
@@ -167,6 +168,11 @@ function attachFaviconLadder(img: HTMLImageElement, iconBox: HTMLElement, bm: Bo
 }
 // #endregion
 
+/** The Esc handler belonging to the LIVE view. main.ts builds a fresh BookmarksView
+ *  on every visit to the tab and never tears the old one down, so without this the
+ *  document would collect one keydown listener per visit, forever. */
+let activeKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+
 export class BookmarksView {
   // #region State & lifecycle
   private data: Data;
@@ -180,6 +186,14 @@ export class BookmarksView {
 
   // id of the card being dragged (⋮⋮ handle reorder), null when idle.
   private dragFromId: string | null = null;
+
+  // --- multi-select. Deliberately the SAME model as the Tasks tab (tasks/render.ts
+  // onRowClick): shift/ctrl/cmd click starts and extends a selection, and once one
+  // exists a plain click toggles. Two tabs that both show a list of things should
+  // not have two different ways to pick several of them. ---
+  private selectedIds = new Set<string>();
+  private lastSelId: string | null = null; // the shift-range anchor
+  private selBar: SelBar | null = null; // the "N selected · Deselect all" strip
 
   // The pop-up fix-it guide. Created once, shown only once an "Open all" button
   // exists to explain (see renderGrid). Absent in the landing preview.
@@ -230,6 +244,16 @@ export class BookmarksView {
     page.append(searchWrap);
 
     this.grid = el('div', { class: 'bm-grid' });
+    // Esc clears the selection, and a click on empty page space does too — the same
+    // two escapes the Tasks tab gives you.
+    if (!this.sample) {
+      if (activeKeyHandler) document.removeEventListener('keydown', activeKeyHandler);
+      activeKeyHandler = this.onKey;
+      document.addEventListener('keydown', this.onKey);
+      page.addEventListener('click', (e) => {
+        if (this.selectedIds.size && !(e.target as Element).closest('.bm-card')) this.clearSelection();
+      });
+    }
     page.append(this.grid);
 
     const addWrap = el('div', { class: 'bm-add-wrap' });
@@ -251,6 +275,103 @@ export class BookmarksView {
 
   private save(): Promise<void> {
     return this.data.setProfile('bookmarks', this.state);
+  }
+
+  /** Removed on unmount so a re-mount can't stack listeners. */
+  private onKey = (e: KeyboardEvent): void => {
+    if (!this.grid?.isConnected) return; // a stale view from a previous visit
+    // Not while a modal is open: Esc belongs to the dialog on top.
+    if (e.key === 'Escape' && this.selectedIds.size && !document.querySelector('.bm-backdrop')) {
+      this.clearSelection();
+    }
+  };
+
+  teardown(): void {
+    this.selBar?.destroy();
+    this.selBar = null;
+    if (activeKeyHandler === this.onKey) {
+      document.removeEventListener('keydown', this.onKey);
+      activeKeyHandler = null;
+    }
+    this.selectedIds.clear();
+    this.lastSelId = null;
+  }
+
+  // --- multi-select ---------------------------------------------------------
+
+  /** Card click routing. Mirrors tasks/render.ts onRowClick step for step, with one
+   *  addition: a bookmark card IS a link, so a selecting click must also swallow the
+   *  navigation it would otherwise perform. */
+  private onCardClick(bm: Bookmark, e: MouseEvent): void {
+    const t = e.target as Element;
+    if (t.closest('button, input, textarea, .bm-card-handle')) return; // the card's own controls
+    const multi = e.ctrlKey || e.metaKey || e.shiftKey;
+    const range = e.shiftKey && !!this.lastSelId;
+    if (!multi && !range && !this.selectedIds.size) return; // a plain click with nothing selected = open the link
+    e.preventDefault(); // …otherwise the browser would navigate away mid-selection
+    e.stopPropagation();
+    window.getSelection()?.removeAllRanges();
+    if (range) {
+      const ids = [...this.grid.querySelectorAll<HTMLElement>('.bm-card[data-bm-id]')].map((c) => c.dataset.bmId!);
+      const a = ids.indexOf(this.lastSelId!);
+      const b = ids.indexOf(bm.id);
+      if (a >= 0 && b >= 0) for (let i = Math.min(a, b); i <= Math.max(a, b); i++) this.selectedIds.add(ids[i]);
+      else this.selectedIds.add(bm.id);
+    } else if (this.selectedIds.has(bm.id)) {
+      this.selectedIds.delete(bm.id);
+    } else {
+      this.selectedIds.add(bm.id);
+    }
+    // An empty selection drops the anchor too, so the next shift-click can't range
+    // from a card deselected long ago and resurrect rows nobody re-picked.
+    this.lastSelId = this.selectedIds.size ? bm.id : null;
+    this.syncSelectionUI();
+  }
+
+  /** Paint the selection without a re-render.
+   *
+   *  ONLY the shortcut chip grays out, and ONLY on cards that are actually in the
+   *  selection (Gabe, 8/15). Two rules, both deliberate:
+   *
+   *   • Group STAYS live, because grouping is the thing you multi-select FOR. It
+   *     applies to the whole selection, like every bulk action on the Tasks tab.
+   *   • Shortcut cannot: a keyboard combo is unique to one link by definition, so
+   *     there is no meaning to assigning one to twelve of them.
+   *
+   *  And a card OUTSIDE the selection is untouched — its own chips still act on
+   *  itself, exactly as they would with nothing selected. */
+  private syncSelectionUI(): void {
+    this.selBar ??= selectionBar('link', () => this.clearSelection(), this.sample?.host);
+    this.selBar.update(this.selectedIds.size);
+    const on = this.selectedIds.size > 1; // one card selected is still a single target
+    for (const card of this.grid.querySelectorAll<HTMLElement>('.bm-card[data-bm-id]')) {
+      const mine = this.selectedIds.has(card.dataset.bmId!);
+      card.classList.toggle('selected', mine);
+      card.classList.toggle('bm-selecting', this.selectedIds.size > 0);
+      const sc = card.querySelector<HTMLButtonElement>('.bm-chip-shortcut');
+      if (sc) {
+        const off = on && mine;
+        sc.classList.toggle('bm-chip-off', off);
+        sc.disabled = off;
+        sc.title = off ? 'A keyboard shortcut belongs to one link — clear the selection to set one' : sc.dataset.title || sc.title;
+      }
+    }
+  }
+
+  private clearSelection(): void {
+    this.selectedIds.clear();
+    this.lastSelId = null;
+    this.syncSelectionUI();
+  }
+
+  /** What the next action hits: the WHOLE selection when the acted-on card is part
+   *  of one, just that card otherwise. The File-Explorer rule, same as Tasks. */
+  private selTargets(bm: Bookmark): Bookmark[] {
+    if (this.selectedIds.has(bm.id) && this.selectedIds.size > 1) {
+      const want = this.selectedIds;
+      return this.state.list.filter((b) => want.has(b.id)); // list order, not click order
+    }
+    return [bm];
   }
   // #endregion
 
@@ -321,6 +442,13 @@ export class BookmarksView {
         })
       );
     }
+    // Drop ids that no longer exist (deleted, or filtered out by a search), then
+    // repaint — a selection has to survive the re-render that a save triggers.
+    for (const id of [...this.selectedIds]) {
+      if (!this.state.list.some((b) => b.id === id)) this.selectedIds.delete(id);
+    }
+    if (!this.selectedIds.size) this.lastSelId = null;
+    this.syncSelectionUI();
   }
 
   /** The strip above a group's cards: its dot, its name, and TWO launchers
@@ -389,7 +517,14 @@ export class BookmarksView {
       e.preventDefault();
       e.stopPropagation();
     };
-    if (this.sample) card.addEventListener('click', (e) => e.preventDefault()); // inert in the preview
+    // ONE listener for both modes. A preview must never NAVIGATE (preventDefault
+    // up front), but multi-select still works there: the landing's Dan demo
+    // bulk-groups cards on camera, and selecting is harmless without navigation.
+    card.addEventListener('click', (e) => {
+      if (this.sample) e.preventDefault();
+      this.onCardClick(bm, e);
+    });
+    if (this.selectedIds.has(bm.id)) card.classList.add('selected');
 
     // --- Drag-to-reorder (same concept as focus-session todos): the ⋮⋮ handle
     // arms the card's draggable, native DnD moves it to the drop card's slot. ---
@@ -466,18 +601,23 @@ export class BookmarksView {
     }
     groupBtn.addEventListener('click', (e) => {
       stop(e);
-      this.openGroupPicker(bm);
+      this.openGroupPicker(bm); // acts on the whole selection when this card is in one
     });
 
-    const scBtn = el('button', { class: 'bm-chip-btn' });
+    const scBtn = el('button', { class: 'bm-chip-btn bm-chip-shortcut' });
     const paintShortcut = () => {
       scBtn.classList.toggle('bm-chip-kbd', !!bm.shortcut);
       scBtn.textContent = bm.shortcut ? prettyCombo(bm.shortcut) : '+ Shortcut';
       scBtn.title = bm.shortcut ? 'Edit keyboard shortcut' : 'Add a keyboard shortcut';
+      scBtn.dataset.title = scBtn.title; // remembered, so the grayed tooltip can be restored
     };
     paintShortcut();
     scBtn.addEventListener('click', (e) => {
       stop(e);
+      // Grayed on a selected card while a multi-selection is live. `disabled` stops
+      // a real mouse; this stops a keyboard, an assistive tool, or a scripted click,
+      // so "grayed out" means the same thing however the click got here.
+      if (this.selectedIds.size > 1 && this.selectedIds.has(bm.id)) return;
       // Every OTHER bookmark's combo, so the same combo on this card re-saves fine.
       const existingCombos = new Set<string>();
       for (const other of this.state.list) {
@@ -513,12 +653,16 @@ export class BookmarksView {
     const edit = el('button', { class: 'bm-icon-btn', title: 'Edit', text: '✎' });
     edit.addEventListener('click', (e) => {
       stop(e);
+      // A name and a URL belong to ONE link, so this is the one action that cannot
+      // be bulk-applied. Editing just this card out of a selection would be a silent
+      // surprise, so the selection is dropped first and the intent is explicit.
+      if (this.selTargets(bm).length > 1) this.clearSelection();
       this.openEditor(bm);
     });
     const del = el('button', { class: 'bm-icon-btn bm-icon-danger', title: 'Delete', text: '✕' });
     del.addEventListener('click', (e) => {
       stop(e);
-      this.confirmDelete(bm);
+      this.confirmDelete(this.selTargets(bm)); // the whole selection when this card is in one
     });
     actions.append(edit, del);
 
@@ -531,47 +675,63 @@ export class BookmarksView {
   /** Pick a group with ONE click: choosing a group (or None) applies immediately
    *  and closes — no Done / Remove buttons. Creating a group also auto-assigns. */
   private openGroupPicker(bm: Bookmark): void {
+    // THE BULK ACTION. Grouping is what multi-select is for, so the picker acts on
+    // the whole selection when this card is part of one — the same File-Explorer
+    // rule the Tasks tab uses, and one write for the batch either way.
+    const targets = this.selTargets(bm);
+
+    // BUILT ON THE TASKS FOLDER PICKER'S MARKUP, not a lookalike (Gabe, 8/15). Same
+    // .folder-pick rows, same "+ New …" row with a colour well beside the name box,
+    // same hover and selected borders — every one of those styles comes from
+    // components.css and is shared, so the two pickers cannot drift apart. The ONE
+    // difference is the mark at the left of each row: a filled circle here, because
+    // a bookmark group is identified by its colour, where a task folder is a folder.
     const back = el('div', { class: 'bm-backdrop' });
     const box = el('div', { class: 'bm-modal bm-modal-sm' });
-    box.append(el('h3', { class: 'bm-modal-title', text: 'Group' }));
+    box.append(el('h3', { class: 'bm-modal-title', text: 'Add to group' }));
+    if (targets.length > 1) {
+      // .popup-bulk-note, the SAME accent-tinted panel the Tasks folder picker uses
+      // (tasks/render.ts bulkNote). It was plain dim text here, which is the visible
+      // difference Gabe spotted between the two popups on 8/16.
+      box.append(el('div', { class: 'popup-bulk-note', text: `Applies to all ${targets.length} selected links.` }));
+    }
     const close = () => back.remove();
 
     const pick = async (groupId: string | undefined) => {
-      if (groupId) bm.groupId = groupId;
-      else delete bm.groupId;
+      for (const t of targets) {
+        if (groupId) t.groupId = groupId;
+        else delete t.groupId;
+      }
       await this.save();
       close();
       this.renderGrid();
     };
 
-    const list = el('div', { class: 'bm-group-list' });
-    let editingId: string | null = null; // group currently swapped for the inline editor
-    const draw = () => {
-      list.replaceChildren();
+    /** The circle that stands in for the folder icon. */
+    const dot = (color: string): HTMLElement => {
+      const d = el('span', { class: 'group-pick-dot' });
+      d.style.background = color;
+      return d;
+    };
 
-      // "None" — leaves the current group (replaces the old "Remove from group").
-      const noneRow = el('button', { class: 'bm-group-row' });
-      noneRow.append(
-        el('span', { class: 'bm-group-dot none' }),
-        el('span', { class: 'bm-group-row-name', text: 'None' })
-      );
-      if (!bm.groupId) noneRow.append(el('span', { class: 'bm-group-check', text: '✓' }));
-      noneRow.addEventListener('click', () => void pick(undefined));
-      list.append(noneRow);
+    const wrap = el('div', { class: 'folder-pick' });
+    // The check marks a group ONLY when every target already agrees — a mixed
+    // selection has no single current group, and claiming one would be a lie.
+    const allIn = (id: string | undefined) => targets.every((t) => (t.groupId || undefined) === id);
 
+    let editingId: string | null = null; // group swapped for its inline editor
+    const draw = (): void => {
+      wrap.replaceChildren();
       for (const g of this.state.groups) {
-        // Editing this group: the row becomes a name + color editor (same controls
-        // as the "New group" row below) with a Save button.
+        // Editing: the row becomes the same colour-well + name + Save trio as the
+        // create row below, so renaming looks like what it is.
         if (editingId === g.id) {
-          const row = el('div', { class: 'bm-modal-iconrow bm-group-editrow' });
-          const colorEdit = el('input', { type: 'color', class: 'bm-group-color' }) as HTMLInputElement;
-          colorEdit.value = g.color;
-          const nameEdit = textInput({ class: 'bm-input bm-mini-input' });
-          nameEdit.maxLength = 18; // keep group names chip-sized
+          const row = el('div', { class: 'folder-pick-new' });
+          const colorEdit = el('input', { type: 'color', class: 'folder-pick-color', value: g.color, title: 'Group color' }) as HTMLInputElement;
+          const nameEdit = textInput({ class: 'folder-pick-input' });
+          nameEdit.maxLength = 18; // group names have to stay chip-sized on a card
           nameEdit.value = g.name;
-          nameEdit.addEventListener('input', () => nameEdit.classList.remove('invalid'));
-          const saveBtn = el('button', { class: 'bm-mini-btn', text: 'Save' });
-          const commit = async () => {
+          const commit = async (): Promise<void> => {
             const nm = nameEdit.value.trim();
             if (!nm) {
               nameEdit.classList.add('invalid');
@@ -581,80 +741,78 @@ export class BookmarksView {
             g.name = nm;
             g.color = colorEdit.value || g.color;
             await this.save();
-            this.renderGrid(); // chips + accents on the cards pick up the change live
+            this.renderGrid(); // chips + card accents pick the change up live
             editingId = null;
             draw();
           };
-          saveBtn.addEventListener('click', () => void commit());
+          nameEdit.addEventListener('input', () => nameEdit.classList.remove('invalid'));
           nameEdit.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') void commit();
+            if (e.key === 'Escape') {
+              editingId = null;
+              draw();
+            }
           });
+          const saveBtn = el('button', { class: 'folder-pick-mini', text: 'Save' });
+          saveBtn.addEventListener('click', () => void commit());
           row.append(colorEdit, nameEdit, saveBtn);
-          list.append(row);
+          wrap.append(row);
           requestAnimationFrame(() => nameEdit.focus());
           continue;
         }
 
-        const row = el('button', { class: 'bm-group-row' });
-        row.addEventListener('click', () => void pick(g.id)); // one-click assign
-        const dot = el('span', { class: 'bm-group-dot' });
-        dot.style.background = g.color;
-        row.append(dot, el('span', { class: 'bm-group-row-name', text: g.name }));
-        if (bm.groupId === g.id) row.append(el('span', { class: 'bm-group-check', text: '✓' }));
-        // Edit (✎) / delete (×) — spans, not buttons (buttons can't nest), and both
-        // stop propagation so the row's assign-click never fires.
-        const pencil = el('span', { class: 'bm-group-pencil', title: `Edit group “${g.name}”`, text: '✎' });
-        pencil.addEventListener('click', (e) => {
-          e.stopPropagation();
+        const b = el('button', { class: `folder-pick-row${allIn(g.id) ? ' on' : ''}` });
+        b.append(dot(g.color), el('span', { text: g.name }));
+        const edit = el('span', { class: 'group-pick-edit', text: '✎', title: `Rename “${g.name}”` });
+        edit.addEventListener('click', (e) => {
+          e.stopPropagation(); // renaming is not picking
           editingId = g.id;
           draw();
         });
-        // Delete the group: un-tags every bookmark in it, then repaints this list
-        // in place (the modal stays open).
-        const x = el('span', { class: 'bm-group-x', title: `Delete group “${g.name}”`, text: '×' });
-        x.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          this.state.groups = this.state.groups.filter((grp) => grp.id !== g.id);
-          for (const b of this.state.list) if (b.groupId === g.id) delete b.groupId;
-          await this.save();
-          this.renderGrid(); // cards behind the modal lose their chip/accent live
-          draw();
-        });
-        row.append(pencil, x);
-        list.append(row);
+        b.append(edit);
+        b.addEventListener('click', () => void pick(g.id));
+        wrap.append(b);
       }
+
+      // "Remove from group", shown on the same terms as the Tasks picker's: only
+      // when something in the selection actually has one to leave.
+      if (targets.some((t) => t.groupId)) {
+        const rm = el('button', { class: 'folder-pick-remove', text: 'Remove from group' });
+        rm.addEventListener('click', () => void pick(undefined));
+        wrap.append(rm);
+      }
+
+      // "+ New group": colour well, then the name box. Enter creates and assigns.
+      const colorInp = el('input', { type: 'color', class: 'folder-pick-color', value: '#7db4ff', title: 'Group color' }) as HTMLInputElement;
+      const nameInp = textInput({ class: 'folder-pick-input', placeholder: '+ New group…' });
+      nameInp.maxLength = 18;
+      const create = (): void => {
+        const nm = nameInp.value.trim();
+        if (!nm) {
+          nameInp.classList.add('invalid');
+          return;
+        }
+        const g: BookmarkGroup = { id: 'grp_' + genId(), name: nm, color: colorInp.value || '#7db4ff' };
+        this.state.groups.push(g);
+        void pick(g.id); // creating auto-assigns and closes, same as clicking a row
+      };
+      nameInp.addEventListener('input', () => nameInp.classList.remove('invalid'));
+      nameInp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') create();
+      });
+      const newRow = el('div', { class: 'folder-pick-new' });
+      newRow.append(colorInp, nameInp);
+      wrap.append(newRow);
+      requestAnimationFrame(() => nameInp.focus());
     };
     draw();
-    box.append(list);
-
-    box.append(label('New group'));
-    const createRow = el('div', { class: 'bm-modal-iconrow' });
-    const colorInp = el('input', { type: 'color', class: 'bm-group-color' }) as HTMLInputElement;
-    colorInp.value = '#7db4ff';
-    const nameInp = textInput({ class: 'bm-input bm-mini-input', placeholder: 'Group name' });
-    nameInp.maxLength = 18; // keep group names chip-sized
-    nameInp.addEventListener('input', () => nameInp.classList.remove('invalid'));
-    const createBtn = el('button', { class: 'bm-mini-btn', text: 'Create' });
-    createBtn.addEventListener('click', () => {
-      const nm = nameInp.value.trim();
-      if (!nm) {
-        nameInp.classList.add('invalid');
-        nameInp.focus();
-        return;
-      }
-      const g: BookmarkGroup = { id: 'grp_' + genId(), name: nm, color: colorInp.value || '#7db4ff' };
-      this.state.groups.push(g);
-      void pick(g.id); // creating auto-assigns and closes, same as clicking a row
-    });
-    createRow.append(colorInp, nameInp, createBtn);
-    box.append(createRow);
+    box.append(wrap);
 
     back.append(box);
     back.addEventListener('click', (e) => {
       if (e.target === back) close();
     });
     (this.sample?.host ?? document.body).append(back);
-    nameInp.focus();
   }
 
   /** Open the shared editor. `existing` null = add a new bookmark. */
@@ -680,7 +838,7 @@ export class BookmarksView {
       const delBtn = el('button', { class: 'bm-btn bm-btn-danger', text: 'Delete' });
       delBtn.addEventListener('click', () => {
         close();
-        this.confirmDelete(existing);
+        this.confirmDelete([existing]); // the editor is always about one link
       });
       footer.append(delBtn);
     }
@@ -730,17 +888,37 @@ export class BookmarksView {
     nameInp.focus();
   }
 
-  private confirmDelete(bm: Bookmark): void {
+  /** Delete one link, or a whole selection, behind ONE confirmation and ONE write.
+   *  N separate deletes would mean N saves and N re-renders for a single gesture. */
+  private confirmDelete(targets: Bookmark[]): void {
+    if (!targets.length) return;
     const back = el('div', { class: 'bm-backdrop' });
     const box = el('div', { class: 'bm-modal bm-modal-sm' });
-    box.append(el('h3', { class: 'bm-modal-title', text: `Delete “${bm.name}”?` }));
+    // The count is in the title, not a footnote: deleting twelve links when you
+    // meant one is exactly the mistake a confirmation exists to prevent.
+    box.append(
+      el('h3', {
+        class: 'bm-modal-title',
+        text: targets.length === 1 ? `Delete “${targets[0].name}”?` : `Delete ${targets.length} links?`,
+      })
+    );
+    if (targets.length > 1) {
+      box.append(
+        el('div', {
+          class: 'bm-modal-note',
+          text: targets.map((b) => b.name).join(', '),
+        })
+      );
+    }
     const footer = el('div', { class: 'bm-modal-footer' });
     const cancel = el('button', { class: 'bm-btn', text: 'Cancel' });
     cancel.addEventListener('click', () => back.remove());
     const yes = el('button', { class: 'bm-btn bm-btn-danger', text: 'Delete' });
     yes.addEventListener('click', async () => {
-      const hadShortcut = !!bm.shortcut;
-      this.state.list = this.state.list.filter((b) => b.id !== bm.id);
+      const ids = new Set(targets.map((b) => b.id));
+      const hadShortcut = targets.some((b) => !!b.shortcut);
+      this.state.list = this.state.list.filter((b) => !ids.has(b.id));
+      this.clearSelection();
       await this.save();
       if (hadShortcut) void syncShortcutsToExtension(this.state.list as ShortcutBookmark[]);
       back.remove();

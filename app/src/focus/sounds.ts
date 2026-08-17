@@ -12,6 +12,7 @@
 // louder default can't harshly clip when many oscillators stack up.
 
 import { armAudioContext, audioCtx } from './timer';
+import { isDemoSilent } from '../util/silence';
 
 export interface EndSound {
   key: string;
@@ -371,6 +372,9 @@ const BUILDERS: Record<string, (c: AudioContext) => void> = {
  * and stop the cue early.
  */
 export function playEndSound(key: string, volume: number = DEFAULT_END_VOLUME): EndSoundHandle {
+  // A demo running the real app must stay silent (see util/silence.ts). Returns a
+  // live-looking handle so callers keep their stop/setVolume contract.
+  if (isDemoSilent()) return { stop: () => {}, setVolume: () => {}, durationMs: 0 };
   armAudioContext();
   const c = audioCtx();
   if (!c) return { stop: () => {}, setVolume: () => {}, durationMs: 0 };
