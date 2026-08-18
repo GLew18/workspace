@@ -21,6 +21,7 @@ import type { Data } from '../../db';
 import { el } from '../../util/dom';
 import { createWordmark } from '../../ui/laurel';
 import { mountTabs, type TabController } from '../../ui/tabs';
+import { dropSelections } from '../../ui/selbar';
 import { DashboardView } from '../../dashboard/view';
 import { TasksView } from '../../tasks/render';
 import { BookmarksView } from '../../bookmarks/view';
@@ -139,6 +140,7 @@ export async function buildDemoShell(): Promise<DemoShell> {
     displayName: 'Dan',
     email: 'dan@heschel.org',
     onNameChange: () => {},
+    host: () => body, // the color card and friends mount INSIDE the frame
   });
   // The REAL FocusView in sample mode: overlay/widget/toasts mount into the
   // shell body, and page-global side effects (tab title, wake lock, persist,
@@ -156,6 +158,9 @@ export async function buildDemoShell(): Promise<DemoShell> {
     (id) => {
       navBtns.forEach((b, k) => b.classList.toggle('active', k === id));
       if (TAB_URL[id]) urlEl.textContent = `cobalt.app/${TAB_URL[id]}`;
+      // The real app drops any live selection when the tab changes (main.ts
+      // does exactly this); without it a selection bar floats over Settings.
+      dropSelections();
     }
   );
   gearBtn.addEventListener('click', () => controller.goToTab('settings'));

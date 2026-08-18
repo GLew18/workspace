@@ -4,6 +4,7 @@
 import './ui/theme.css';
 import { dropSelections } from './ui/selbar';
 import './ui/components.css';
+import './ui/colorPicker.css';
 import './ui/focus.css';
 import './ui/dashboard.css';
 import './ui/settings.css';
@@ -622,6 +623,14 @@ async function mountPasswordDroppedNotice(
 let currentUid: string | null = null;
 onAuth((user) => {
   if (user) {
+    // A SIGNED-IN USER MAKES THE SIGN-IN SCREEN OBSOLETE, however they got there.
+    //
+    // The screen closes itself on the paths that know they succeeded (see
+    // authScreen.ts), and this is the backstop for the ones that do not: a redirect
+    // returning, another tab signing in, a session restoring. It lives on <body>, so
+    // re-rendering #root alone would leave it floating over a working app — which is
+    // exactly what happened when Google sign-in became a popup (Gabe, 8/16).
+    document.querySelector('.auth-overlay')?.remove();
     if (user.uid !== currentUid) {
       currentUid = user.uid;
       void renderApp(user);

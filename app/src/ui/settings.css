@@ -361,7 +361,9 @@
   align-items: center;
   gap: 10px;
 }
-/* Color picker drawn as the artifact's small rounded dot (still a real picker). */
+/* Color swatch drawn as the artifact's small rounded dot. A plain button now:
+   clicking it opens the in-app picker card (ui/colorPicker.ts), which paints the
+   current color onto the button's background itself. */
 .course-color {
   flex: none;
   appearance: none;
@@ -371,16 +373,9 @@
   padding: 0;
   border: none;
   border-radius: 6px;
-  background: none;
+  background: none; /* the picker sets background-color inline */
   overflow: hidden;
   cursor: pointer;
-}
-.course-color::-webkit-color-swatch-wrapper {
-  padding: 0;
-}
-.course-color::-webkit-color-swatch {
-  border: none;
-  border-radius: 6px;
 }
 /* Name reads as plain bold text; the box only appears while editing (zero-bump). */
 .course-name {

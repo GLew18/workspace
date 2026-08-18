@@ -30,6 +30,7 @@
 
 import type { Data } from '../db';
 import { el, textInput } from '../util/dom';
+import { attachColorPicker } from '../ui/colorPicker';
 import { capitalizeName, nameFromEmail } from '../util/names';
 import { runSync, fetchIcal } from '../schoology/sync';
 import { replaceCourses, getCourseColor } from '../courses/registry';
@@ -465,12 +466,11 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
           }
 
           const top = el('div', { class: 'course-row-top' });
-          const color = el('input', {
-            type: 'color',
-            class: 'course-color',
-            value: c.color,
-            title: 'Course color',
-          }) as HTMLInputElement;
+          const color = el('button', { type: 'button', class: 'course-color', title: 'Course color' });
+          attachColorPicker(color, {
+            value: () => c.color,
+            onChange: (hex) => (c.color = hex), // persisted with the rest of the draft on Continue
+          });
           const nameIn = el('input', {
             class: 'course-name',
             value: c.name,
@@ -507,7 +507,6 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
           chipRow.append(wordIn);
           const perr = el('div', { class: 'parse-error' });
 
-          color.addEventListener('input', () => (c.color = color.value));
           nameIn.addEventListener('input', () => (c.name = nameIn.value));
           // recommendations follow the name once it settles
           nameIn.addEventListener('change', () => {

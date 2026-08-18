@@ -1,0 +1,100 @@
+/* ===================== Color picker (src/ui/colorPicker.ts) =====================
+   Cobalt's own in-DOM color card, replacing every native <input type="color">.
+   Mounted into document.body in the real app, or into the landing demo's device
+   frame, and positioned by the TS (absolute left/top, clamped inside the host).
+   The knobs get their live left/top and background inline; everything static
+   lives here. */
+.cp-pop {
+  position: absolute;
+  z-index: 5000; /* above every backdrop in the app (settings tops out at 1700, landing at 3000) */
+  width: 196px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  user-select: none;
+}
+/* The saturation/value square: the TS layers black-over-white-to-hue gradients
+   on the element itself (the hue end changes live while the hue bar drags). */
+.cp-sq {
+  position: relative;
+  width: 180px;
+  height: 140px;
+  border-radius: 8px;
+  cursor: crosshair;
+  touch-action: none; /* the pointer drag owns this surface, never the page scroll */
+}
+/* The draggable ring. pointer-events off: the SQUARE is the drag surface, so a
+   grab that starts on the ring and one that starts beside it behave the same. */
+.cp-knob {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.cp-hue {
+  position: relative;
+  width: 180px;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    to right,
+    #f00 0%,
+    #ff0 16.7%,
+    #0f0 33.3%,
+    #0ff 50%,
+    #00f 66.7%,
+    #f0f 83.3%,
+    #f00 100%
+  );
+  cursor: pointer;
+  touch-action: none;
+}
+.cp-hue-knob {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+/* Bottom row: the current-color chip beside the editable hex readout. */
+.cp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cp-chip {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.cp-hex {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  padding: 5px 8px;
+}
+.cp-hex:focus {
+  outline: none;
+  border-color: var(--accent);
+}

@@ -17,6 +17,7 @@ import type { Data } from '../db';
 import { selectionBar, type SelBar } from '../ui/selbar';
 import { el, textInput, enterConfirms, showToast } from '../util/dom';
 import { popupGuideButton } from '../ui/popupGuide';
+import { attachColorPicker } from '../ui/colorPicker';
 import { genId } from '../util/ids';
 import { normalizeUrl } from './url';
 import {
@@ -196,7 +197,7 @@ export class BookmarksView {
   private selBar: SelBar | null = null; // the "N selected · Deselect all" strip
 
   // The pop-up fix-it guide. Created once, shown only once an "Open all" button
-  // exists to explain (see renderGrid). Absent in the landing preview.
+  // exists to explain (see renderGrid).
   private guideBtn?: HTMLButtonElement;
 
   constructor(data: Data, sample?: { host: HTMLElement }) {
@@ -221,13 +222,12 @@ export class BookmarksView {
     // at the bottom of the page. It also stays hidden until at least one group
     // actually HAS an "Open all" button (see renderGrid): a guide to fixing a
     // button you have never seen is just noise on an empty Bookmarks tab.
-    // Skipped in the landing preview, which opens no real tabs anyway.
-    if (!this.sample) {
-      this.guideBtn = popupGuideButton();
-      this.guideBtn.style.margin = '0 0 14px';
-      this.guideBtn.hidden = true;
-      page.append(this.guideBtn);
-    }
+    // Present in the landing preview too (Gabe, 8/16): the demo frame should
+    // show the page exactly as it is, and visitors can't click it anyway.
+    this.guideBtn = popupGuideButton();
+    this.guideBtn.style.margin = '0 0 14px';
+    this.guideBtn.hidden = true;
+    page.append(this.guideBtn);
 
     const searchWrap = el('div', { class: 'bm-search-wrap' });
     const searchInput = textInput({
@@ -244,16 +244,15 @@ export class BookmarksView {
     page.append(searchWrap);
 
     this.grid = el('div', { class: 'bm-grid' });
-    // Esc clears the selection, and a click on empty page space does too — the same
-    // two escapes the Tasks tab gives you.
-    if (!this.sample) {
-      if (activeKeyHandler) document.removeEventListener('keydown', activeKeyHandler);
-      activeKeyHandler = this.onKey;
-      document.addEventListener('keydown', this.onKey);
-      page.addEventListener('click', (e) => {
-        if (this.selectedIds.size && !(e.target as Element).closest('.bm-card')) this.clearSelection();
-      });
-    }
+    // Esc clears the selection, and a click on empty page space does too — the
+    // same two escapes the Tasks tab gives you. Samples included (8/17): the
+    // selection bar SAYS "or press Esc", so every mount honors it.
+    if (activeKeyHandler) document.removeEventListener('keydown', activeKeyHandler);
+    activeKeyHandler = this.onKey;
+    document.addEventListener('keydown', this.onKey);
+    page.addEventListener('click', (e) => {
+      if (this.selectedIds.size && !(e.target as Element).closest('.bm-card')) this.clearSelection();
+    });
     page.append(this.grid);
 
     const addWrap = el('div', { class: 'bm-add-wrap' });
@@ -383,17 +382,20 @@ export class BookmarksView {
    *  group travel together when any one member is dragged. */
   private blocks(): Bookmark[][] {
     const seen = new Set<string>();
-    const out: Bookmark[][] = [];
+    const groupBlocks: Bookmark[][] = [];
+    const loose: Bookmark[][] = [];
     for (const b of this.state.list) {
       if (b.groupId) {
         if (seen.has(b.groupId)) continue;
         seen.add(b.groupId);
-        out.push(this.state.list.filter((x) => x.groupId === b.groupId));
+        groupBlocks.push(this.state.list.filter((x) => x.groupId === b.groupId));
       } else {
-        out.push([b]);
+        loose.push([b]);
       }
     }
-    return out;
+    // Groups lead the page, loose links follow (Gabe, 8/16). Each half keeps
+    // the list's own order, so drag-reorder still reads back consistently.
+    return [...groupBlocks, ...loose];
   }
 
   private renderGrid(): void {
@@ -727,7 +729,13 @@ export class BookmarksView {
         // create row below, so renaming looks like what it is.
         if (editingId === g.id) {
           const row = el('div', { class: 'folder-pick-new' });
-          const colorEdit = el('input', { type: 'color', class: 'folder-pick-color', value: g.color, title: 'Group color' }) as HTMLInputElement;
+          let editColor = g.color; // the well's live pick; written back to the group on Save
+          const colorEdit = el('button', { type: 'button', class: 'folder-pick-color', title: 'Group color' });
+          attachColorPicker(colorEdit, {
+            value: () => (/^#[0-9a-f]{6}$/i.test(editColor) ? editColor : '#7db4ff'),
+            onChange: (hex) => (editColor = hex),
+            host: () => this.sample?.host,
+          });
           const nameEdit = textInput({ class: 'folder-pick-input' });
           nameEdit.maxLength = 18; // group names have to stay chip-sized on a card
           nameEdit.value = g.name;
@@ -739,7 +747,7 @@ export class BookmarksView {
               return;
             }
             g.name = nm;
-            g.color = colorEdit.value || g.color;
+            g.color = editColor || g.color;
             await this.save();
             this.renderGrid(); // chips + card accents pick the change up live
             editingId = null;
@@ -783,7 +791,13 @@ export class BookmarksView {
       }
 
       // "+ New group": colour well, then the name box. Enter creates and assigns.
-      const colorInp = el('input', { type: 'color', class: 'folder-pick-color', value: '#7db4ff', title: 'Group color' }) as HTMLInputElement;
+      let newColor = '#7db4ff';
+      const colorInp = el('button', { type: 'button', class: 'folder-pick-color', title: 'Group color' });
+      attachColorPicker(colorInp, {
+        value: () => newColor,
+        onChange: (hex) => (newColor = hex),
+        host: () => this.sample?.host,
+      });
       const nameInp = textInput({ class: 'folder-pick-input', placeholder: '+ New group…' });
       nameInp.maxLength = 18;
       const create = (): void => {
@@ -792,7 +806,7 @@ export class BookmarksView {
           nameInp.classList.add('invalid');
           return;
         }
-        const g: BookmarkGroup = { id: 'grp_' + genId(), name: nm, color: colorInp.value || '#7db4ff' };
+        const g: BookmarkGroup = { id: 'grp_' + genId(), name: nm, color: newColor || '#7db4ff' };
         this.state.groups.push(g);
         void pick(g.id); // creating auto-assigns and closes, same as clicking a row
       };

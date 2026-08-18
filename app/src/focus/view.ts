@@ -5,6 +5,7 @@ import type { Task, TaskMap, TaskFolder, Priority } from '../types';
 import { getTaskFolders, saveTaskFolders, makeFolder, normFolder, FOLDERS_EVENT } from '../tasks/folders';
 import { makeResizeGrip, restoreSavedHeight } from '../util/resize';
 import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToast } from '../util/dom';
+import { attachColorPicker } from '../ui/colorPicker';
 import { makeWheel } from './wheel';
 import { genId } from '../util/ids';
 import { sortTasks, makeTask } from '../tasks/store';
@@ -1397,26 +1398,26 @@ export class FocusView {
 
   /** The folder icon's hidden color well, shared by both Focus folder headers and
    *  copied from the Tasks tab so the gesture is the same in both places: click the
-   *  glyph, the OS picker opens, the glyph previews as you drag, the pick saves on
-   *  close. The folder list is shared, so recoloring here recolors it in Tasks —
-   *  and every row's 🗀 tint follows on the next draw. */
-  private folderColorInput(folder: TaskFolder, head: HTMLElement, redraw: () => void): HTMLInputElement {
-    const colorIn = el('input', {
-      type: 'color',
-      class: 'focus-folder-colorin',
-      // A folder made before colors (or with junk stored) opens on gold, not on an
-      // invalid value the native picker would silently turn black.
-      value: /^#[0-9a-f]{6}$/i.test(folder.color) ? folder.color : '#7db4ff',
-      title: 'Folder color',
-    });
+   *  glyph, the in-app picker card opens, the glyph previews as you drag, the pick
+   *  saves when the card closes. The folder list is shared, so recoloring here
+   *  recolors it in Tasks, and every row's 🗀 tint follows on the next draw. */
+  private folderColorInput(folder: TaskFolder, head: HTMLElement, redraw: () => void): HTMLElement {
+    const colorIn = el('button', { type: 'button', class: 'focus-folder-colorin', title: 'Folder color' });
     colorIn.addEventListener('click', (e) => e.stopPropagation()); // never toggle the block open/closed
-    colorIn.addEventListener('input', () => {
-      folder.color = colorIn.value;
-      head.querySelector('.focus-folder-ico')?.setAttribute('fill', colorIn.value);
-    });
-    colorIn.addEventListener('change', () => {
-      void saveTaskFolders(this.data, this.taskFolders); // fires FOLDERS_EVENT → Tasks re-reads
-      redraw();
+    attachColorPicker(colorIn, {
+      // A folder made before colors (or with junk stored) opens on the accent, not
+      // on an invalid value a picker would silently turn black.
+      value: () => (/^#[0-9a-f]{6}$/i.test(folder.color) ? folder.color : '#7db4ff'),
+      onChange: (hex) => {
+        folder.color = hex;
+        head.querySelector('.focus-folder-ico')?.setAttribute('fill', hex);
+      },
+      onClose: (changed) => {
+        if (!changed) return;
+        void saveTaskFolders(this.data, this.taskFolders); // fires FOLDERS_EVENT → Tasks re-reads
+        redraw();
+      },
+      host: () => this.host(), // the demo frame in the landing preview, the body in the app
     });
     return colorIn;
   }
@@ -1592,18 +1593,19 @@ export class FocusView {
     // editable) + name box — the same creation flow as the Tasks tab's picker,
     // and it creates a REAL shared folder.
     const courseColor = todo.course ? getCourseColor(todo.course) : '#7db4ff';
-    const colorIn = el('input', {
-      type: 'color',
-      class: 'folder-pick-color',
-      value: /^#[0-9a-f]{6}$/i.test(courseColor) ? courseColor : '#7db4ff',
-      title: 'Folder color',
+    let newColor = /^#[0-9a-f]{6}$/i.test(courseColor) ? courseColor : '#7db4ff';
+    const colorIn = el('button', { type: 'button', class: 'folder-pick-color', title: 'Folder color' });
+    attachColorPicker(colorIn, {
+      value: () => newColor,
+      onChange: (hex) => (newColor = hex), // read below when Enter creates the folder
+      host: () => this.host(),
     });
     const input = textInput({ class: 'folder-pick-input', placeholder: '+ New folder…' });
     input.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
       const name = input.value.trim();
       if (!name) return;
-      const folder = makeFolder(name, colorIn.value);
+      const folder = makeFolder(name, newColor);
       this.taskFolders.push(folder);
       this.openFocusFolders.add(folder.id);
       close();
@@ -3099,17 +3101,8 @@ export class FocusView {
       );
 
       const actions = el('div', { class: 'focus-todo-actions' });
-      if (todo.schoologyUrl) {
-        const link = el('a', {
-          class: 'focus-todo-iconbtn',
-          href: todo.schoologyUrl,
-          target: '_blank',
-          rel: 'noopener',
-          title: 'Open in Schoology',
-          text: '↗',
-        });
-        actions.append(link);
-      }
+      // NO ↗ / info buttons on focus todos (Gabe, 8/17): the session list is
+      // for doing, not navigating — Schoology links live on the Tasks tab.
       // 🗀 — regroup mid-session too. On a selected row: the whole selection.
       const fold = el('button', { class: 'focus-todo-fold', title: 'Add to folder' });
       fold.innerHTML = FOCUS_FOLDER_BTN_SVG;

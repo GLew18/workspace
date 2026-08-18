@@ -10,6 +10,7 @@
 import type { Data } from '../db';
 import type { CourseConfig, SchoologySettings } from '../types';
 import { el, textInput, escapeHtml, enterConfirms } from '../util/dom';
+import { attachColorPicker } from '../ui/colorPicker';
 import { genId } from '../util/ids';
 import { capitalizeName } from '../util/names';
 import { getCourses, replaceCourses } from '../courses/registry';
@@ -77,6 +78,9 @@ interface SettingsOpts {
   displayName: string;
   email: string;
   onNameChange: (name: string) => void;
+  /** Popup host override (the landing demo passes its device-frame body so
+   *  overlays like the color card mount INSIDE the frame). Real app: omit. */
+  host?: () => HTMLElement | null | undefined;
 }
 
 interface Draft {
@@ -2215,11 +2219,17 @@ export class SettingsView {
   private courseRow(c: CourseConfig, redraw: () => void): HTMLElement {
     const row = el('div', { class: 'course-row' });
 
-    const color = el('input', { type: 'color', class: 'course-color', value: toHex(c.color) }) as HTMLInputElement;
-    color.addEventListener('input', () => {
-      c.color = color.value; // live preview while dragging in the picker
+    const color = el('button', { type: 'button', class: 'course-color', title: 'Course color' });
+    attachColorPicker(color, {
+      value: () => toHex(c.color),
+      host: this.opts.host,
+      onChange: (hex) => {
+        c.color = hex; // live preview while dragging in the picker
+      },
+      onClose: (changed) => {
+        if (changed) void this.saveCourses(); // persist when the picker closes
+      },
     });
-    color.addEventListener('change', () => void this.saveCourses()); // persist when the picker closes
 
     const name = textInput({ class: 'course-name', value: c.name });
     name.addEventListener('input', () => {

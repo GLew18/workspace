@@ -12,6 +12,7 @@ import type { Data, TasksUpdate } from '../db';
 import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToast } from '../util/dom';
 import { extensionActive } from '../bookmarks/shortcuts';
 import { popupGuideButton } from '../ui/popupGuide';
+import { attachColorPicker } from '../ui/colorPicker';
 import { formatMetaDate, formatShortDate, formatTimeOfDay, formatDate, todayStr } from '../util/dates';
 import { getPrefs, setPrefsCache, PREFS_EVENT, type AppPrefs, type PinnedAction } from '../prefs';
 import { makeWidthGrip } from '../util/resize';
@@ -828,22 +829,25 @@ export class TasksView {
           void saveTaskFolders(this.data, this.folders);
         });
       });
-      // Click the folder ICON to recolor: a hidden native color input opens the
-      // OS picker — the icon previews live while dragging, the pick saves on close.
-      const colorIn = el('input', {
-        type: 'color',
-        class: 'task-folder-colorin',
-        value: /^#[0-9a-f]{6}$/i.test(f.color) ? f.color : '#7db4ff',
-        title: 'Folder color',
-      });
+      // Click the folder ICON to recolor: a hidden swatch behind it opens the
+      // in-app picker card; the icon previews live while dragging, the pick
+      // saves when the card closes.
+      const colorIn = el('button', { type: 'button', class: 'task-folder-colorin', title: 'Folder color' });
       colorIn.addEventListener('click', (e) => e.stopPropagation());
-      colorIn.addEventListener('input', () => {
-        f.color = colorIn.value;
-        head.querySelector('.task-folder-ico')?.setAttribute('fill', colorIn.value);
-      });
-      colorIn.addEventListener('change', () => {
-        void saveTaskFolders(this.data, this.folders);
-        this.render();
+      attachColorPicker(colorIn, {
+        // A folder made before colors (or with junk stored) opens on the accent,
+        // not on an invalid value a picker would silently turn black.
+        value: () => (/^#[0-9a-f]{6}$/i.test(f.color) ? f.color : '#7db4ff'),
+        onChange: (hex) => {
+          f.color = hex;
+          head.querySelector('.task-folder-ico')?.setAttribute('fill', hex);
+        },
+        onClose: (changed) => {
+          if (!changed) return;
+          void saveTaskFolders(this.data, this.folders);
+          this.render();
+        },
+        host: () => this.sample?.host, // landing preview: the card stays inside the device frame
       });
       head.append(
         nameEl,
@@ -938,20 +942,21 @@ export class TasksView {
         wrap.append(rm);
       }
       // "+ New folder" row: name box + a color well. The well DEFAULTS to the
-      // task's course color but is freely editable (native color picker).
+      // task's course color but is freely editable (in-app picker card).
       const courseColor = task.course ? getCourseColor(task.course) : '#7db4ff';
-      const colorIn = el('input', {
-        type: 'color',
-        class: 'folder-pick-color',
-        value: /^#[0-9a-f]{6}$/i.test(courseColor) ? courseColor : '#7db4ff',
-        title: 'Folder color',
+      let newColor = /^#[0-9a-f]{6}$/i.test(courseColor) ? courseColor : '#7db4ff';
+      const colorIn = el('button', { type: 'button', class: 'folder-pick-color', title: 'Folder color' });
+      attachColorPicker(colorIn, {
+        value: () => newColor,
+        onChange: (hex) => (newColor = hex), // read below when Enter creates the folder
+        host: () => this.sample?.host,
       });
       const input = textInput({ class: 'folder-pick-input', placeholder: '+ New folder…' });
       input.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter') return;
         const name = input.value.trim();
         if (!name) return;
-        const folder = makeFolder(name, colorIn.value);
+        const folder = makeFolder(name, newColor);
         this.folderBornAt.set(folder.id, Date.now()); // shields it from the empty-folder sweep while its first member saves
         this.folders.push(folder);
         void saveTaskFolders(this.data, this.folders).then(() => {
@@ -1963,19 +1968,24 @@ export class TasksView {
     build(menu, close);
 
     // Placed AFTER build so the menu has its real size to measure against.
+    // Rects are VIEWPORT pixels, but left/top are written in the backdrop's
+    // LOCAL pixels — inside a transform-scaled ancestor (the landing's device
+    // frame) those differ by the scale factor, and writing scaled numbers put
+    // the menu ~200px away from its ⋯ button. Divide the geometry back.
     const a = anchor.getBoundingClientRect();
     const b = back.getBoundingClientRect();
     const m = menu.getBoundingClientRect();
+    const s = back.offsetWidth > 0 ? b.width / back.offsetWidth : 1;
     const GAP = 6;
     // Right-aligned to the button (the "…" sits at the row's right edge, so a
     // left-aligned menu would immediately run off), then clamped inside the box.
-    let left = a.right - b.left - m.width;
-    left = Math.max(8, Math.min(left, b.width - m.width - 8));
+    let left = (a.right - b.left - m.width) / s;
+    left = Math.max(8, Math.min(left, back.offsetWidth - m.width / s - 8));
     // Below by default, flipped above when there isn't room, which is what keeps
     // the last rows of a long list usable.
-    const below = a.bottom - b.top + GAP;
-    const above = a.top - b.top - m.height - GAP;
-    const top = below + m.height <= b.height - 8 || above < 8 ? below : above;
+    const below = (a.bottom - b.top + GAP) / s;
+    const above = (a.top - b.top - m.height - GAP) / s;
+    const top = below + m.height / s <= back.offsetHeight - 8 || above < 8 ? below : above;
     menu.style.left = `${left}px`;
     menu.style.top = `${Math.max(8, top)}px`;
   }

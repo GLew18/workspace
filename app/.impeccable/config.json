@@ -17,6 +17,11 @@
         ],
         "createdAt": "2026-08-16T02:30:43.870Z",
         "reason": "Bookmark group color accent is the feature itself: user-picked group colors coding grouped cards, shipped by Gabe in Bookmarks v1 on 8/6 and reviewed live since; today's edit only touched the shortcut modal options"
+      },
+      {
+        "rule": "bounce-easing",
+        "value": "cubic-bezier(0.34, 1.45, 0.55, 1)",
+        "createdAt": "2026-08-17T12:40:28.861Z"
       }
     ]
   }

@@ -1036,24 +1036,20 @@ body.app-mode .app-below {
 .folder-pick-new .folder-pick-input {
   flex: 1;
 }
+/* The color well: a button whose background IS the current color (painted inline
+   by ui/colorPicker.ts); clicking it opens the in-app picker card. */
 .folder-pick-color {
   width: 34px;
   height: 34px;
   flex: none;
-  padding: 2px;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--surface2);
+  background: var(--surface2); /* the picker sets background-color inline */
   cursor: pointer;
 }
-.folder-pick-color::-webkit-color-swatch-wrapper {
-  padding: 2px;
-}
-.folder-pick-color::-webkit-color-swatch {
-  border: none;
-  border-radius: 7px;
-}
-/* Hidden color input behind a folder head's icon — opened programmatically. */
+/* Hidden color swatch behind a folder head's icon — clicked programmatically to
+   open the in-app picker card. */
 .task-folder-colorin {
   position: absolute;
   width: 0;

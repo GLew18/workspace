@@ -59,7 +59,8 @@ function danTasks(): Record<string, Task> {
       title: 'Read chapter 12 & annotate',
       course: 'English',
       dueDate: today,
-      dueTime: '23:59',
+      // 8am, not another 11:59pm (Gabe, 8/17): imported due times vary.
+      dueTime: '08:00',
       priority: 'normal',
       details: 'Read chapter 12 and annotate for character motivation. Annotations collected in class.',
       notes: [],
@@ -83,7 +84,10 @@ function danTasks(): Record<string, Task> {
       id: 'dan_ivrit',
       title: 'לקרוא פרק ה׳ ולענות על השאלות',
       course: 'Ivrit',
-      dueDate: addDays(today, 1),
+      // Due TODAY at 08:00: it sorts above the two Dan checks off (time asc),
+      // shares their section header (fewer sections = the list fits the frame),
+      // and stays on screen translated for the whole loop.
+      dueDate: today,
       dueTime: '08:00',
       priority: 'normal',
       details: 'Read chapter 5 and answer the comprehension questions at the end.',
@@ -91,42 +95,24 @@ function danTasks(): Record<string, Task> {
       translatedTitle: 'Read chapter 5 and answer the questions',
       translatedLang: 'iw',
     },
-    // --- Scene 3: the History-project chain, a clear multi-day progression --
-    // (Trimmed to three steps 8/16 — Gabe: the list read as cluttered.)
-    {
-      ...base,
-      ...imported,
-      id: 'dan_hp1',
-      title: 'Pick a historical figure',
-      course: 'Social Studies',
-      dueDate: addDays(today, 2),
-      dueTime: '23:59',
-      priority: 'normal',
-      details: 'Choose the figure for your presentation and claim them on the sign-up sheet.',
-      notes: [],
-    },
+    // --- Scene 3: the History-project chain, a clear multi-day progression.
+    // Trimmed twice on 8/16 (Gabe: "WAY too many tasks; they should chiefly
+    // fit in one view") — the whole seed is now 7 tasks. -----------------------
     {
       ...base,
       ...imported,
       id: 'dan_hp2',
       title: 'Research your assigned figure',
       course: 'Social Studies',
-      dueDate: addDays(today, 4),
+      // Shares the essay's day ON PURPOSE: one section holds both, and the
+      // scene-3 range select still sweeps the essay (title sort puts it between
+      // hp1's section and this row).
+      dueDate: addDays(today, 3),
       dueTime: '23:59',
-      priority: 'low',
+      // NORMAL, like every import (Gabe, 8/17): priority variance in the demo
+      // comes ONLY from Dan's own edits.
+      priority: 'normal',
       details: 'Gather at least five sources on your figure. Primary sources count double.',
-      notes: [],
-    },
-    {
-      ...base,
-      ...imported,
-      id: 'dan_hp4',
-      title: 'Record final presentation',
-      course: 'Social Studies',
-      dueDate: addDays(today, 6),
-      dueTime: '23:59',
-      priority: 'lowest',
-      details: 'Record and upload the final presentation video. Five minutes maximum.',
       notes: [],
     },
     // --- Scene 6: the ELA essay whose description ends in the rubric link and
@@ -140,7 +126,7 @@ function danTasks(): Record<string, Task> {
       course: 'English',
       dueDate: addDays(today, 3),
       dueTime: '23:59',
-      priority: 'high',
+      priority: 'normal', // imports arrive normal; Dan is the only priority-setter
       details:
         'Final draft of the Animal Farm essay: five paragraphs, two direct quotes per body paragraph, MLA citations. Before you submit, make sure you compare your work to the rubric: https://docs.google.com/document/d/1r-cobalt-demo-rubric/view',
       notes: [{ id: 'n_rubric', title: 'Rubric', url: 'https://docs.google.com/document/d/1r-cobalt-demo-rubric/view' }],

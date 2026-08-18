@@ -118,24 +118,53 @@ async function callAuthEmail(email: string, kind: 'reset' | 'verify' | 'set'): P
  * watching it; nothing here does that. The promise is the only thing awaited, and a
  * user who closes the window resolves it as a cancel rather than an error.
  */
-export async function signInWithGoogle(): Promise<void> {
+export async function signInWithGoogle(): Promise<boolean> {
   if (isLocalMode()) throw new Error('Google sign-in requires Firebase config');
   const { auth, instance } = await firebaseAuth();
   const provider = new auth.GoogleAuthProvider();
   // Always show the chooser. Without this a second account can never be picked on a
   // shared computer — Google silently reuses the last one.
   provider.setCustomParameters({ prompt: 'select_account' });
+
+  // FULL-PAGE WHEN IT CAN WORK, POPUP WHEN IT CANNOT — decided here, so the deploy
+  // needs no code change (Gabe asked 8/16 whether deploying alone would bring the
+  // full-screen sign-in back; on its own it would not have).
+  //
+  // The redirect only ever broke for ONE reason: the auth handler lives on
+  // `authDomain`, and when that is a different origin from the app, the handshake's
+  // storage is third-party and Chrome partitions it away. Same origin, no third
+  // party, no partitioning, and the full-page trip Gabe preferred works again.
+  //
+  // So the moment `VITE_FIREBASE_AUTH_DOMAIN` points at the site's own domain —
+  // which is the custom-domain step already on the deploy list — this flips itself.
+  // Until then (localhost, or a deploy still using workspace-67029.firebaseapp.com)
+  // it stays on the popup, because a redirect there would silently fail again.
+  const sameOrigin = (() => {
+    try {
+      return new URL('https://' + String(firebaseConfig.authDomain)).host === location.host;
+    } catch {
+      return false;
+    }
+  })();
+  if (sameOrigin) {
+    await auth.signInWithRedirect(instance, provider);
+    return false; // the page is leaving; onAuth picks the session up on the way back
+  }
+
   try {
     await auth.signInWithPopup(instance, provider);
+    return true; // SIGNED IN — the caller must now close the sign-in screen itself
   } catch (err) {
     const code = (err as { code?: string }).code || '';
     // The student shut the window or clicked twice. Not a failure, and an error
-    // message here would accuse them of something they did on purpose.
-    if (code.includes('popup-closed-by-user') || code.includes('cancelled-popup-request')) return;
-    // No popup available → the full-page trip, which is better than nothing.
+    // message here would accuse them of something they did on purpose — but the
+    // caller still has to un-stick its button, hence `false` rather than a throw.
+    if (code.includes('popup-closed-by-user') || code.includes('cancelled-popup-request')) return false;
+    // No popup available → the full-page trip. This page is about to leave, so the
+    // answer never arrives; `false` keeps the type honest and nothing reads it.
     if (code.includes('popup-blocked') || code.includes('operation-not-supported')) {
       await auth.signInWithRedirect(instance, provider);
-      return;
+      return false;
     }
     throw err;
   }

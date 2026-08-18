@@ -34,6 +34,9 @@ interface MoveOpts {
   ay?: number;
   /** Extra travel time multiplier for this one move. */
   slow?: number;
+  /** Skip the hover shim (whole-container targets like scrollers, where a
+   *  brightness lift would light up the entire screen). */
+  noHover?: boolean;
 }
 
 interface ClickOpts extends MoveOpts {
@@ -48,6 +51,14 @@ export class GhostCursor {
   private x = 60;
   private y = 60;
   private opts: Required<CursorOpts>;
+  /** The element currently "under" the hand — carries the hover shim class. */
+  private hovered: Element | null = null;
+  /** Set by kill(): every primitive throws from here on. */
+  private dead = false;
+  /** The loop-seam exit is the ONE legal off-screen moment (Gabe's iron rule).
+   *  Everything else that places the cursor outside the shell body is recorded
+   *  as a violation the smoke run fails on. */
+  private offscreenOk = false;
 
   constructor(private space: HTMLElement, opts: CursorOpts = {}) {
     this.opts = { instant: opts.instant ?? false, speed: opts.speed ?? 1 };
@@ -58,7 +69,47 @@ export class GhostCursor {
   }
 
   destroy(): void {
+    this.hover(null);
     this.elCursor.remove();
+  }
+
+  /** Abort every in-flight and future primitive (the audit "play from scene"
+   *  jump): the running scene throws, the runner's error path rebuilds the
+   *  world, and the next pass fast-forwards to the requested scene. */
+  kill(): void {
+    this.dead = true;
+  }
+
+  /** Live instant-mode toggle: the runner fast-forwards the scenes BEFORE a
+   *  jump target by flipping this on, then off for the scene being watched. */
+  setInstant(on: boolean): void {
+    this.opts.instant = on;
+  }
+
+  private check(): void {
+    if (this.dead) throw new Error('aborted (scene jump)');
+  }
+
+  /** The hover shim: synthetic events can't trigger CSS :hover (no real
+   *  hit-testing), so arrival ALSO sets a demo-scoped class that brightens the
+   *  element the way its hover state would, and fires the pointer/mouse events
+   *  real mice emit so JS-driven hover behavior runs. Without this, controls
+   *  never light up before they fire — the loudest "it's a video" tell. */
+  private hover(next: Element | null): void {
+    if (next === this.hovered) return;
+    if (this.hovered) {
+      this.hovered.classList.remove('lp-hover');
+      this.fire(this.hovered, 'pointerout');
+      this.fire(this.hovered, 'mouseout');
+    }
+    this.hovered = next;
+    if (next) {
+      next.classList.add('lp-hover');
+      this.fire(next, 'pointerover');
+      this.fire(next, 'mouseover');
+      this.fire(next, 'pointermove');
+      this.fire(next, 'mousemove');
+    }
   }
 
   // --- geometry -------------------------------------------------------------
@@ -90,14 +141,53 @@ export class GhostCursor {
     this.x = x;
     this.y = y;
     this.elCursor.style.transform = `translate(${x}px, ${y}px)`;
+    // The iron rule, enforced: outside the shell body = a recorded violation
+    // (the smoke run asserts the list stays empty). Instant mode places the
+    // cursor AT every interaction point, so this audits headless runs too.
+    // A zero-sized body means the shell hasn't laid out yet — nothing to judge.
+    if (this.space.offsetWidth === 0) return;
+    if (!this.offscreenOk && (x < -2 || y < -2 || x > this.space.offsetWidth + 2 || y > this.space.offsetHeight + 2)) {
+      const w = window as unknown as { __demoCursorViolations?: string[]; __demoScene?: string; __demoBeat?: string };
+      (w.__demoCursorViolations ??= []).push(
+        `[${w.__demoScene ?? '?'}${w.__demoBeat ? ` @ ${w.__demoBeat}` : ''}] cursor at ${Math.round(x)},${Math.round(y)} (body ${this.space.offsetWidth}x${this.space.offsetHeight})`
+      );
+    }
+  }
+
+  /** The loop seam's exit: glide off the frame's right edge, legally. */
+  async exit(): Promise<void> {
+    this.offscreenOk = true;
+    await this.moveTo({ x: this.space.offsetWidth + 80, y: Math.min(this.y, this.space.offsetHeight * 0.5) }, { slow: 1.1 });
   }
 
   // --- waiting ----------------------------------------------------------------
 
+  /** The live tempo: the scripted speed times the (temporary) audit override
+   *  on window — ×0.5 there means every duration doubles. */
+  private tempo(): number {
+    const w = window as unknown as { __demoSpeed?: number };
+    return this.opts.speed * (w.__demoSpeed ?? 1);
+  }
+
+  /** The (temporary) audit pause: primitives hold between beats while
+   *  window.__demoPause is set. App-owned timers keep running — this pauses
+   *  the HAND, not the app. */
+  private async pauseGate(): Promise<void> {
+    if (this.opts.instant) return;
+    const w = window as unknown as { __demoPause?: boolean };
+    while (w.__demoPause) {
+      this.check(); // a scene jump must break out of a paused hold too
+      await new Promise((r) => setTimeout(r, 120));
+    }
+  }
+
   /** A human beat. Scaled by tempo; zero in instant mode. */
-  wait(ms: number): Promise<void> {
-    if (this.opts.instant) return Promise.resolve();
-    return new Promise((r) => setTimeout(r, ms * this.opts.speed));
+  async wait(ms: number): Promise<void> {
+    this.check();
+    if (this.opts.instant) return;
+    await this.pauseGate();
+    await new Promise((r) => setTimeout(r, ms * this.tempo()));
+    this.check();
   }
 
   /** Poll a condition until true. For asserting outcomes the app commits on its
@@ -107,6 +197,7 @@ export class GhostCursor {
     return new Promise((resolve, reject) => {
       const t0 = performance.now();
       const look = async (): Promise<void> => {
+        if (this.dead) return reject(new Error('aborted (scene jump)'));
         if (await fn()) return resolve();
         if (performance.now() - t0 > timeout) return reject(new Error(`waitUntil timed out: ${label}`));
         setTimeout(() => void look(), this.opts.instant ? 40 : 90);
@@ -121,6 +212,7 @@ export class GhostCursor {
     return new Promise((resolve, reject) => {
       const t0 = performance.now();
       const look = (): void => {
+        if (this.dead) return reject(new Error('aborted (scene jump)'));
         const hit = fn();
         if (hit) return resolve(hit);
         if (performance.now() - t0 > timeout) return reject(new Error(`waitForResult timed out: ${label}`));
@@ -130,6 +222,36 @@ export class GhostCursor {
     });
   }
 
+  /** Poll a producer until it yields an ATTACHED element with a real box —
+   *  the cure for re-render races: views redraw on their own async schedule,
+   *  and an element captured before a redraw is a detached corpse whose rect
+   *  reads as garbage (the classic off-screen-click bug). Query at USE time,
+   *  through this, everywhere state may have changed. */
+  fresh<T extends Element>(fn: () => T | null | undefined, label = 'element'): Promise<T> {
+    return this.waitForResult(() => {
+      const e = fn();
+      if (!e || !e.isConnected) return undefined;
+      const r = e.getBoundingClientRect();
+      return r.width > 0 || r.height > 0 ? e : undefined;
+    }, 4000, label);
+  }
+
+  /** Wait (REAL time, instant mode included) for a target to settle inside
+   *  the frame — CSS transitions (the sidebar drawer, panel slides) carry
+   *  elements in over ~300ms that no scripted wait covers in instant mode. */
+  private async settleIntoBounds(target: Element): Promise<void> {
+    const t0 = performance.now();
+    while (performance.now() - t0 < 900 && !this.dead) {
+      if (this.space.offsetWidth === 0) return;
+      const r = target.getBoundingClientRect();
+      if (target.isConnected && (r.width > 0 || r.height > 0)) {
+        const p = this.localPoint(target, 0.5, 0.5);
+        if (p.x >= -2 && p.y >= -2 && p.x <= this.space.offsetWidth + 2 && p.y <= this.space.offsetHeight + 2) return;
+      }
+      await new Promise((res) => setTimeout(res, 45));
+    }
+  }
+
   /** Poll for an element the previous action should have produced. Fails loudly
    *  after `timeout` — a missing selector means the app changed under the
    *  script, and the loop's error policy reports exactly which step broke. */
@@ -137,6 +259,7 @@ export class GhostCursor {
     return new Promise((resolve, reject) => {
       const t0 = performance.now();
       const look = (): void => {
+        if (this.dead) return reject(new Error('aborted (scene jump)'));
         const hit = root.querySelector(sel);
         if (hit) return resolve(hit as T);
         if (performance.now() - t0 > timeout) return reject(new Error(`waitFor timed out: ${sel}`));
@@ -150,11 +273,26 @@ export class GhostCursor {
 
   /** Glide to a target along a slightly bowed path with human easing. */
   async moveTo(target: Element | { x: number; y: number }, o: MoveOpts = {}): Promise<void> {
+    this.check();
+    if (target instanceof Element) {
+      const r = target.getBoundingClientRect();
+      if (!target.isConnected || (r.width === 0 && r.height === 0)) {
+        // A detached corpse: its rect is garbage and chasing it teleports the
+        // hand across the screen. Stay put; the dispatch (if any) still lands
+        // on the element, and the next beat re-finds a live one.
+        const w = window as unknown as { __demoStaleTargets?: string[]; __demoScene?: string; __demoBeat?: string };
+        (w.__demoStaleTargets ??= []).push(`[${w.__demoScene ?? '?'}${w.__demoBeat ? ` @ ${w.__demoBeat}` : ''}] ${target.className}`);
+        return;
+      }
+    }
     const to = target instanceof Element ? this.localPoint(target, o.ax, o.ay) : target;
     if (this.opts.instant) {
       this.place(to.x, to.y);
+      this.hover(target instanceof Element && !o.noHover ? target : null);
       return;
     }
+    await this.pauseGate();
+    this.hover(null); // leaving the last element: its hover state drops
     const from = { x: this.x, y: this.y };
     const dx = to.x - from.x;
     const dy = to.y - from.y;
@@ -164,7 +302,7 @@ export class GhostCursor {
     // targets, controlled sweeps across the screen. The bow bends
     // perpendicular to the path, alternating side by position parity so long
     // sequences don't loop the same arc every time.
-    const dur = Math.min(760, 240 + dist * 0.9) * (o.slow ?? 1) * this.opts.speed;
+    const dur = Math.min(760, 240 + dist * 0.9) * (o.slow ?? 1) * this.tempo();
     const side = (from.x + from.y) % 2 === 0 ? 1 : -1;
     const bow = Math.min(46, dist * 0.16) * side;
     const cx = from.x + dx / 2 - (dy / dist) * bow;
@@ -187,6 +325,7 @@ export class GhostCursor {
       };
       requestAnimationFrame(step);
     });
+    this.hover(target instanceof Element && !o.noHover ? target : null); // arrival lights it up
   }
 
   // --- events ------------------------------------------------------------------
@@ -200,8 +339,30 @@ export class GhostCursor {
     target.dispatchEvent(ev);
   }
 
+  /** The nearest scrollable ancestor inside the shell (the auto-staging net). */
+  private nearestScroller(el: Element): HTMLElement | null {
+    let n = el.parentElement;
+    while (n && n !== this.space) {
+      const cs = getComputedStyle(n);
+      if (n.scrollHeight > n.clientHeight + 4 && /(auto|scroll)/.test(cs.overflowY)) return n;
+      n = n.parentElement;
+    }
+    return null;
+  }
+
   /** Move to the target, press, click — with the pressed-cursor visual. */
   async click(target: Element, o: ClickOpts = {}): Promise<void> {
+    await this.settleIntoBounds(target); // transitions finish before the hand arrives
+    // Still out of bounds but ALIVE = it sits past the fold of some scroller a
+    // redraw just reset. Scroll it in like a hand would, never click blind.
+    const r0 = target.getBoundingClientRect();
+    if (target.isConnected && (r0.width > 0 || r0.height > 0)) {
+      const p = this.localPoint(target, o.ax, o.ay);
+      if (p.x < -2 || p.y < -2 || p.x > this.space.offsetWidth + 2 || p.y > this.space.offsetHeight + 2) {
+        const sc = this.nearestScroller(target);
+        if (sc) await this.ensureInView(sc, target, 16);
+      }
+    }
     await this.moveTo(target, o);
     const vp = this.viewportPoint(target, o.ax, o.ay);
     const init: MouseEventInit = { clientX: vp.x, clientY: vp.y, shiftKey: !!o.shift, ctrlKey: !!o.ctrl };
@@ -215,17 +376,22 @@ export class GhostCursor {
     this.elCursor.classList.remove('pressed');
   }
 
-  /** Double-click (the app's inline-edit gesture). */
+  /** Double-click (the app's inline-edit gesture). The SECOND press gets its
+   *  own visible cursor pulse — without it the gesture read as a single click
+   *  (Gabe, 8/17), because only the first press animated. */
   async dblclick(target: Element, o: MoveOpts = {}): Promise<void> {
     await this.click(target, o);
-    await this.wait(90);
+    await this.wait(110);
     const vp = this.viewportPoint(target, o.ax, o.ay);
+    this.elCursor.classList.add('pressed');
     this.fire(target, 'pointerdown', { clientX: vp.x, clientY: vp.y, button: 0 });
     this.fire(target, 'mousedown', { clientX: vp.x, clientY: vp.y, button: 0, detail: 2 });
+    await this.wait(70);
     this.fire(target, 'pointerup', { clientX: vp.x, clientY: vp.y, button: 0 });
     this.fire(target, 'mouseup', { clientX: vp.x, clientY: vp.y, button: 0, detail: 2 });
     this.fire(target, 'click', { clientX: vp.x, clientY: vp.y, detail: 2 });
     this.fire(target, 'dblclick', { clientX: vp.x, clientY: vp.y, detail: 2 });
+    this.elCursor.classList.remove('pressed');
   }
 
   /** Type into an input/textarea like a person: per-character, jittered cadence,
@@ -248,13 +414,19 @@ export class GhostCursor {
 
   /** Paste: the whole string lands at once (URLs are pasted, never typed:
    *  nobody keys in 40 characters of href by hand, and the demo should read
-   *  like a person). One input event, inputType insertFromPaste. */
+   *  like a person). The full honest sequence a real Ctrl+V emits: modifier
+   *  keydown, V keydown, a paste ClipboardEvent, one insertFromPaste input. */
   async paste(field: HTMLInputElement | HTMLTextAreaElement, text: string): Promise<void> {
     field.focus();
-    await this.wait(160); // the beat of reaching for Ctrl+V
+    await this.wait(200); // the beat of reaching for Ctrl+V
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', ctrlKey: true, bubbles: true }));
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true }));
+    field.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true }));
     field.value += text;
     field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste' }));
-    await this.wait(120);
+    field.dispatchEvent(new KeyboardEvent('keyup', { key: 'v', ctrlKey: true, bubbles: true }));
+    field.dispatchEvent(new KeyboardEvent('keyup', { key: 'Control', bubbles: true }));
+    await this.wait(150);
   }
 
   /** Select-all + retype (the rename gesture after an inline editor opens with
@@ -303,38 +475,88 @@ export class GhostCursor {
 
   /** HTML5 drag-and-drop between two rows (the focus todo reorder). Chrome lets
    *  a script construct a real DataTransfer, so the app's own dragstart/dragover/
-   *  drop handlers run unmodified. */
+   *  drop handlers run unmodified (dragstart dims the source row via its own
+   *  .dragging class). What a synthetic drag CANNOT produce is the BROWSER'S
+   *  drag image — the translucent row snapshot riding under the cursor — so the
+   *  demo layer clones one and carries it along the path (Gabe, 8/17). */
   async dragRow(source: HTMLElement, handle: HTMLElement, targetRow: HTMLElement): Promise<void> {
     await this.moveTo(handle);
     const vp = this.viewportPoint(handle);
     this.fire(handle, 'pointerdown', { clientX: vp.x, clientY: vp.y, button: 0 }); // arms draggable
     const dt = new DataTransfer();
     source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
-    await this.moveTo(targetRow, { slow: 1.1 });
-    const tv = this.viewportPoint(targetRow);
-    targetRow.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: tv.x, clientY: tv.y }));
-    await this.wait(90);
-    targetRow.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: tv.x, clientY: tv.y }));
-    source.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
-    this.fire(handle, 'pointerup', { clientX: tv.x, clientY: tv.y, button: 0 });
+    // The ghost: a clone of the row, 70% opaque, glued to the hand.
+    const ghost = source.cloneNode(true) as HTMLElement;
+    ghost.classList.add('lp-drag-ghost');
+    ghost.style.width = `${source.offsetWidth}px`;
+    this.space.append(ghost);
+    const follow = window.setInterval(() => {
+      ghost.style.transform = `translate(${this.x - 14}px, ${this.y + 10}px)`;
+    }, 16);
+    try {
+      await this.moveTo(targetRow, { slow: 1.1 });
+      const tv = this.viewportPoint(targetRow);
+      targetRow.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: tv.x, clientY: tv.y }));
+      await this.wait(90);
+      targetRow.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt, clientX: tv.x, clientY: tv.y }));
+      source.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+      this.fire(handle, 'pointerup', { clientX: tv.x, clientY: tv.y, button: 0 });
+    } finally {
+      window.clearInterval(follow);
+      ghost.remove();
+    }
   }
 
-  /** Smoothly scroll a container (the tasks list drift-through). */
+  /** Smoothly scroll a container — as a WHEEL scroll a viewer can believe:
+   *  the hand travels over the thing about to move, wheel events fire at its
+   *  position, and the (visible) scrollbar thumb rides along. A no-op delta
+   *  neither moves nor stalls. */
   async scrollBy(container: HTMLElement, dy: number, ms = 600): Promise<void> {
+    if (Math.abs(dy) < 1) return;
     if (this.opts.instant) {
       container.scrollTop += dy;
+      // Headless documents fire no scroll events on their own — and scroll
+      // listeners (the focus wheel's value logic) are the whole point.
+      container.dispatchEvent(new Event('scroll'));
       return;
     }
+    await this.moveTo(container, { ax: 0.55, ay: 0.45, noHover: true });
+    await this.wait(120);
+    const vp = this.viewportPoint(container, 0.55, 0.45);
     const from = container.scrollTop;
+    let lastNotch = 0;
     await new Promise<void>((resolve) => {
       const t0 = performance.now();
       const step = (): void => {
-        const t = Math.min(1, (performance.now() - t0) / (ms * this.opts.speed));
-        container.scrollTop = from + dy * easeInOut(t);
+        const t = Math.min(1, (performance.now() - t0) / (ms * this.tempo()));
+        const pos = dy * easeInOut(t);
+        container.scrollTop = from + pos;
+        // A wheel "notch" per ~90px travelled — what a real scroll emits.
+        if (Math.abs(pos - lastNotch) > 90 || t === 1) {
+          lastNotch = pos;
+          container.dispatchEvent(
+            new WheelEvent('wheel', { bubbles: true, deltaY: Math.sign(dy) * 120, clientX: vp.x, clientY: vp.y })
+          );
+        }
         if (t < 1) requestAnimationFrame(step);
         else resolve();
       };
       requestAnimationFrame(step);
     });
+  }
+
+  /** Scroll a container the minimum needed so `target` sits fully inside its
+   *  visible box (with margin), as a real wheel gesture. The staging tool for
+   *  the marquee rule: get everything in frame BEFORE the beat starts. */
+  async ensureInView(container: HTMLElement, target: Element, margin = 56): Promise<void> {
+    const cr = container.getBoundingClientRect();
+    const tr = target.getBoundingClientRect();
+    const s = this.scale() || 1;
+    let dy = 0;
+    if (tr.bottom > cr.bottom - margin * s) dy = (tr.bottom - (cr.bottom - margin * s)) / s;
+    else if (tr.top < cr.top + margin * s) dy = (tr.top - (cr.top + margin * s)) / s;
+    if (Math.abs(dy) < 4) return;
+    await this.scrollBy(container, dy, Math.min(900, 300 + Math.abs(dy)));
+    await this.wait(150);
   }
 }

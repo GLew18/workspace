@@ -212,20 +212,37 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
       if (busy) return;
       setError('');
       setBusy(true, undefined);
-      gLabel.textContent = 'Heading to Google…';
+      gLabel.textContent = 'Waiting for Google…';
 
-      // FULL-PAGE redirect (Gabe, 8/13): the whole tab goes to Google and comes
-      // back signed in, no popup window. That also retires the 8/8 COOP
-      // stuck-button workaround that used to live here: there is no popup handle
-      // to lose anymore. On success this page is navigating away, so the button
-      // deliberately STAYS busy (re-enabling it would flash mid-departure) and no
-      // teardown runs; the return trip lands via onAuthStateChanged in main.ts.
-      // Only a failure to even START the redirect (offline, bad config) returns.
-      signInWithGoogle().catch(() => {
-        setBusy(false);
-        gLabel.textContent = 'Continue with Google';
-        setError('Google sign-in failed. Please try again.');
-      });
+      // THIS SCREEN MUST CLOSE ITSELF NOW (Gabe, 8/16).
+      //
+      // It used to be a full-page redirect, which meant the tab left and came back
+      // as a fresh page — so nothing here ever needed tearing down. Google sign-in
+      // is a POPUP since 8/16 (the redirect stopped surviving Chrome's storage
+      // partitioning), and a popup never navigates this page. The app signed in and
+      // booted underneath while this overlay stayed on top of it, which is exactly
+      // what Gabe saw: a live session behind a sign-in screen that would not leave.
+      //
+      // Three outcomes, three behaviours:
+      //   true  → signed in. Close, and the app is already there behind us.
+      //   false → the student shut the popup. Put the button back; say nothing,
+      //           because cancelling is not an error and blaming them for it reads
+      //           as a bug.
+      //   throw → a real failure, which is the only case that shows a message.
+      signInWithGoogle()
+        .then((signedIn) => {
+          if (signedIn) {
+            teardown();
+            return;
+          }
+          setBusy(false);
+          gLabel.textContent = 'Continue with Google';
+        })
+        .catch(() => {
+          setBusy(false);
+          gLabel.textContent = 'Continue with Google';
+          setError('Google sign-in failed. Please try again.');
+        });
     });
 
     // --- footer: swap modes, and the login-only reset link ------------------

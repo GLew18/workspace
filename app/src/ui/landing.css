@@ -39,7 +39,15 @@
 /* 22px, up from 19px (Gabe, 8/13). Only the SIZE moves: .ws-mark scales the whole
    lockup off its font-size, so the C + gem + balt proportions stay exact. */
 .lp-nav .ws-mark { font-size: 22px; }
-.lp-nav-links { display: flex; gap: 2px; margin: 0 auto; }
+/* TRUE page-center (Gabe, 8/17): margin:auto only centered the links between
+   the unequal brand and action clusters, which read as off-center. */
+.lp-nav-links {
+  display: flex;
+  gap: 2px;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
 .lp-nav-link {
   background: none;
   border: none;
@@ -78,11 +86,14 @@
 }
 .lp-nav-cta:hover { filter: brightness(1.08); }
 
-/* Every id'd section clears the fixed nav when scrolled/linked to. 72px, up from 64px,
+/* Every id'd element clears the fixed nav when scrolled/linked to. 72px, up from 64px,
    because the bar itself grew to ~60px with the larger wordmark (Gabe, 8/13). */
-.landing section[id] { scroll-margin-top: 72px; }
+.landing section[id],
+.landing [id='video'] { scroll-margin-top: 72px; }
 
-@media (max-width: 940px) {
+/* 1080, up from 940: the centered link row grew a tab (8/17) and absolute
+   centering must never slide under the right-edge CTAs. */
+@media (max-width: 1080px) {
   .lp-nav-links { display: none; } /* wordmark + both CTAs stay */
 }
 
@@ -123,52 +134,172 @@
 .lp-hero {
   position: relative;
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 0 24px 90px;
+}
+/* The Raycast shape (Gabe, 8/17): the motto owns the FIRST FULL SCREEN,
+   centered; the bridge line and the demo live a long quiet scroll below. */
+.lp-hero-top {
+  /* Full-screen centering, exactly like before the peek experiment (Gabe,
+     8/17: the motto sits in the MIDDLE on first load). The peek comes from
+     the demo below pulling itself up into this screen's empty bottom half. */
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  text-align: center;
-  padding: 100px 24px 70px; /* top clears the fixed nav */
-}
-/* Text LEFT, the live Dan-demo screen RIGHT (vault note, 8/15): the hero stops
-   being a centered column and becomes the landing's widest band, with the
-   animation as the visual anchor. Below 980px it stacks, text first, like every
-   other split on the page. */
-.lp-hero-grid {
-  display: grid;
-  grid-template-columns: minmax(360px, 430px) minmax(0, 1fr);
-  gap: 44px;
-  align-items: center;
+  padding-top: 70px; /* optical center under the fixed nav */
   width: 100%;
-  max-width: 1380px;
 }
 .lp-hero-inner {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  text-align: left;
+  align-items: center;
+  text-align: center;
+  max-width: 780px;
+  /* GABE'S PLACEMENT KNOB: nudges the whole hero text block (title, tagline,
+     buttons, byline, chips) as one unit. Adjust the px to taste; negative
+     moves it up. Horizontal too if wanted: translate(Xpx, Ypx). */
+  transform: translateY(3px);
+}
+/* (Bridge line and scroll hint removed 8/17 — the peeking demo is the lure.) */
+/* The demo's frame-of-honor. The RING is drawn on the frame itself (gradient
+   border-box under a transparent border), so its width is constant on every
+   edge and it hugs the screen exactly — Raycast-style. (The first cut painted
+   a padded wrapper: the wrapper was wider than the scaled frame, so the ring
+   read as a box beneath, fat on the sides.) */
+.lp-stage-glow {
+  width: 100%;
+  max-width: 1120px;
+  /* THE PEEK: pull the demo up into the hero's empty bottom half, so its
+     glowing top edge shows above the fold while the motto stays dead-center.
+     More negative = more peek. Short viewports get a gentler pull so the
+     frame never rides up into the chips. */
+  margin-top: -140px;
+}
+@media (max-height: 820px) {
+  .lp-stage-glow { margin-top: -60px; }
+}
+.lp-stage-glow .lp-frame.lp-demoshell {
+  border: 5px solid transparent;
+  border-radius: 24px;
+  background:
+    linear-gradient(#0c1b43, #0c1b43) padding-box,
+    linear-gradient(
+        130deg,
+        rgba(125, 180, 255, 0.85),
+        rgba(139, 92, 246, 0.45) 30%,
+        rgba(125, 180, 255, 0.12) 55%,
+        rgba(61, 127, 232, 0.7) 85%,
+        rgba(125, 180, 255, 0.85)
+      )
+      border-box;
+  background-size: auto, 220% 220%;
+  animation: lp-stage-drift 9s ease-in-out infinite alternate;
+  box-shadow:
+    0 30px 110px rgba(61, 127, 232, 0.22),
+    0 8px 34px rgba(0, 0, 0, 0.5);
+}
+@keyframes lp-stage-drift {
+  from { background-position: 0 0, 0% 0%; }
+  to { background-position: 0 0, 100% 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-stage-glow .lp-frame.lp-demoshell { animation: none; }
+}
+
+/* TEMPORARY audit controls under the demo (chapter bar + pause + speed) —
+   bare on purpose, gone after Gabe's review pass. */
+.lp-demo-ctl {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 14px;
+  width: 100%;
+  max-width: 1120px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+.lp-demo-ctl-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* The YouTube-style chapter bar: one segment per scene, click/drag = seek,
+   fill = the playhead in video-time, knob = the grip. */
+.lp-demo-bar {
+  position: relative;
+  display: flex;
+  gap: 3px;
+  height: 12px;
+  cursor: pointer;
+}
+.lp-demo-knob {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+  transform: translate(-50%, -50%);
+  cursor: grab;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+.lp-demo-knob:active { cursor: grabbing; }
+.lp-demo-seg {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.lp-demo-seg:hover { background: rgba(255, 255, 255, 0.22); }
+.lp-demo-seg-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+.lp-demo-ctl-btn {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 700;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.lp-demo-ctl input[type='range'] { width: 180px; }
+.lp-demo-clock {
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  text-align: right;
 }
 /* The headline IS the motto (Gabe, 8/13): no "WELCOME TO Cobalt" — the nav
    already carries the wordmark, so the hero leads with what Cobalt does. */
 .lp-hero-title {
   margin: 0;
-  /* Ceiling down from 54px with the split layout (8/15): in a ~430px text column
-     the headline breaks after "Your Schoology," — two lines is the intended
-     shape now (the 8/13 one-line rule belonged to the old centered hero), and
-     46px keeps those two lines balanced against the demo screen beside them. */
-  font-size: clamp(32px, 3.6vw, 46px);
+  /* Back to the big centered headline (8/17, stacked hero): the text owns the
+     full width again, so the 54px ceiling returns. */
+  font-size: clamp(40px, 5.4vw, 60px);
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.1;
   margin-bottom: -1px;
+  position:
 }
 /* The one word the visitor is scanning for. */
 .lp-hero-accent {
   color: var(--accent);
 }
 .lp-tagline {
-  margin: 18px 0 0;
+  margin: 18px 0px 60px;
   font-size: clamp(15px, 2vw, 18px);
   font-weight: 500;
   color: rgba(255, 255, 255, 0.82);
@@ -180,7 +311,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 30px;
+  margin-top: 20px;
 }
 .lp-hero-actions .lp-cta { margin-top: 0; }
 .lp-cta-ghost {
@@ -249,7 +380,6 @@
 @media (prefers-reduced-motion: reduce) {
   .lp-cta:hover::after { animation: none; }
   .lp-glow { animation: none; }
-  .lp-scroll-hint { animation: none; }
 }
 .lp-cta:active { transform: translateY(0); }
 .lp-cta-sub {
@@ -271,7 +401,7 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  justify-content: flex-start; /* left column now — chips rag left with the text */
+  justify-content: center; /* centered hero again (8/17, stacked layout) */
   margin-top: 26px;
   width: 100%;
 }
@@ -287,9 +417,10 @@
 /* ---------------- Hero demo stage (the live Dan animation) ---------------- */
 .lp-hero-stage {
   min-width: 0;
+  width: 100%; /* the stacked hero's full band — the demo is the whole row */
   /* Reserve the screen's aspect before the shell mounts, so the hero never
      reflows when the demo pops in a beat after first paint. */
-  aspect-ratio: 1040 / 702;
+  aspect-ratio: 1040 / 780;
 }
 /* The miniature app shell: a real 1040x702 Cobalt "screen" (browser bar + app),
    scaled into its column by scaleToFit. Sizes here are the DESIGN size; the
@@ -298,7 +429,10 @@
    at equal specificity the later rule was winning — the shell must stay 1040. */
 .lp-frame.lp-demoshell {
   width: 1040px;
-  height: 702px;
+  /* 780, up from 702 (8/17): the stacked hero freed the height budget, and
+     the extra 78px is what lets the dashboard (incl. schedule), the focus
+     import beat, and the session overlay all play inside one un-scrolled view. */
+  height: 780px;
   display: flex;
   flex-direction: column;
   /* A permanent no-op transform: position:fixed descendants (focus overlay,
@@ -350,10 +484,83 @@
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  scrollbar-width: none; /* a screen this small reads cleaner without a track */
-  padding: 18px 26px 60px;
+  /* No scrollbar override (8/17): theme.css's global ::-webkit-scrollbar
+     styling — the REAL Cobalt scrollbar — applies here untouched, so every
+     wheel scroll has the same visible cause it has in the app. (Setting
+     scrollbar-width would disable that richer styling in Chrome.) */
+  padding: 18px 26px 28px; /* slim bottom pad: more rows fit the one view (8/16) */
 }
-.lp-demoshell-body .app::-webkit-scrollbar { display: none; }
+/* The ghost cursor's hover shim: synthetic pointers can't trip CSS :hover, so
+   the element under the hand carries .lp-hover instead. One generic lift reads
+   as the app's hover language without duplicating every rule. */
+.lp-demoshell-body .lp-hover { filter: brightness(1.13); }
+/* A hair tighter than the app's 18px so the full dashboard (schedule card
+   included) clears the fold with margin — guarded by the scene-1 smoke assert. */
+.lp-demoshell-body .dash { gap: 12px; }
+
+/* FIXED-POSITION RE-ANCHORING (8/17 visibility audit): position:fixed inside
+   the transformed frame anchors to the WHOLE 702px frame — overlays cover the
+   fake browser bar (the "top half cut off" screenshot). Absolute inside the
+   relative body anchors them to the app's real 638px screen instead. */
+.lp-demoshell-body :is(.focus-overlay, .focus-min-btn, .focus-modal-back,
+    .focus-songwin-backdrop, .focus-music-panel, .focus-music-menu,
+    .focus-widget, .popup-backdrop, .bm-backdrop,
+    .row-menu-back, .toast, .selbar, .cal-pop) {
+  position: absolute;
+}
+.lp-demoshell-body .focus-overlay { justify-content: safe center; }
+/* The :is() re-anchor above is for the OVERLAY's fixed transport. In the
+   minimized widget, focus.css deliberately makes the music panel STATIC so it
+   stacks at the bottom of the column; absolute here ripped it out of flow and
+   dropped it, background-less, over the ring and buttons (the "transparent
+   music area on top of the buttons" bug). Restore the flow. */
+.lp-demoshell-body .focus-widget .focus-music-panel { position: static; }
+
+/* vh-CORRECTIONS (8/17 visibility audit): several Focus surfaces size
+   themselves with vh/100vh — the VISITOR'S window — while living inside this
+   fixed 702px screen. On tall monitors they overflow or clip nondeterministically.
+   Pin them to px budgets that fit the frame's overlay content box. */
+.lp-demoshell-body .focus-task-panel { max-height: 430px; }
+.lp-demoshell-body .focus-music-menu { max-height: 380px; }
+.lp-demoshell-body .focus-songwin { max-height: 430px; }
+/* The in-tab float: the real Document-PiP window is 300px wide; the 250px
+   fallback squeezed todo titles into a ~58px column (one word per line). */
+.lp-demoshell-body .focus-widget { max-height: 430px; width: 320px; }
+.lp-demoshell-body .focus-widget .focus-task-panel { max-height: 180px; }
+/* The import panel's body runs 440px tall — taller than the fold leaves room
+   for. Three rows + its own scroll keeps button, panel, and the todo list it
+   feeds all inside one screen. */
+.lp-demoshell-body .focus-import-body { max-height: 190px; }
+/* Month cells: at the frame's size the real 108px cells push a month grid to
+   ~610px — most of it under the fold. 64px cells show the WHOLE month, which
+   is how the calendar reads at real window sizes. */
+.lp-demoshell-body .cal-cell { min-height: 64px; }
+/* Popups size themselves in vh — the visitor's WINDOW — while living in this
+   fixed screen; same correction the Focus surfaces already got. */
+.lp-demoshell-body .popup { max-height: 560px; }
+.lp-demoshell-body .task-details-text { max-height: 380px; }
+/* MEDIA-QUERY CORRECTION: focus.css gates the session's two-column stage on
+   the WINDOW being ≥900px — but this screen is ALWAYS 1040 design px wide,
+   whatever device the visitor holds. Without this, a narrow window stacks the
+   columns into a ~970px tower inside a 734px screen. */
+.lp-demoshell-body .focus-stage {
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
+  max-width: 1100px;
+  gap: 60px;
+  align-items: center;
+}
+
+/* The demo-layer drag ghost: the translucent row snapshot a real OS drag
+   renders under the cursor. Synthetic DragEvents can't produce the browser's
+   native drag image, so the cursor carries this clone along the drag path. */
+.lp-demoshell-body .lp-drag-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0.7;
+  pointer-events: none;
+  z-index: 5001;
+}
 /* Placeholder panel for tabs that join in a later phase (Focus, Phase D). */
 .lp-demoshell-soon { min-height: 200px; }
 
@@ -371,79 +578,10 @@
    cursor bypass hit-testing entirely, so the script is unaffected. */
 .lp-hero-stage { pointer-events: none; }
 
-/* The emphasis layer (Gabe, 8/16): Cobalt-dark callouts that pop half outside
-   the frame edge, naming the output the last input produced. They mount on
-   .lp-fit (the frame clips its own children at the rounded corners), so the
-   wrapper anchors them. */
+/* The 8/16 callout/pulse "emphasis layer" was REMOVED on 8/17 (Gabe: kill all
+   popups and highlight pulses — realism does the emphasizing now: staging that
+   keeps input+output in frame, and pace that lingers on outputs). */
 .lp-fit { position: relative; }
-.lp-callout {
-  position: absolute;
-  z-index: 6;
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  width: 252px;
-  padding: 13px 15px;
-  background: #10234f;
-  border: 1px solid rgba(125, 180, 255, 0.45);
-  border-radius: 12px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 22px rgba(125, 180, 255, 0.12);
-  text-align: left;
-  animation: lp-callout-pop 0.42s cubic-bezier(0.34, 1.45, 0.55, 1) both;
-}
-.lp-callout.right { right: -30px; }
-.lp-callout.left { left: -30px; }
-/* Tighter viewports: the overhang would poke past the page edge and mint a
-   horizontal scrollbar — tuck the card back inside the frame instead. */
-@media (max-width: 1240px) {
-  .lp-callout.right { right: 10px; }
-  .lp-callout.left { left: 10px; }
-}
-.lp-callout.out {
-  transition: opacity 0.38s ease, transform 0.38s ease;
-  opacity: 0;
-  transform: translateY(-8px) scale(0.94);
-}
-.lp-callout-check {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: rgba(125, 180, 255, 0.16);
-  border: 1px solid rgba(125, 180, 255, 0.55);
-  color: #7db4ff;
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 20px;
-  text-align: center;
-}
-.lp-callout-title {
-  font-size: 14px;
-  font-weight: 750;
-  color: #fff;
-  line-height: 1.3;
-}
-.lp-callout-sub {
-  margin-top: 3px;
-  font-size: 12px;
-  color: #a9bede;
-  line-height: 1.35;
-}
-@keyframes lp-callout-pop {
-  0% { opacity: 0; transform: translateY(12px) scale(0.85); }
-  62% { opacity: 1; transform: translateY(-2px) scale(1.04); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
-}
-/* The output's in-app echo: two soft gem-blue pulses on the element the
-   callout is talking about. */
-.lp-emph-pulse {
-  border-radius: 10px;
-  animation: lp-emph-pulse 0.9s ease-out 2;
-}
-@keyframes lp-emph-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(125, 180, 255, 0.45); }
-  100% { box-shadow: 0 0 0 9px rgba(125, 180, 255, 0); }
-}
 
 /* The ghost cursor: a drawn pointer riding the shell body's design-pixel space
    (it inherits the frame's scale). Above everything, including the focus
@@ -459,81 +597,21 @@
 .lp-demo-cursor svg { display: block; transition: transform 0.1s ease; }
 .lp-demo-cursor.pressed svg { transform: scale(0.85); transform-origin: 6px 4px; }
 
-/* The morning-briefing card (scene 1): styled like an OS notification, carrying
-   the scheduler's real daily-agenda strings. Demo chrome by necessity — the
-   real popup channel is an OS notification, which can't render in-page. */
-/* Styled from Gabe's reference screenshot of the REAL notification (8/16):
-   neutral dark-gray card (not navy), icon left, bold greeting, count line,
-   then the dim origin. */
-.lp-demo-brief {
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  width: 290px;
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  background: #2b2b2f;
-  border-radius: 10px;
-  padding: 14px 16px;
-  z-index: 2600;
-  opacity: 0;
-  transform: translateY(14px);
-  transition: opacity 0.4s ease, transform 0.45s cubic-bezier(0.2, 0.7, 0.3, 1);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
-  text-align: left;
-}
-.lp-demo-brief.show { opacity: 1; transform: none; }
-.lp-demo-brief img { width: 38px; height: 38px; border-radius: 8px; flex: none; }
-.lp-demo-brief-title { font-size: 13.5px; font-weight: 700; color: #fff; }
-.lp-demo-brief-body { font-size: 12.5px; color: #cfcfd4; margin-top: 2px; }
-.lp-demo-brief-app { font-size: 11px; color: #97979d; margin-top: 6px; }
+/* (The scene-1 briefing-notification card was removed entirely, Gabe 8/17.) */
 
 /* The loop seam: the whole screen fades, the world rebuilds, the next pass
    fades back in on the same Dashboard the story returned to. */
 .lp-demoshell.leaving { opacity: 0; transition: opacity 0.6s ease; }
 
-@media (max-width: 980px) {
-  .lp-hero-grid { grid-template-columns: 1fr; gap: 30px; }
-  .lp-hero-inner { align-items: center; text-align: center; }
-  .lp-hero-chips { justify-content: center; }
-}
-
-.lp-scroll-hint {
-  position: absolute;
-  bottom: 22px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  color: var(--text-dim);
-  animation: lp-bounce 1.8s ease-in-out infinite;
-}
-.lp-scroll-word {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-}
-.lp-scroll-arrow {
-  font-size: 20px;
-  line-height: 1;
-}
-@keyframes lp-bounce {
-  0%, 100% { transform: translateX(-50%) translateY(0); opacity: 0.5; }
-  50% { transform: translateX(-50%) translateY(8px); opacity: 1; }
-}
 
 /* ---------------- Generic section ---------------- */
 .lp-section {
   position: relative;
   z-index: 1;
-  /* 1280, up from 1120 (vault note, 8/15): the hero's demo screen widened the
-     top band, and every section below matches it so the page reads as one
+  /* 1360, up from 1280 (Gabe, 8/17): the hero text column widened the top
+     band again, and every section below matches it so the page reads as one
      consistent viewport ("I value my continuity"). */
-  max-width: 1280px;
+  max-width: 1360px;
   margin: 0 auto;
   padding: 78px 22px;
   text-align: center;
@@ -1210,7 +1288,7 @@
   align-items: center;
   justify-content: center;
   gap: 12px 24px; /* generous row + column gaps so no two words ever touch */
-  max-width: 1000px;
+  max-width: 1050px;
   margin: 10px auto 0;
   line-height: 1.05;
 }
@@ -1310,7 +1388,7 @@
 /* Two self-contained columns, no criteria column (Gabe, 8/13). Row-based markup
    so each pair can hover-highlight and reveal together. */
 .lp-vs {
-  max-width: 980px;
+  max-width: 1030px; /* rides the 8/17 width pass with the section cap */
   margin: 0 auto;
   text-align: left;
   border: 1px solid var(--border);
@@ -1359,7 +1437,7 @@
 .lp-vs-hi .lp-vs-note { color: var(--text); }
 /* The one-sentence complement disclaimer under the table. */
 .lp-vs-foot {
-  max-width: 980px;
+  max-width: 1030px;
   margin: 14px auto 0;
   font-size: 12.5px;
   color: var(--text-dim);
@@ -1392,7 +1470,7 @@
   justify-content: space-between;
   gap: 18px;
   flex-wrap: wrap;
-  max-width: 1280px;
+  max-width: 1360px;
   margin: 0 auto;
 }
 .lp-footer-mark { display: flex; align-items: center; }
@@ -1434,7 +1512,7 @@
 .lp-footer-rule {
   height: 1px;
   background: var(--border);
-  max-width: 1280px;
+  max-width: 1360px;
   margin: 22px auto;
 }
 .lp-footer-base {

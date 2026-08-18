@@ -18,7 +18,6 @@ import { createSandbox } from './sandbox';
 import { buildFocusDemo } from './focusDemo';
 import { TasksView } from '../tasks/render';
 import { BookmarksView } from '../bookmarks/view';
-import { DashboardView } from '../dashboard/view';
 import { priorityDef } from '../tasks/priorities';
 import type { Priority } from '../types';
 
@@ -34,12 +33,15 @@ export interface LandingOpts {
 // ONE list of {id, label} drives the nav bar AND the footer, so they can never
 // drift out of sync with each other or with the sections they point at.
 const NAV_LINKS: Array<{ id: string; label: string }> = [
-  { id: 'how', label: 'How it works' },
-  { id: 'demo', label: 'Demo' },
+  // 'video' = the LIVE hero demo (the glow frame carries the id); 'demo' stays
+  // the mp4 film section, still hidden until the file exists. More tabs to
+  // come (Gabe, 8/17).
+  { id: 'video', label: 'Video demo' },
   { id: 'play', label: 'Try it' },
   { id: 'yours', label: 'Make it yours' },
   { id: 'compare', label: 'Why Cobalt' },
   { id: 'caps', label: 'Capabilities' },
+  { id: 'demo', label: 'Full demo film' },
 ];
 
 const reducedMotion = (): boolean => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
@@ -90,11 +92,18 @@ function setupNav(nav: HTMLElement, root: HTMLElement): void {
   const links = [...nav.querySelectorAll<HTMLElement>('.lp-nav-link')];
   const sections = NAV_LINKS.map((l) => root.querySelector(`#${l.id}`)).filter((s): s is Element => !!s);
   if (!sections.length) return;
+  // Track every section's intersection state so we can tell "scrolled above all
+  // tracked sections" (hero text) apart from "moved to another section" — in the
+  // former case no tab should stay lit.
+  const inBand = new Set<string>();
   const activeIO = new IntersectionObserver(
     (entries) => {
       for (const e of entries) {
+        if (e.isIntersecting) inBand.add(e.target.id);
+        else inBand.delete(e.target.id);
         if (e.isIntersecting) links.forEach((b) => b.classList.toggle('active', b.dataset.target === e.target.id));
       }
+      if (!inBand.size) links.forEach((b) => b.classList.remove('active'));
     },
     { rootMargin: '-40% 0px -55% 0px', threshold: 0 }
   );
@@ -150,13 +159,19 @@ const FEATURES: Feature[] = [
 // word → weight (5 = biggest). Every entry must grammatically complete the frame
 // "the capacity to ___ your Schoology assignments" (e.g. "stay on top of", not
 // "never miss a deadline"). Drives the packed word-cloud sizing.
+// Almost every entry names a real, checkable Cobalt feature (auto-import,
+// auto-translate, quick-add parsing, bulk check-off, folders, calendar views,
+// focus sessions, reminders); only a couple of vague crowd-pleasers remain for
+// flavor ("knock out", "stay on top of", "conquer").
 const CLOUD: Array<[string, number]> = [
-  ['organize', 5], ['manage', 5], ['focus on', 5], ['prioritize', 4], ['import', 4],
-  ['check off', 4], ['stay on top of', 4], ['take control of', 4], ['knock out', 4],
-  ['master', 4], ['catch every test among', 4], ['breeze through', 3], ['color-code', 3], ['duplicate', 3], ['rename', 3],
-  ['edit', 3], ['translate', 3], ['group', 3], ['sort', 3], ['track', 3], ['customize', 3],
-  ['attach links to', 3], ['keep tabs on', 2], ['set reminders for', 2],
-  ['never lose track of', 2], ['own', 2], ['conquer', 2],
+  ['organize', 5], ['manage', 5], ['focus on', 5], ['auto-import', 5],
+  ['prioritize', 4], ['check off', 4], ['auto-translate', 4], ['bulk-complete', 4],
+  ['catch every test among', 4], ['stay on top of', 3], ['color-code', 3], ['duplicate', 3],
+  ['edit', 3], ['group', 3], ['sort', 3], ['customize', 3], ['knock out', 3],
+  ['attach links to', 3], ['file into project folders', 3], ['see a month view of', 3],
+  ['pull into focus sessions', 3], ['turn one typed line into', 3], ['rename', 3], ['track', 3],
+  ['set reminders for', 2], ['reorder by hand', 2], ['range-select', 2], ['pin', 2],
+  ['conquer', 2],
 ];
 
 // Deterministic palette + font mix for the cloud — chosen to feel like a classic
@@ -321,7 +336,7 @@ const VS_ROWS: Array<{ sch: string; cob: string }> = [
   { sch: 'Assignments scattered across course pages', cob: 'Every assignment in one list, grouped by day' },
   { sch: 'Nothing to check off', cob: 'One-click check-off with a satisfying glide' },
   { sch: 'Deadlines are easy to miss', cob: 'Popup and email reminders, on your schedule' },
-  { sch: 'Hebrew titles stay in Hebrew', cob: 'Hebrew titles translated automatically' },
+  { sch: 'Foreign titles remain cryptic', cob: '200+ languages translated automatically' },
   { sch: 'No priorities on your work', cob: 'Five priority levels, color-coded on every task' },
   { sch: 'Your study links live somewhere else', cob: 'Attach links to any task and open them in one click' },
   { sch: 'Slow pages, dated design', cob: 'Instant, dark, and clean' },
@@ -338,21 +353,15 @@ export function renderLanding(opts: LandingOpts): HTMLElement {
   // A soft blue glow that drifts behind the hero — pure decoration.
   root.append(el('div', { class: 'lp-glow' }));
 
-  // TWO independent sandboxes so the "how it works" Dashboard and the "see it in
-  // action" demos never share state — checking off / editing a task in one has zero
-  // effect on the other.
-  const howSandbox = createSandbox();
   const seeSandbox = createSandbox();
 
   root.append(
     heroSection(opts),
-    howItWorksSection(howSandbox),
     demoSection(root),
     featuresSection(seeSandbox),
     setupsSection(),
     compareSection(),
     capabilitiesSection(),
-    closerSection(opts),
     footerSection(opts, (id) => scrollToSection(root, id))
   );
 
@@ -368,8 +377,10 @@ export function renderLanding(opts: LandingOpts): HTMLElement {
 // headline IS the motto.
 function heroSection(opts: LandingOpts): HTMLElement {
   const sec = el('section', { class: 'lp-hero' });
-  // Text LEFT, the live demo screen RIGHT (vault note, 8/15).
-  const grid = el('div', { class: 'lp-hero-grid lp-reveal' });
+  // The Raycast shape (Gabe, 8/17): the motto alone owns the first screen,
+  // centered; a long quiet gap; one two-tone bridge line; then the live demo
+  // inside its glow frame. No side-by-side, no scroll hint.
+  const top = el('div', { class: 'lp-hero-top lp-reveal' });
   const inner = el('div', { class: 'lp-hero-inner' });
 
   inner.append(
@@ -410,70 +421,213 @@ function heroSection(opts: LandingOpts): HTMLElement {
   );
   inner.append(chips);
 
+  top.append(inner);
+
   // The hero stage: Dan's live demo (landing/demo/script.ts) — the real app,
-  // driven by the ghost cursor, looping. The stage reserves its aspect via CSS
-  // so the hero never reflows when the demo pops in a beat after first paint.
+  // driven by the ghost cursor, looping — inside the glow frame. The stage
+  // reserves its aspect via CSS so nothing reflows when the demo pops in.
+  const glow = el('div', { class: 'lp-stage-glow lp-reveal', id: 'video' });
   const stage = el('div', { class: 'lp-hero-stage' });
+  glow.append(stage);
   void import('./demo/script')
-    .then(({ startHeroDemo }) => startHeroDemo(stage))
+    .then(({ startHeroDemo, SCENE_NAMES }) => {
+      startHeroDemo(stage);
+      // Build the chapter bar from the real scene list, YouTube-style. Clicks
+      // are handled by the BAR (they seek to the clicked time); segments just
+      // carry the fills and the hover tooltips.
+      for (const [i, name] of SCENE_NAMES.entries()) {
+        const seg = el('div', { class: 'lp-demo-seg', title: `${i + 1} · ${name}` });
+        const fill = el('div', { class: 'lp-demo-seg-fill' });
+        seg.append(fill);
+        segFills.push(fill);
+        bar.append(seg);
+      }
+    })
     .catch(() => {
       /* demo unavailable — the hero text stands alone, nothing breaks */
     });
 
-  grid.append(inner, stage);
-  sec.append(grid);
-  const hint = el('div', { class: 'lp-scroll-hint' });
-  hint.append(
-    el('span', { class: 'lp-scroll-word', text: 'scroll' }),
-    el('span', { class: 'lp-scroll-arrow', text: '↓' })
-  );
-  sec.append(hint);
+  // TEMPORARY audit controls (Gabe, 8/17): a YouTube-style player under the
+  // demo. A chaptered duration bar (one segment per scene, click = jump
+  // there), a playhead + clock in VIDEO-TIME (normalized to ×1 — changing the
+  // speed changes how fast the playhead moves, never where a moment lives),
+  // pause, and speed. Deliberately bare — removed once the audit pass is done.
+  const ctl = el('div', { class: 'lp-demo-ctl' });
+  const bar = el('div', { class: 'lp-demo-bar' });
+  const knob = el('div', { class: 'lp-demo-knob' });
+  const segFills: HTMLElement[] = [];
+  const jumpTo = (i: number): void => {
+    const w = window as unknown as { __demoRestartFrom?: number; __demoAbort?: () => void; __demoPause?: boolean };
+    w.__demoRestartFrom = i;
+    w.__demoPause = false;
+    pauseBtn.textContent = 'Pause';
+    w.__demoAbort?.();
+  };
+  const row = el('div', { class: 'lp-demo-ctl-row' });
+  const pauseBtn = el('button', { class: 'lp-demo-ctl-btn', text: 'Pause' });
+  pauseBtn.addEventListener('click', () => {
+    const w = window as unknown as { __demoPause?: boolean };
+    w.__demoPause = !w.__demoPause;
+    pauseBtn.textContent = w.__demoPause ? 'Resume' : 'Pause';
+  });
+  const speed = el('input', {
+    type: 'range',
+    min: '0.4',
+    max: '2.5',
+    step: '0.1',
+    value: '1',
+  }) as HTMLInputElement;
+  const speedLbl = el('span', { class: 'lp-demo-ctl-lbl', text: 'speed ×1.0' });
+  speed.addEventListener('input', () => {
+    const ui = Number(speed.value);
+    // UI reads "×2 = twice as fast"; the cursor multiplies DURATIONS, so invert.
+    (window as unknown as { __demoSpeed?: number }).__demoSpeed = 1 / ui;
+    speedLbl.textContent = `speed ×${ui.toFixed(1)}`;
+  });
+  const clock = el('span', { class: 'lp-demo-ctl-lbl lp-demo-clock', text: '0:00 / –:––' });
+
+  // Video-time bookkeeping: per-scene durations start as estimates and are
+  // MEASURED as scenes complete, so the bar and total sharpen every loop.
+  const fmt = (s: number): string => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const durations: number[] = []; // learned, video-seconds at ×1
+  const EST = 12; // until a scene has been measured once
+  const durOf = (i: number): number => durations[i] ?? EST;
+  const segCount = (): number => segFills.length || 10;
+  const totalOf = (): number => {
+    let t = 0;
+    for (let i = 0; i < segCount(); i++) t += durOf(i);
+    return t;
+  };
+  let curIdx = -1;
+  let inScene = 0; // video-seconds inside the current scene
+  let playedNow = 0; // the playhead, refreshed every tick (seeks read it)
+  let lastLoop = -1;
+  let dragFrac: number | null = null; // knob mid-drag: preview, don't fight it
+  let lastTick = performance.now();
+  window.setInterval(() => {
+    const w = window as unknown as {
+      __demoPause?: boolean; __demoScene?: string; __demoSceneIdx?: number; __demoFF?: boolean;
+      __demoSpeed?: number; __demoLoopN?: number;
+    };
+    const now = performance.now();
+    const dt = (now - lastTick) / 1000;
+    lastTick = now;
+    // A fresh loop = a fresh video: the playhead starts over, always.
+    if ((w.__demoLoopN ?? 0) !== lastLoop) {
+      lastLoop = w.__demoLoopN ?? 0;
+      curIdx = -1;
+      inScene = 0;
+    }
+    const idx = w.__demoSceneIdx ?? -1;
+    if (idx !== curIdx) {
+      // A completed, watched scene teaches the bar its real length.
+      if (curIdx >= 0 && idx === curIdx + 1 && inScene > 1) durations[curIdx] = inScene;
+      curIdx = idx;
+      inScene = 0;
+    }
+    // Video-time: wall dt × UI speed. Paused or fast-forwarding = frozen.
+    if (!w.__demoPause && !w.__demoFF && idx >= 0) inScene += dt * (1 / (w.__demoSpeed ?? 1));
+    let played = 0;
+    let total = 0;
+    for (let i = 0; i < segCount(); i++) {
+      const d = durOf(i);
+      total += d;
+      const f = i < curIdx ? 1 : i === curIdx ? Math.min(1, inScene / d) : 0;
+      played += d * f;
+      if (segFills[i]) segFills[i].style.width = `${f * 100}%`;
+    }
+    playedNow = played;
+    const frac = dragFrac ?? (total > 0 ? played / total : 0);
+    knob.style.left = `${frac * 100}%`;
+    const label = seeking ? 'seeking…' : (w.__demoScene ?? 'warming up').replace(/^» /, '» skipping: ');
+    clock.textContent = `${fmt(dragFrac !== null ? dragFrac * total : played)} / ${fmt(total)} · ${label}`;
+  }, 100);
+
+  // --- Seeking. Forward = accelerate through the live content until the
+  // playhead reaches the target. Backward = rebuild to the target's scene,
+  // then accelerate to the exact second. (A live app can't run in reverse.)
+  let seeking = false;
+  let seekTimer = 0;
+  const sliderSpeed = (): number => 1 / Number(speed.value);
+  const accelerateUntil = (done: () => boolean): void => {
+    const w = window as unknown as { __demoSpeed?: number };
+    window.clearInterval(seekTimer);
+    seeking = true;
+    w.__demoSpeed = 0.05; // ~×20: seconds of content per blink
+    const t0 = performance.now();
+    seekTimer = window.setInterval(() => {
+      if (done() || performance.now() - t0 > 15000) {
+        window.clearInterval(seekTimer);
+        w.__demoSpeed = sliderSpeed(); // hand the tempo back to the slider
+        seeking = false;
+      }
+    }, 80);
+  };
+  const seekTo = (t: number): void => {
+    const total = totalOf();
+    t = Math.max(0, Math.min(t, total - 0.5));
+    let acc = 0;
+    let s = 0;
+    while (s < segCount() - 1 && acc + durOf(s) <= t) {
+      acc += durOf(s);
+      s++;
+    }
+    const offset = t - acc;
+    const w = window as unknown as { __demoPause?: boolean };
+    w.__demoPause = false; // seeking implies playing, like YT
+    pauseBtn.textContent = 'Pause';
+    if (s === curIdx && t >= playedNow) {
+      accelerateUntil(() => playedNow >= t); // forward inside this scene
+    } else {
+      jumpTo(s); // rebuild + instant fast-forward to the scene…
+      if (offset > 0.75) accelerateUntil(() => curIdx === s && inScene >= offset); // …then race to the second
+    }
+  };
+
+  // ±5s hops.
+  const back5 = el('button', { class: 'lp-demo-ctl-btn', text: '↺ 5s' });
+  back5.addEventListener('click', () => seekTo(playedNow - 5));
+  const fwd5 = el('button', { class: 'lp-demo-ctl-btn', text: '5s ↻' });
+  fwd5.addEventListener('click', () => seekTo(playedNow + 5));
+
+  // The knob: drag it anywhere on the bar, release to seek (YT's grip).
+  bar.append(knob);
+  knob.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    const r = bar.getBoundingClientRect();
+    const move = (ev: PointerEvent): void => {
+      dragFrac = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+    };
+    const up = (ev: PointerEvent): void => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      const frac = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+      dragFrac = null;
+      seekTo(frac * totalOf());
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
+  // Clicking the bar itself seeks to that TIME (segments keep their tooltips).
+  bar.addEventListener('click', (e) => {
+    if (e.target === knob) return;
+    const r = bar.getBoundingClientRect();
+    seekTo(((e.clientX - r.left) / r.width) * totalOf());
+  });
+
+  row.append(pauseBtn, back5, fwd5, speed, speedLbl, clock);
+  ctl.append(bar, row);
+
+  // No scroll hint and no bridge line (Gabe, 8/17): the demo's glowing edge
+  // peeking above the fold IS the invitation now.
+  sec.append(top, glow, ctl);
   return sec;
 }
 // #endregion
 
-// #region How it works (blurb + live Dashboard) ---------------------------------
-function howItWorksSection(sandbox: Promise<Data>): HTMLElement {
-  const sec = el('section', { class: 'lp-section lp-how lp-reveal', id: 'how' });
-
-  const row = el('div', { class: 'lp-split' });
-  const frame = deviceFrame('cobalt.app/dashboard');
-  // This preview is a static showcase — visitors LOOK at the Dashboard here and
-  // PLAY in the "see it in action" section below. Render the real view, then turn
-  // the whole frame body into an image (no clicks, no hover, no text selection).
-  frame.body.classList.add('lp-frame-static');
-  const text = el('div', { class: 'lp-split-text' });
-  text.append(
-    el('h2', { class: 'lp-h2 lp-h2-left', text: 'Every assignment, organized in one calm place' }),
-    el('p', {
-      class: 'lp-lead',
-      text: 'Cobalt reads your Schoology calendar and imports every assignment, test, and quiz into one organized place, automatically. Open one tab and know exactly what is due, when, and what to hit first.',
-   })
-  );
-  row.append(scaleToFit(frame.frame, 620), text); // frame LEFT, copy RIGHT
-  sec.append(row);
-
-  // Mount the real Dashboard once the sandbox is ready. The frame is static
-  // (pointer-events: none), so no click handler can ever fire — pass a no-op.
-  sandbox
-    .then((data) => {
-      frame.body.replaceChildren();
-      frame.body.classList.remove('loading');
-      new DashboardView(
-        data,
-        'Gabe',
-        () => {}, // unreachable: the static frame swallows all interaction
-        true // sample mode → fixed greeting/quote, inert schedule + refresh
-      ).mount(frame.body);
-    })
-    .catch(() => {
-      frame.body.classList.remove('loading');
-      frame.body.replaceChildren(el('div', { class: 'lp-frame-err', text: 'Preview unavailable' }));
-    });
-
-  return sec;
-}
-// #endregion
+// The "how it works" band (static Dashboard frame + blurb) was REMOVED on 8/17
+// (Gabe): the live hero demo made it redundant, and its headline lives on as
+// the hero's bridge line.
 
 // #region Demo film ---------------------------------------------------------------
 /** A framed 16:9 video slot. The WHOLE SECTION (and its nav/footer links) stays
@@ -879,29 +1033,11 @@ function capabilitiesSection(): HTMLElement {
 }
 // #endregion
 
-// #region Closer + shared bits ----------------------------------------------------
+// #region Footer + shared bits ----------------------------------------------------
 function ctaButton(label: string, onClick: () => void): HTMLElement {
   const btn = el('button', { class: 'lp-cta', text: label });
   btn.addEventListener('click', onClick);
   return btn;
-}
-
-/** The page's final ask, right before the footer: the strongest close is a CTA,
- *  not decoration (peak-end). The privacy line answers the parent question
- *  ("what does it read?") with the checkable truth: Cobalt's import is the
- *  Schoology CALENDAR feed, nothing else. */
-function closerSection(opts: LandingOpts): HTMLElement {
-  const sec = el('section', { class: 'lp-section lp-closer lp-reveal' });
-  sec.append(
-    el('h2', { class: 'lp-h2', text: 'Ready when you are' }),
-    el('p', { class: 'lp-sub', text: 'One Google sign-in and about a minute of setup.' }),
-    ctaButton('Get started free', opts.onTryNow),
-    el('p', {
-      class: 'lp-closer-privacy',
-      text: 'Cobalt reads only your Schoology calendar feed. Grades and messages stay untouched.',
-    })
-  );
-  return sec;
 }
 
 /** Wordmark + the same nav links (as a small chip row) + Log in / Get started,
