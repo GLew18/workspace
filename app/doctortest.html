@@ -1,0 +1,240 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>audio doctor test</title>
+<body style="font:13px/1.5 system-ui;background:#0b1a3a;color:#dbe6ff;padding:20px">
+  <p>Click Run. The click is the user gesture the AudioContext needs, so this exercises
+     the real graph. Each case drives a REAL engine into a REAL fault and checks that
+     the doctor names that fault, rather than checking a hand-written recording.</p>
+  <button id="go" style="font:14px system-ui;padding:10px 18px;border-radius:8px">Run</button>
+  <pre id="out" style="white-space:pre-wrap"></pre>
+  <script type="module">
+    import { MusicEngine } from '/src/focus/music.ts';
+    import { installAudioDoctor } from '/src/focus/audiodoctor.ts';
+    import { armAudioContext, audioCtx } from '/src/focus/timer.ts';
+
+    /** A 30-second sine, long enough that no case runs off the end of the track. */
+    function toneWav(seconds = 30, freq = 220, rate = 8000) {
+      const n = seconds * rate;
+      const buf = new ArrayBuffer(44 + n * 2);
+      const v = new DataView(buf);
+      const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+      str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt ');
+      v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+      v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      str(36, 'data'); v.setUint32(40, n * 2, true);
+      for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.sin((2 * Math.PI * freq * i) / rate) * 32000, true);
+      const b = new Uint8Array(buf);
+      let s = '';
+      for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+      return 'data:audio/wav;base64,' + btoa(s);
+    }
+
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    document.getElementById('go').addEventListener('click', async () => {
+      const out = document.getElementById('out');
+      out.textContent = 'running…';
+      const src = toneWav();
+      const T = (k) => ({ key: k, label: k, emoji: 'M', src, volume: 100, gain: 1 });
+      const R = [];
+      const ok = (name, cond, extra = '') => R.push(`${cond ? 'PASS' : 'FAIL'}  ${name} ${extra}`);
+      let rendering = true;
+      const engines = [];
+      const spawn = () => { const e = new MusicEngine(); engines.push(e); return e; };
+      try {
+        installAudioDoctor();
+        const D = window.__audioDoctor;
+        ok('doctor installed', !!(D && D.start && D.stop && D.report));
+
+        // --- 0. it refuses politely when there is nothing to measure, instead of
+        //        throwing. This is the state Gabe will most often be in. ---
+        const early = D.start();
+        ok('0 refuses with no engine, no crash', /no music engine/i.test(early), `"${early.slice(0, 44)}…"`);
+
+        armAudioContext();
+        await wait(150);
+        ok('0 context running', audioCtx()?.state === 'running', `= ${audioCtx()?.state}`);
+
+        // --- A. a clean run must come back CLEAN. A diagnostic that cries wolf on
+        //        healthy audio is worse than none, because it sends the next hour
+        //        chasing a fault that is not there. ---
+        const e1 = spawn();
+        e1.setVolume(100);
+        e1.setPlaylist([T('a')], 0, true);
+        await wait(3000); // let the 2.5s opening fade finish first
+        ok('A the tone is actually playing', !e1['audio'].paused && e1['audio'].currentTime > 0.4,
+          `t=${e1['audio'].currentTime.toFixed(2)}`);
+        const started = D.start();
+        ok('A doctor starts', /recording/i.test(started), `"${started.slice(0, 40)}…"`);
+        await wait(3000);
+        const clean = D.report();
+        D.stop();
+        const raw = window.__audioDoctorRaw;
+        const loudest = Math.max(...raw.samples.map((s) => s.postDb));
+        // If this browser is not actually rendering audio, every level reads as the
+        // -140 floor and the level assertions below would be measuring the harness,
+        // not the code. Say so rather than reporting a green suite that means nothing.
+        rendering = loudest > -60;
+        ok('A audio is really being rendered here', rendering, `loudest post = ${loudest.toFixed(1)} dB`);
+        ok('A samples collected at ~100ms', raw.samples.length >= 25, `= ${raw.samples.length}`);
+        ok('A saw exactly one engine playing', raw.samples.every((s) => s.playing === 1));
+        if (rendering) {
+          ok('A clean run reports no dropouts', /Dropouts found: 0/.test(clean));
+          ok('A clean run says nothing was wrong', /Nothing was wrong/.test(clean));
+          ok('A pre-gain tap sees signal too', Math.max(...raw.samples.map((s) => s.preDb)) > -60,
+            `= ${Math.max(...raw.samples.map((s) => s.preDb)).toFixed(1)} dB`);
+        }
+
+        // --- B. a fade re-armed mid-playback. This is the fault that would sound
+        //        EXACTLY like the report — silence, then a swell, over and over — so
+        //        the doctor has to be able to name it. Driven through the engine's own
+        //        ramp, not by writing the gain node, so the whole path is exercised. ---
+        D.start();
+        await wait(600);
+        e1['armFade'](1500);
+        e1['runFade'](1500);
+        await wait(2600);
+        const refade = D.report();
+        D.stop();
+        // The LEVEL test cannot see this and is not expected to: the t^0.7 ramp clears
+        // -18 dB in its first 5%, so even a full 2.5s fade is only ~130ms deeply quiet,
+        // under the 250ms a dropout must last. That gap is exactly why the doctor
+        // detects a re-arm from the multiplier instead. Asserted here so the two stay
+        // honest about which one is doing the work.
+        ok('B the re-arm is caught', /1 unexplained/.test(refade),
+          refade.match(/Fades re-armed:.*/)?.[0] || 'no line');
+        ok('B it is called out by name', /THE FADE WAS RE-ARMED/.test(refade));
+        ok('B and it drives the verdict', /VERDICT:[\s\S]*re-arming the fade/.test(refade));
+
+        // --- C. two engines at once: the fault that no snapshot could ever see. ---
+        const e2 = spawn();
+        e2.setVolume(100);
+        e2.setPlaylist([T('b')], 0, true);
+        await wait(400);
+        D.start();
+        await wait(1200);
+        const dbl = D.report();
+        // Deliberately only 1.2s: two engines playing is decisive on its own, so the
+        // report must say so from a SHORT recording rather than bailing for want of
+        // samples. That bail is what swallowed this verdict the first time.
+        ok('C answers from a short recording', window.__audioDoctorRaw.samples.length < 20,
+          `${window.__audioDoctorRaw.samples.length} samples`);
+        D.stop();
+        ok('C double playback detected', /TWO OR MORE ENGINES PLAYING AT ONCE/.test(dbl));
+        ok('C and it leads the verdict', /VERDICT:\s*\n\s*Two engines are playing/.test(dbl));
+        e2.pause();
+
+        // --- D. stop() really detaches: no timer still sampling, no analyser still
+        //        wired into the graph. A diagnostic that leaks is a diagnostic that
+        //        becomes the next bug. ---
+        e2.destroy(); // back to one engine, so this is a normal recording again
+        D.start();
+        await wait(2400);
+        D.stop();
+        // report() FIRST: __audioDoctorRaw is only republished there, so reading it
+        // before this call would hand back the previous case's array and the
+        // comparison below would be between two different recordings.
+        D.report();
+        const live2 = window.__audioDoctorRaw.samples;
+        const frozen = live2.length;
+        await wait(500);
+        ok('D stop() halts sampling', live2.length === frozen, `${frozen} -> ${live2.length}`);
+        const after = D.report();
+        ok('D report() still works after stop', /AUDIO DOCTOR/.test(after));
+
+        // --- E. restarting after a stop works, so a second attempt is not a reload. ---
+        const again = D.start();
+        ok('E restarts cleanly', /recording/i.test(again));
+        D.stop();
+
+        // --- F. GABE'S ACTUAL SIGNATURE, 8/19: the element keeps playing (its clock
+        //        runs, it is fully buffered) while the graph receives digital silence,
+        //        AND a fade is re-armed at the same moment. Muting the element
+        //        reproduces it exactly: currentTime advances, pre sits at the floor.
+        //
+        //        The point of this case is the PRIORITY. Both conditions are true at
+        //        once, and the report must name the dead source, because the fade is
+        //        applied downstream of the pre tap and so cannot possibly have caused
+        //        a reading of -140 dB there. Naming the fade is what happened on 8/19
+        //        and it pointed at the one stage that was provably innocent. ---
+        D.start();
+        await wait(600);
+        e1.mute(true);
+        e1['armFade'](1500);
+        e1['runFade'](1500);
+        await wait(1600);
+        e1.mute(false);
+        await wait(1200);
+        const dead = D.report();
+        D.stop();
+        if (rendering) {
+          ok('F dead source detected', /THE ELEMENT PLAYED BUT SENT NO AUDIO/.test(dead));
+          ok('F the clock is shown still running', /clock advanced [1-9]/.test(dead),
+            dead.match(/clock advanced [\d.]+s of [\d.]+s/)?.[0] || 'no clock line');
+          ok('F verdict blames the source, not the fade',
+            /VERDICT:[\s\S]*handed the graph/.test(dead) && !/VERDICT:[\s\S]*Something is re-arming/.test(dead));
+        }
+
+        // --- G. THE WATCHDOG. Reproduces the fault measured on Gabe's machine on
+        //        8/19: the element goes on playing, its clock advancing and fully
+        //        buffered, while the graph receives digital silence.
+        //
+        //        Getting the simulation right matters more than it looks. The first
+        //        version just disconnected the source node, which ALSO froze the
+        //        element's clock, because nothing was pulling it any more. That is a
+        //        different fault (a stall) and the watchdog ignores it on purpose. So
+        //        the source is instead re-routed into a silent sink: the element is
+        //        still being pulled and its clock still runs, but the entry node
+        //        receives nothing. That is Gabe's signature exactly.
+        if (rendering) {
+          const ctx = audioCtx();
+          const e3 = spawn();
+          e3.setVolume(100);
+          e3.setPlaylist([T('a')], 0, true);
+          await wait(2600); // past the opening fade, watchdog armed
+          const before = e3['revivals'];
+          const sink = ctx.createGain();
+          sink.gain.value = 0;
+          sink.connect(ctx.destination);
+          e3['srcNode'].disconnect();
+          e3['srcNode'].connect(sink);
+          await wait(400);
+          const peakOf = () => {
+            const b = new Float32Array(e3['probe'].fftSize);
+            e3['probe'].getFloatTimeDomainData(b);
+            let m = 0;
+            for (const v of b) m = Math.max(m, Math.abs(v));
+            return m;
+          };
+          const tAtCut = e3['audio'].currentTime;
+          ok('G the fault is really reproduced', peakOf() < 1e-4, `entry peak = ${peakOf().toExponential(1)}`);
+          ok('G and the clock is still running (a stall would be a different fault)',
+            e3['audio'].currentTime > tAtCut - 0.01, `t=${e3['audio'].currentTime.toFixed(2)}`);
+          // 500ms to trip, a 250ms tick, then the reload.
+          await wait(3000);
+          ok('G the watchdog fired', e3['revivals'] > before, `revivals ${before} -> ${e3['revivals']}`);
+          ok('G sound is restored', peakOf() > 1e-3, `entry peak = ${peakOf().toFixed(3)}`);
+          ok('G it is still playing', !e3['audio'].paused, `paused=${e3['audio'].paused}`);
+          ok('G and it resumed near where it stopped, not from the top',
+            e3['audio'].currentTime > tAtCut - 0.5, `cut at ${tAtCut.toFixed(2)}, now ${e3['audio'].currentTime.toFixed(2)}`);
+
+          // The bound: a fault it cannot repair must not become a restart loop.
+          for (let i = 0; i < 5; i++) {
+            e3['srcNode'].disconnect();
+            e3['srcNode'].connect(sink);
+            await wait(1000);
+          }
+          ok('G revivals stay bounded at 3', e3['revivals'] <= 3, `= ${e3['revivals']}`);
+        }
+
+      } catch (e) {
+        R.push('FAIL  suite threw: ' + e.message + '\n' + e.stack);
+      }
+      for (const e of engines) { try { e.destroy(); } catch {} }
+      const pass = R.filter((r) => r.startsWith('PASS')).length;
+      window.__doctor = { pass, fail: R.length - pass, total: R.length, results: R, rendering };
+      out.textContent = R.join('\n') + `\n\n${pass}/${R.length} passed`;
+    });
+  </script>
+</body>

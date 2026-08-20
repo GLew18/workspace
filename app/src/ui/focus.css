@@ -385,12 +385,34 @@
 .focus-import-search::placeholder {
   color: var(--text-dim);
 }
+/* The region the grip resizes: the search box and the list together, CLIPPED.
+   Everything about dragging the panel shut depends on this box (Gabe, 8/19) —
+   the list runs out of height first, and then the search box is clipped away a
+   pixel at a time rather than vanishing in one step, so the grip can follow the
+   cursor all the way to nothing. */
+.focus-import-wrap {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .focus-import-body {
   /* Generous by DEFAULT (per Gabe: importing is browsing — a 1-2 row slit is
      unusable). ~7 task rows before it scrolls; the grab bar tunes it from there. */
   max-height: 440px;
   overflow-y: auto;
-  padding-top: 8px; /* clear breathing room so the first subheader never hugs the search box */
+  /* …and it is the part that yields when the wrapper above is dragged smaller. */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* The breathing room under the search box lives HERE, not as padding-top on the
+   body (Gabe, 8/19). Padding cannot be squeezed out: with 8px of it the body
+   bottomed out at 8px however far you dragged, so the menu could never actually
+   shut. As a margin on the box above, the spacing looks identical and the body
+   reaches a true zero. */
+.focus-import-search {
+  margin-bottom: 8px;
 }
 /* (The resize grip is now the shared .ws-resize-grip — see components.css.) */
 .focus-import-section {
@@ -921,6 +943,24 @@
     gap: 60px; /* was 90 — part of the fit shrink */
     align-items: center;
   }
+  /* THE CARD IS THE LEFT COLUMN'S HEIGHT, ON EVERY SCREEN (Gabe, 8/19): top of the
+     clock down to the bottom of the ± buttons, no matter the viewport.
+     HEIGHT, not max-height, and that distinction is the whole fix. A cap is only
+     reached when the CONTENT happens to be that tall, so the card kept coming up
+     short of the buttons — a viewport-relative cap made it worse, since on a short
+     window 76vh landed ~100px above them. An explicit height has no such "if": the
+     card is that tall, full or empty, and the tasks list (flex: 1 1 auto) grows
+     into whatever the rows don't use.
+     max-height must be cleared with it, or the base rule's min(76vh, …) would clip
+     the height right back down on a short window.
+     --focus-left-h is measured live by the view (watchLeftHeight) rather than
+     hard-coded, because the controls wrap and the end-time text changes length.
+     This can never make the session taller than it already is: the left column is
+     what sets that height, and the card only matches it. */
+  .focus-right .focus-task-panel {
+    height: var(--focus-left-h, min(76vh, 680px));
+    max-height: none;
+  }
 }
 
 .focus-min-btn {
@@ -1185,13 +1225,81 @@
   letter-spacing: 0.1em;
   color: var(--accent);
 }
-/* Only the TASKS LIST flexes when the import window is resized — the head,
-   the add row, and the Import button keep their full size; the drag may never
-   crush them (it takes space from the list alone). */
+/* Only the TASKS LIST and the import menu flex — the head, the add row, and the
+   Import button keep their full size; nothing may crush them. */
 .focus-task-panel > .focus-task-head,
 .focus-task-panel > .focus-add-todo,
 .focus-task-panel > .focus-import {
   flex-shrink: 0;
+}
+/* THE CARD MUST NOT GROW WHEN IMPORT OPENS (Gabe, 8/19). Inside the session card
+   the import menu is a FLEXIBLE row sitting above the tasks, not a fixed 440px
+   block bolted to the bottom: it takes its room from the list below it and both
+   scroll. Opening it therefore changes what the card shows, never how tall it is.
+   The setup screen's copy keeps the fixed cap (that screen scrolls). A height the
+   user drags in with the grip still wins — it sets an inline height, and fitToCard
+   trims it back to the card. */
+.focus-task-panel > .focus-import-panel {
+  /* 320px is what it ASKS for, not what it gets: with the card full, the menu and
+     the tasks list shrink together (the numbers below), and with the card not yet
+     full it simply takes it. The tasks list yields several times faster (the
+     flex-shrink: 5 below), because while you are browsing imports the menu is
+     the surface you are reading — the tasks wait underneath and scroll. */
+  flex: 1 1 320px;
+  min-height: 0;
+}
+.focus-task-panel > .focus-overlay-todos {
+  flex-shrink: 5;
+}
+/* A FOLDER USES THE ROOM THE CARD ACTUALLY HAS (Gabe, 8/19). The 260px cap below
+   is a flat number, so a card tall enough for 7 rows still scrolled the folder at
+   4 and left a dead strip underneath. Here the 260 becomes what the folder ASKS
+   for (flex-basis) rather than a ceiling: with space left over it grows into it,
+   and max-content stops it at its own last row so a two-task folder never inflates
+   into an empty box. Nothing changes when the card is full — two folders, or a
+   folder plus loose rows, still ask for 260 each and the list scrolls, exactly as
+   before — because grow only ever spends space that was going to waste. */
+/* The 260px default moves onto the FOLDER (as flex-basis 300 = head + 260), and
+   the body is left free-flowing. That ordering is the whole trick: max-content on
+   the folder then measures the body's REAL content, so grow is bounded by the last
+   row. Putting the basis on the body instead makes max-content report 260 back to
+   the folder, and nothing can ever grow. */
+.focus-overlay-todos > .focus-folder {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 300px; /* same natural size as before; grows; never shrinks */
+  max-height: max-content; /* …and never past its own last row */
+}
+.focus-overlay-todos > .focus-folder > .focus-folder-headrow {
+  flex: none;
+}
+.focus-overlay-todos > .focus-folder > .focus-folder-body {
+  flex: 1 1 auto;
+  max-height: none; /* the FOLDER is the cap now */
+  min-height: 0;
+}
+/* Inside the session card the whole region flexes with the card, so neither the
+   wrapper nor the list carries a fixed cap. The 80px floor is on the WRAPPER now
+   (that is what the grip sizes), so an untouched panel still opens usable. */
+.focus-task-panel .focus-import-wrap {
+  max-height: none;
+  min-height: 80px;
+}
+.focus-task-panel .focus-import-body {
+  max-height: none;
+}
+/* THE SEARCH BOX AND THE GRIP NEVER RESIZE (Gabe, 8/19) — in either copy of the
+   panel, which is why this rule is not scoped to the session card. They are chrome:
+   the list is the thing being resized, so it is the only thing that may give ground.
+   Without this the flex column squeezed the search box as the drag went on, and the
+   drag felt like it was fighting back near the end.
+   Hiding the search box at zero was tried the same day and REVERTED: removing ~70px
+   of layout mid-drag threw the grip that far up the screen in one step, which is
+   the "it jumps to the top near the end" report. A slider has to track the pointer
+   the whole way, so nothing may appear or disappear while it moves. */
+.focus-import-search,
+.focus-import-panel > .ws-resize-grip {
+  flex: none;
 }
 .focus-overlay-todos {
   display: flex;
@@ -1769,6 +1877,18 @@
 .focus-widget .focus-overlay-todos {
   min-height: 150px;
 }
+/* THE MINI PLAYER GETS A BIGGER CARD WHILE THE IMPORT MENU IS OPEN. Its 420px
+   leaves only ~270px to share, and the todo floor above (Gabe's, 3 rows) would
+   squeeze the menu to a single unusable row. Unlike the full screen, this window
+   SCROLLS as a whole — the music menu already relies on that — so lifting the cap
+   for exactly this state costs nothing and is bounded, unlike max-height: none,
+   which would let a 20-task list run the window away. */
+.focus-widget .focus-task-panel:has(> .focus-import-panel.open) {
+  max-height: 560px;
+}
+.focus-widget .focus-task-panel .focus-import-wrap {
+  min-height: 60px;
+}
 /* The in-tab float can now outgrow short viewports: cap + scroll it. Children
    must NOT flex-shrink (they'd compress instead of overflowing — the same trap
    the pip scroller hit). Native scrollbars work fine in the MAIN document; only
@@ -1911,7 +2031,11 @@
   background: var(--toast-bg);
   border: var(--toast-border);
   border-radius: var(--toast-radius);
-  padding: 14px 20px;
+  /* The same strip as every other toast (Gabe, 8/19). It carries a title over a
+     sub-line and two buttons, so it is one of the few that HAS to stand taller
+     than --toast-h; it keeps the skin and the floor, and grows from there. */
+  min-height: var(--toast-h);
+  padding: 12px 20px;
   box-shadow: var(--toast-shadow);
   transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }

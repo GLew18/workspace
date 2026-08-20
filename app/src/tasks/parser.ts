@@ -3,27 +3,98 @@
 // Parses free text like "mow the lawn tom 630am misc" into a ParsedTask, or
 // null when no title remains. Extraction order: time-label → priority → time
 // → date → course → title. Priority is pulled before date/course so single
-// letters (h/l/m/n) aren't eaten by other matchers.
+// words like "low" aren't eaten by other matchers.
 
 import type { ParsedTask, Priority } from '../types';
-import { todayStr, addDays, formatDate } from '../util/dates';
+import { todayStr, addDays, addMonths, addYears, formatDate } from '../util/dates';
 import { PRIORITY_MULTI, PRIORITY_SINGLE } from './priorities';
 import { extractCourseTokens } from '../courses/registry';
 
+// EVERY TWO-LETTER WEEKDAY IS GONE (Gabe, 8/19), finishing what 'sa' started on
+// 8/16: 'we', 'mo', 'th', 'tu', 'su' and 'fr' are all real words or common
+// abbreviations, and each one silently ate a word out of a title and attached a
+// due date nobody asked for. Three letters is the floor here — 'sun', 'mon',
+// 'tue', 'wed', 'thu', 'fri', 'sat' are unambiguous and stay.
 const dayMap: Record<string, number> = {
-  sunday: 0, sun: 0, su: 0,
-  monday: 1, mon: 1, mo: 1,
-  tuesday: 2, tue: 2, tues: 2, tu: 2,
-  wednesday: 3, wed: 3, we: 3,
-  thursday: 4, thu: 4, thurs: 4, th: 4,
-  friday: 5, fri: 5, fr: 5,
-  // 'sa' REMOVED (Gabe, 8/16). Two letters is too small a target for a word that
-  // common — "sa" swallows real title text. 'sat' is unambiguous and stays.
+  sunday: 0, sun: 0,
+  monday: 1, mon: 1,
+  tuesday: 2, tue: 2, tues: 2,
+  wednesday: 3, wed: 3,
+  thursday: 4, thu: 4, thur: 4, thurs: 4,
+  friday: 5, fri: 5,
   saturday: 6, sat: 6,
 };
 
 const TOMORROW = new Set(['tomorrow', 'tom', 'tmrw', 'tmr']);
 const TODAY = new Set(['today', 'tod']);
+
+// --- written numbers ------------------------------------------------------
+//
+// Anywhere the parser reads a number, it reads the WORD for it too (Gabe, 8/19):
+// "in a week", "in three days", "jan first", "the fifteenth", "six pm". People
+// write dates the way they say them, and a phrase the parser half-understood used
+// to sit in the title with no date attached.
+//
+// These are safe despite being extremely common English words, because none of
+// them is ever matched on its own: a count only counts after "in", a day only
+// next to a month name (or alone in the date editor, where the whole box IS a
+// date), and an hour only in front of am/pm. Context is what keeps "one" and "a"
+// from being eaten out of a title, which is the trap that retired the one-letter
+// and two-letter tokens.
+const ONES: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7,
+  eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13,
+  fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18,
+  nineteen: 19, twenty: 20, thirty: 30,
+};
+
+/**
+ * "a" and "an" mean one AS A COUNT ONLY — "in a month", never a day of the month.
+ * They are deliberately kept out of ONES for that reason (Gabe, 8/19): "a march"
+ * and "march a" are not things anyone writes, so the only phrases they could ever
+ * match are accidents. "in a month" and "march 1" / "march first" are the ways to
+ * say it, in the date box and the task bar alike.
+ */
+const ARTICLES = new Set(['a', 'an']);
+
+const ORDINALS: Record<string, number> = {
+  first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7,
+  eighth: 8, ninth: 9, tenth: 10, eleventh: 11, twelfth: 12, thirteenth: 13,
+  fourteenth: 14, fifteenth: 15, sixteenth: 16, seventeenth: 17,
+  eighteenth: 18, nineteenth: 19, twentieth: 20, thirtieth: 30,
+};
+
+/** Strip a trailing comma and lowercase — every word lookup below wants this. */
+const clean = (tok: string): string => tok.toLowerCase().replace(/,$/, '');
+
+/**
+ * One written number → its value, or null. Handles the compounds too, written
+ * either way round: "twenty one", "twenty-one", "twentyone", "twenty-first".
+ * Both halves must be real words, so "twenty green" is not a number.
+ */
+function wordNumber(tok: string, ordinal = false): number | null {
+  const t = clean(tok);
+  if (!t) return null;
+  const table = ordinal ? ORDINALS : ONES;
+  if (t in table) return table[t];
+  // compound: <tens><unit>, e.g. twenty-one / twentyfirst
+  const m = t.match(/^(twenty|thirty)[- ]?(.+)$/);
+  if (m) {
+    const unit = ordinal ? ORDINALS[m[2]] : ONES[m[2]];
+    if (unit !== undefined && unit < 10) return ONES[m[1]] + unit;
+  }
+  return null;
+}
+
+/** A numeral ("3") or a written number ("three", "a") → the count, else null.
+ *  Null rather than NaN so a legitimate 0 is still a count. */
+function countWord(tok: string): number | null {
+  const t = clean(tok);
+  if (!t) return null;
+  if (/^\d+$/.test(t)) return +t;
+  if (ARTICLES.has(t)) return 1;
+  return wordNumber(t);
+}
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -72,6 +143,24 @@ export function parseTimeToken(tok: string): string | null {
   return null;
 }
 
+/**
+ * Read a clock time starting at tokens[i], including the two-token written form
+ * ("six pm"), and say how many tokens it used. The written hour is only accepted
+ * WITH an am/pm beside it: a bare "six" in the middle of a sentence is a word, not
+ * a time, and eating it would be the one-letter mistake all over again.
+ */
+export function parseTimeAt(tokens: string[], i: number): { time: string; consumed: number } | null {
+  const one = parseTimeToken(tokens[i] ?? '');
+  if (one) return { time: one, consumed: 1 };
+  const h = wordNumber(tokens[i] ?? '');
+  const suffix = clean(tokens[i + 1] ?? '');
+  if (h !== null && h >= 1 && h <= 12 && /^(am|pm|a|p)$/.test(suffix)) {
+    const hh = suffix.startsWith('p') ? (h === 12 ? 12 : h + 12) : h === 12 ? 0 : h;
+    return { time: `${pad(hh)}:00`, consumed: 2 };
+  }
+  return null;
+}
+
 
 // --- date -----------------------------------------------------------------
 
@@ -98,12 +187,13 @@ const MONTHS: Record<string, number> = {
   dec: 11, december: 11,
 };
 
-/** "11", "11th", "1st", "22nd" → day 1–31, or null. */
+/** "11", "11th", "1st", "22nd", "eleven", "eleventh", "twenty-first" → day 1–31,
+ *  or null. */
 function dayNum(tok: string): number | null {
-  const m = tok.match(/^(\d{1,2})(?:st|nd|rd|th)?$/i);
-  if (!m) return null;
-  const d = +m[1];
-  return d >= 1 && d <= 31 ? d : null;
+  const t = clean(tok);
+  const m = t.match(/^(\d{1,2})(?:st|nd|rd|th)?$/i);
+  const d = m ? +m[1] : (wordNumber(tok, true) ?? wordNumber(tok));
+  return d !== null && d >= 1 && d <= 31 ? d : null;
 }
 
 /** 2-digit ("26") → 2026; 4-digit passed through. */
@@ -137,22 +227,38 @@ export function isPastDate(ds: string): boolean {
 export const PAST_DATE_MSG = '📅 That date has already passed. Pick today or later.';
 
 /**
- * A month/day with NO year means THE NEXT TIME THAT DATE HAPPENS (Gabe, 8/11).
- * On 8/11/26, "8/6" is next year's 8/6, not the one that already went by: a
- * student typing a bare date is always scheduling something, never backdating
- * it, and the old this-year assumption silently created an overdue task.
+ * A time TODAY that has already gone by (Gabe, 8/19). An hour that is behind you
+ * is overdue for exactly the reason a date is, so it gets the same treatment and
+ * the same shape of message — the only difference is the noun.
  *
- * Today itself counts as "the next time", so "8/11" on 8/11 stays today.
+ * Only ever true for TODAY: a time on a future date is fine whatever the clock
+ * says, and a past DATE is already isPastDate's job.
+ */
+export function isPastTime(ds: string, time: string): boolean {
+  if (!ds || !time || ds !== todayStr()) return false;
+  const t = new Date(`${ds}T${time}:00`).getTime();
+  return Number.isFinite(t) && t < Date.now();
+}
+
+/** The sentence shown when a time earlier today is refused. */
+export const PAST_TIME_MSG = '⏰ That time has already passed. Pick a later time.';
+
+/**
+ * A month/day with no year means THIS YEAR — full stop (Gabe, 8/19).
  *
- * A date typed WITH a year is left exactly as typed, including into the past.
- * Saying the year out loud is unambiguous, and a deliberately backdated task is
- * a real thing (that is what the overdue state is for).
+ * It used to roll forward to the next occurrence, so "8/16" typed on 8/20 became
+ * NEXT August. That reversed a mistake into a commitment eleven months away
+ * instead of saying anything about it, which is the opposite of what every other
+ * past date does here: they are refused, out loud, with a toast. A date that has
+ * gone by is now simply a past date, and the guards at each entry point turn it
+ * away (see isPastDate).
+ *
+ * The cost, stated plainly: a bare "1/15" typed in the autumn now reads as this
+ * January and is refused, so a date in the next calendar year has to carry its
+ * year ("1/15/27"). That is the trade the refusal buys.
  */
 function nextOccurrence(monthIdx: number, day: number): string | null {
-  const now = new Date();
-  const thisYear = mkDate(now.getFullYear(), monthIdx, day);
-  if (!thisYear) return null;
-  return thisYear >= todayStr() ? thisYear : mkDate(now.getFullYear() + 1, monthIdx, day);
+  return mkDate(new Date().getFullYear(), monthIdx, day);
 }
 
 /** Try to parse a date starting at tokens[i]; returns the date and tokens consumed. */
@@ -181,13 +287,18 @@ function parseDateAt(tokens: string[], i: number): { date: string; consumed: num
       return { date: tok === 'next' ? nextWeekday(dayMap[n2]) : bareWeekday(dayMap[n2]), consumed: 2 };
     }
   }
-  // "in N day(s) / week(s)"
+  // "in N days / weeks / months / years", where N is a numeral OR a written
+  // number. "in a week" and "in one week" are how people actually say it, and
+  // both used to fail silently: +('a') and +('one') are NaN, so the phrase stayed
+  // in the title with no date attached (Gabe, 8/19).
   if (tok === 'in') {
-    const n = +(tokens[i + 1] ?? '');
-    const unit = tokens[i + 2]?.toLowerCase() ?? '';
-    if (!isNaN(n) && tokens[i + 1]) {
+    const n = countWord(tokens[i + 1] ?? '');
+    const unit = tokens[i + 2]?.toLowerCase().replace(/,$/, '') ?? '';
+    if (n !== null) {
       if (/^days?$/.test(unit)) return { date: addDays(todayStr(), n), consumed: 3 };
       if (/^weeks?$/.test(unit)) return { date: addDays(todayStr(), n * 7), consumed: 3 };
+      if (/^months?$/.test(unit)) return { date: addMonths(todayStr(), n), consumed: 3 };
+      if (/^years?$/.test(unit)) return { date: addYears(todayStr(), n), consumed: 3 };
     }
   }
   // bare weekday
@@ -211,7 +322,7 @@ function parseDateAt(tokens: string[], i: number): { date: string; consumed: num
   // --- month-name forms (multi-token) ---
   // "<month> <day>[ <year>]"  → "jan 11", "january 11th", "jan 11 2026"
   if (tok in MONTHS) {
-    const day = dayNum(tokens[i + 1]?.toLowerCase().replace(/,$/, '') ?? '');
+    const day = dayNum(tokens[i + 1] ?? '');
     if (day) {
       const yTok = tokens[i + 2] ?? '';
       const hasYear = /^\d{2}(\d{2})?$/.test(yTok);
@@ -265,8 +376,8 @@ export function parseDateTime(input: string): { date: string; time: string } {
   // Time — first token that reads as a clock; removed so it can't be re-read as a date.
   let time = '';
   for (let i = 0; i < tokens.length; i++) {
-    const t = parseTimeToken(tokens[i]);
-    if (t) { time = t; tokens.splice(i, 1); break; }
+    const hit = parseTimeAt(tokens, i);
+    if (hit) { time = hit.time; tokens.splice(i, hit.consumed); break; }
   }
   // Date — first matching expression in what remains, then a bare day-of-month fallback.
   let date = '';
@@ -289,7 +400,14 @@ export function parseDateTime(input: string): { date: string; time: string } {
  * Returns '' if it can't be read as a time.
  */
 export function parseClock(input: string): string {
-  const s = input.trim().toLowerCase().replace(/\s+/g, '');
+  // Written hour first, while the spaces are still there to split on: "six pm"
+  // becomes "6pm", "six" becomes "6", and the rest of this function is unchanged.
+  const parts = input.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (parts.length && parts.length <= 2) {
+    const h = wordNumber(parts[0]);
+    if (h !== null && h >= 0 && h <= 23) parts[0] = String(h);
+  }
+  const s = parts.join('').replace(/\s+/g, '');
   if (!s) return '';
 
   // am/pm or HH:MM (handles '630am', '6:30am', '6pm', '14:30').
@@ -339,7 +457,7 @@ function extractPriority(tokens: string[]): Priority {
       return p;
     }
   }
-  // Pass C: single letters / words (h / l / m / n ...).
+  // Pass C: single-token words (high / low / med / norm ...).
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i].toLowerCase();
     if (PRIORITY_SINGLE[t]) {
@@ -366,13 +484,13 @@ export function parseQuickAdd(input: string): ParsedTask | null {
   // and is stripped from the title, instead of being eaten as the weekday Monday.
   const course = extractCourseTokens(tokens);
 
-  // Time — first matching token only.
+  // Time — first match only ("6pm", "6:30", or the written "six pm").
   let dueTime = '';
   for (let i = 0; i < tokens.length; i++) {
-    const t = parseTimeToken(tokens[i]);
-    if (t) {
-      dueTime = t;
-      tokens.splice(i, 1);
+    const hit = parseTimeAt(tokens, i);
+    if (hit) {
+      dueTime = hit.time;
+      tokens.splice(i, hit.consumed);
       break;
     }
   }

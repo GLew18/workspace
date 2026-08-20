@@ -28,6 +28,9 @@ export interface Channels {
   gmail: boolean; // an email (via the Firestore "Trigger Email" extension)
 }
 
+/** How a burst of simultaneous reminders is delivered — see NotifySettings. */
+export type BurstMode = 'each' | 'summary' | 'silent';
+
 export interface NotifySettings {
   // "All reminders" — a linked SELECT-ALL, not an independent gate. Clicking a master
   // channel sets that channel on EVERY notification below; it shows gold only while
@@ -47,14 +50,18 @@ export interface NotifySettings {
    *  ordinary tasks. Gates every task-driven reminder at once (due-soon, daily
    *  agenda, tomorrow preview) since they all read the same task list. */
   notifyDuplicates: boolean;
-  /** Collapse a BURST into one summary (Gabe, 8/10). Bulk actions can make many
-   *  reminders come due at the same instant: move twelve tasks onto today, or
+  /** How reminders interrupt you (Gabe, 8/10, extended 8/19). Bulk actions can
+   *  make many come due at the same instant: move twelve tasks onto today, or
    *  create a batch of them, and twelve pop-ups (and twelve emails) fire back to
-   *  back. With this on, the first few arrive normally and the rest are folded
-   *  into a single "N more reminders" message. ON by default: the storm is
-   *  never what anyone wants, and nothing is lost, the 🔔 log still lists each
-   *  one individually. */
-  groupBursts: boolean;
+   *  back.
+   *    'each'    — no grouping, every reminder interrupts you separately.
+   *    'summary' — DEFAULT. A burst becomes one message naming them all.
+   *    'silent'  — NOTHING interrupts you, one reminder or twenty.
+   *  Silent covers single reminders as well as bursts on purpose (Gabe, 8/19):
+   *  "no pop-ups for a bulk change, but yes for the same task on its own" is not
+   *  a rule anyone could hold in their head, and a student who says silence means
+   *  it. Nothing is lost in any mode — the 🔔 log still lists every one. */
+  burstMode: BurstMode;
   // Each notification carries its OWN Popup/Gmail choice (the per-card grid). A pop-up
   // fires iff its popup channel is on (and the browser granted permission); an email
   // fires iff its gmail channel is on (and the account has an email). Config fields
@@ -70,7 +77,7 @@ export const DEFAULT_NOTIFY_SETTINGS: NotifySettings = {
   master: { popup: false, gmail: false }, // derived — see normalizeNotifySettings
   appearance: { course: true, priority: false, dueTime: true },
   notifyDuplicates: false, // OFF by default, per Gabe
-  groupBursts: true, // ON by default: a storm of pop-ups is never wanted
+  burstMode: 'summary', // a storm of pop-ups is never wanted
   // Popup defaults on for the core reminders — still inert until the user grants the
   // browser permission (the real opt-in). Gmail is opt-in per card + confirmation.
   dueSoon: { channels: { popup: true, gmail: false }, leads: [60] },
@@ -101,7 +108,7 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
     master: { ...d.master },
     appearance: { ...d.appearance },
     notifyDuplicates: d.notifyDuplicates,
-    groupBursts: d.groupBursts,
+    burstMode: d.burstMode,
     dueSoon: { channels: { ...d.dueSoon.channels }, leads: [...d.dueSoon.leads] },
     dailyAgenda: { channels: { ...d.dailyAgenda.channels }, hour: d.dailyAgenda.hour, minute: d.dailyAgenda.minute },
     tomorrow: { channels: { ...d.tomorrow.channels }, hour: d.tomorrow.hour, minute: d.tomorrow.minute },
@@ -123,7 +130,10 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
   if (ap && typeof ap === 'object') out.appearance = { course: ap.course ?? d.appearance.course, priority: ap.priority ?? d.appearance.priority, dueTime: ap.dueTime ?? d.appearance.dueTime };
   // Boolean, so `?? default` (not `||`) — a stored `false` must survive the read.
   if (typeof r.notifyDuplicates === 'boolean') out.notifyDuplicates = r.notifyDuplicates;
-  if (typeof r.groupBursts === 'boolean') out.groupBursts = r.groupBursts;
+  // burstMode replaced the groupBursts boolean on 8/19. Read both: an existing
+  // user's stored `false` still means "every reminder, separately".
+  if (r.burstMode === 'each' || r.burstMode === 'summary' || r.burstMode === 'silent') out.burstMode = r.burstMode;
+  else if (typeof r.groupBursts === 'boolean') out.burstMode = r.groupBursts ? 'summary' : 'each';
   const ds = r.dueSoon as { leads?: unknown } | undefined;
   if (ds) { const leads = Array.isArray(ds.leads) ? ds.leads.filter((n): n is number => typeof n === 'number') : []; if (leads.length) out.dueSoon.leads = leads; }
   // Digest times are held to what the pickers can actually SHOW: hour 5-11 (the
@@ -339,11 +349,11 @@ interface Queued {
 }
 let burstQueue: Queued[] = [];
 let burstTimer: number | null = null;
-let burstGrouping = true; // mirrors NotifySettings.groupBursts
+let burstMode: BurstMode = 'summary'; // mirrors NotifySettings.burstMode
 
 /** Point the burst grouper at the current setting (called wherever settings load). */
-export function setBurstGrouping(on: boolean): void {
-  burstGrouping = on;
+export function setBurstMode(mode: BurstMode): void {
+  burstMode = mode;
 }
 
 /** Close the burst: one notification either way. */
@@ -357,9 +367,10 @@ function flushBurst(): void {
     deliver(q[0].title, q[0].body, q[0]);
     return;
   }
-  // Many at once → ONE interruption listing them all. Each is logged
-  // individually first, so the 🔔 screen still shows the real history; the
-  // combined message is the delivery, not a log entry of its own.
+  // Many at once → each is logged individually, so the 🔔 screen still shows the
+  // real history, and then ONE interruption lists them all. The combined message
+  // is the delivery, not a log entry of its own (they were just logged).
+  // ('silent' never reaches here: sendNotification logs and returns.)
   for (const item of q) {
     logNotification({ title: item.title, body: item.body, popup: item.popup, gmail: item.gmail });
   }
@@ -377,7 +388,14 @@ export function sendNotification(
   body: string,
   opts: { popup?: boolean; gmail?: boolean; name?: string; onClick?: () => void } = {}
 ): void {
-  if (!burstGrouping) {
+  if (burstMode === 'silent') {
+    // Logged, never delivered — and the log says so, because the popup/gmail
+    // flags it records are the routes that ACTUALLY ran. Applies to a lone
+    // reminder too, not just a burst (see NotifySettings.burstMode).
+    deliver(title, body, { ...opts, popup: false, gmail: false });
+    return;
+  }
+  if (burstMode === 'each') {
     deliver(title, body, opts);
     return;
   }
@@ -509,6 +527,32 @@ export function attachLedger(
 
 export function alreadySent(key: string): boolean {
   return key in ledger;
+}
+
+/**
+ * Forget every ledger entry whose key starts with `prefix` — i.e. let those
+ * reminders fire again.
+ *
+ * The ledger's whole job is "say this once", and a reminder's key carries the due
+ * date it was sent for, so a task moved to a NEW date is a new key and speaks for
+ * itself. The gap is a task moved BACK to a date it already reminded for today
+ * (Gabe, 8/19): drag it to tomorrow, drag it back, and the old key is still on
+ * file, so re-dating a task to today silently did nothing. Re-dating is a
+ * deliberate act and deserves an answer, so the scheduler wipes a task's reminder
+ * keys whenever its date or time changes.
+ *
+ * Local only, deliberately: the cloud copy is the Cloud Function's business and it
+ * re-reads the task's real date anyway.
+ */
+export function forgetSent(prefix: string): void {
+  let hit = false;
+  for (const k of Object.keys(ledger)) {
+    if (k.startsWith(prefix)) {
+      delete ledger[k];
+      hit = true;
+    }
+  }
+  if (hit) saveLocal(ledger);
 }
 
 /**

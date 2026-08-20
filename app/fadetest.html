@@ -71,7 +71,15 @@
         await wait(1100);
         ok('B reaches full', e1['fadeMul'] > 0.995, `= ${e1['fadeMul'].toFixed(3)}`);
         ok('B output gain rises with it', g600 < g1800 && g1800 < e1['graph'].gain.gain.value, `${g600.toFixed(2)} < ${g1800.toFixed(2)} < ${e1['graph'].gain.gain.value.toFixed(2)}`);
-        ok('B lands on the real target (MAX_GAIN at 100%)', Math.abs(e1['graph'].gain.gain.value - 2) < 0.02, `= ${e1['graph'].gain.gain.value.toFixed(3)}`);
+        // Asserts the PROPERTY, not a magic number: at full slider the node lands on
+        // exactly the track's own gain — 1.0 for this synthetic tone, which carries no
+        // normalization. Two earlier versions of this line were pinned to constants
+        // (2.0, then 0.98) and both went stale the moment the gain staging changed.
+        // Peak-safety is a per-track fact now (library.ts peakDb), not a global cap,
+        // so there is no ceiling for this to compare against.
+        ok('B lands on exactly the track gain at 100%',
+          Math.abs(e1['graph'].gain.gain.value - 1) < 0.01,
+          `= ${e1['graph'].gain.gain.value.toFixed(3)}`);
 
         // --- C. a track change re-fades ---
         e1.next();
@@ -92,7 +100,10 @@
         ok('D fade survives a volume change', e2['fadeMul'] > mid, `${mid.toFixed(3)} -> ${e2['fadeMul'].toFixed(3)}`);
         await wait(2100);
         ok('D fade still completes', e2['fadeMul'] > 0.995, `= ${e2['fadeMul'].toFixed(3)}`);
-        ok('D new volume honored', Math.abs(e2['graph'].gain.gain.value - Math.pow(0.4, 2.2) * 2) < 0.01, `= ${e2['graph'].gain.gain.value.toFixed(4)}`);
+        // Same: derived from the curve rather than hard-coded, so a future change to
+        // the gain staging fails loudly here instead of silently passing.
+        ok('D new volume honored', Math.abs(e2['graph'].gain.gain.value - Math.pow(0.4, 2.2)) < 0.01,
+          `= ${e2['graph'].gain.gain.value.toFixed(4)}`);
 
         // --- E. pause holds, resume swells quickly ---
         const held = e2['fadeMul'];

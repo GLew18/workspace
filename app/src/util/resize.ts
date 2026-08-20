@@ -21,7 +21,8 @@ export interface ResizeGripOptions {
   body: HTMLElement;
   /** localStorage key the chosen height persists under. */
   storageKey: string;
-  /** Comfort floor / ceiling for the drag (px). */
+  /** Comfort floor / ceiling for the drag (px). Pass `min: 0` for a panel the user
+   *  is allowed to close down to nothing (the focus import menus, Gabe 8/19). */
   min?: number;
   max?: number;
   /** Selector of a height-capped ancestor the body must stay inside. After any
@@ -34,6 +35,11 @@ export interface ResizeGripOptions {
    *  'bottom' (default) → append `.el` LAST, drag DOWN to grow.
    *  'top' → append `.el` FIRST, drag UP to grow. */
   edge?: 'bottom' | 'top';
+  /** Called when a drag ENDS at zero height. Dragging a panel shut is a way of
+   *  saying "close this", so the owner can do exactly that (the focus import
+   *  menus switch themselves off). The saved height is cleared first, or the
+   *  next open would reopen at zero and shut itself again. */
+  onCollapse?: () => void;
 }
 
 /** Build a resize grip for `body`. Append `.el` on the edge named by `edge` —
@@ -42,15 +48,34 @@ export interface ResizeGripOptions {
  *  becomes visible — a collapsed panel can't be measured, so a capped card's
  *  trim has to be recomputed the moment it actually opens. */
 export function makeResizeGrip(opts: ResizeGripOptions): { el: HTMLElement; refit: () => void } {
-  const { body, storageKey, min = 180, max = 900, fitTo, fitFloor = 100, edge = 'bottom' } = opts;
+  const { body, storageKey, min = 180, max = 900, fitTo, fitFloor = 100, edge = 'bottom', onCollapse } = opts;
 
   const applyHeight = (h: number): void => {
     body.style.height = `${Math.max(min, Math.min(max, h))}px`;
     body.style.maxHeight = 'none'; // an explicit height replaces the CSS cap
+    // …and so does an explicit min-height. A stylesheet floor exists to stop FLEX
+    // from crushing an untouched panel; once the user takes hold of the grip the
+    // height is theirs, and a leftover min-height would silently ignore the last
+    // stretch of the drag (Gabe 8/19: it must be draggable down to nothing).
+    body.style.minHeight = '0px';
     // Claim the space rather than request it: inside a flex column, the panel
     // must not be the one that shrinks — the flexible sibling list yields.
     const panel = body.parentElement;
-    if (panel) panel.style.flexShrink = '0';
+    if (panel) {
+      // (Nothing is hidden at zero. Removing chrome mid-drag moved the grip by its
+      // height in a single step, which read as the slider jumping — see focus.css.)
+      // THE PANEL IS NOW EXACTLY AS TALL AS THE HEIGHT JUST SET — it may neither
+      // shrink below it nor grow past it. All three lines are needed:
+      //   • flex-basis 'auto' so it measures its own content (the focus session's
+      //     import menu carries a basis from the stylesheet; without this the drag
+      //     moved the grip and changed nothing),
+      //   • flex-shrink 0 so a crowded card takes its space from the list instead,
+      //   • flex-grow 0 because a card with room to spare grew the panel straight
+      //     back — dragging it to zero visibly sprang open again (Gabe, 8/19).
+      panel.style.flexBasis = 'auto';
+      panel.style.flexShrink = '0';
+      panel.style.flexGrow = '0';
+    }
   };
 
   /** Never let the chosen height push a capped ancestor past its cap: measure
@@ -65,7 +90,9 @@ export function makeResizeGrip(opts: ResizeGripOptions): { el: HTMLElement; refi
   };
 
   const saved = parseInt(localStorage.getItem(storageKey) || '', 10);
-  if (saved) {
+  // Number.isFinite, NOT truthiness: a panel dragged all the way shut saves 0, and
+  // `if (saved)` would read that as "nothing saved" and spring it back open.
+  if (Number.isFinite(saved)) {
     applyHeight(saved);
     queueMicrotask(fitToCard); // needs the panel mounted + laid out first
   }
@@ -95,7 +122,14 @@ export function makeResizeGrip(opts: ResizeGripOptions): { el: HTMLElement; refi
       grip.removeEventListener('pointermove', move);
       grip.removeEventListener('pointerup', up);
       const h = parseFloat(body.style.height);
-      if (h) localStorage.setItem(storageKey, String(Math.round(h)));
+      // Released at zero = "close this". Forget the height rather than saving a 0
+      // that would reopen shut, then hand the decision to the owner.
+      if (onCollapse && Number.isFinite(h) && h <= 0) {
+        localStorage.removeItem(storageKey);
+        onCollapse();
+        return;
+      }
+      if (Number.isFinite(h)) localStorage.setItem(storageKey, String(Math.round(h)));
     };
     grip.addEventListener('pointermove', move);
     grip.addEventListener('pointerup', up);

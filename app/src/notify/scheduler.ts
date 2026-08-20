@@ -23,7 +23,8 @@ import {
   type Channels,
   NOTIFY_SETTINGS_EVENT,
   normalizeNotifySettings,
-  setBurstGrouping,
+  setBurstMode,
+  forgetSent,
   refreshLedger,
   reminderBody,
   taskInfoBody,
@@ -240,11 +241,31 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
     }
   };
 
+  // What each task's deadline was on the LAST snapshot, so a change to it can be
+  // spotted (see the forgetSent call below). Date + time only; nothing else about
+  // a task affects when it should remind you.
+  const lastDue = new Map<string, string>();
+
   // Live task map: fires immediately with the current tasks, then on every change.
   data.watchTasks((u) => {
     if (stopped) return;
     tasks = u.tasks;
     const ids = new Set(Object.keys(tasks));
+    // RE-DATING A TASK LETS IT REMIND YOU AGAIN (Gabe, 8/19).
+    //
+    // A reminder is ledgered under a key holding the due date it was sent for, so
+    // moving a task to a NEW date already fires: new date, new key. What did not
+    // work was moving it BACK — set a task to today, drag it to tomorrow, drag it
+    // back, and today's key is still on file, so nothing arrives. Putting a date on
+    // a task is a deliberate act and has to be answered, so the moment a deadline
+    // changes at all, that task's reminder keys are dropped.
+    for (const [id, t] of Object.entries(tasks)) {
+      const due = `${t.dueDate || ''}|${t.dueTime || ''}`;
+      const was = lastDue.get(id);
+      if (was !== undefined && was !== due) forgetSent(`rem|${id}|`);
+      lastDue.set(id, due);
+    }
+    for (const id of lastDue.keys()) if (!ids.has(id)) lastDue.delete(id);
     if (seen === null) {
       // First snapshot — existing assignments are NOT "new". A late subscriber gets a
       // SYNCHRONOUS replay that can still be the pre-load empty map; seeding from that
@@ -299,13 +320,13 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
   void data.getProfile('notifications').then((s) => {
     if (stopped) return;
     settings = normalizeNotifySettings(s);
-    setBurstGrouping(settings.groupBursts);
+    setBurstMode(settings.burstMode);
     settingsLoaded = true;
     evaluate();
   });
   const onSettings = (e: Event): void => {
     settings = normalizeNotifySettings((e as CustomEvent).detail);
-    setBurstGrouping(settings.groupBursts); // Settings Save flips it live
+    setBurstMode(settings.burstMode); // Settings Save flips it live
     settingsLoaded = true;
     evaluate();
   };

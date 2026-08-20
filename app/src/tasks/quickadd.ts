@@ -1,7 +1,7 @@
 // Cobalt: quick-add input + submit guard (spec §6.2 finalize / tryAddTask).
 
 import type { ParsedTask, TaskFolder } from '../types';
-import { parseQuickAdd, isPastDate, PAST_DATE_MSG } from './parser';
+import { parseQuickAdd, isPastDate, PAST_DATE_MSG, isPastTime, PAST_TIME_MSG } from './parser';
 import { attachFolderAutocomplete } from './folderAutocomplete';
 import { el, textInput, showToast } from '../util/dom';
 
@@ -70,6 +70,12 @@ export function buildQuickAdd(
     if (isPastDate(parsed.dueDate)) {
       flashInvalid();
       showToast(PAST_DATE_MSG);
+      return;
+    }
+    // Same for a time earlier today — overdue is overdue (Gabe, 8/19).
+    if (isPastTime(parsed.dueDate, parsed.dueTime)) {
+      flashInvalid();
+      showToast(PAST_TIME_MSG);
       return;
     }
     onSubmit(parsed);

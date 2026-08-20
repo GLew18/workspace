@@ -81,7 +81,7 @@ function fmtPlaylistLen(sec: number): string {
   if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
   return `${m}m`;
 }
-import { parseFocusInput, parseDateTime, isPastDate, PAST_DATE_MSG } from '../tasks/parser';
+import { parseFocusInput, parseDateTime, isPastDate, PAST_DATE_MSG, isPastTime, PAST_TIME_MSG } from '../tasks/parser';
 import { attachFolderAutocomplete } from '../tasks/folderAutocomplete';
 import { formatMetaDate, formatShortDate, formatTimeOfDay } from '../util/dates';
 import { recordManualLabelForTask } from '../schoology/extension';
@@ -254,6 +254,11 @@ function dateEditSeed(dueDate?: string, dueTime?: string): string {
     .filter(Boolean)
     .join(' ');
 }
+
+/** How far below full scale a boosted track is allowed to peak. Half a decibel is
+ *  enough to absorb the inter-sample peaks that appear when a lossy file is decoded,
+ *  without audibly costing anything. */
+const PEAK_HEADROOM_DB = 0.5;
 
 export class FocusView {
   private data: Data;
@@ -606,7 +611,21 @@ export class FocusView {
     // src: in dev, lt.src is "/music-lib/…" served by the Vite middleware. In production
     // the MP3s are hosted online (e.g. Firebase Storage); set VITE_MUSIC_BASE_URL to that
     // base and it's prepended here. Empty by default → unchanged local behavior.
-    return { key: lt.id, label: lt.title, emoji: lt.emoji, src: MUSIC_BASE_URL + lt.src, volume: this.musicVolume, gain: Math.pow(10, lt.gainDb / 20) };
+    //
+    // THE BOOST IS CAPPED BY THE TRACK'S OWN HEADROOM, not by a flat ceiling.
+    //
+    // A blunt cap was tried on 8/16 and was badly wrong: it clamped every boost to
+    // unity, which threw away a median 6.4 dB across the 36 boosted tracks and left
+    // the worst 14 dB quieter than intended. The mistake was capping the MULTIPLIER
+    // as if it were the level. What actually matters is the samples: a track peaking
+    // at -16 dBFS can take +15.5 dB of boost and still not touch full scale.
+    //
+    // So the ceiling is per-track, derived from the measured peak (library.ts
+    // peakDb). 33 of the 36 then take their full intended boost, and the worst
+    // remaining shortfall is 2.9 dB instead of 14.
+    const wanted = Math.pow(10, lt.gainDb / 20);
+    const headroom = lt.peakDb == null ? Infinity : Math.pow(10, (-PEAK_HEADROOM_DB - lt.peakDb) / 20);
+    return { key: lt.id, label: lt.title, emoji: lt.emoji, src: MUSIC_BASE_URL + lt.src, volume: this.musicVolume, gain: Math.min(wanted, headroom) };
   }
 
   /** The active playlist = the current genre's tracks (curated NN order) followed by
@@ -1358,9 +1377,9 @@ export class FocusView {
   //
   // Two selections, not four: both Import panels share one (they show the same
   // tasks), and both todo lists share one (they show the same session todos).
-  // Ctrl/Cmd+click toggles, Shift+click ranges over the VISIBLE order, and once
-  // a selection exists plain clicks toggle too. Acting on a selected row acts on
-  // the whole selection (the File-Explorer rule, same as Tasks).
+  // Click to select, click again to deselect; Shift+click reaches across a range
+  // over the VISIBLE order, and takes it back off when it lands on a row already
+  // selected. Acting on a selected row acts on the whole selection (same as Tasks).
   private importSel = new Set<string>(); // task ids, both Import panels
   private todoSel = new Set<string>(); // todo ids, setup list + in-session list
   private selAnchor: { imp: string | null; todo: string | null } = { imp: null, todo: null };
@@ -1377,13 +1396,19 @@ export class FocusView {
     const a = anchor ? ids.indexOf(anchor) : -1;
     const b = ids.indexOf(id);
     if (e.shiftKey && a >= 0 && b >= 0) {
-      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) sel.add(ids[i]);
+      // Two rules, same as the Tasks tab (see onRowClick there): a range goes ON,
+      // or comes OFF when the row you land on is already selected.
+      const off = sel.has(id);
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) {
+        if (off) sel.delete(ids[i]);
+        else sel.add(ids[i]);
+      }
     } else if (sel.has(id)) {
       sel.delete(id);
     } else {
       sel.add(id);
     }
-    // Anchor lives only while a selection does (same rule as the Tasks tab).
+    // Anchor follows the last row acted on, and lives only while a selection does.
     this.selAnchor[kind] = sel.size ? id : null;
     return true;
   }
@@ -1459,6 +1484,12 @@ export class FocusView {
     // silently creating something already overdue.
     if (isPastDate(dueDate)) {
       showToast(PAST_DATE_MSG);
+      return;
+    }
+    // …and a time earlier TODAY is refused for the same reason (Gabe, 8/19): an
+    // hour already behind you is overdue exactly as a past day is.
+    if (isPastTime(dueDate, dueTime)) {
+      showToast(PAST_TIME_MSG);
       return;
     }
     // Title + course + f:FOLDER. Still no date/priority grammar here, so the new
@@ -1616,6 +1647,13 @@ export class FocusView {
     const newRow = el('div', { class: 'folder-pick-new' });
     newRow.append(colorIn, input);
     wrap.append(newRow);
+    // Same tip as the Tasks-tab picker: f: works in every Focus add box too.
+    wrap.append(
+      el('div', {
+        class: 'folder-pick-tip',
+        text: '💡 Pro tip: type f: in the add box to file a task straight into a folder.',
+      })
+    );
     card.append(wrap);
     back.append(card);
     back.addEventListener('click', (e) => {
@@ -1651,27 +1689,55 @@ export class FocusView {
       autocomplete: 'off',
     });
     const importBody = el('div', { class: 'focus-import-body' });
+    // THE GRIP RESIZES THIS, NOT THE LIST (Gabe, 8/19). The search box sits inside
+    // it, so dragging shut takes the search box with it instead of stopping dead
+    // when the list hits zero — the panel's floor used to BE the search box, some
+    // 65px of it. The wrapper clips (overflow: hidden in focus.css), so the box
+    // slides out of view a pixel at a time and the grip keeps following the cursor
+    // the whole way to the top. Hiding it outright was tried and reverted: removing
+    // its layout in one frame threw the grip 70px up the screen.
+    const importWrap = el('div', { class: 'focus-import-wrap' });
+    importWrap.append(importSearchInput, importBody);
 
-    // RESIZABLE (see util/resize.ts). The grip goes on whichever edge MOVES, and
-    // that differs between the two copies of this panel:
-    //  • setup screen (grows: 'down') — the screen scrolls, so the panel opens
-    //    downward like any dropdown. Grip at the BOTTOM, drag DOWN to grow.
-    //  • running session (grows: 'up') — the panel is the last thing in a
-    //    height-capped card, so its bottom is pinned: the card fills to its cap and
-    //    then the tasks list above yields, i.e. it opens UPWARD. Grip at the TOP,
-    //    drag UP to grow. A bottom grip there would sit still while the panel grew.
+    /** Shut the menu: the same state the toggle button leaves it in. Also drops the
+     *  dragged-to-zero height off the body, so the next open is a normal one. */
+    const closeImport = (): void => {
+      importPanel.classList.remove('open');
+      importBtn.classList.remove('active');
+      importWrap.style.height = '';
+      importWrap.style.maxHeight = '';
+      importWrap.style.minHeight = '';
+      importPanel.style.flexBasis = '';
+      importPanel.style.flexShrink = '';
+      importPanel.style.flexGrow = '';
+    };
+
+    // RESIZABLE (see util/resize.ts). The grip goes on whichever edge MOVES, which
+    // is the bottom in BOTH copies now (Gabe, 8/19): the setup screen's panel is a
+    // plain dropdown, and the session's now sits ABOVE the tasks list inside the
+    // height-capped card, so it grows downward into that list. ('up' is kept as an
+    // option — it is what a panel pinned to the card's bottom edge needs.)
     const up = grows === 'up';
     const importGrip = makeResizeGrip({
-      body: importBody,
+      body: importWrap,
       storageKey: 'focus:importHeight',
       fitTo: '.focus-task-panel', // only matches in-session (the setup panel has no such card)
       edge: up ? 'top' : 'bottom',
+      // NO FLOOR, in either copy (Gabe, 8/19). The comfort minimum stopped the drag
+      // well before the menu was actually out of the way. The ceiling stays.
+      min: 0,
+      fitFloor: 0,
+      // …and dragging it all the way shut TURNS IMPORT OFF, rather than leaving a
+      // stub of chrome behind: at zero there is nothing left to look at, and the
+      // Import Tasks button is a plainer way back than a 17px bar. Same gesture,
+      // same end state as clicking the button.
+      onCollapse: () => closeImport(),
     });
     importBtn.addEventListener('click', importGrip.refit); // a closed panel can't be measured
     importPanel.append(
       ...(up
-        ? [importGrip.el, importSearchInput, importBody] // grip FIRST = top edge
-        : [importSearchInput, importBody, importGrip.el]) // grip LAST = bottom edge
+        ? [importGrip.el, importWrap] // grip FIRST = top edge
+        : [importWrap, importGrip.el]) // grip LAST = bottom edge
     );
 
     // The open-task snapshot lives on the instance (this.importTasks) and is kept
@@ -1787,6 +1853,7 @@ export class FocusView {
           (v) => {
             const { date, time } = parseDateTime(v);
             if (isPastDate(date)) { showToast(PAST_DATE_MSG); return; } // refused, nothing written
+            if (isPastTime(date, time)) { showToast(PAST_TIME_MSG); return; } // …and so is an hour gone by
             void this.applyTaskEditBulk(bulkIds(), { dueDate: date, dueTime: time });
           },
           drawImportBody
@@ -2181,6 +2248,8 @@ export class FocusView {
     this.engine = null;
     this.overlay?.remove();
     this.overlay = null;
+    this.leftRO?.disconnect();
+    this.leftRO = null;
     this.ringEl = null;
     this.ringWrap = null;
     this.timeText = null;
@@ -2300,6 +2369,8 @@ export class FocusView {
     this.engine = null;
     this.overlay?.remove();
     this.overlay = null;
+    this.leftRO?.disconnect();
+    this.leftRO = null;
     this.ringEl = null;
     this.ringWrap = null;
     this.timeText = null;
@@ -2484,7 +2555,31 @@ export class FocusView {
 
     this.host().append(ov);
     this.overlay = ov;
+    // Cap the task card at the LEFT COLUMN's real height — top of the clock to the
+    // bottom of the ± buttons (Gabe, 8/19). MEASURED, not guessed: the controls
+    // wrap at some widths and the end-time text changes length, so a hard number
+    // would drift. Only the two-column layout uses it (see focus.css); stacked
+    // under 900px the viewport cap still rules.
+    this.watchLeftHeight(stage, left);
     this.updateDisplay(this.currentRemaining());
+  }
+
+  /** Publishes the left column's height as --focus-left-h on the stage, kept live
+   *  while the buttons reflow. Re-observed on every overlay build (the old nodes
+   *  are gone by then), and dropped when the overlay is torn down. */
+  private leftRO: ResizeObserver | null = null;
+  private watchLeftHeight(stage: HTMLElement, left: HTMLElement): void {
+    this.leftRO?.disconnect();
+    this.leftRO = null;
+    const apply = (): void => {
+      const h = left.getBoundingClientRect().height;
+      if (h > 0) stage.style.setProperty('--focus-left-h', `${Math.round(h)}px`);
+    };
+    apply(); // best-effort immediate; the observer below keeps it honest
+    if (typeof ResizeObserver === 'function') {
+      this.leftRO = new ResizeObserver(apply);
+      this.leftRO.observe(left);
+    }
   }
 
   /** The "This session" task panel: todo list + free-text add + Import Tasks.
@@ -2501,7 +2596,7 @@ export class FocusView {
     const importUI = this.buildImportUI(
       () => this.sessionTodos,
       () => this.drawOverlayTodos(todoList),
-      'up' // pinned at the bottom of the capped session card → it opens upward
+      'down' // it now sits ABOVE the tasks list, so it opens downward into it
     );
 
     // Mid-session free-text add.
@@ -2531,10 +2626,14 @@ export class FocusView {
     addBtn.addEventListener('click', addNow);
     addRow.append(addInput, addBtn);
 
-    // Add-a-task sits ABOVE the list (same order as the setup screen) — so the
-    // import resize drag moves ONLY the Import button + search + list boundary
-    // upward; the add row and the tasks' top edge never budge (per Gabe).
-    taskPanel.append(addRow, todoList, importUI.button, importUI.panel);
+    // ORDER (Gabe, 8/19): add row → Import Tasks → the import menu → the session's
+    // tasks. Import used to hang off the BOTTOM of the card, where opening it
+    // pushed the card past its cap and the whole thing grew taller. Above the
+    // list it borrows from the list instead, so the card's height never changes:
+    // the import menu simply appears over the tasks, which stay where they are
+    // and scroll. The button and its menu also stay together, which they did not
+    // when the menu opened upward across the list.
+    taskPanel.append(addRow, importUI.button, importUI.panel, todoList);
     return taskPanel;
   }
 
@@ -3027,9 +3126,21 @@ export class FocusView {
   }
 
   private drawOverlayTodos(host: HTMLElement): void {
+    // KEEP THE SCROLL WHERE IT WAS (Gabe, 8/19). replaceChildren() empties the
+    // list for an instant, and an empty list has no height — so every scroller
+    // around it (the todo list itself, and the mini player's window scroller)
+    // snaps back to the top. Checking a box halfway down then threw you to the
+    // top of the list, which the Finished drawer deliberately does not do.
+    //
+    // Measured BEFORE the rebuild and written back at the end of the SAME
+    // synchronous pass, so the browser never paints the collapsed state: there
+    // is no jump to see. (Restoring later, after a frame, is what looked jumpy
+    // when the Finished toggle tried it — hence that one does local surgery.)
+    const scrolled = this.captureScroll(host);
     host.replaceChildren();
     if (!this.sessionTodos.length) {
       host.append(el('div', { class: 'focus-todos-empty', text: 'No tasks left. Add one below.' }));
+      scrolled();
       return;
     }
     // Selection follows reality + visible order for Shift ranges (same scheme as
@@ -3185,6 +3296,41 @@ export class FocusView {
     // (onTasksUpdate mirrors that check-off onto the todo, and the sink follows).
     for (const todo of loose.filter((t) => !t.done)) host.append(buildRow(todo, true));
     this.appendFinished(host, loose.filter((t) => t.done), buildRow, () => this.drawOverlayTodos(host));
+    scrolled();
+  }
+
+  /** Snapshot every scroll position the redraw is about to destroy, and return the
+   *  function that puts them all back. A position past the new content height
+   *  simply clamps — the list genuinely got shorter, and that is not a jump.
+   *
+   *  Two kinds, and the second is the one that bit us (Gabe, 8/19). ABOVE the list
+   *  are the scrollable ancestors (the list itself, the mini player's window):
+   *  those elements survive the rebuild, so they can be remembered by identity.
+   *  INSIDE it, every open folder scrolls in its own box — and replaceChildren
+   *  throws those nodes away, so there is no element left to write a position
+   *  back onto. Their FOLDER ID survives, though, and the redraw builds a box with
+   *  the same id, so that is the key. Checking a task off inside a folder used to
+   *  snap that folder to its first row. */
+  private captureScroll(node: HTMLElement): () => void {
+    const marks: Array<[Element, number]> = [];
+    for (let n: Element | null = node; n; n = n.parentElement) {
+      if (n.scrollTop > 0) marks.push([n, n.scrollTop]);
+    }
+    const folders = new Map<string, number>();
+    for (const box of node.querySelectorAll<HTMLElement>('.focus-folder[data-folder-id]')) {
+      const body = box.querySelector<HTMLElement>('.focus-folder-body');
+      const id = box.dataset.folderId;
+      if (id && body && body.scrollTop > 0) folders.set(id, body.scrollTop);
+    }
+    return () => {
+      for (const [n, top] of marks) n.scrollTop = top;
+      if (!folders.size) return;
+      for (const box of node.querySelectorAll<HTMLElement>('.focus-folder[data-folder-id]')) {
+        const top = folders.get(box.dataset.folderId ?? '');
+        const body = box.querySelector<HTMLElement>('.focus-folder-body');
+        if (top !== undefined && body) body.scrollTop = top;
+      }
+    };
   }
 
   /** Tasks-tab-style inline editor: swap `host` for a text input that commits on
@@ -3265,6 +3411,10 @@ export class FocusView {
       // both keep the date they had.
       if (isPastDate(date)) {
         showToast(PAST_DATE_MSG);
+        return;
+      }
+      if (isPastTime(date, time)) {
+        showToast(PAST_TIME_MSG);
         return;
       }
       const targets = dateTargets();
@@ -3721,6 +3871,8 @@ export class FocusView {
   private minimize(): void {
     this.overlay?.remove();
     this.overlay = null;
+    this.leftRO?.disconnect();
+    this.leftRO = null;
     this.ringEl = null;
     this.ringWrap = null;
     this.timeText = null;

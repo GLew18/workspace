@@ -24,7 +24,7 @@ import { getCourseColor, onRegistryChange, matchCourseStrict } from '../courses/
 import { classifyByRules, learnCorrection } from '../schoology/classify';
 import { recordManualLabelForTask } from '../schoology/extension';
 import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
-import { parseDateTime, isPastDate, PAST_DATE_MSG } from './parser';
+import { parseDateTime, isPastDate, PAST_DATE_MSG, isPastTime, PAST_TIME_MSG } from './parser';
 import { detectAttachmentType, normalizeUrl, openAttachment, openAll } from './attachments';
 import { playCompleteChime, showUndoToast } from './complete';
 import { selectionBar, type SelBar } from '../ui/selbar';
@@ -968,6 +968,14 @@ export class TasksView {
       const newRow = el('div', { class: 'folder-pick-new' });
       newRow.append(colorIn, input);
       wrap.append(newRow);
+      // The picker is where a student first learns folders exist, so it is also
+      // the one place the typed shortcut will actually be read (Gabe, 8/19).
+      wrap.append(
+        el('div', {
+          class: 'folder-pick-tip',
+          text: '💡 Pro tip: type f: in the task bar to file a task straight into a folder.',
+        })
+      );
       body.append(wrap);
     });
   }
@@ -1315,11 +1323,29 @@ export class TasksView {
 
   // --- multi-select (list mode) --------------------------------------------
 
-  /** Row click routing, Explorer-style: SHIFT+click is the main gesture — the
-   *  first one selects (and anchors), the next extends the range from the
-   *  anchor. Ctrl/Cmd+click toggles individual rows, and once a selection
-   *  exists plain clicks toggle too. Clicks on the row's own controls
-   *  (buttons, links, editors, the ⋮⋮ handle) never count. */
+  /**
+   * Row click routing. TWO RULES, and that is the whole thing (Gabe, 8/19):
+   *
+   *   1. Click a row to select it. Click it again to deselect it.
+   *   2. Shift+click to reach across a range. If the row you land on is already
+   *      selected the range comes OFF instead of going on, so the same gesture
+   *      that made a range takes it back.
+   *
+   * Ctrl/Cmd+click is kept as a synonym for a plain click, because muscle memory
+   * from every file manager expects it to do something, and toggling is what it
+   * does everywhere else too.
+   *
+   * File Explorer's exact model was tried on 8/19 and REVERTED the same day as
+   * too much to hold in your head: there, shift REPLACES the selection from an
+   * anchor that never moves, ctrl+shift ADDS instead, and a plain click collapses
+   * everything to one row. Three modifiers with three different meanings is a
+   * fine model for a file manager people use daily; it is too much for a task
+   * list. Deselecting the same way you selected is the rule that needs no
+   * explaining.
+   *
+   * Clicks on the row's own controls (buttons, links, editors, the ⋮⋮ handle)
+   * are never selection gestures.
+   */
   private onRowClick(task: Task, e: MouseEvent): void {
     if (this.mode !== 'list') return; // popover rows in calendar mode don't select
     const t = e.target as Element;
@@ -1335,8 +1361,15 @@ export class TasksView {
       );
       const a = ids.indexOf(this.lastSelId!);
       const b = ids.indexOf(task.id);
+      // The row you land on decides: already selected → the range comes off.
+      const off = this.selectedIds.has(task.id);
       if (a >= 0 && b >= 0) {
-        for (let i = Math.min(a, b); i <= Math.max(a, b); i++) this.selectedIds.add(ids[i]);
+        for (let i = Math.min(a, b); i <= Math.max(a, b); i++) {
+          if (off) this.selectedIds.delete(ids[i]);
+          else this.selectedIds.add(ids[i]);
+        }
+      } else if (off) {
+        this.selectedIds.delete(task.id);
       } else {
         this.selectedIds.add(task.id);
       }
@@ -1345,9 +1378,9 @@ export class TasksView {
     } else {
       this.selectedIds.add(task.id);
     }
-    // An EMPTY selection must also drop the range anchor — otherwise the next
-    // shift+click ranges from a row deselected long ago and "resurrects" rows
-    // the user never re-picked. Anchor exists only while a selection does.
+    // The anchor follows the last row acted on, and an EMPTY selection drops it
+    // altogether — otherwise the next shift+click would range from a row
+    // deselected long ago and resurrect rows nobody re-picked.
     this.lastSelId = this.selectedIds.size ? task.id : null;
     this.syncSelectionUI();
   }
@@ -1685,6 +1718,12 @@ export class TasksView {
         // and the row keeps the date it had.
         if (isPastDate(date)) {
           this.notice(PAST_DATE_MSG);
+          return;
+        }
+        // An hour earlier TODAY is overdue for the same reason a day is, and is
+        // turned away the same way (Gabe, 8/19).
+        if (isPastTime(date, time)) {
+          this.notice(PAST_TIME_MSG);
           return;
         }
         // One due date onto every selected task: "these five are all due Friday".

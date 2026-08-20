@@ -56,9 +56,18 @@ function ensure(): HTMLElement {
     e.stopPropagation(); // never let the click fall through and toggle a row
     onClear();
   });
-  // The hint is what makes the bar teach rather than just report: the keyboard way
-  // out is worth knowing, and there is nowhere else it could be written down.
-  node.append(countEl, el('span', { class: 'selbar-hint', text: 'or press Esc' }), clear);
+  // The hint is what makes the bar teach rather than just report. It carries TWO
+  // facts now (Gabe, 8/19): the keyboard way out, and the gesture that makes a
+  // selection worth having. Shift+click is the one thing about multi-select nobody
+  // discovers by accident, and this bar is the only surface in the app that is
+  // ABOUT selection — the same reasoning that put the f: tip inside the folder
+  // picker. It appears the moment a second row is picked, which is exactly when
+  // "you could have dragged across them" is worth hearing.
+  node.append(
+    countEl,
+    el('span', { class: 'selbar-hint', text: '💡 Shift+click to pick a range · Esc to clear' }),
+    clear
+  );
   node.hidden = true;
   (mountHost ?? document.body).append(node);
   return node;

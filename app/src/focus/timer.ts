@@ -8,7 +8,22 @@ let ctx: AudioContext | null = null;
 /** Create/resume the shared AudioContext. Call this inside the start-click handler. */
 export function armAudioContext(): void {
   try {
-    ctx ??= new (window.AudioContext || (window as any).webkitAudioContext)();
+    // latencyHint 'playback', NOT the default 'interactive' (Gabe, 8/19/26).
+    //
+    // The default asks for the smallest possible output buffer, which is right for a
+    // game or an instrument and wrong for playing music: it leaves the audio thread
+    // needing to deliver on a very tight deadline, and a device that occasionally
+    // misses that deadline underruns, which is heard as static and dropouts. That is
+    // exactly the situation on a remote-desktop session, where the sound device is a
+    // virtual one whose timing depends on a network.
+    //
+    // It also explains the one result that looked contradictory: ordinary <audio>
+    // playback (YouTube) stayed clean throughout, because the media pipeline buffers
+    // deeply, while Web Audio on the same machine at the same moment did not.
+    //
+    // 'playback' asks for the largest buffer instead. The cost is output latency,
+    // which for a timer chime and background music is not perceptible.
+    ctx ??= new (window.AudioContext || (window as any).webkitAudioContext)({ latencyHint: 'playback' });
     if (ctx.state === 'suspended') void ctx.resume();
   } catch {
     /* audio unavailable */

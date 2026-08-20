@@ -38,6 +38,11 @@
      They had drifted: radius 12 / 14 / 999, two different borders and two different
      shadows across four surfaces that all do the same job. One token set means the
      next one added inherits the look instead of inventing a fifth. */
+  /* ONE HEIGHT for every bottom strip — toasts, the selection bar, the end-of-
+     session pill. They appear in the same place, so any difference between them
+     reads as a mistake (Gabe, 8/19). A toast whose message wraps to a second line
+     is the one thing allowed to be taller; min-height, not height, is what lets it. */
+  --toast-h: 46px;
   --toast-radius: 12px;
   --toast-bg: var(--surface);
   --toast-border: 1px solid rgba(125, 180, 255, 0.35);

@@ -51,6 +51,25 @@ export const addDays = (ds: string, n: number): string => {
   return formatDate(d);
 };
 
+/**
+ * Add `n` calendar months to a 'YYYY-MM-DD' string, keeping the day of the month
+ * and CLAMPING when the target month is shorter. Plain Date arithmetic overflows
+ * instead: Jan 31 + 1 month lands on Mar 3, which reads as a bug to anyone who
+ * typed "in a month". Jan 31 → Feb 28 (or 29) is what people mean.
+ */
+export const addMonths = (ds: string, n: number): string => {
+  const d = dateFromISO(ds);
+  const day = d.getDate();
+  d.setDate(1); // park on a day every month has, so setMonth can't roll over
+  d.setMonth(d.getMonth() + n);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  return formatDate(d);
+};
+
+/** Add `n` years, with the same clamp (Feb 29 → Feb 28 in a non-leap year). */
+export const addYears = (ds: string, n: number): string => addMonths(ds, n * 12);
+
 /** The Monday whose "Schedule - Week of …" post should be displayed (shared by
  *  the real dashboard and the landing sample):
  *    • Mon–Fri → the Monday of the CURRENT school week (the most recent Monday),

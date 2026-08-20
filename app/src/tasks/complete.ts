@@ -2,6 +2,9 @@
 
 import { getPrefs } from '../prefs';
 import { isDemoSilent } from '../util/silence';
+// The shared one-toast-at-a-time slot, and the exit duration that goes with it —
+// both kinds of toast leave at exactly the same speed because they share it.
+import { claimToastSlot, releaseToastSlot, TOAST_EXIT_MS } from '../util/dom';
 
 let audioCtx: AudioContext | null = null;
 
@@ -41,9 +44,6 @@ export function playCompleteChime(): void {
 
 let currentToast: { el: HTMLElement; timer: number } | null = null;
 
-/** How long the slide-down exit takes — keep in sync with .toast's CSS transition. */
-const TOAST_EXIT_MS = 320;
-
 /** Show a single undo toast. Calls onExpire after 5s unless undone first.
  *  `host` scopes it to a container (e.g. the landing preview's device frame); it
  *  defaults to document.body (the normal full-page, viewport-pinned toast). */
@@ -77,6 +77,7 @@ export function showUndoToast(
 
   const expireTimer = window.setTimeout(() => {
     currentToast = null;
+    releaseToastSlot(toast);
     leave();
     onExpire();
   }, 5000);
@@ -84,11 +85,22 @@ export function showUndoToast(
   btn.addEventListener('click', () => {
     clearTimeout(expireTimer);
     currentToast = null;
+    releaseToastSlot(toast);
     leave();
     onUndo(); // undo applies immediately; the toast glides out on its own
   });
 
   currentToast = { el: toast, timer: expireTimer };
+  // ONE toast on screen app-wide (Gabe, 8/19). This one is built here rather than
+  // by showToast — it has a button and an expiry callback — so it has to claim the
+  // shared slot explicitly, or a plain toast fired a moment later would simply
+  // land on top of it. Being cut short expires it exactly as the timer would,
+  // which matters: onExpire is what actually completes the task.
+  claimToastSlot(toast, () => {
+    clearTimeout(expireTimer);
+    if (currentToast?.el === toast) currentToast = null;
+    onExpire();
+  });
 }
 
 /** Dismiss any visible toast WITHOUT firing its expire callback. */

@@ -31,6 +31,15 @@ import './ui/onboarding.css';
   }
 }
 
+// The audio doctor: `__audioDoctor.start()` in the console, let the music misbehave,
+// then `__audioDoctor.report()`. See src/focus/audiodoctor.ts.
+//
+// Installed UNCONDITIONALLY, no flag. It adds nothing to the audio graph and starts
+// no timer until start() is called, so idle it costs a single window property. A flag
+// would only reproduce the problem the trials page had: a diagnostic that exists but
+// cannot actually be reached at the moment it is needed.
+void import('./focus/audiodoctor').then((m) => m.installAudioDoctor());
+
 import type { AuthUser } from './auth';
 import {
   onAuth,

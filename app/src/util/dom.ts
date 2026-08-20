@@ -163,6 +163,53 @@ export const $ = <T extends Element = HTMLElement>(sel: string, root: ParentNode
  * stacked-popup guard below, which is why every backdrop in the app calls this
  * even when Enter has nothing to press.
  */
+// ---- toasts: ONE at a time, app-wide (Gabe, 8/19) --------------------------
+//
+// Two toasts cannot be on screen together. They occupy the same strip at the
+// bottom of the window, so a second one either lands on top of the first or
+// shoves it, and both readings are worse than simply showing the newer message —
+// which is by definition the one that answers what the student just did.
+//
+// A new toast therefore ENDS the old one early. Not a different animation: the
+// same slide-down-and-fade it would have played on its own, just sooner. The two
+// cross, one going down as the other comes up, which reads as a replacement
+// rather than a glitch.
+//
+// Module-level, so it holds across views: the Tasks tab and Focus toast through
+// this same function and must not be able to double up.
+let liveToast: { el: HTMLElement; cancel: () => void } | null = null;
+const TOAST_MS = 2600; // time on screen
+export const TOAST_EXIT_MS = 350; // must match the .toast transition in components.css
+
+/** Start `t`'s exit and remove it once the animation is done. */
+function retireToast(t: HTMLElement): void {
+  t.classList.remove('show');
+  window.setTimeout(() => t.remove(), TOAST_EXIT_MS);
+}
+
+/**
+ * Hand the one toast slot to `node`, ending whatever held it.
+ *
+ * Exported because the UNDO toast is built elsewhere (tasks/complete.ts — it owns
+ * a button, a 5s life and an expiry callback, so it cannot just be a showToast
+ * call). Both go through this, which is the only reason "one toast at a time"
+ * holds across the whole app rather than within each file.
+ *
+ * `cancel` is how the holder stops its own timers when it is cut short.
+ */
+export function claimToastSlot(node: HTMLElement, cancel: () => void): void {
+  if (liveToast && liveToast.el !== node) {
+    liveToast.cancel();
+    retireToast(liveToast.el);
+  }
+  liveToast = { el: node, cancel };
+}
+
+/** Give the slot up (the holder finished on its own). */
+export function releaseToastSlot(node: HTMLElement): void {
+  if (liveToast?.el === node) liveToast = null;
+}
+
 /** A plain auto-expiring notice using the app's .toast styling (no Undo button).
  *  Extracted from TasksView.notice so any view (Bookmarks, Focus, …) can toast
  *  without owning a copy of the show/expire choreography. */
@@ -171,10 +218,11 @@ export function showToast(msg: string, host: HTMLElement = document.body): void 
   host.append(t);
   void t.offsetHeight; // commit the un-shown state so the .show transition runs
   t.classList.add('show');
-  window.setTimeout(() => {
-    t.classList.remove('show');
-    window.setTimeout(() => t.remove(), 350);
-  }, 2600);
+  const timer = window.setTimeout(() => {
+    releaseToastSlot(t);
+    retireToast(t);
+  }, TOAST_MS);
+  claimToastSlot(t, () => window.clearTimeout(timer));
 }
 
 export function enterConfirms(back: HTMLElement, primary: () => HTMLElement | null): void {

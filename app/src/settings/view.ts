@@ -36,6 +36,7 @@ import { NOTIFY_GUIDES } from './notifyGuides';
 import {
   type NotifySettings,
   type NotifyAppearance,
+  type BurstMode,
   type Channels,
   NOTIFY_SETTINGS_EVENT,
   normalizeNotifySettings,
@@ -1593,12 +1594,20 @@ export class SettingsView {
     );
     sources.append(
       this.prefRow(
-        'Group a burst of reminders',
-        'Bulk edits can make many reminders come due at once. The first few arrive normally and the rest fold into one summary. Every reminder is still listed in the notification log.',
-        this.prefSwitch(n.groupBursts, (on) => {
-          n.groupBursts = on;
-          save();
-        })
+        'How reminders reach you',
+        'Bulk edits can make many reminders come due at once. Send each one, fold the whole burst into a single message, or stay silent. Silent covers single reminders too, not just bulk ones: silence means silence. Every reminder is still listed in the notification log whichever you pick.',
+        this.prefSeg<BurstMode>(
+          [
+            ['each', 'Each'],
+            ['summary', 'One summary'],
+            ['silent', 'Silent'],
+          ],
+          () => n.burstMode,
+          (v) => {
+            n.burstMode = v;
+            save();
+          }
+        )
       )
     );
 

@@ -1,0 +1,147 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>static source test</title>
+<body style="font:12px/1.5 ui-monospace,monospace;background:#0b1a3a;color:#dbe6ff;padding:20px">
+  <p style="font-family:system-ui;max-width:760px">
+    Identifies the residual static. A pure 220 Hz sine goes through the real engine, and
+    an FFT after the limiter measures how much energy lands anywhere OTHER than 220 Hz.
+    A perfect chain leaves that floor untouched; anything that mangles the waveform
+    raises it. Measured as a RATIO to the fundamental, so it does not simply track how
+    loud the signal is.
+  </p>
+  <button id="go" style="font:14px system-ui;padding:10px 18px;border-radius:8px">Run</button>
+  <pre id="out" style="white-space:pre"></pre>
+  <script type="module">
+    import { MusicEngine } from '/src/focus/music.ts';
+    import { armAudioContext, audioCtx } from '/src/focus/timer.ts';
+
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    function toneWav(seconds = 40, freq = 220, rate = 44100) {
+      const n = seconds * rate;
+      const buf = new ArrayBuffer(44 + n * 2);
+      const v = new DataView(buf);
+      const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+      str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt ');
+      v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+      v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      str(36, 'data'); v.setUint32(40, n * 2, true);
+      for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.sin((2 * Math.PI * freq * i) / rate) * 26000, true);
+      const b = new Uint8Array(buf);
+      let s = '';
+      for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+      return 'data:audio/wav;base64,' + btoa(s);
+    }
+
+    document.getElementById('go').addEventListener('click', async () => {
+      const out = document.getElementById('out');
+      const log = (s) => { out.textContent += s + '\n'; };
+      out.textContent = '';
+      armAudioContext();
+      await wait(150);
+      const ctx = audioCtx();
+      const src = toneWav();
+      const T = { key: 'tone', label: 'tone', emoji: 'M', src, volume: 100, gain: 1 };
+
+      const e = new MusicEngine();
+      e.setVolume(100);
+      e.setPlaylist([T], 0, true);
+      await wait(400);
+
+      // Tap after the limiter, i.e. exactly what reaches the speakers.
+      const an = ctx.createAnalyser();
+      an.fftSize = 8192;
+      an.smoothingTimeConstant = 0;
+      const sink = ctx.createGain();
+      sink.gain.value = 0;
+      sink.connect(ctx.destination);
+      e['graph'].limiter.connect(an);
+      an.connect(sink);
+      const bins = new Float32Array(an.frequencyBinCount);
+      const hz = ctx.sampleRate / an.fftSize;
+
+      /** Energy away from 220 Hz, as dB relative to the fundamental. Harmonics of the
+       *  tone are excluded: an MP3-style harmonic is not what "static" means, and
+       *  including them would just measure the tone's own purity. */
+      const dirt = () => {
+        an.getFloatFrequencyData(bins);
+        let fund = -Infinity;
+        let noise = 0;
+        let count = 0;
+        for (let i = 2; i < bins.length; i++) {
+          const f = i * hz;
+          if (f > 16000) break;
+          const nearHarmonic = Math.abs(f / 220 - Math.round(f / 220)) < 0.06 && f < 4000;
+          const lin = Math.pow(10, bins[i] / 10);
+          if (Math.abs(f - 220) < 3 * hz) { fund = Math.max(fund, bins[i]); continue; }
+          if (nearHarmonic) continue;
+          noise += lin;
+          count++;
+        }
+        return { fundDb: fund, noiseDb: 10 * Math.log10(noise / Math.max(1, count)), ratio: 10 * Math.log10(noise / Math.max(1, count)) - fund };
+      };
+
+      const sampleFor = async (ms, label) => {
+        const rs = [];
+        const t0 = performance.now();
+        let skipped = 0;
+        while (performance.now() - t0 < ms) {
+          const d = dirt();
+          // A RATIO IS MEANINGLESS WHEN THERE IS NO SIGNAL. Early in a fade the tone is
+          // near silence, so noise-over-fundamental explodes on frames carrying nothing
+          // audible. Those frames were producing alarming worst-case numbers that had
+          // no bearing on what anyone could hear, so they are excluded and counted.
+          if (!isFinite(d.ratio) || d.fundDb < -70) { skipped++; await wait(25); continue; }
+          rs.push(d.ratio);
+          await wait(25);
+        }
+        rs.sort((a, b) => a - b);
+        const med = rs[Math.floor(rs.length / 2)];
+        const worst = rs[rs.length - 1];
+        log(`  ${label.padEnd(42)} dirt ${med.toFixed(1)} dB (worst ${worst.toFixed(1)})  n=${rs.length}  skipped ${skipped} silent`);
+        return med;
+      };
+
+      log('Lower (more negative) = cleaner. This is broadband dirt relative to the tone.\n');
+
+      // 1. STEADY at full volume: the baseline the chain can achieve.
+      await wait(3000); // let the opening fade finish
+      const steady100 = await sampleFor(1500, 'steady, slider 100');
+
+      // 2. STEADY at a low level, reached by ONE volume write. Same quiet level a fade
+      //    passes through, but without the stepping — this is the control.
+      e.setVolume(35);
+      await wait(600);
+      const steady35 = await sampleFor(1500, 'steady, slider 35 (one write)');
+
+      // 3. DURING A FADE: the gain node is re-assigned every 40 ms. If a stepped
+      //    amplitude is the culprit, this is where the floor lifts.
+      e.setVolume(100);
+      await wait(600);
+      e['armFade'](2500);
+      e['runFade'](2500);
+      const duringFade = await sampleFor(2200, 'DURING the 2.5s fade (stepped 40ms)');
+
+      // 4. A SLIDER DRAG: the same stepping, driven by setVolume instead.
+      await wait(1200);
+      const drag = (async () => {
+        for (let i = 0; i < 60; i++) { e.setVolume(40 + 30 * Math.sin(i / 6)); await wait(30); }
+      })();
+      const duringDrag = await sampleFor(1700, 'DURING a slider drag (stepped 30ms)');
+      await drag;
+
+      log('');
+      log(`fade vs steady at a comparable level : ${(duringFade - steady35).toFixed(1)} dB`);
+      log(`drag vs steady                       : ${(duringDrag - steady35).toFixed(1)} dB`);
+      log(`sample rate ${ctx.sampleRate} Hz   ·   limiter reduction now ${e.limiterReduction().toFixed(2)} dB`);
+      log('');
+      const zipper = duringFade - steady35 > 3 || duringDrag - steady35 > 3;
+      log(zipper
+        ? 'VERDICT: stepped gain writes ARE adding broadband dirt (zipper noise).'
+        : 'VERDICT: stepped gain writes are NOT measurably adding dirt. The static is elsewhere.');
+      window.__static = { steady100, steady35, duringFade, duringDrag, zipper, sampleRate: ctx.sampleRate };
+      e.destroy();
+    });
+  </script>
+</body>

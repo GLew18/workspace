@@ -1,0 +1,302 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>which layer is making the noise</title>
+<style>
+  /* FOUR sizes, each a step of about 1.27 from the next: 24 / 19 / 15 / 12. The first
+     draft ran 20/16/15/14/13, which is five sizes inside one octave and reads as one
+     undifferentiated block. That matters here more than on an ordinary page: this is
+     glanced at from across the room while listening, so "which step is playing" has to
+     separate from the body text by size alone. */
+  body { font: 15px/1.6 system-ui; background: #0b1a3a; color: #dbe6ff; padding: 24px; max-width: 860px; }
+  h2 { font-size: 24px; letter-spacing: -.015em; margin: 0 0 6px; }
+  .lead { color: #9fb0cc; margin: 0 0 20px; }
+  .step { border: 1px solid #22345f; border-radius: 12px; padding: 14px 16px; margin: 0 0 12px; }
+  .step h3 { font-size: 19px; letter-spacing: -.01em; margin: 0 0 6px; }
+  .step p { margin: 0 0 10px; color: #9fb0cc; }
+  button { font: 600 15px system-ui; padding: 9px 16px; border-radius: 9px; border: 1px solid #7db4ff59;
+           background: #7db4ff1a; color: #dbe6ff; cursor: pointer; margin-right: 8px; }
+  button:hover { background: #7db4ff2e; }
+  button.stop { border-color: #ff8a8a59; background: #ff8a8a1a; }
+  .warn { color: #ffd479; }
+  code { background: #14264d; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  #state { margin-top: 16px; color: #7ee08a; min-height: 1.6em; }
+  /* STICKY, because the whole point is knowing what you are listening to WHILE you
+     listen, and the steps run past the fold. */
+  #caption { position: sticky; top: 0; z-index: 5; margin: 0 0 18px; padding: 14px 18px;
+             border-radius: 12px; border: 1px solid #22345f; background: #0f1f45;
+             box-shadow: 0 6px 20px #0006; }
+  #caption .what { font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+  #caption .meta { font: 12px ui-monospace, monospace; color: #9fb0cc; margin-top: 4px; }
+  #caption.on { border-color: #7db4ff8c; background: #12275a; }
+  #caption.on .what { color: #7db4ff; }
+  .step.active { border-color: #7db4ff8c; background: #7db4ff0f; }
+  .step.active h3::after { content: ' · playing'; color: #7db4ff; font-weight: 600; }
+  table { border-collapse: collapse; margin-top: 18px; width: 100%; }
+  td, th { border-bottom: 1px solid #22345f; padding: 6px 8px; text-align: left; }
+  th { color: #9fb0cc; }
+</style>
+<body>
+  <h2>Which layer is making the noise</h2>
+  <p class="lead">
+    Everything measurable inside Cobalt is clean: the dirt leaving the limiter sits at
+    the chain's floor. But no measurement from inside the page can see what happens
+    <i>after</i> the sound card, which is where a remote-desktop session lives. This
+    settles it by ear, because that is the only instrument on the far side.
+  </p>
+
+  <div id="caption"><div class="what">Nothing playing</div><div class="meta">pick a step below</div></div>
+  <div id="boot" style="color:#ff8a8a;margin:0 0 14px"></div>
+  <script>
+    // Plain script, deliberately: it does not depend on the module below, so if that
+    // module dies this is still here to say so instead of leaving dead buttons.
+    window.__booted = false;
+    (function () {
+      var boot = document.getElementById('boot');
+      if (location.protocol === 'file:') {
+        boot.innerHTML = 'Opened as a <b>file</b>, so none of the imports can load. ' +
+          'Open it through the dev server: <b>http://localhost:5173/audiopath.html</b>';
+        return;
+      }
+      window.addEventListener('error', function (e) {
+        boot.textContent = 'Script error: ' + (e.message || e.error);
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        boot.textContent = 'Failed: ' + ((e.reason && e.reason.message) || e.reason);
+      });
+      setTimeout(function () {
+        if (!window.__booted) {
+          boot.textContent = 'The page script never loaded, so the buttons have no handlers. ' +
+            'Open DevTools and check the Console: it is usually a failed import.';
+        }
+      }, 2500);
+    })();
+  </script>
+
+  <p class="warn">Run step 1 first, before pressing anything else. Steps 2 to 5 start an
+     AudioContext, and once one exists it stays for the life of the page. Reload to reset.</p>
+
+  <div class="step">
+    <h3>1. Plain element, no Web Audio at all</h3>
+    <p>An ordinary <code>&lt;audio&gt;</code>. Same code path as YouTube. Nothing of Cobalt's
+       is involved: no graph, no gain, no fade, no limiter.</p>
+    <button data-mode="plain">Play</button><button class="stop" data-stop="1">Stop</button>
+  </div>
+
+  <div class="step">
+    <h3>2. Web Audio, bare</h3>
+    <p>The same file through an AudioContext with a single gain node at 1.0. This is the
+       minimum Web Audio path: if step 1 is clean and this is not, the fault is Web Audio
+       meeting your audio device, not anything Cobalt does with it.</p>
+    <button data-mode="bare">Play</button><button class="stop" data-stop="1">Stop</button>
+  </div>
+
+  <div class="step">
+    <h3>3. The real Cobalt engine</h3>
+    <p>Full graph: normalization gain, warmth shelf, limiter, fade-in, watchdog.</p>
+    <button data-mode="engine">Play</button><button class="stop" data-stop="1">Stop</button>
+  </div>
+
+  <div class="step">
+    <h3>4. Cobalt with the fade and the watchdog switched off</h3>
+    <p>What you asked for: the two things added this week, removed. Same graph otherwise.</p>
+    <button data-mode="nofade">Play</button><button class="stop" data-stop="1">Stop</button>
+  </div>
+
+  <div class="step">
+    <h3>5. Cobalt stripped to a bare gain</h3>
+    <p>Warmth shelf and limiter bypassed too, so only the volume gain remains. If 3 is
+       dirty and this is clean, the fault is in one of those two nodes.</p>
+    <button data-mode="bareengine">Play</button><button class="stop" data-stop="1">Stop</button>
+  </div>
+
+  <div id="state"></div>
+  <div id="live" style="font:13px ui-monospace,monospace;color:#9fb0cc;margin-top:6px"></div>
+
+  <table>
+    <tr><th>What you hear</th><th>What it means</th></tr>
+    <tr><td>Static on 1</td><td>Not Cobalt. It is below the browser: the remote session, the driver, or the device.</td></tr>
+    <tr><td>1 clean, 2 dirty</td><td>Web Audio against your current output device. Cobalt cannot avoid Web Audio, but this is not something it is doing wrong.</td></tr>
+    <tr><td>1 and 2 clean, 3 dirty</td><td>Cobalt's own graph. Steps 4 and 5 then say which part.</td></tr>
+    <tr><td>3 dirty, 4 clean</td><td>The fade or the watchdog. Both are removable.</td></tr>
+    <tr><td>3 dirty, 5 clean</td><td>The warmth shelf or the limiter.</td></tr>
+    <tr><td>All five identical</td><td>Whatever it is, it is the same for every audio path on this machine.</td></tr>
+  </table>
+
+  <script type="module">
+    import { MusicEngine } from '/src/focus/music.ts';
+    import { armAudioContext, audioCtx } from '/src/focus/timer.ts';
+    import { LIBRARY_TRACKS } from '/src/focus/library.ts';
+
+    /** One place naming the steps. The caption reads from this rather than from the
+     *  headings, so a renamed step cannot end up captioned as the one before it. */
+    const STEPS = {
+      plain: 'Step 1: Plain element, no Web Audio',
+      bare: 'Step 2: Web Audio, bare',
+      engine: 'Step 3: The real Cobalt engine',
+      nofade: 'Step 4: Fade and watchdog switched off',
+      bareengine: 'Step 5: Stripped to a bare gain',
+    };
+    const say = (m) => { document.getElementById('state').textContent = m; };
+    // Every mode registers what it is playing, so "is this actually making sound?" can
+    // be answered rather than assumed. A mode that silently failed would otherwise look
+    // exactly like a mode that is perfectly clean, which would invert the conclusion.
+    let current = null;
+    window.__pathtest = () => {
+      const a = current ? current.el() : null;
+      return {
+        mode: current ? current.mode : 'none',
+        playing: a ? !a.paused : false,
+        currentTime: a ? +a.currentTime.toFixed(2) : 0,
+        readyState: a ? a.readyState : 0,
+        contextState: audioCtx() ? audioCtx().state : 'none',
+        sampleRate: audioCtx() ? audioCtx().sampleRate : 0,
+        // The output buffer, in ms. This is the number that decides whether a jittery
+        // device underruns, so it is worth being able to read rather than assume.
+        bufferMs: audioCtx() ? +(((audioCtx().outputLatency || audioCtx().baseLatency || 0) * 1000).toFixed(1)) : 0,
+      };
+    };
+    // ONE track for every mode. Comparing paths only means something if the audio is
+    // identical, so this is deliberately not the user's current playlist.
+    const TRACK = LIBRARY_TRACKS[0];
+    let stop = () => {};
+    window.__booted = true;
+
+    // Does the audio file actually resolve? A 404 here makes every one of the five
+    // steps do nothing, in exactly the same way, which would read as "the app is
+    // broken" rather than "the server cannot find the music folder".
+    (async () => {
+      try {
+        const r = await fetch(TRACK.src, { method: 'HEAD' });
+        // Confirm success too, not only failure. "Nothing happened" has to be
+        // distinguishable from "the file is missing", and a silent success looks
+        // identical to a silent failure.
+        if (r.ok) {
+          const el = document.getElementById("boot");
+          el.style.color = "#7ee08a";
+          el.textContent = "Audio file found (" + Math.round((+r.headers.get("content-length") || 0) / 1024) + " KB). Press Play on step 1.";
+        }
+        if (!r.ok) {
+          document.getElementById('boot').innerHTML =
+            'The audio file returned <b>' + r.status + '</b>. Nothing can play until that is fixed.<br>' +
+            'The dev server streams these from the <b>Music Database</b> folder next to the app folder.<br>' +
+            '<code style="font-size:12px">' + TRACK.src + '</code>';
+        }
+      } catch (err) {
+        document.getElementById('boot').textContent = 'Could not reach the audio file: ' + err.message;
+      }
+    })();
+
+    const stopAll = () => { try { stop(); } catch {} stop = () => {}; say('stopped'); };
+    document.querySelectorAll('[data-stop]').forEach((b) => b.addEventListener('click', stopAll));
+
+    const fail = (m) => {
+      const b = document.getElementById('boot');
+      b.style.color = '#ff8a8a';
+      b.textContent = m;
+      const cap = document.getElementById('caption');
+      cap.classList.remove('on');
+      cap.querySelector('.what').textContent = 'Could not play';
+      cap.querySelector('.meta').textContent = m;
+    };
+
+    document.querySelectorAll('[data-mode]').forEach((btn) => btn.addEventListener('click', async () => {
+      try {
+        await run(btn.dataset.mode);
+        document.getElementById('boot').textContent = '';
+      } catch (err) {
+        fail((err && err.name ? err.name + ': ' : '') + ((err && err.message) || String(err)));
+      }
+    }));
+
+    async function run(mode) {
+      stopAll();
+
+      if (mode === 'plain') {
+        // Deliberately NOT crossOrigin and NOT touching the AudioContext: this has to be
+        // the most ordinary playback the browser can do, or it is not a control.
+        const a = new Audio(TRACK.src);
+        a.volume = 0.6;
+        await a.play();
+        current = { mode: 'plain', el: () => a };
+        stop = () => { a.pause(); a.removeAttribute('src'); a.load(); };
+        say('1. plain element. No AudioContext exists yet: ' + (audioCtx() ? 'ONE ALREADY EXISTS, reload for a clean test' : 'confirmed none'));
+        return;
+      }
+
+      armAudioContext();
+      await new Promise((r) => setTimeout(r, 120));
+      const ctx = audioCtx();
+
+      if (mode === 'bare') {
+        const a = new Audio(TRACK.src);
+        a.crossOrigin = 'anonymous';
+        const src = ctx.createMediaElementSource(a);
+        const g = ctx.createGain();
+        g.gain.value = 0.6;
+        src.connect(g).connect(ctx.destination);
+        await a.play();
+        current = { mode: 'bare', el: () => a };
+        stop = () => { a.pause(); try { src.disconnect(); } catch {} a.removeAttribute('src'); a.load(); };
+        say('2. bare Web Audio. context ' + ctx.state + ' at ' + ctx.sampleRate + ' Hz, file is 44100 Hz');
+        return;
+      }
+
+      const e = new MusicEngine();
+      e.setOnBlocked(() => fail('The browser blocked playback. Click anywhere on the page, then press Play again.'));
+      e.setVolume(60);
+      e.setPlaylist([{ key: TRACK.id, label: TRACK.title, emoji: TRACK.emoji, src: TRACK.src, volume: 60, gain: 1 }], 0, true);
+      current = { mode, el: () => e['audio'] };
+      stop = () => { current = null; e.destroy(); };
+
+      if (mode === 'nofade' || mode === 'bareengine') {
+        // Kill the fade the moment the graph exists, so nothing ever ramps.
+        const settle = setInterval(() => {
+          if (!e['graph']) return;
+          clearInterval(settle);
+          e['cancelFade']();
+          e['fadeMul'] = 1;
+          if (e['watchdog']) { clearInterval(e['watchdog']); e['watchdog'] = 0; }
+          if (mode === 'bareengine') {
+            // Bypass warmth + limiter: entry -> gain -> destination, nothing else.
+            try {
+              e['graph'].gain.disconnect();
+              e['graph'].gain.connect(ctx.destination);
+            } catch {}
+          }
+          e['applyVolume']();
+          say(mode === 'nofade'
+            ? '4. fade off, watchdog off. fadeMul=' + e['fadeMul'] + ', watchdog=' + e['watchdog']
+            : '5. fade off, watchdog off, warmth + limiter bypassed');
+        }, 50);
+        return;
+      }
+      say('3. the real engine, everything on');
+    }
+
+    say('ready. Track: ' + TRACK.title);
+    // A running readout, so a mode that stops producing sound is visible without
+    // having to open the console.
+    setInterval(() => {
+      const st = window.__pathtest();
+      const cap = document.getElementById('caption');
+      const what = cap.querySelector('.what');
+      const meta = cap.querySelector('.meta');
+      document.querySelectorAll('.step').forEach((s) => s.classList.remove('active'));
+      if (st.mode === 'none') {
+        cap.classList.remove('on');
+        what.textContent = 'Nothing playing';
+        meta.textContent = 'pick a step below';
+        document.getElementById('live').textContent = '';
+        return;
+      }
+      cap.classList.add('on');
+      what.textContent = STEPS[st.mode] || st.mode;
+      const mins = Math.floor(st.currentTime / 60);
+      const secs = String(Math.floor(st.currentTime % 60)).padStart(2, '0');
+      meta.textContent = `${st.playing ? 'playing' : 'PAUSED'} · ${mins}:${secs} · ready ${st.readyState} · audio context ${st.contextState}${st.sampleRate ? ' @ ' + st.sampleRate + ' Hz' : ''}`;
+      const card = document.querySelector(`[data-mode="${st.mode}"]`);
+      if (card) card.closest('.step').classList.add('active');
+      document.getElementById('live').textContent = '';
+    }, 300);
+  </script>
+</body>
