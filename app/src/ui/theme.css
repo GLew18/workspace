@@ -42,6 +42,22 @@
      session pill. They appear in the same place, so any difference between them
      reads as a mistake (Gabe, 8/19). A toast whose message wraps to a second line
      is the one thing allowed to be taller; min-height, not height, is what lets it. */
+  /* THE SELECTED LOOK, in two tokens, shared by tasks, bookmarks and all four
+     Focus lists (Gabe, 8/20). Blue means SELECTED and nothing else means blue:
+     hover and keyboard-focus are deliberately neutral so the tint stays a signal.
+     The tint is applied as a background-IMAGE by every consumer, never as a
+     background-color, so it layers ON TOP of whatever that surface already is
+     rather than replacing it. What that buys is NOT one final colour: a row on
+     --surface2 composites to rgb(31,36,44) and a card on --surface to rgb(36,41,49),
+     and that is correct, each keeps its own base. What is identical is the BLUE
+     ADDED ON TOP, which is the part the eye reads as "selected". Replacing the
+     colour outright is what used to make a Focus row go DARKER than the task it
+     was meant to match.
+     Both tokens hang off --accent (--glow-rgb is its channels), so re-theming moves
+     the ring and the fill together. They drifted once already, when the accent went
+     from gold to blue. */
+  --sel-outline: var(--accent);
+  --sel-tint: linear-gradient(rgba(var(--glow-rgb), 0.1), rgba(var(--glow-rgb), 0.1));
   --toast-h: 46px;
   --toast-radius: 12px;
   --toast-bg: var(--surface);

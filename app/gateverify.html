@@ -1,0 +1,202 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>translation gate: full verification</title>
+<body style="margin:0;background:#07132e;color:#dbe6ff;font:12px/1.6 ui-monospace,monospace">
+  <pre id="out" style="padding:12px;white-space:pre-wrap">running</pre>
+  <div id="tpanel"></div><div id="fpanel"></div>
+  <script type="module">
+    window.addEventListener('unhandledrejection', (e) => { document.getElementById('out').textContent = 'REJECT: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason); });
+    window.addEventListener('error', (e) => { document.getElementById('out').textContent = 'ERROR: ' + e.message + '\n' + (e.error && e.error.stack || ''); });
+    document.body.classList.add('app-mode');
+    const V = '?v=' + Date.now();
+    await import('/src/ui/theme.css' + V); await import('/src/ui/components.css' + V);
+    await import('/src/ui/colorPicker.css' + V); await import('/src/ui/focus.css' + V);
+    const { gateDecision } = await import('/src/util/translate.ts' + V);
+    const { TasksView } = await import('/src/tasks/render.ts' + V);
+    const { FocusView } = await import('/src/focus/view.ts' + V);
+    const { createSandboxData, SAMPLE_COURSES, sampleSchedule } = await import('/src/landing/sandbox.ts' + V);
+    const { clearFocusState } = await import('/src/focus/persist.ts' + V);
+    const L = await import('/src/util/languages.ts' + V);
+
+    const R = []; const ok = (n, c, x) => R.push((c ? 'PASS  ' : 'FAIL  ') + n + (x ? '  ' + x : ''));
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // ================= 1. THE GATE, exhaustively =================
+    const allowed = new Set(['he', 'iw', 'es', 'ar', 'fr']);
+    let cases = 0, slips = 0, misses = 0; const bad = [];
+    const ck = (src, tr, lang, conf, expect, why, all) => {
+      cases++;
+      const v = gateDecision({ source: src, translated: tr, lang, conf, allowed: all || allowed });
+      if (v.accept !== expect) { v.accept ? slips++ : misses++;
+        if (bad.length < 12) bad.push((v.accept ? 'SLIP ' : 'MISS ') + JSON.stringify(src) + '->' + JSON.stringify(tr) + ' [' + lang + ' ' + conf + '] ' + why + '  ' + JSON.stringify(v)); }
+    };
+    // Real titles, each paired with the language it is ACTUALLY in. They must survive
+    // every confidence at or above the bar.
+    const real = [['tarea','homework','es'],['ensayo','essay','es'],['prueba','test','es'],
+      ['resumen','summary','es'],['página 15','page 15','es'],['capítulo 7','chapter 7','es'],
+      ['tarea de matemáticas','math homework','es'],['leer capítulo 7','read chapter 7','es'],
+      ['chapitre 3','chapter 3','fr'],['devoir','homework','fr'],['brouillon','draft','fr'],
+      ['exposé','presentation','fr'],['devoirs de maths','math homework','fr'],
+      ['contrôle de biologie','biology test','fr'],
+      ['שיעורי בית','homework','he'],['מבחן','test','he'],['דקדוק','grammar','he'],
+      ['שיעורי בית במתמטיקה','math homework','iw'],
+      ['واجب','homework','ar'],['امتحان','exam','ar'],['ملخص','summary','ar'],
+      ['واجب الرياضيات','math homework','ar']];
+    for (const [a,b,lg] of real) for (const c of [0.92,0.94,0.96,0.98,1.0]) ck(a,b,lg,c,true,'real');
+    // Junk must never pass, at ANY confidence.
+    const junk = [['tod cod','to cod'],['foo bar','food bar'],['hw math','hw mata'],['bio lab','bio lap'],
+      ['asdf','asef'],['huu','huu'],['heybo','heybo'],['pset 4','pset 5'],['ap bio','ap bo'],
+      ['q3 review','q3 revie'],['mon 8am','mon 8a'],['essay v2','essay v'],['blah','blab'],
+      ['zzz','zz'],['meh','meg'],['tmrw','tmrw'],['ch 7','ch 8'],['sat sat','sat sat']];
+    for (const [a,b] of junk) for (const c of [0.1,0.3,0.5,0.646,0.75,0.781,0.9,0.919,0.92,0.95,0.99,1.0])
+      ck(a,b,'es',c,false,'junk at every confidence');
+    // English, unenabled languages, missing confidence.
+    for (const t of ['read chapter 4','math homework','study for the test','lab report','page 15'])
+      for (const c of [0.5,0.92,1.0]) { ck(t,t,'en',c,false,'english unchanged'); ck(t,'other','en',c,false,'english'); }
+    for (const lg of ['de','it','pt','ru','zh','ja','ko','nl','sv','pl','tr','hi','fa','ur','sw','da'])
+      for (const c of [0.5,0.92,1.0]) ck('titulo','title',lg,c,false,'language not enabled');
+    for (const [a,b,lg] of real.slice(0,10)) { ck(a,b,lg,null,false,'no confidence'); ck(a,b,lg,undefined,false,'undefined'); ck(a,b,lg,NaN,false,'NaN'); }
+    // Boundary + region tags.
+    for (const c of [0.9,0.9199,0.91999]) ck('tarea','homework','es',c,false,'under the bar');
+    for (const c of [0.92,0.9201,1.0]) ck('tarea','homework','es',c,true,'at or over');
+    for (const lg of ['es-419','es-MX','ES','fr-CA']) ck('tarea','homework',lg,0.98,true,'region tag');
+    for (const lg of ['iw','he']) ck('מבחן','test',lg,0.98,true,'hebrew alias');
+    for (const lg of ['de-AT','pt-BR','it-IT']) ck('titel','title',lg,0.98,false,'unenabled region');
+    // Full sweep over the Latin-script case, where script never intervenes.
+    for (const lg of ['es','de','en','']) for (const c of [null,0.5,0.92,1.0]) for (const ch of [true,false])
+      ck('titulo', ch ? 'title' : 'titulo', lg, c, allowed.has(lg) && lg !== 'en' && typeof c === 'number' && c >= 0.92 && ch, 'sweep');
+    ok('gate: ' + cases + ' cases, zero slip-ups', slips === 0, slips + ' slips');
+    ok('gate: zero misses on real titles', misses === 0, misses + ' misses');
+    bad.forEach((b) => R.push('   ' + b));
+
+    // ---- the SCRIPT gate specifically ----
+    let sc = 0; const scBad = [];
+    const sck = (src, tr, lang, expect, why, all) => {
+      sc++;
+      const v = gateDecision({ source: src, translated: tr, lang, conf: 0.99, allowed: all || allowed });
+      if (v.accept !== expect) scBad.push((v.accept ? 'SLIP ' : 'MISS ') + JSON.stringify(src) + ' [' + lang + '] ' + why);
+    };
+    // A non-Latin title detected as a Latin-script language is refused, however sure.
+    sck('מבחן במתמטיקה', 'math test', 'es', false, 'hebrew title, spanish detected');
+    sck('واجب الرياضيات', 'math homework', 'fr', false, 'arabic title, french detected');
+    sck('מבחן במתמטיקה', 'math test', 'he', true, 'hebrew title, hebrew detected');
+    sck('واجب الرياضيات', 'math homework', 'ar', true, 'arabic title, arabic detected');
+    // Latin titles are never judged by script, so a Cyrillic-script language on Latin
+    // text still passes: Serbian and Uzbek really are written both ways.
+    const cyr = new Set(['sr','uz','az','ru','ja','zh','fa']);
+    sck('kontrolni zadatak', 'test', 'sr', true, 'serbian in latin', cyr);
+    sck('nazorat ishi', 'test', 'uz', true, 'uzbek in latin', cyr);
+    sck('контрольная работа', 'test', 'ru', true, 'russian in cyrillic', cyr);
+    sck('контрольная работа', 'test', 'ja', false, 'cyrillic title, japanese detected', cyr);
+    sck('第7章', 'chapter 7', 'ja', true, 'kanji-only japanese title', cyr);
+    sck('第7章', 'chapter 7', 'zh', true, 'same title as chinese', cyr);
+    sck('宿題', 'homework', 'ja', true, 'kana and kanji japanese', cyr);
+    sck('امتحان فردا', 'exam tomorrow', 'fa', true, 'persian in arabic script', cyr);
+    sck('امتحان فردا', 'exam tomorrow', 'ru', false, 'arabic title, russian detected', cyr);
+    ok('script gate: ' + sc + ' cases, all correct', scBad.length === 0, scBad.join(' | '));
+
+    // ================= 2. THE FALLBACK IS GONE =================
+    const tSrc = await (await fetch('/src/util/translate.ts' + V)).text();
+    const lSrc = await (await fetch('/src/util/languages.ts' + V)).text();
+    ok('no fallback code remains in translate.ts', !/fallbackAskedAs|areSiblings|nearMiss/.test(tSrc),
+       (tSrc.match(/fallbackAskedAs|areSiblings|nearMiss/g) || []).join(','));
+    ok('the sibling table is gone from languages.ts', !/^const SIBLINGS/m.test(lSrc) && !/export function areSiblings/.test(lSrc));
+    // Naming a source language is allowed again, for ONE caller: the readings menu a
+    // student picks from. The invariant is no longer "never"; it is "only there".
+    // The lookbehind skips the DECLARATION, which of course names the parameter.
+    const named = tSrc.match(/(?<!function )translateOnce\([^)]*,[^)]*\)/g) || [];
+    ok('exactly ONE call site names a source language', named.length === 1, named.join(' | '));
+    const autoPath = tSrc.slice(tSrc.indexOf('export async function analyzeTitle'), tSrc.indexOf('export async function translationReadings'));
+    ok('the automatic path never names one', !/translateOnce\([^)]*,/.test(autoPath));
+    ok('the one that does is the readings menu', /translateOnce\(key, d\.code\)/.test(tSrc.slice(tSrc.indexOf('export async function translationReadings'))));
+
+    // ================= 3. THE CATALOG =================
+    const langs = L.LANGUAGES;
+    const codes = langs.map((l) => l.code);
+    ok('catalog: no duplicate codes', new Set(codes).size === codes.length,
+       codes.filter((c, i) => codes.indexOf(c) !== i).join(','));
+    const labels = langs.map((l) => l.label);
+    ok('catalog: no duplicate names', new Set(labels).size === labels.length,
+       labels.filter((c, i) => labels.indexOf(c) !== i).join(','));
+    ok('catalog: every entry has a name and an endonym', langs.every((l) => l.label && l.native && l.code),
+       JSON.stringify(langs.filter((l) => !(l.label && l.native && l.code))));
+    ok('catalog: every code resolves through findLanguage',
+       codes.every((c) => (L.findLanguage(c) || {}).code === c), codes.filter((c) => (L.findLanguage(c) || {}).code !== c).join(','));
+    const aliasBad = [];
+    for (const l of langs) for (const a of l.also || []) if ((L.findLanguage(a) || {}).code !== l.code) aliasBad.push(a);
+    ok('catalog: every alias resolves to its language', aliasBad.length === 0, aliasBad.join(','));
+    ok('catalog: expandCodes round-trips every code', codes.every((c) => L.expandCodes([c]).has(c)));
+    // THE ENDONYM IS ITS OWN PROOF: a language whose own name is written in a script
+    // it supposedly does not use means the script annotation is wrong, and a wrong
+    // annotation would silently refuse that language's titles forever.
+    const scriptBad = langs.filter((l) => !L.writesScript(l, L.scriptOf(l.native)))
+      .map((l) => l.code + '(' + l.label + ' native=' + L.scriptOf(l.native) + ' declared=' + (l.script || 'latin') + ')');
+    ok('catalog: every endonym is written in a script its language declares',
+       scriptBad.length === 0, scriptBad.join(' '));
+    ok('catalog: the four defaults are all present',
+       L.DEFAULT_TRANSLATE_FROM.every((c) => L.findLanguage(c)), L.DEFAULT_TRANSLATE_FROM.join(','));
+    ok('catalog: sorted alphabetically after the four defaults', (() => {
+      const rest = langs.slice(4).map((l) => l.label.toLowerCase());
+      return rest.every((x, i) => i === 0 || rest[i - 1] <= x);
+    })());
+    ok('catalog: search finds a new language by name and by code',
+       L.searchLanguages('tigrinya').length === 1 && L.searchLanguages('yue').length === 1);
+    R.push('   languages offered: ' + langs.length + ' (was 106)');
+
+    // ================= 4. THE THREE DEFECTS =================
+    const iso = (d) => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const d0 = new Date(); d0.setDate(d0.getDate() + 3);
+    const tasks = {
+      hid: { id:'hid', title:'verifica di biologia', course:'', dueDate:iso(d0), dueTime:'', priority:'normal', completed:false, createdAt:2,
+             translatedTitle:'biology quiz', translatedLang:'es', translationHidden:true },
+      shown: { id:'shown', title:'מבחן במתמטיקה', course:'', dueDate:iso(d0), dueTime:'', priority:'normal', completed:false, createdAt:1,
+             translatedTitle:'math test', translatedLang:'he' },
+    };
+    clearFocusState();
+    const data = await createSandboxData({ tasks, profile: { courses:{list:SAMPLE_COURSES}, schedule:sampleSchedule(), account:{displayName:'Gabe',onboarded:true} } });
+    const thost = document.getElementById('tpanel');
+    const tview = new TasksView(data, { host: thost });
+    await tview.mount(thost); await sleep(500);
+    // RE-SEED AFTER MOUNT. If the enabled-language signature in localStorage does not
+    // match current prefs (another harness in this browser is enough to change it),
+    // the view clears every stored verdict on mount, which empties the very fields
+    // this section is about. Writing them now lands after that sweep.
+    await data.putTasksBulk(Object.values(tasks).map((t) => ({ ...t })));
+    await sleep(400);
+    const rowOf = (id) => thost.querySelector('.task-item[data-task-id="' + id + '"]');
+    ok('D3: a HIDDEN translation paints no assessment badge',
+       !!rowOf('hid') && rowOf('hid').textContent.indexOf('TEST') < 0,
+       rowOf('hid') ? rowOf('hid').textContent.trim().slice(0, 60) : 'row missing');
+    ok('D3: a SHOWN translation still paints one',
+       !!rowOf('shown') && rowOf('shown').textContent.indexOf('TEST') >= 0);
+    ok('hidden translation is not rendered in Tasks', !rowOf('hid').querySelector('.task-translation'));
+    ok('shown translation IS rendered in Tasks', !!rowOf('shown').querySelector('.task-translation'));
+    ok('Tasks translation names its language',
+       (rowOf('shown').querySelector('.task-translation')||{}).title === 'Translated from Hebrew',
+       (rowOf('shown').querySelector('.task-translation')||{}).title);
+
+    const fhost = document.getElementById('fpanel');
+    const fv = new FocusView(data);
+    await fv.mount(fhost); await sleep(400);
+    fv.todos = [
+      { id:'f1', text:'verifica di biologia', done:false, taskId:'hid', course:'', dueDate:'', dueTime:'',
+        translatedTitle:'biology quiz', translatedLang:'es', translationHidden:true },
+      { id:'f2', text:'מבחן במתמטיקה', done:false, taskId:'shown', course:'', dueDate:'', dueTime:'',
+        translatedTitle:'math test', translatedLang:'he' },
+    ];
+    fv.selectedSeconds = 1800; fv['startSession'](); await sleep(500);
+    const ov = document.querySelector('.focus-overlay');
+    const rows = [].slice.call(ov.querySelectorAll('.focus-todo-item'));
+    const rowFor = (txt) => rows.filter((r) => r.textContent.indexOf(txt) >= 0)[0];
+    ok('D1: a dismissed translation stays dismissed in Focus',
+       !!rowFor('verifica') && !rowFor('verifica').querySelector('.focus-todo-translation'),
+       rowFor('verifica') ? (rowFor('verifica').textContent.indexOf('biology quiz') >= 0 ? 'IT CAME BACK' : 'hidden') : 'row missing');
+    const shownTr = rowFor('מבחן') && rowFor('מבחן').querySelector('.focus-todo-translation');
+    ok('a shown translation still appears in Focus', !!shownTr, shownTr ? shownTr.textContent : 'missing');
+    ok('D2: Focus translation names its language', shownTr && shownTr.title === 'Translated from Hebrew', shownTr ? shownTr.title : 'no title');
+
+    const fails = R.filter((x) => x.indexOf('FAIL') === 0);
+    document.getElementById('out').textContent = R.join('\n') + '\n\n' +
+      (fails.length ? '>>> ' + fails.length + ' FAILURES' : '>>> ALL ' + R.filter((x)=>/^(PASS|FAIL)/.test(x)).length + ' CHECKS PASS');
+  </script>
+</body>

@@ -82,7 +82,10 @@ function fmtPlaylistLen(sec: number): string {
   return `${m}m`;
 }
 import { parseFocusInput, parseDateTime, isPastDate, PAST_DATE_MSG, isPastTime, PAST_TIME_MSG } from '../tasks/parser';
+import { shiftSelect } from '../util/select';
+import { languageName } from '../util/translate';
 import { attachFolderAutocomplete } from '../tasks/folderAutocomplete';
+import { acceptFolderName, cleanFolderName, guardFolderNameField, wireRename } from '../tasks/folderName';
 import { formatMetaDate, formatShortDate, formatTimeOfDay } from '../util/dates';
 import { recordManualLabelForTask } from '../schoology/extension';
 import { getPrefs } from '../prefs';
@@ -1034,7 +1037,9 @@ export class FocusView {
           // Chips (.course-chip/.meta-date) are NOT excluded here: their own
           // handlers stopPropagation on plain clicks (edit) and bubble modifier
           // clicks up to this selection routing.
-          if (tgt.closest('button, a, input, textarea, .inline-edit-block, .focus-todo-handle')) return;
+          // A modifier-held click always selects, never presses (see onCardClick in
+          // bookmarks/view.ts for the bug that rule fixes).
+          if (!(e.ctrlKey || e.metaKey || e.shiftKey) && tgt.closest('button, a, input, textarea, .inline-edit-block, .focus-todo-handle')) return;
           if (this.selClick('todo', visIds, t.id, e)) drawTodos();
         });
         // NO drag grip on this list (Gabe, 8/11, reversing the same day's
@@ -1070,8 +1075,9 @@ export class FocusView {
         nameEl.addEventListener('dblclick', (e) => {
           e.stopPropagation();
           this.inlineTodoEdit(nameEl, folder.name, 'folder name', (v) => {
-            if (!v) return;
-            folder.name = v;
+            const name = acceptFolderName(v, this.host()); // no spaces: f: reads one word
+            if (!name) return;
+            folder.name = name;
             void saveTaskFolders(this.data, this.taskFolders);
           }, drawTodos);
         });
@@ -1302,7 +1308,7 @@ export class FocusView {
   /** Is the "Finished" block open? Collapsed by default and NOT persisted: the
    *  point is that finished work gets out of the way, and a fresh look at the list
    *  should start clean rather than remembering that you once peeked. */
-  private finishedOpen = false;
+  private finishedOpen = new Set<string>();
 
   /**
    * Append checked todos under a collapsed "Finished (N)" header instead of listing
@@ -1313,10 +1319,29 @@ export class FocusView {
    * will be annoyed later, and the answer is always yes. It appears from the FIRST
    * checked todo, because one finished row is already a row you cannot dismiss.
    */
-  private appendFinished(host: HTMLElement, done: FocusTodo[], buildRow: (t: FocusTodo, drag: boolean) => HTMLElement, _redraw: () => void): void {
+  private appendFinished(
+    host: HTMLElement,
+    done: FocusTodo[],
+    buildRow: (t: FocusTodo, drag: boolean) => HTMLElement,
+    _redraw: () => void,
+    /** WHICH drawer this is: a folder's id, or '' for the loose list. The open
+     *  state is per drawer, and that is a fix, not a refinement (Gabe, 8/20). It
+     *  used to be ONE boolean shared by every Finished block on screen, so opening
+     *  the loose drawer also marked the one inside a folder as open: that block
+     *  repainted its own arrow and nobody repainted the others, which is why a
+     *  closed drawer sat there showing a down arrow. Two drawers, two answers. */
+    key = ''
+  ): void {
     if (!done.length) return;
-    const arrow = el('span', { class: 'focus-folder-arrow' + (this.finishedOpen ? ' open' : ''), text: '▶' });
-    const head = el('button', { class: 'focus-finished-head' + (this.finishedOpen ? ' open' : '') });
+    // OFF means no drawer at all: the finished rows just sit at the bottom of the
+    // list, which is where they already were, minus the lid (focus.groupFinished).
+    if (!getPrefs().focus.groupFinished) {
+      for (const t of done) host.append(buildRow(t, false));
+      return;
+    }
+    const isOpen = this.finishedOpen.has(key);
+    const arrow = el('span', { class: 'focus-folder-arrow' + (isOpen ? ' open' : ''), text: '▶' });
+    const head = el('button', { class: 'focus-finished-head' + (isOpen ? ' open' : '') });
     head.append(
       el('span', { class: 'focus-finished-label', text: 'Finished' }),
       el('span', { class: 'count-badge focus-finished-count', text: String(done.length) }),
@@ -1326,7 +1351,7 @@ export class FocusView {
 
     // Done rows are never draggable — the finished zone is not a list you order.
     const rows = done.map((t) => buildRow(t, false));
-    if (this.finishedOpen) for (const r of rows) host.append(r);
+    if (isOpen) for (const r of rows) host.append(r);
 
     // THE TOGGLE DOES NOT REDRAW THE LIST (Gabe, 8/15).
     //
@@ -1341,10 +1366,12 @@ export class FocusView {
     // row on screen keeps its identity, so there is nothing for the browser to
     // re-anchor and nowhere for the scroll to go.
     head.addEventListener('click', () => {
-      this.finishedOpen = !this.finishedOpen;
-      head.classList.toggle('open', this.finishedOpen);
-      arrow.classList.toggle('open', this.finishedOpen);
-      if (this.finishedOpen) {
+      const open = !this.finishedOpen.has(key);
+      if (open) this.finishedOpen.add(key);
+      else this.finishedOpen.delete(key);
+      head.classList.toggle('open', open);
+      arrow.classList.toggle('open', open);
+      if (open) {
         let after: ChildNode = head;
         for (const r of rows) {
           after.after(r);
@@ -1382,7 +1409,6 @@ export class FocusView {
   // selected. Acting on a selected row acts on the whole selection (same as Tasks).
   private importSel = new Set<string>(); // task ids, both Import panels
   private todoSel = new Set<string>(); // todo ids, setup list + in-session list
-  private selAnchor: { imp: string | null; todo: string | null } = { imp: null, todo: null };
 
   /** Route one row click into the selection model. Returns true when the click
    *  WAS a selection gesture (caller re-syncs its list UI and stops). */
@@ -1392,24 +1418,16 @@ export class FocusView {
     if (!multi && !sel.size) return false;
     e.preventDefault();
     window.getSelection()?.removeAllRanges(); // sweep away shift-click text highlight
-    const anchor = this.selAnchor[kind];
-    const a = anchor ? ids.indexOf(anchor) : -1;
-    const b = ids.indexOf(id);
-    if (e.shiftKey && a >= 0 && b >= 0) {
-      // Two rules, same as the Tasks tab (see onRowClick there): a range goes ON,
-      // or comes OFF when the row you land on is already selected.
-      const off = sel.has(id);
-      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) {
-        if (off) sel.delete(ids[i]);
-        else sel.add(ids[i]);
-      }
+    if (e.shiftKey) {
+      // The same range rules as the Tasks tab and Bookmarks, from the one file
+      // that owns them (util/select.ts). This copy used to keep an ANCHOR of its
+      // own; see that file for why remembering the last row touched was the bug.
+      shiftSelect(ids, sel, id);
     } else if (sel.has(id)) {
       sel.delete(id);
     } else {
       sel.add(id);
     }
-    // Anchor follows the last row acted on, and lives only while a selection does.
-    this.selAnchor[kind] = sel.size ? id : null;
     return true;
   }
 
@@ -1604,8 +1622,13 @@ export class FocusView {
     for (const f of folders) {
       const b = el('button', { class: `folder-pick-row${todo.folderId === f.id ? ' on' : ''}` });
       b.innerHTML = FOCUS_FOLDER_SVG(f.color);
-      b.append(el('span', { text: f.name }));
-      b.addEventListener('click', () => {
+      // Renameable here too, and it renames the SHARED folder: the same one the
+      // Tasks tab shows (Gabe, 8/20).
+      const nm = el('span', { class: 'folder-pick-name', text: f.name });
+      wireRename(nm, f, () => { void saveTaskFolders(this.data, this.taskFolders).then(redraw); }, this.host());
+      b.append(nm);
+      b.addEventListener('click', (ev) => {
+        if ((ev.target as HTMLElement).closest('.inline-edit-block')) return; // renaming, not filing
         this.openFocusFolders.add(f.id);
         void fileAll(f.id);
         close();
@@ -1632,9 +1655,10 @@ export class FocusView {
       host: () => this.host(),
     });
     const input = textInput({ class: 'folder-pick-input', placeholder: '+ New folder…' });
+    guardFolderNameField(input, this.host()); // one word: f: cannot reach a name with a space in it
     input.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
-      const name = input.value.trim();
+      const name = cleanFolderName(input.value);
       if (!name) return;
       const folder = makeFolder(name, newColor);
       this.taskFolders.push(folder);
@@ -1651,7 +1675,7 @@ export class FocusView {
     wrap.append(
       el('div', {
         class: 'folder-pick-tip',
-        text: '💡 Pro tip: type f: in the add box to file a task straight into a folder.',
+        text: '💡 Type f: in the add box to file a task straight into a folder',
       })
     );
     card.append(wrap);
@@ -1763,6 +1787,13 @@ export class FocusView {
         dueTime: t.dueTime || '',
         schoologyUrl: t.schoologyUrl || '',
         translatedTitle: t.translatedTitle || '',
+        // CARRIED, not dropped (Gabe, 8/20). Hiding a translation with the globe is
+        // the student telling us it was wrong. It used to stay behind on the task,
+        // so importing the same task into a session showed the rejected line right
+        // back at them. Overriding an explicit correction is the worst thing this
+        // feature can do, so the dismissal travels with the text it dismisses.
+        translationHidden: t.translationHidden || false,
+        translationChosen: t.translationChosen || false,
         translatedLang: t.translatedLang || '',
         ...(t.folderId ? { folderId: t.folderId } : {}),
       });
@@ -1787,7 +1818,8 @@ export class FocusView {
         // Chips (.course-chip/.meta-date) are NOT excluded here: their own
         // handlers stopPropagation on plain clicks (edit) and bubble modifier
         // clicks up to this selection routing.
-        if (tgt.closest('button, a, input, textarea, .inline-edit-block, .focus-todo-handle')) return;
+        // A modifier-held click always selects, never presses (see bookmarks/view.ts).
+        if (!(e.ctrlKey || e.metaKey || e.shiftKey) && tgt.closest('button, a, input, textarea, .inline-edit-block, .focus-todo-handle')) return;
         if (this.selClick('imp', importVisIds, t.id, e)) drawImportBody();
       });
       const main = el('div', { class: 'focus-import-task-main' });
@@ -2064,6 +2096,8 @@ export class FocusView {
     this.paused = false;
     this.pausedRemainingSec = null;
     this.quote = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+    // Each session decides fresh: the latch belongs to the session, not the app.
+    this.accountabilityLatch = getPrefs().focus.timeAccountability;
     this.buildOverlay();
     this.startTicker();
     if (getPrefs().focus.autoStartMusic) this.startMusic();
@@ -2085,6 +2119,10 @@ export class FocusView {
     this.totalSeconds = s.totalSeconds;
     this.endTimeMs = s.endTimeMs;
     this.quote = s.quote;
+    // Restored BEFORE anything renders, so a session that was locked stays locked
+    // across a refresh. Without this, turning the setting off and hitting reload
+    // handed the +/- buttons straight back (Gabe, 8/20).
+    this.accountabilityLatch = !!s.accountability;
     this.sessionMusic = s.selectedMusic;
     this.musicVolume = s.musicVolume ?? 50;
     if (s.musicColl) this.musicColl = { ...s.musicColl }; // resume the exact collection
@@ -2203,7 +2241,12 @@ export class FocusView {
    */
   private startPausedClock(): void {
     this.stopPausedClock();
-    this.pausedClock = this.tickerWin.setInterval(() => this.refreshEndTime(), 5000);
+    this.pausedClock = this.tickerWin.setInterval(() => {
+      this.refreshEndTime();
+      // The +/- buttons change the remaining time while paused, so this can cross
+      // the five-minute line with the ticker stopped.
+      this.syncUrgent(this.pausedRemainingSec ?? 0);
+    }, 5000);
   }
 
   private stopPausedClock(): void {
@@ -2333,6 +2376,9 @@ export class FocusView {
   };
 
   private endSession(completed: boolean): void {
+    // The lock dies with the session it belonged to, so the NEXT one reads the
+    // setting fresh rather than inheriting a commitment nobody made.
+    this.accountabilityLatch = false;
     this.stopTicker();
     this.stopRing();
     if (!this.sample) document.title = this.originalTitle || 'Cobalt';
@@ -2361,6 +2407,8 @@ export class FocusView {
           musicColl: { ...this.musicColl },
           musicWasPlaying: this.paused ? this.musicPlayingAtPause : this.musicPlaying,
           quote: this.quote,
+      accountability: this.accountabilityLatch, // a reload must not unlock the clock
+
           savedAt: Date.now(),
         };
 
@@ -2654,6 +2702,9 @@ export class FocusView {
     this.timeText = el('div', { class: 'focus-time', text: this.clock(this.currentRemaining()) });
     ringWrap.append(this.timeText);
     this.startRingAnimation(); // drive the arc continuously (smoother than per-second)
+    // A ring built INSIDE the last five minutes has to start red, not wait for a
+    // tick that may never come (see syncUrgent).
+    this.syncUrgent(this.paused ? this.pausedRemainingSec ?? 0 : this.currentRemaining());
     return ringWrap;
   }
 
@@ -2734,6 +2785,28 @@ export class FocusView {
 
   /** Two rows of quick time adjustments: +2/+5/+10/custom and −2/−5/−10/custom. The
    *  custom (✎) buttons open a popup with H:M:S carousels for a precise amount. */
+  /**
+   * TIME ACCOUNTABILITY, LATCHED FOR THE SESSION (Gabe, 8/20).
+   *
+   * True once the session is committed to it, and it never goes false while that
+   * session lives. The latch, rather than reading the pref each time, is what
+   * closes the loopholes: the setting could be switched off in Settings, in a
+   * SECOND TAB, or straight in localStorage, and any of those would otherwise hand
+   * the buttons back mid-session. Persisted in the session state too, so a reload
+   * cannot launder it either (see FocusState.accountability).
+   *
+   * Turning the setting ON mid-session flips this on at the next read and it stays
+   * on. That direction is safe: it only ever tightens the commitment.
+   */
+  private accountabilityLatch = false;
+
+  /** Is the clock locked for this session? Ask this, never the pref directly. */
+  private accountabilityOn(): boolean {
+    if (this.accountabilityLatch) return true;
+    if (getPrefs().focus.timeAccountability) this.accountabilityLatch = true;
+    return this.accountabilityLatch;
+  }
+
   private buildExtendRows(): HTMLElement {
     const wrap = el('div', { class: 'focus-extend' });
     const mkRow = (sign: 1 | -1): HTMLElement => {
@@ -2753,6 +2826,18 @@ export class FocusView {
       row.append(custom);
       return row;
     };
+    // LOCKED: the rows are not rendered at all, rather than rendered dead. A row of
+    // greyed-out buttons is an invitation to keep trying; a plain sentence is an
+    // answer. The note also stops the missing block reading as a bug.
+    if (this.accountabilityOn()) {
+      wrap.append(
+        el('div', {
+          class: 'focus-locked-note',
+          text: 'Time accountability is on. This session runs its full length.',
+        })
+      );
+      return wrap;
+    }
     wrap.append(mkRow(1), mkRow(-1));
     return wrap;
   }
@@ -2760,6 +2845,10 @@ export class FocusView {
   /** In-app popup (never native prompt) with H:M:S carousels for a precise custom
    *  add/trim amount. Opened by the +✎ / −✎ buttons. */
   private promptCustomExtend(sign: 1 | -1): void {
+    if (this.accountabilityOn()) {
+      showToast('\u23f3 Time accountability is on. The clock is fixed for this session.');
+      return;
+    }
     const back = el('div', { class: 'focus-modal-back' });
     const card = el('div', { class: 'focus-modal focus-extend-modal' });
     card.append(el('div', { class: 'focus-modal-title', text: sign > 0 ? 'Add time' : 'Trim time' }));
@@ -3163,7 +3252,8 @@ export class FocusView {
         // Chips (.course-chip/.meta-date) are NOT excluded here: their own
         // handlers stopPropagation on plain clicks (edit) and bubble modifier
         // clicks up to this selection routing.
-        if (tgt.closest('button, a, input, textarea, .inline-edit-block, .focus-todo-handle')) return;
+        // A modifier-held click always selects, never presses (see bookmarks/view.ts).
+        if (!(e.ctrlKey || e.metaKey || e.shiftKey) && tgt.closest('button, a, input, textarea, .inline-edit-block, .focus-todo-handle')) return;
         if (this.selClick('todo', visIds, todo.id, e)) this.drawOverlayTodos(host);
       });
 
@@ -3249,8 +3339,9 @@ export class FocusView {
       nameEl.addEventListener('dblclick', (e) => {
         e.stopPropagation();
         this.inlineTodoEdit(nameEl, folder.name, 'folder name', (v) => {
-          if (!v) return;
-          folder.name = v;
+          const name = acceptFolderName(v, this.host()); // no spaces: f: reads one word
+          if (!name) return;
+          folder.name = name;
           void saveTaskFolders(this.data, this.taskFolders);
         }, () => this.drawOverlayTodos(host));
       });
@@ -3282,7 +3373,7 @@ export class FocusView {
         // work stays on top (same rule as the loose list below). Unchecked ones
         // are ⋮⋮-draggable WITHIN the folder, exactly as in the Tasks tab.
         for (const m of members.filter((t) => !t.done)) body.append(buildRow(m, true));
-        this.appendFinished(body, members.filter((t) => t.done), buildRow, () => this.drawOverlayTodos(host));
+        this.appendFinished(body, members.filter((t) => t.done), buildRow, () => this.drawOverlayTodos(host), folder.id);
         box.append(body);
       }
       host.append(box);
@@ -3508,8 +3599,16 @@ export class FocusView {
     label.append(meta);
 
     // English translation carried over from the task (foreign-language titles).
-    if (todo.translatedTitle) {
-      const tr = el('div', { class: 'focus-todo-translation' });
+    if (todo.translatedTitle && !todo.translationHidden) {
+      // Named, the same way the Tasks tab names it. A translated line with no idea
+      // WHICH language it came from is an unqualified assertion, and this is the one
+      // place a todo can be the single large thing on screen (Gabe, 8/20).
+      const tr = el('div', {
+        class: 'focus-todo-translation',
+        title: todo.translationChosen
+          ? `You chose to read this as ${languageName(todo.translatedLang || '')}`
+          : `Translated from ${languageName(todo.translatedLang || '')}`,
+      });
       tr.append(el('span', { class: 'focus-todo-translation-badge', text: '🌐' }));
       tr.append(el('span', { text: todo.translatedTitle }));
       label.append(tr);
@@ -3670,9 +3769,22 @@ export class FocusView {
           todo.dueTime = src.dueTime || '';
           changed = true;
         }
-        if ((todo.translatedTitle || '') !== (src.translatedTitle || '')) {
+        if (
+          (todo.translatedTitle || '') !== (src.translatedTitle || '') ||
+          !!todo.translationChosen !== !!src.translationChosen
+        ) {
           todo.translatedTitle = src.translatedTitle || '';
           todo.translatedLang = src.translatedLang || '';
+          // Whose reading it is travels with the reading. Picking one in Tasks while a
+          // session is open has to change what THIS row claims, not just what it says.
+          todo.translationChosen = !!src.translationChosen;
+          changed = true;
+        }
+        // Hiding a translation in the Tasks tab hides it here too, and un-hiding
+        // un-hides. Without this the two screens disagree about something the
+        // student said out loud, and the session keeps showing what they rejected.
+        if (!!todo.translationHidden !== !!src.translationHidden) {
+          todo.translationHidden = !!src.translationHidden;
           changed = true;
         }
         // DONE follows the task, whichever side did the checking. Ticking it off in
@@ -3787,13 +3899,48 @@ export class FocusView {
     return formatClock(sec, getPrefs().focus.showSeconds);
   }
 
+  /**
+   * Paint the last-five-minutes red onto EVERY ring on screen.
+   *
+   * Called from three places, and it needs all three (Gabe, 8/20):
+   *   • the running ticker, which is the obvious one,
+   *   • buildRing, because a ring built while already inside the last five minutes
+   *     starts life blue and nothing else would ever correct it,
+   *   • the PAUSED clock, which is what actually broke the mini player: pausing
+   *     stops the ticker dead and runs a 5s loop that only refreshes the "Ends"
+   *     line, so a session paused under 5 minutes and then minimized built a fresh
+   *     ring with no urgent class and never called updateDisplay again. The
+   *     full-screen ring looked right only because it had been marked earlier,
+   *     while it was still running.
+   *
+   * It asks the DOCUMENTS rather than trusting this.ringWrap alone, because the
+   * mini player is a Document-Picture-in-Picture window: a separate document, where
+   * one stale reference means the class lands on a node nobody is looking at.
+   */
+  private syncUrgent(remaining: number): void {
+    const urgent = remaining <= 300 && remaining > 0;
+    this.ringWrap?.classList.toggle('urgent', urgent);
+    for (const doc of [document, this.pipWindow?.document]) {
+      if (!doc) continue;
+      for (const wrap of doc.querySelectorAll('.focus-ring-wrap')) wrap.classList.toggle('urgent', urgent);
+    }
+  }
+
   private updateDisplay(remaining: number): void {
     if (this.timeText) this.timeText.textContent = this.clock(remaining);
     this.refreshEndTime(); // keep "Ends …" in step (tick, and after every ± adjust)
     // The ring's offset is animated continuously by startRingAnimation (rAF).
     // Last-5-minutes urgent state: only the RING fades to red (the timer text stays
     // white). CSS handles the smooth 1s fade both into and out of urgent.
-    if (this.ringWrap) this.ringWrap.classList.toggle('urgent', remaining <= 300 && remaining > 0);
+    //
+    // Applied to EVERY ring on screen, not just the one this.ringWrap happens to
+    // point at (Gabe, 8/20: the mini player's ring stayed blue past 5 minutes). The
+    // mini player lives in a Document-Picture-in-Picture window, which is a SEPARATE
+    // DOCUMENT: one stale reference, or one rebuild whose order we got wrong, and the
+    // class lands on a node nobody is looking at while the visible ring stays blue.
+    // Asking the documents costs nothing twice a second and cannot go stale, which is
+    // the same lesson the selection bar singleton taught.
+    this.syncUrgent(remaining);
     // Live countdown in the tab title (paused title is set in togglePause and held
     // because the ticker is stopped, so we only write the running title here).
     if (!this.paused && !this.sample) document.title = `🎯 ${this.clock(remaining)} · Focus`;
@@ -3845,6 +3992,14 @@ export class FocusView {
   // clamped to ≥5s, and totalSeconds (the ring's denominator) grows/shrinks with
   // it so the gold arc stays proportional. Flashes the timer gold (add) or red (trim).
   private extend(deltaSecs: number): void {
+    // THE GATE THAT ACTUALLY MATTERS. Hiding the buttons is presentation; this is
+    // the rule. Every path that could move the clock (the +/- rows, the custom
+    // add/trim popup, anything added later) lands here, so one check covers them
+    // all and a stray button somewhere cannot become a loophole.
+    if (this.accountabilityOn()) {
+      showToast('\u23f3 Time accountability is on. The clock is fixed for this session.');
+      return;
+    }
     // Clamp to [5s, 12h] — "add time" can't push the session past the 12-hour cap.
     const next = Math.min(MAX_FOCUS_SECONDS, Math.max(5, this.currentRemaining() + deltaSecs));
     this.totalSeconds = Math.min(MAX_FOCUS_SECONDS, Math.max(next, this.totalSeconds + deltaSecs));
@@ -4065,6 +4220,13 @@ export class FocusView {
       scroller.appendChild(content); // adopts the live nodes — listeners keep working
       pip.document.body.appendChild(scroller);
       content.classList.add('in-pip');
+      // The focus ring asks html[data-kbd] (see main.ts), and this is a DIFFERENT
+      // document, so the main page's flag means nothing here. Same two listeners,
+      // same rule: a ring when you tab inside the mini player, never when you click.
+      pip.addEventListener('keydown', (e) => {
+        if ((e as KeyboardEvent).key === 'Tab') pip.document.documentElement.dataset.kbd = '';
+      }, true);
+      pip.addEventListener('pointerdown', () => { delete pip.document.documentElement.dataset.kbd; }, true);
       this.pipWindow = pip;
       // Re-home the clock + ring into the PiP window's event loop. The main tab is
       // about to be backgrounded (that's the point of the mini player), and Chrome
@@ -4221,6 +4383,8 @@ export class FocusView {
       // (the track itself is silenced in sync); live sessions read the flag directly.
       musicWasPlaying: this.paused ? this.musicPlayingAtPause : this.musicPlaying,
       quote: this.quote,
+      accountability: this.accountabilityLatch, // a reload must not unlock the clock
+
       savedAt: Date.now(),
       ownerTab: getTabId(), // one session, one tab — this is the deed of ownership
       suspended, // true only from sign-out teardown → blocks auto-restore

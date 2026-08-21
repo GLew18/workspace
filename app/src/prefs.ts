@@ -12,8 +12,8 @@
  *  that the colored strip is dormant, so hiding it would strand the feature. */
 import { DEFAULT_TRANSLATE_FROM } from './util/languages';
 
-export type PinnedAction = 'translate' | 'attach' | 'folder' | 'duplicate';
-export const PINNABLE: PinnedAction[] = ['translate', 'attach', 'folder', 'duplicate'];
+export type PinnedAction = 'translate' | 'readings' | 'attach' | 'folder' | 'duplicate';
+export const PINNABLE: PinnedAction[] = ['translate', 'readings', 'attach', 'folder', 'duplicate'];
 
 export interface AppPrefs {
   /** '12h' shows 2:30pm; '24h' shows 14:30. (Persisted; display wiring is phased.) */
@@ -100,6 +100,31 @@ export interface AppPrefs {
      *  automatic mid-session reload honors it; the sign-out "Restore?" prompt and
      *  a cross-tab handoff still land paused, because those are questions. */
     resumeAfterReload: boolean;
+    /**
+     * TIME ACCOUNTABILITY (Gabe, 8/20). On, the +/- buttons disappear for the whole
+     * session: the length you committed to is the length you serve. The point is to
+     * remove the negotiation, so "just five more minutes" and "I'll trim ten off"
+     * both stop being available at the moment you most want them.
+     *
+     * OFF by default, because it takes something away and nobody should meet it
+     * without choosing it.
+     *
+     * It cannot be switched OFF while a session is running. That rule is the entire
+     * feature: a lock you can pick the instant it binds is not a lock, it is a
+     * suggestion. Turning it ON mid-session is always allowed, since that only ever
+     * makes the commitment stricter. See FocusView's accountabilityOn.
+     */
+    timeAccountability: boolean;
+    /**
+     * Do finished session todos collect under a "Finished (N)" drawer, or just sit
+     * at the bottom of the list? ON by default, which is the behaviour that has
+     * always shipped: done work gets out of the way.
+     *
+     * Off for anyone who would rather see everything at once (Gabe, 8/20). A
+     * session list is short, and one student's clutter is another's evidence that
+     * the hour went somewhere.
+     */
+    groupFinished: boolean;
     /** Are Focus todos and Tasks ONE list, or two independent systems?
      *  ON (default): adding a todo in Focus creates the real task, edits and
      *  check-offs travel both ways, and the two tabs are one system.
@@ -131,7 +156,7 @@ export const DEFAULT_PREFS: AppPrefs = {
   importPrefs: { assignments: true, assessments: true, quizzes: true, windowDays: 30 },
   tasks: { allowEdit: true, pinnedActions: [], translateFrom: [...DEFAULT_TRANSLATE_FROM] },
   sound: { system: true },
-  focus: { showSeconds: true, keepAwake: true, autoStartMusic: true, resumeAfterReload: false, linkTasks: true },
+  focus: { showSeconds: true, keepAwake: true, autoStartMusic: true, resumeAfterReload: false, timeAccountability: false, groupFinished: true, linkTasks: true },
   calendar: {
     defaultScreen: 'list',
     weekStart: 0,
@@ -199,6 +224,8 @@ export function normalizePrefs(raw: unknown): AppPrefs {
       keepAwake: bool(r.focus?.keepAwake, d.focus.keepAwake),
       autoStartMusic: bool(r.focus?.autoStartMusic, d.focus.autoStartMusic),
       resumeAfterReload: bool(r.focus?.resumeAfterReload, d.focus.resumeAfterReload),
+      timeAccountability: bool(r.focus?.timeAccountability, d.focus.timeAccountability),
+      groupFinished: bool(r.focus?.groupFinished, d.focus.groupFinished),
       linkTasks: bool(r.focus?.linkTasks, d.focus.linkTasks),
     },
     calendar: {

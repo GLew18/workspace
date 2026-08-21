@@ -312,16 +312,22 @@
   font-size: 10px;
   transition: transform 0.2s ease;
 }
-.focus-folder.open .focus-folder-arrow {
+/* ONLY THE FOLDER'S OWN HEAD, never anything deeper (Gabe, 8/20).
+   The path is spelled out with child combinators on purpose. Written as a plain
+   descendant rule, `.focus-folder.open .focus-folder-arrow` also matched the arrow
+   of the "Finished" drawer INSIDE that folder's body — and at three class selectors
+   it outweighed the two-class rule below meant to hold that arrow upright. So a
+   closed drawer sat there pointing down, but only ever the one nested in an open
+   folder, which is exactly the one Gabe caught. Two head shapes, because the setup
+   screen puts the head directly in the box and the session wraps it in a headrow. */
+.focus-folder.open > .focus-folder-head > .focus-folder-arrow,
+.focus-folder.open > .focus-folder-headrow > .focus-folder-head > .focus-folder-arrow {
   transform: rotate(90deg);
 }
 /* "Finished" is a folder in every way that matters, so its arrow turns the same way
    (Gabe, 8/16). It needs its own rule because the folder rule keys off the .open on
    the folder BOX, and the finished drawer is a bare header with no box around it —
    so the state lives on the header itself. */
-.focus-finished-head .focus-folder-arrow {
-  transform: none;
-}
 .focus-finished-head.open .focus-folder-arrow {
   transform: rotate(90deg);
 }
@@ -439,9 +445,13 @@
 .focus-import-task.selected,
 .focus-todo-row.selected,
 .focus-todo-item.selected {
-  outline: 2px solid var(--gold);
+  outline: 2px solid var(--sel-outline);
   outline-offset: -2px;
-  background: rgba(125, 180, 255, 0.07);
+  /* background-IMAGE, not background: these rows sit on --surface2, and replacing
+     the colour outright stripped that away and left them darker than the tasks
+     they are meant to match (Gabe, 8/20). Layered, the blue reads the same here
+     as it does over there. */
+  background-image: var(--sel-tint);
   border-radius: 8px;
 }
 .focus-import-bulk {
@@ -1094,6 +1104,17 @@
   0% { transform: scale(1); color: #fff; }
   35% { transform: scale(0.94); color: var(--focus-red); }
   100% { transform: scale(1); color: #fff; }
+}
+
+/* Stands in for the +/- rows when time accountability is on. Quiet and centred:
+   it is an explanation, not a control, and it keeps the block roughly the height
+   the buttons had so the task card beside it does not jump. */
+.focus-locked-note {
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  padding: 14px 8px;
 }
 
 /* Add (gold) / trim (red) time rows. The custom (✎) button opens a carousel popup. */
@@ -2243,4 +2264,9 @@
 /* Pushes the ▶ to the right edge, matching every other folder head in the app. */
 .focus-finished-head .focus-folder-arrow {
   margin-left: auto;
+  /* IDENTICAL to a folder's arrow, and the weight is the whole difference (Gabe,
+     8/20). Both are 10px ▶ already, but this head is font-weight 600 and the glyph
+     inherited it, so the same character rendered heavier and read as a size jump
+     next to the folder above it. The arrow is a control, not part of the label. */
+  font-weight: 400;
 }

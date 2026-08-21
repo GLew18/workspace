@@ -25,6 +25,7 @@ import { classifyByRules, learnCorrection } from '../schoology/classify';
 import { recordManualLabelForTask } from '../schoology/extension';
 import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
 import { parseDateTime, isPastDate, PAST_DATE_MSG, isPastTime, PAST_TIME_MSG } from './parser';
+import { shiftSelect } from '../util/select';
 import { detectAttachmentType, normalizeUrl, openAttachment, openAll } from './attachments';
 import { playCompleteChime, showUndoToast } from './complete';
 import { selectionBar, type SelBar } from '../ui/selbar';
@@ -38,8 +39,9 @@ import {
   normFolder,
   FOLDERS_EVENT,
 } from './folders';
+import { acceptFolderName, cleanFolderName, guardFolderNameField, wireRename } from './folderName';
 import { runSync } from '../schoology/sync';
-import { analyzeTitle, languageName, TRANSLATE_LANGS_EVENT } from '../util/translate';
+import { analyzeTitle, languageName, translationReadings, TRANSLATE_LANGS_EVENT } from '../util/translate';
 
 /** The language list a stored translation verdict was reached under. See
  *  autoTranslatePass: when this stops matching the current list, every stored
@@ -152,11 +154,12 @@ export class TasksView {
   // rebuild its row in place, and so only one is ever open.
   private calPop: { taskId: string; pop: HTMLElement } | null = null;
   private calPopOutside: ((e: MouseEvent) => void) | null = null;
-  // Multi-select (list mode): Ctrl/Cmd+click toggles rows, Shift+click extends
-  // from the anchor; Esc clears. File-Explorer rule: using the TOOLBOX on any
-  // selected row applies that action to every selected task at once.
+  // Multi-select (list mode): Ctrl/Cmd+click toggles rows, Shift+click reaches
+  // across a range (util/select.ts), Esc clears. There is deliberately NO anchor
+  // field here any more - see that file for why remembering one was the bug.
+  // File-Explorer rule: using the TOOLBOX on any selected row applies that action
+  // to every selected task at once.
   private selectedIds = new Set<string>();
-  private lastSelId: string | null = null;
 
   // EXCERPT MODE (Gabe, 8/10): the Dashboard's "Today's Tasks" card mounts THIS
   // view filtered to one day, so its rows are the real Tasks-tab rows, not a
@@ -208,6 +211,15 @@ export class TasksView {
       return;
     }
     const header = el('div', { class: 'tasks-header' });
+    // Shift+click is the one thing about this list nobody discovers by accident,
+    // so it is written down where it can be READ BEFORE it is needed (Gabe, 8/20).
+    // It lived on the selection bar first, which was backwards: that bar only
+    // appears once two rows are already picked, so the only people who ever saw
+    // the tip were the ones who had already worked it out.
+    const bulkTip = el('div', {
+      class: 'tasks-bulk-tip',
+      text: '💡 Shift+click to select multiple tasks',
+    });
     // List ⇄ Calendar toggle (quick nav; the Default-screen pref sets the start).
     this.mode = getPrefs().calendar.defaultScreen;
     this.calView = getPrefs().calendar.defaultView;
@@ -220,6 +232,10 @@ export class TasksView {
     this.modeBtn.addEventListener('click', () => {
       this.mode = this.mode === 'list' ? 'calendar' : 'list';
       syncModeBtn();
+      // Bulk select is a LIST gesture (onRowClick returns early in calendar mode),
+      // so its tip goes away with the list rather than advertising something that
+      // does nothing on the screen you are looking at.
+      bulkTip.hidden = this.mode !== 'list';
       this.render();
     });
     header.append(this.modeBtn, this.makeRefreshBtn());
@@ -232,7 +248,8 @@ export class TasksView {
     });
     const quickAdd = buildQuickAdd((parsed) => this.addTask(parsed), () => this.folders);
     this.listEl = el('div', { class: 'task-list' });
-    panel.append(this.bannerHost, header, quickAdd, this.listEl);
+    bulkTip.hidden = this.mode !== 'list';
+    panel.append(this.bannerHost, header, quickAdd, bulkTip, this.listEl);
 
     // The student changed which languages get translated → every task's stored
     // verdict is stale (see util/translate.ts resetTranslationCache). Registered
@@ -824,8 +841,9 @@ export class TasksView {
       nameEl.addEventListener('dblclick', (e) => {
         e.stopPropagation();
         this.inlineEdit(nameEl, f.name, (v) => {
-          if (!v) return;
-          f.name = v;
+          const name = acceptFolderName(v, this.sample?.host); // no spaces: f: reads one word
+          if (!name) return;
+          f.name = name;
           void saveTaskFolders(this.data, this.folders);
         });
       });
@@ -921,8 +939,14 @@ export class TasksView {
       for (const f of this.folders) {
         const b = el('button', { class: `folder-pick-row${task.folderId === f.id ? ' on' : ''}` });
         b.innerHTML = FOLDER_SVG(f.color);
-        b.append(el('span', { text: f.name }));
-        b.addEventListener('click', () => {
+        // Double-click the name to rename, the same gesture as the folder head in
+        // the list behind this menu (Gabe, 8/20). The picker is often where you
+        // notice the name is wrong, and it was the one place you could not fix it.
+        const nm = el('span', { class: 'folder-pick-name', text: f.name });
+        wireRename(nm, f, () => void saveTaskFolders(this.data, this.folders).then(() => this.render()), this.sample?.host);
+        b.append(nm);
+        b.addEventListener('click', (ev) => {
+          if ((ev.target as HTMLElement).closest('.inline-edit-block')) return; // renaming, not filing
           this.openFolders.add(f.id);
           applyAll((t) => ({ ...t, folderId: f.id }));
           close();
@@ -952,9 +976,10 @@ export class TasksView {
         host: () => this.sample?.host,
       });
       const input = textInput({ class: 'folder-pick-input', placeholder: '+ New folder…' });
+      guardFolderNameField(input, this.sample?.host); // one word: f: cannot reach a name with a space in it
       input.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter') return;
-        const name = input.value.trim();
+        const name = cleanFolderName(input.value);
         if (!name) return;
         const folder = makeFolder(name, newColor);
         this.folderBornAt.set(folder.id, Date.now()); // shields it from the empty-folder sweep while its first member saves
@@ -973,7 +998,7 @@ export class TasksView {
       wrap.append(
         el('div', {
           class: 'folder-pick-tip',
-          text: '💡 Pro tip: type f: in the task bar to file a task straight into a folder.',
+          text: '💡 Type f: in the task bar to file a task straight into a folder',
         })
       );
       body.append(wrap);
@@ -1071,6 +1096,22 @@ export class TasksView {
     item.addEventListener('mousedown', (e) => {
       if ((e.shiftKey || e.ctrlKey || e.metaKey) && this.mode === 'list') e.preventDefault();
     });
+    // A MODIFIER CLICK IS CAUGHT ON THE WAY DOWN, before any control on the row can
+    // act on it (Gabe, 8/20). Skipping the early-return in onRowClick is not enough
+    // on its own: the checkbox, the arrows and the ⋯ menu each have their OWN
+    // listener, so a shift-click aimed at the row was still completing the task and
+    // taking the selection with it. Capture phase settles it first — nobody holds
+    // Shift to tick a box. Same rule as the bookmark cards.
+    item.addEventListener(
+      'click',
+      (e) => {
+        if (!(e.ctrlKey || e.metaKey || e.shiftKey) || this.mode !== 'list') return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.onRowClick(task, e);
+      },
+      true
+    );
     item.addEventListener('click', (e) => this.onRowClick(task, e));
     // The strip is DORMANT (Gabe, 8/13): a color band you read, never a control
     // you press. It was briefly clickable; the arrow button in the action cluster
@@ -1167,8 +1208,13 @@ export class TasksView {
     // the user hid it with the 🌐 toggle (in the actions row).
     if (task.translatedTitle && !task.translationHidden) {
       const tr = el('div', {
-        class: 'task-translation',
-        title: `Translated from ${languageName(task.translatedLang || '')}`,
+        class: `task-translation${task.translationChosen ? ' chosen' : ''}`,
+        // Provenance, and the two cases are genuinely different claims: one is the
+        // app saying it read the title, the other is the app showing back an answer
+        // the student gave it (Gabe, 8/20).
+        title: task.translationChosen
+          ? `You chose to read this as ${languageName(task.translatedLang || '')}`
+          : `Translated from ${languageName(task.translatedLang || '')}`,
       });
       tr.append(el('span', { class: 'task-translation-badge', text: '🌐' }));
       tr.append(el('span', { text: task.translatedTitle }));
@@ -1242,7 +1288,14 @@ export class TasksView {
     // ("test your hypothesis"), and the teacher won't fix it — so the student can.
     const assess =
       BADGE_ASSESSMENT_RE.exec(task.title) ||
-      (task.translatedTitle ? BADGE_ASSESSMENT_RE.exec(task.translatedTitle) : null);
+      // The TRANSLATED title may only speak for a badge the student has not
+      // rejected (Gabe, 8/20). The pill is the one output with no original beside
+      // it: it says TEST on its own authority, from text the app guessed the
+      // language of. If the student hid that translation with the globe, they have
+      // said it was wrong, and a claim derived from it cannot outlive it.
+      (task.translatedTitle && !task.translationHidden
+        ? BADGE_ASSESSMENT_RE.exec(task.translatedTitle)
+        : null);
     if (assess && !task.assessmentDismissed) {
       const word = assess[1].toLowerCase();
       // Singularize the plural forms: quizzes → quiz, tests → test.
@@ -1327,9 +1380,9 @@ export class TasksView {
    * Row click routing. TWO RULES, and that is the whole thing (Gabe, 8/19):
    *
    *   1. Click a row to select it. Click it again to deselect it.
-   *   2. Shift+click to reach across a range. If the row you land on is already
-   *      selected the range comes OFF instead of going on, so the same gesture
-   *      that made a range takes it back.
+   *   2. Shift+click to reach across a range. util/select.ts owns exactly what a
+   *      range does, and is shared with Bookmarks and both Focus lists so the
+   *      three cannot drift apart again.
    *
    * Ctrl/Cmd+click is kept as a synonym for a plain click, because muscle memory
    * from every file manager expects it to do something, and toggling is what it
@@ -1349,39 +1402,30 @@ export class TasksView {
   private onRowClick(task: Task, e: MouseEvent): void {
     if (this.mode !== 'list') return; // popover rows in calendar mode don't select
     const t = e.target as Element;
-    if (t.closest('button, a, textarea, input, .task-handle, .inline-edit-block')) return;
-    const multi = e.ctrlKey || e.metaKey || e.shiftKey; // an unanchored shift-click starts the selection
-    const range = e.shiftKey && !!this.lastSelId;
-    if (!multi && !range && !this.selectedIds.size) return;
+    const multi = e.ctrlKey || e.metaKey || e.shiftKey;
+    // A MODIFIER-HELD CLICK IS ALWAYS A SELECTION GESTURE (Gabe, 8/20).
+    //
+    // The row's own controls swallow ordinary clicks, and they used to swallow
+    // shift-clicks too. That is how "shift-clicking a new end point highlights the
+    // one BEFORE it" happened: the card's buttons appear on hover, i.e. under the
+    // cursor at the exact moment you go to click, so the shift-click hit a button,
+    // nothing was selected, and the range still showed the previous end. Nobody
+    // holds Shift to press a delete button, so the modifier settles it.
+    if (!multi && t.closest('button, a, textarea, input, .task-handle, .inline-edit-block')) return;
+
+    if (!multi && !this.selectedIds.size) return;
     e.preventDefault();
     window.getSelection()?.removeAllRanges(); // sweep away any text highlight a drag left behind
-    if (range) {
+    if (e.shiftKey) {
       const ids = [...this.listEl.querySelectorAll<HTMLElement>('.task-item[data-task-id]')].map(
         (r) => r.dataset.taskId!
       );
-      const a = ids.indexOf(this.lastSelId!);
-      const b = ids.indexOf(task.id);
-      // The row you land on decides: already selected → the range comes off.
-      const off = this.selectedIds.has(task.id);
-      if (a >= 0 && b >= 0) {
-        for (let i = Math.min(a, b); i <= Math.max(a, b); i++) {
-          if (off) this.selectedIds.delete(ids[i]);
-          else this.selectedIds.add(ids[i]);
-        }
-      } else if (off) {
-        this.selectedIds.delete(task.id);
-      } else {
-        this.selectedIds.add(task.id);
-      }
+      shiftSelect(ids, this.selectedIds, task.id);
     } else if (this.selectedIds.has(task.id)) {
       this.selectedIds.delete(task.id);
     } else {
       this.selectedIds.add(task.id);
     }
-    // The anchor follows the last row acted on, and an EMPTY selection drops it
-    // altogether — otherwise the next shift+click would range from a row
-    // deselected long ago and resurrect rows nobody re-picked.
-    this.lastSelId = this.selectedIds.size ? task.id : null;
     this.syncSelectionUI();
   }
 
@@ -1395,7 +1439,6 @@ export class TasksView {
 
   private clearSelection(): void {
     this.selectedIds.clear();
-    this.lastSelId = null;
     this.syncSelectionUI();
   }
 
@@ -1791,10 +1834,21 @@ export class TasksView {
    * cache each time and silently drop most of the changes.
    */
   private async clearStoredVerdicts(): Promise<boolean> {
-    const stale = Object.values(this.map).filter((t) => t.translationChecked || t.translatedTitle);
+    // A reading the student CHOSE is not stale. Changing the language list changes
+    // what the app can work out on its own; it does not un-answer a question a person
+    // already answered.
+    const stale = Object.values(this.map).filter(
+      (t) => (t.translationChecked || t.translatedTitle) && !t.translationChosen
+    );
     if (!stale.length) return false;
     await this.data.putTasksBulk(
-      stale.map((t) => ({ ...t, translatedTitle: '', translatedLang: '', translationChecked: false }))
+      stale.map((t) => ({
+        ...t,
+        translatedTitle: '',
+        translatedLang: '',
+        translationChecked: false,
+        translationAmbiguous: false,
+      }))
     );
     return true;
   }
@@ -1826,12 +1880,17 @@ export class TasksView {
     }
 
     const pending = Object.values(this.map).filter(
-      (t) => t.title && !t.completed && !t.translationChecked
+      // A CHOSEN reading is never re-examined. The student answered the question the
+      // auto pass could not, so re-asking it can only overwrite their answer with the
+      // silence that prompted them in the first place (Gabe, 8/20).
+      (t) => t.title && !t.completed && !t.translationChecked && !t.translationChosen
     );
     if (!pending.length) return;
 
     this.autoTx = true;
-    const results: Array<{ id: string; title: string; translatedTitle: string; translatedLang: string }> = [];
+    const results: Array<{
+      id: string; title: string; translatedTitle: string; translatedLang: string; ambiguous: boolean;
+    }> = [];
     try {
       for (const t of pending) {
         const r = await analyzeTitle(t.title);
@@ -1841,6 +1900,7 @@ export class TasksView {
           title: t.title,
           translatedTitle: r.status === 'foreign' ? r.text : '',
           translatedLang: r.status === 'foreign' ? r.sourceLang : '',
+          ambiguous: r.status === 'english' && !!r.ambiguous,
         });
         await new Promise((res) => setTimeout(res, 150)); // gentle throttle
       }
@@ -1862,6 +1922,7 @@ export class TasksView {
             translatedTitle: r.translatedTitle,
             translatedLang: r.translatedLang,
             translationChecked: true,
+            translationAmbiguous: r.ambiguous,
           } as Task;
         })
         .filter((t): t is Task => t !== null);
@@ -1902,6 +1963,32 @@ export class TasksView {
             text: '🌐',
           });
           b.addEventListener('click', run);
+          return b;
+        },
+      });
+    }
+
+    // READINGS — "how should this read?". Earns the row only when the auto pass
+    // declined for want of certainty (translationAmbiguous) and nothing is showing
+    // yet: that is the case where the student cannot otherwise tell the difference
+    // between "Cobalt read this and it was English" and "Cobalt could not tell".
+    // Once a translation IS on screen it stays available in the menu, as a way to
+    // change the reading rather than discover one.
+    if (task.title) {
+      const has = !!task.translatedTitle;
+      out.push({
+        id: 'readings',
+        label: has ? 'Change reading…' : 'Translate from…',
+        iconHtml: '🔤',
+        auto: !!task.translationAmbiguous && !has,
+        run: () => this.openReadings(task),
+        build: () => {
+          const b = el('button', {
+            class: 'act-readings',
+            title: has ? 'Change reading' : 'Translate from…',
+            text: '🔤',
+          });
+          b.addEventListener('click', () => this.openReadings(task));
           return b;
         },
       });
@@ -2107,6 +2194,103 @@ export class TasksView {
       if (e.target === backdrop) close();
     });
     build(body, close);
+  }
+
+  /**
+   * "HOW SHOULD THIS READ?" — the readings menu (Gabe, 8/20).
+   *
+   * Shown only on a click, and it is the one path in Cobalt that names a source
+   * language to the translator. That is sound here for the reason it was not sound
+   * automatically: the student picks, and the student knows what language their class
+   * is in. Every row is a real translation of the real title, so the choice is made
+   * on the ENGLISH, not on a language code and a hope.
+   *
+   * THE ONE PICKER IN THIS FILE THAT IS NOT BULK, and it is not an oversight. Every
+   * row here is a translation of THIS title. Writing the chosen row onto a selection
+   * would stamp one task's English across four unrelated ones, which is not "apply to
+   * all" but "replace all with something about a different task" (caught auditing
+   * this, 8/20). Reading a whole selection as one language is a real feature, it just
+   * needs a translation per title rather than one text copied around.
+   */
+  private openReadings(task: Task): void {
+    this.popup('How should this read?', (body, close) => {
+      // Say so, rather than silently doing less than the neighbouring pickers do.
+      if (this.selTargets(task).length > 1) {
+        body.append(el('div', {
+          class: 'popup-bulk-note',
+          text: 'This one task only. Each title needs its own translation.',
+        }));
+      }
+      body.append(el('div', { class: 'readings-source', text: task.title }));
+      const wrap = el('div', { class: 'readings' });
+      wrap.append(el('div', { class: 'readings-status', text: 'Reading it every way…' }));
+      body.append(wrap);
+
+      void translationReadings(task.title).then(
+        (list) => {
+          wrap.textContent = '';
+          if (list === null) {
+            wrap.append(el('div', { class: 'readings-status', text: 'Could not reach the translator. Try again in a moment.' }));
+            return;
+          }
+          if (!list.length) {
+            // Two different nothings, and the student can act on the first one.
+            const none = getPrefs().tasks.translateFrom.length
+              ? 'No language you have enabled reads this as anything but itself. If it is in a language you have not enabled yet, add it in Settings ▸ Tasks ▸ Languages.'
+              : 'No languages are enabled yet. Turn some on in Settings ▸ Tasks ▸ Languages and this will have something to offer.';
+            wrap.append(el('div', { class: 'readings-status', text: none }));
+            return;
+          }
+          for (const r of list) {
+            const b = el('button', {
+              class: `readings-row${task.translatedLang === r.lang && task.translatedTitle ? ' on' : ''}`,
+            });
+            const head = el('div', { class: 'readings-lang' });
+            head.append(el('span', { text: r.label }));
+            // The detector's own lean is worth marking, but only as a hint: it was
+            // not confident enough to act on, which is why this menu exists at all.
+            if (r.guess) head.append(el('span', { class: 'readings-guess', text: 'best guess' }));
+            b.append(head, el('div', { class: 'readings-text', text: r.text }));
+            b.addEventListener('click', () => {
+              void this.data.putTask({
+                ...task,
+                translatedTitle: r.text,
+                translatedLang: r.lang,
+                translationChosen: true,
+                translationChecked: true,
+                translationAmbiguous: false,
+                translationHidden: false, // choosing a reading is asking to see it
+              });
+              close();
+            });
+            wrap.append(b);
+          }
+          // Undo, for a choice that turned out wrong. Without it the only way back
+          // is the globe, which HIDES the line rather than retracting the answer,
+          // and a hidden wrong answer is still a wrong answer on the task.
+          if (task.translatedTitle) {
+            const rm = el('button', { class: 'readings-remove', text: 'Show the original only' });
+            rm.addEventListener('click', () => {
+              void this.data.putTask({
+                ...task,
+                translatedTitle: '',
+                translatedLang: '',
+                translationChosen: false,
+                translationHidden: false,
+                translationChecked: true,
+                translationAmbiguous: true, // still a question, still offerable
+              });
+              close();
+            });
+            wrap.append(rm);
+          }
+        },
+        () => {
+          wrap.textContent = '';
+          wrap.append(el('div', { class: 'readings-status', text: 'Could not reach the translator. Try again in a moment.' }));
+        }
+      );
+    });
   }
 
   private openDetails(task: Task): void {

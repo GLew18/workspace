@@ -159,7 +159,21 @@
   border-radius: 14px;
   overflow: hidden;
   text-decoration: none;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  /* SELECTION IS A SNAP, NEVER A FADE (Gabe, 8/20).
+     This list is the whole guarantee. Everything a card changes when it becomes
+     selected is ABSENT from it: background-image (the tint) and outline (the ring).
+     What is present, border-color and transform, is what HOVER changes, and hover
+     is one card at a time.
+     The property that caused the bug was `background`, a shorthand that quietly
+     covers background-image. background-image has no interpolation between `none`
+     and a gradient, so Chrome flips it discretely at 50% of the duration: every
+     card in a range sat bare for 100ms and then popped. That is why it read as the
+     cards arriving one after another rather than as a fade.
+     Spelling the list out also shadows the blanket `a { transition: ... }` in
+     theme.css, which would otherwise put background-color back.
+     var(--transition) rather than a local 0.2s, so a hovered card eases at exactly
+     the rate a hovered task row does. */
+  transition: border-color var(--transition), transform var(--transition);
 }
 /* Drag handle (⋮⋮) — same concept as focus-session todos: grab here to reorder.
    Stretched to the card's FULL height with side padding, so the grab target is a
@@ -186,8 +200,17 @@
 .bm-card.dragging {
   opacity: 0.5;
 }
+/* HOVER MAY LIFT AND BRIGHTEN THE EDGE, BUT IT MAY NOT TINT (Gabe, 8/20).
+   The background lightening is gone for good: a card under the pointer used to
+   start from a different background than its neighbours, so a range could never
+   land in one visual step, and worse, a pale wash on a dark card is close enough
+   to the selected tint to be mistaken for it. Blue means selected, and nothing
+   else may come near it.
+   The border and the 1px lift stay, because neither is a fill: they say "the
+   pointer is here" without saying anything about the selection. Both are also
+   properties selection never touches, so they cannot re-introduce the staggered
+   paint. */
 .bm-card:hover {
-  background: rgba(255, 255, 255, 0.05);
   border-color: var(--border-strong);
   transform: translateY(-1px);
 }
@@ -657,11 +680,19 @@
    several cards, then one action hits all of them. Two tabs that both show a list
    of things should not have two different ways to select several. */
 .bm-card.selected {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--sel-outline);
   outline-offset: -2px;
-  background: rgba(125, 180, 255, 0.09);
+  /* The same layered tint as a selected task or focus row (see --sel-tint). */
+  background-image: var(--sel-tint);
 }
-/* While a selection is live, a click on a card PICKS rather than opens, so the
+/* This used to also carry a `transition` override, to snap the background only while
+   a selection was live. That was a patch on the wrong layer (Gabe, 8/20): it left the
+   base .bm-card rule free to fade the tint on the very first card of a selection,
+   before any card had bm-selecting on it, and it still eased transform. The base rule
+   now animates border-color and nothing else, so every card is instant in every state
+   and there is nothing left for this class to correct. It carries only the cursor.
+
+   While a selection is live, a click on a card PICKS rather than opens, so the
    pointer must stop promising a link. */
 .bm-card.bm-selecting {
   cursor: default;
@@ -692,22 +723,26 @@
   overflow-y: auto;
 }
 
-/* NO WHITE RING ON A CARD, IN ANY STATE (Gabe, 8/15).
-   
+/* NO WHITE RING ON A CARD, AND NO RULE HERE TO DO IT (Gabe, 8/15, rewritten 8/20).
+
    A bookmark card is an <a>, so clicking it focuses it and the browser paints its
-   own focus ring — a white border that appeared before the selection outline and
+   own focus ring, a white border that appeared before the selection outline and
    lingered after. The Tasks tab never showed it because its rows are plain divs and
    take no focus.
-   
-   Scoping this to :focus:not(:focus-visible) was tried first and was NOT enough:
-   Chrome still treated the click as focus-visible here, so the ring came back. The
-   browser default is therefore cleared outright, and OUR ring is drawn for keyboard
-   focus instead — so a focus ring can still be seen when tabbing, but it is accent
-   blue by construction and can never be white again. */
-.bm-card:focus {
-  outline: none;
-}
-.bm-card:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
+
+   There used to be .bm-card:focus and .bm-card:focus-visible here, both clearing the
+   outline. They are GONE, and deliberately so: focus is handled once, app-wide, in
+   components.css (a mouse click gets no ring, keyboard focus gets a dashed one), so
+   a per-element copy here could only drift out of step with it. Two rules and a paragraph
+   defending code that cannot affect rendering is worse than no rules at all, because
+   the next person has to work out which one is live.
+
+   The history is worth keeping, since it was two separate bugs a week apart:
+   scoping to :focus:not(:focus-visible) was tried on 8/15 and was NOT enough, as
+   Chrome treats a click here as focus-visible; then on 8/20 the clears turned out to
+   be the second half of "the ends of a range show no blue outline". Focus is exactly
+   what marks an end point: you ctrl-click one card and shift-click another, and those
+   are the only two cards in a range the mouse ever focused. The fix lives in
+   components.css now: every reset carves out .selected, so a selected card keeps its
+   2px accent outline whether it is focused or not, and an unselected one still shows
+   nothing. */

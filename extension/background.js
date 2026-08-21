@@ -160,10 +160,62 @@ function handleSgyCapture(payload) {
 const SGY_ALARM = 'ws-sgy-sync';
 const SGY_SYNC_MINUTES = 30;
 const SGY_TAB_WATCHDOG_MS = 45000; // force-close if the scrape never reports back
+const SGY_TAB_ALARM = 'ws-sgy-tab-watchdog';
 
-/** Tabs WE opened for syncing → closed on capture, or by the watchdog. MV3 evicts
- *  this worker, so the watchdog is what guarantees no tab is ever orphaned. */
+/** Tabs WE opened for syncing, closed on capture or by the watchdog. */
 const sgySyncTabs = new Set();
+
+// ---- THE SIGN-IN BACKOFF (Gabe, 8/20) --------------------------------------
+//
+// THE TAB STORM. A background sync opens a hidden schoology.com tab every 30
+// minutes. If the student is not signed in, Schoology bounces that tab to Google
+// SSO, and two things then go wrong at once:
+//
+//   1. The tab is no longer a *.schoology.com URL, so the next run's
+//      tabs.query({url: 'https://*.schoology.com/*'}) cannot see it and opens
+//      ANOTHER one. Every 30 minutes. Forever.
+//   2. The watchdog that was supposed to close it is a setTimeout inside an MV3
+//      service worker, and MV3 evicts that worker when it goes idle. The timer
+//      dies with it. The old comment here claimed the watchdog "guarantees no tab
+//      is ever orphaned"; it guaranteed the opposite.
+//
+// Result: dozens of Google sign-in tabs, which is what Gabe photographed.
+//
+// So: count the times a sync tab lands somewhere that is not Schoology, and after
+// three in a row stop trying for a while. Signed out is a state only the student
+// can fix, and retrying it on a timer cannot help. The counter and the cooldown
+// live in chrome.storage.local rather than in memory, because the worker being
+// evicted is the whole problem and a counter that resets on eviction would never
+// reach three.
+const SGY_FAIL_KEY = 'sgy:signinFails';
+const SGY_COOLDOWN_KEY = 'sgy:signinCooldownUntil';
+const SGY_MAX_FAILS = 3;
+const SGY_COOLDOWN_MS = 6 * 60 * 60 * 1000; // six hours, i.e. roughly a school day
+
+/** True when the URL is anything other than the Schoology host we asked for:
+ *  Google SSO, an SAML hop, a Schoology login page. All mean "not signed in". */
+function isSignedOutUrl(url, host) {
+  if (!url) return false;
+  if (/^https:\/\/accounts\.google\.com/i.test(url)) return true;
+  if (/^https:\/\/login\.microsoftonline\.com/i.test(url)) return true;
+  if (/\/login\b|\/sso\b|\/saml\b/i.test(url)) return true;
+  return host ? url.indexOf('https://' + host) !== 0 : false;
+}
+
+/** One more strike. At three, stop opening tabs until the cooldown expires. */
+function noteSigninFailure() {
+  chrome.storage.local.get([SGY_FAIL_KEY], (cur) => {
+    const fails = (((cur || {})[SGY_FAIL_KEY]) || 0) + 1;
+    const patch = { [SGY_FAIL_KEY]: fails };
+    if (fails >= SGY_MAX_FAILS) patch[SGY_COOLDOWN_KEY] = Date.now() + SGY_COOLDOWN_MS;
+    chrome.storage.local.set(patch);
+  });
+}
+
+/** A scrape came back, so the student is signed in. Forget the whole thing. */
+function clearSigninFailures() {
+  chrome.storage.local.remove([SGY_FAIL_KEY, SGY_COOLDOWN_KEY]);
+}
 
 function closeSyncTab(tabId) {
   if (!sgySyncTabs.has(tabId)) return;
@@ -180,13 +232,48 @@ function openSyncTab(host) {
     if (chrome.runtime.lastError || !tab || typeof tab.id !== 'number') return;
     const id = tab.id;
     sgySyncTabs.add(id);
-    setTimeout(() => closeSyncTab(id), SGY_TAB_WATCHDOG_MS);
+    // Remembered in STORAGE, not just the Set: this worker can be evicted at any
+    // moment, and a tab we have forgotten about is a tab nobody will ever close.
+    chrome.storage.local.set({ 'sgy:openTab': { id: id, host: host, at: Date.now() } });
+    // An ALARM, not a setTimeout. MV3 kills the worker when it idles and takes
+    // every pending timer with it, which is precisely how these tabs survived to
+    // pile up. Alarms wake the worker back up.
+    try {
+      chrome.alarms.create(SGY_TAB_ALARM, { when: Date.now() + SGY_TAB_WATCHDOG_MS });
+    } catch (_e) {
+      setTimeout(() => closeSyncTab(id), SGY_TAB_WATCHDOG_MS); // no alarms: best effort
+    }
+  });
+}
+
+/** Close whatever sync tab is on file, wherever it drifted to, and judge it. */
+function reapSyncTab() {
+  chrome.storage.local.get(['sgy:openTab'], (cur) => {
+    const rec = (cur || {})['sgy:openTab'];
+    if (!rec || typeof rec.id !== 'number') return;
+    chrome.storage.local.remove(['sgy:openTab']);
+    try {
+      chrome.tabs.get(rec.id, (tab) => {
+        if (chrome.runtime.lastError || !tab) return;
+        // Still not on Schoology when the watchdog fired: it never got through.
+        if (isSignedOutUrl(tab.url || '', rec.host)) noteSigninFailure();
+        sgySyncTabs.add(rec.id);
+        closeSyncTab(rec.id);
+      });
+    } catch (_e) {
+      /* tab already gone */
+    }
   });
 }
 
 /** Refresh labels without the student lifting a finger. */
 function backgroundSgySync() {
-  chrome.storage.local.get(['sgy:host', SGY_KEY], (cur) => {
+  chrome.storage.local.get(['sgy:host', SGY_KEY, SGY_COOLDOWN_KEY], (cur) => {
+    // Three strikes and we stop. Being signed out is not something a retry can
+    // fix, and the student will hit Schoology themselves soon enough, which is
+    // what clears this (see SGY_CAPTURE).
+    const until = (cur && cur[SGY_COOLDOWN_KEY]) || 0;
+    if (until && Date.now() < until) return;
     const host = (cur && cur['sgy:host']) || (cur && cur[SGY_KEY] && cur[SGY_KEY].host) || '';
     // Never connected yet → nothing to sync and no host we could legitimately
     // guess. The first scrape always comes from the student's own visit.
@@ -219,8 +306,31 @@ chrome.runtime.onInstalled.addListener(ensureSgyAlarm);
 chrome.runtime.onStartup.addListener(ensureSgyAlarm);
 ensureSgyAlarm(); // also on cold start, since onInstalled/onStartup don't always fire
 chrome.alarms.onAlarm.addListener((a) => {
-  if (a && a.name === SGY_ALARM) backgroundSgySync();
+  if (!a) return;
+  if (a.name === SGY_ALARM) backgroundSgySync();
+  // The watchdog. An alarm rather than a timer because it has to survive the
+  // worker being evicted, which is exactly when an orphaned tab needs reaping.
+  if (a.name === SGY_TAB_ALARM) reapSyncTab();
 });
+
+// A tab we opened has finished loading somewhere it should not be. Do not wait for
+// the watchdog: close it now and count the strike, so three sign-in bounces cost
+// the student three brief hidden tabs rather than one per half hour forever.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete' || !sgySyncTabs.has(tabId)) return;
+  chrome.storage.local.get(['sgy:openTab'], (cur) => {
+    const rec = (cur || {})['sgy:openTab'];
+    if (!rec || rec.id !== tabId) return;
+    if (!isSignedOutUrl((tab && tab.url) || '', rec.host)) return;
+    chrome.storage.local.remove(['sgy:openTab']);
+    noteSigninFailure();
+    closeSyncTab(tabId);
+  });
+});
+
+// Cold start: reap anything a previous worker left behind before it was evicted.
+// Without this the tabs from before an update or a browser restart live forever.
+reapSyncTab();
 
 function sgyDataReply(payload, extra) {
   return Object.assign(
@@ -471,6 +581,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     // is the backstop for a scrape that never reports.)
     const fromTab = _sender && _sender.tab && _sender.tab.id;
     if (typeof fromTab === 'number') closeSyncTab(fromTab);
+    clearSigninFailures(); // a scrape came back, so the sign-in is fine again
     return;
   }
 

@@ -80,47 +80,20 @@ export function scriptOf(text: string): Script {
   return 'latin';
 }
 
-/**
- * LANGUAGES A DETECTOR REALISTICALLY CONFUSES WITH EACH OTHER.
- *
- * Every group is a set of close relatives — same family, largely shared vocabulary,
- * often mutually intelligible in writing. This is the ONLY basis on which Cobalt
- * will second-guess a detector: if it names Afrikaans and the student enabled Dutch,
- * that is a coin-flip between two languages a short sentence genuinely cannot
- * separate, so it is worth asking again. If it names Chinese and the student enabled
- * Japanese, that is not a near-miss — those are unrelated families that merely share
- * a set of characters — so the answer stands and the title is left alone.
- *
- * That distinction is what fixes the Asian languages without abandoning the sibling
- * rescue that made Slovak work (Gabe, 8/16). Han is shared by three languages and
- * confusable by none of them; Latin is shared by ninety and confusable within small
- * clusters only.
- */
-const SIBLINGS: string[][] = [
-  ['nl', 'af'],                                     // Dutch / Afrikaans
-  ['cs', 'sk'],                                     // Czech / Slovak
-  ['hr', 'bs', 'sr', 'sl', 'mk'],                   // South Slavic
-  ['pl', 'cs', 'sk'],                               // West Slavic
-  ['ru', 'uk', 'be', 'bg'],                         // East Slavic + Bulgarian
-  ['es', 'pt', 'gl', 'ca', 'it', 'ro'],             // Romance
-  ['da', 'no', 'sv', 'is'],                         // North Germanic
-  ['de', 'lb', 'yi'],                               // German cluster
-  ['id', 'ms', 'jv', 'su'],                         // Malay cluster
-  ['hi', 'mr', 'ne', 'bn'],                         // Indo-Aryan
-  ['fa', 'ur', 'tg', 'ps'],                         // Persian cluster
-  ['fi', 'et'],                                     // Finnic
-  ['tr', 'az', 'uz', 'kk', 'ky', 'tk', 'tt'],       // Turkic
-  ['ar', 'he', 'mt', 'am'],                         // Semitic
-  ['zu', 'xh', 'st', 'sn', 'ny', 'sw'],             // Bantu
-  ['ga', 'gd', 'cy'],                               // Celtic
-  ['lv', 'lt'],                                     // Baltic
-];
-
-/** Are these two close enough that a detector could genuinely mix them up? */
-export function areSiblings(a: string, b: string): boolean {
-  if (!a || !b || a === b) return a === b && !!a;
-  return SIBLINGS.some((g) => g.includes(a) && g.includes(b));
-}
+// THE SIBLING TABLE IS GONE (Gabe, 8/20).
+//
+// It listed languages a detector "realistically confuses" — Dutch with Afrikaans,
+// Czech with Slovak — and existed for one caller: the fallback that re-asked the
+// provider naming a specific language whenever detection landed on a close relative
+// of an enabled one. That fallback is gone (see translate.ts), and with it the only
+// reason to keep this.
+//
+// It should be remembered as a mistake in kind, not just in detail. It was a
+// language-FAMILY taxonomy being asked an EMPIRICAL question about what this
+// particular detector mixes up, and those are different questions — which is why it
+// grouped Arabic with Hebrew, languages that share no alphabet, while separating
+// Arabic from Persian, which share one. If a rescue for near-misses is ever wanted
+// again, it has to be built from logged rejections, not from a family tree.
 
 /** Could a title in `script` plausibly be this language? */
 export function writesScript(def: LanguageDef | undefined, script: Script): boolean {
@@ -136,19 +109,26 @@ export const DEFAULT_TRANSLATE_FROM = ['he', 'es', 'ar', 'fr'];
 /** Every language Cobalt can translate from: the four defaults first, then the rest
  *  alphabetically by English name.
  *
- *  This is Google Translate's own detectable set, so anything a title could
- *  realistically be written in is here. The CATALOG is not the limit — the student's
+ *  This is Google Translate's own published set, so anything a title could
+ *  realistically be written in is here. The CATALOG is not the limit: the student's
  *  picks are, and that separation is the entire design. A short list would have been
  *  a second, invisible gate on top of the one they can actually see and change.
  *
- *  VERIFIED 8/15/26 against cloud.google.com/translate/docs/languages: all 106 codes
- *  below appear in Google's published list. Four need an alias, because the code
- *  Google REPORTS is not the modern one: Hebrew answers 'iw', Javanese 'jw', Tagalog
- *  'fil', and Chinese 'zh-CN'/'zh-TW' (handled by the base-code split in
- *  findLanguage). Those are covered by `also` and asserted in langtest.html.
+ *  VERIFIED 8/20/26 against cloud.google.com/translate/docs/languages, which now
+ *  publishes about 190 entries. The 185 below are all of them except English (the
+ *  target, never a source) and the regional variants that collapse onto a base code
+ *  anyway (fr-CA, pt-BR, zh-CN/zh-TW, ms-Arab, pa-Arab). Five need an alias, because
+ *  the code Google REPORTS is not the modern one: Hebrew answers 'iw', Javanese 'jw',
+ *  Tagalog 'fil', Meiteilon 'mni-Mtei', and Chinese 'zh-CN'/'zh-TW' (handled by the
+ *  base-code split in findLanguage). Those are covered by `also`.
  *
- *  A wrong code here would be quiet rather than harmful: that language would simply
- *  never match, so nothing written in it would translate. Nothing else breaks. */
+ *  A WRONG CODE HERE IS QUIET, NOT HARMFUL, and that is worth being precise about,
+ *  because it is what makes a catalog this size safe. Cobalt never SENDS a code to
+ *  Google: it never names a source language, it only reads the one that detection
+ *  hands back. So a code Google does not actually support, or that its detector never
+ *  returns, simply never matches. That language is offered, chosen, and then nothing
+ *  written in it is ever translated. No other language is affected. The failure mode
+ *  of this file is silence, which is the one Gabe asked for. */
 export const LANGUAGES: LanguageDef[] = [
   // --- the four defaults, first ---
   // Google still reports Hebrew with the retired ISO code 'iw', so both must match.
@@ -157,107 +137,186 @@ export const LANGUAGES: LanguageDef[] = [
   { code: 'ar', label: 'Arabic', native: 'العربية', script: 'arabic' },
   { code: 'fr', label: 'French', native: 'Français' },
   // --- the rest, alphabetical, so an unfiltered list is navigable ---
+  { code: 'ace', label: 'Acehnese', native: 'Bahsa Acêh' },
+  { code: 'ach', label: 'Acholi', native: 'Leb Acoli' },
   { code: 'af', label: 'Afrikaans', native: 'Afrikaans' },
   { code: 'sq', label: 'Albanian', native: 'Shqip' },
+  { code: 'alz', label: 'Alur', native: 'Alur' },
   { code: 'am', label: 'Amharic', native: 'አማርኛ', script: 'ethiopic' },
   { code: 'hy', label: 'Armenian', native: 'Հայերեն', script: 'armenian' },
-  { code: 'az', label: 'Azerbaijani', native: 'Azərbaycan' },
+  { code: 'as', label: 'Assamese', native: 'অসমীয়া', script: 'bengali' },
+  { code: 'awa', label: 'Awadhi', native: 'अवधी', script: 'devanagari' },
+  { code: 'ay', label: 'Aymara', native: 'Aymar aru' },
+  { code: 'az', label: 'Azerbaijani', native: 'Azərbaycan', altScripts: ['cyrillic'] },
+  { code: 'ban', label: 'Balinese', native: 'Basa Bali' },
+  { code: 'bm', label: 'Bambara', native: 'Bamanankan' },
+  { code: 'ba', label: 'Bashkir', native: 'Башҡортса', script: 'cyrillic' },
   { code: 'eu', label: 'Basque', native: 'Euskara' },
+  { code: 'btx', label: 'Batak Karo', native: 'Cakap Karo' },
+  { code: 'bts', label: 'Batak Simalungun', native: 'Hata Simalungun' },
+  { code: 'bbc', label: 'Batak Toba', native: 'Hata Batak Toba' },
   { code: 'be', label: 'Belarusian', native: 'Беларуская', script: 'cyrillic' },
+  { code: 'bem', label: 'Bemba', native: 'Ichibemba' },
   { code: 'bn', label: 'Bengali', native: 'বাংলা', script: 'bengali' },
+  { code: 'bew', label: 'Betawi', native: 'Bahasa Betawi' },
+  { code: 'bho', label: 'Bhojpuri', native: 'भोजपुरी', script: 'devanagari' },
+  { code: 'bik', label: 'Bikol', native: 'Bikol' },
   { code: 'bs', label: 'Bosnian', native: 'Bosanski' },
+  { code: 'br', label: 'Breton', native: 'Brezhoneg' },
   { code: 'bg', label: 'Bulgarian', native: 'Български', script: 'cyrillic' },
   { code: 'my', label: 'Burmese', native: 'မြန်မာ', script: 'burmese' },
+  { code: 'bua', label: 'Buryat', native: 'Буряад', script: 'cyrillic' },
+  { code: 'yue', label: 'Cantonese', native: '粵語', script: 'han' },
   { code: 'ca', label: 'Catalan', native: 'Català' },
   { code: 'ceb', label: 'Cebuano', native: 'Cebuano' },
   { code: 'zh', label: 'Chinese', native: '中文', also: ['zh-cn', 'zh-tw'], script: 'han' },
+  { code: 'cv', label: 'Chuvash', native: 'Чӑвашла', script: 'cyrillic' },
   { code: 'co', label: 'Corsican', native: 'Corsu' },
+  { code: 'crh', label: 'Crimean Tatar', native: 'Qırımtatarca', altScripts: ['cyrillic'] },
   { code: 'hr', label: 'Croatian', native: 'Hrvatski' },
   { code: 'cs', label: 'Czech', native: 'Čeština' },
   { code: 'da', label: 'Danish', native: 'Dansk' },
+  { code: 'din', label: 'Dinka', native: 'Thuɔŋjäŋ' },
+  { code: 'dv', label: 'Divehi', native: 'ދިވެހި' },
+  { code: 'doi', label: 'Dogri', native: 'डोगरी', script: 'devanagari' },
+  { code: 'dov', label: 'Dombe', native: 'Dombe' },
   { code: 'nl', label: 'Dutch', native: 'Nederlands' },
+  { code: 'dz', label: 'Dzongkha', native: 'རྫོང་ཁ', script: 'tibetan' },
   { code: 'eo', label: 'Esperanto', native: 'Esperanto' },
   { code: 'et', label: 'Estonian', native: 'Eesti' },
+  { code: 'ee', label: 'Ewe', native: 'Eʋegbe' },
+  { code: 'fj', label: 'Fijian', native: 'Na Vosa Vakaviti' },
   { code: 'fi', label: 'Finnish', native: 'Suomi' },
+  { code: 'fy', label: 'Frisian', native: 'Frysk' },
+  { code: 'ff', label: 'Fulfulde', native: 'Fulfulde' },
+  { code: 'gaa', label: 'Ga', native: 'Gã' },
   { code: 'gl', label: 'Galician', native: 'Galego' },
+  { code: 'lg', label: 'Ganda', native: 'Luganda' },
   { code: 'ka', label: 'Georgian', native: 'ქართული', script: 'georgian' },
   { code: 'de', label: 'German', native: 'Deutsch' },
   { code: 'el', label: 'Greek', native: 'Ελληνικά', script: 'greek' },
+  { code: 'gn', label: 'Guarani', native: 'Avañe’ẽ' },
   { code: 'gu', label: 'Gujarati', native: 'ગુજરાતી', script: 'gujarati' },
   { code: 'ht', label: 'Haitian Creole', native: 'Kreyòl Ayisyen' },
-  { code: 'ha', label: 'Hausa', native: 'Hausa' },
+  { code: 'cnh', label: 'Hakha Chin', native: 'Laiholh' },
+  { code: 'ha', label: 'Hausa', native: 'Hausa', altScripts: ['arabic'] },
   { code: 'haw', label: 'Hawaiian', native: 'Olelo Hawaii' },
+  { code: 'hil', label: 'Hiligaynon', native: 'Ilonggo' },
   { code: 'hi', label: 'Hindi', native: 'हिन्दी', script: 'devanagari' },
   { code: 'hmn', label: 'Hmong', native: 'Hmoob' },
   { code: 'hu', label: 'Hungarian', native: 'Magyar' },
+  { code: 'hrx', label: 'Hunsrik', native: 'Hunsrik' },
   { code: 'is', label: 'Icelandic', native: 'Íslenska' },
   { code: 'ig', label: 'Igbo', native: 'Igbo' },
+  { code: 'ilo', label: 'Ilocano', native: 'Ilokano' },
   { code: 'id', label: 'Indonesian', native: 'Bahasa Indonesia' },
   { code: 'ga', label: 'Irish', native: 'Gaeilge' },
   { code: 'it', label: 'Italian', native: 'Italiano' },
   { code: 'ja', label: 'Japanese', native: '日本語', script: 'kana', altScripts: ['han'] },
   { code: 'jv', label: 'Javanese', native: 'Basa Jawa', also: ['jw'] },
   { code: 'kn', label: 'Kannada', native: 'ಕನ್ನಡ', script: 'kannada' },
-  { code: 'kk', label: 'Kazakh', native: 'Қазақ', script: 'cyrillic' },
+  { code: 'pam', label: 'Kapampangan', native: 'Kapampangan' },
+  { code: 'kk', label: 'Kazakh', native: 'Қазақ', script: 'cyrillic', altScripts: ['latin'] },
   { code: 'km', label: 'Khmer', native: 'ខ្មែរ', script: 'khmer' },
+  { code: 'cgg', label: 'Kiga', native: 'Rukiga' },
   { code: 'rw', label: 'Kinyarwanda', native: 'Kinyarwanda' },
+  { code: 'ktu', label: 'Kituba', native: 'Kikongo ya leta' },
+  { code: 'gom', label: 'Konkani', native: 'कोंकणी', script: 'devanagari' },
   { code: 'ko', label: 'Korean', native: '한국어', script: 'hangul', altScripts: ['han'] },
-  { code: 'ku', label: 'Kurdish', native: 'Kurdî' },
-  { code: 'ky', label: 'Kyrgyz', native: 'Кыргызча', script: 'cyrillic' },
+  { code: 'kri', label: 'Krio', native: 'Krio' },
+  { code: 'ku', label: 'Kurdish', native: 'Kurdî', altScripts: ['arabic'] },
+  { code: 'ckb', label: 'Kurdish (Sorani)', native: 'کوردیی ناوەندی', script: 'arabic' },
+  { code: 'ky', label: 'Kyrgyz', native: 'Кыргызча', script: 'cyrillic', altScripts: ['latin'] },
   { code: 'lo', label: 'Lao', native: 'ລາວ', script: 'lao' },
+  { code: 'ltg', label: 'Latgalian', native: 'Latgaliešu' },
   { code: 'la', label: 'Latin', native: 'Latina' },
   { code: 'lv', label: 'Latvian', native: 'Latviešu' },
+  { code: 'lij', label: 'Ligurian', native: 'Ligure' },
+  { code: 'li', label: 'Limburgish', native: 'Limburgs' },
+  { code: 'ln', label: 'Lingala', native: 'Lingála' },
   { code: 'lt', label: 'Lithuanian', native: 'Lietuvių' },
+  { code: 'lmo', label: 'Lombard', native: 'Lombard' },
+  { code: 'luo', label: 'Luo', native: 'Dholuo' },
   { code: 'lb', label: 'Luxembourgish', native: 'Lëtzebuergesch' },
   { code: 'mk', label: 'Macedonian', native: 'Македонски', script: 'cyrillic' },
+  { code: 'mai', label: 'Maithili', native: 'मैथिली', script: 'devanagari' },
+  { code: 'mak', label: 'Makassarese', native: 'Basa Mangkasara' },
   { code: 'mg', label: 'Malagasy', native: 'Malagasy' },
-  { code: 'ms', label: 'Malay', native: 'Bahasa Melayu' },
+  { code: 'ms', label: 'Malay', native: 'Bahasa Melayu', altScripts: ['arabic'] },
   { code: 'ml', label: 'Malayalam', native: 'മലയാളം', script: 'malayalam' },
   { code: 'mt', label: 'Maltese', native: 'Malti' },
   { code: 'mi', label: 'Maori', native: 'Te Reo Māori' },
   { code: 'mr', label: 'Marathi', native: 'मराठी', script: 'devanagari' },
-  { code: 'mn', label: 'Mongolian', native: 'Монгол', script: 'cyrillic' },
+  { code: 'chm', label: 'Meadow Mari', native: 'Олык марий', script: 'cyrillic' },
+  { code: 'mni', label: 'Meiteilon', native: 'ꯃꯤꯇꯩꯂꯣꯟꯁ', also: ['mni-mtei'] },
+  { code: 'min', label: 'Minangkabau', native: 'Baso Minang' },
+  { code: 'lus', label: 'Mizo', native: 'Mizo ṭawng' },
+  { code: 'mn', label: 'Mongolian', native: 'Монгол', script: 'cyrillic', altScripts: ['latin'] },
+  { code: 'nr', label: 'Ndebele (South)', native: 'isiNdebele' },
   { code: 'ne', label: 'Nepali', native: 'नेपाली', script: 'devanagari' },
+  { code: 'new', label: 'Newari', native: 'नेपाल भाषा', script: 'devanagari' },
+  { code: 'nso', label: 'Northern Sotho', native: 'Sesotho sa Leboa' },
   { code: 'no', label: 'Norwegian', native: 'Norsk' },
+  { code: 'nus', label: 'Nuer', native: 'Thok Naath' },
   { code: 'ny', label: 'Nyanja', native: 'Chichewa' },
+  { code: 'oc', label: 'Occitan', native: 'Occitan' },
   { code: 'or', label: 'Odia', native: 'ଓଡ଼ିଆ', script: 'odia' },
+  { code: 'om', label: 'Oromo', native: 'Afaan Oromoo' },
+  { code: 'pag', label: 'Pangasinan', native: 'Salitan Pangasinan' },
+  { code: 'pap', label: 'Papiamento', native: 'Papiamentu' },
   { code: 'ps', label: 'Pashto', native: 'پښتو', script: 'arabic' },
   { code: 'fa', label: 'Persian', native: 'فارسی', script: 'arabic' },
   { code: 'pl', label: 'Polish', native: 'Polski' },
   { code: 'pt', label: 'Portuguese', native: 'Português' },
-  { code: 'pa', label: 'Punjabi', native: 'ਪੰਜਾਬੀ', script: 'gurmukhi' },
+  { code: 'pa', label: 'Punjabi', native: 'ਪੰਜਾਬੀ', script: 'gurmukhi', altScripts: ['arabic'] },
+  { code: 'qu', label: 'Quechua', native: 'Runasimi' },
+  { code: 'rom', label: 'Romani', native: 'Romani čhib' },
   { code: 'ro', label: 'Romanian', native: 'Română' },
+  { code: 'rn', label: 'Rundi', native: 'Ikirundi' },
   { code: 'ru', label: 'Russian', native: 'Русский', script: 'cyrillic' },
   { code: 'sm', label: 'Samoan', native: 'Gagana Samoa' },
+  { code: 'sg', label: 'Sango', native: 'Sängö' },
+  { code: 'sa', label: 'Sanskrit', native: 'संस्कृतम्', script: 'devanagari' },
   { code: 'gd', label: 'Scots Gaelic', native: 'Gàidhlig' },
-  { code: 'sr', label: 'Serbian', native: 'Српски', script: 'cyrillic' },
+  { code: 'sr', label: 'Serbian', native: 'Српски', script: 'cyrillic', altScripts: ['latin'] },
   { code: 'st', label: 'Sesotho', native: 'Sesotho' },
+  { code: 'crs', label: 'Seychellois Creole', native: 'Kreol Seselwa' },
+  { code: 'shn', label: 'Shan', native: 'လိၵ်ႈတႆး', script: 'burmese' },
   { code: 'sn', label: 'Shona', native: 'ChiShona' },
-  { code: 'sd', label: 'Sindhi', native: 'سنڌي', script: 'arabic' },
+  { code: 'scn', label: 'Sicilian', native: 'Sicilianu' },
+  { code: 'szl', label: 'Silesian', native: 'Ślōnskŏ' },
+  { code: 'sd', label: 'Sindhi', native: 'سنڌي', script: 'arabic', altScripts: ['devanagari'] },
   { code: 'si', label: 'Sinhala', native: 'සිංහල', script: 'sinhala' },
   { code: 'sk', label: 'Slovak', native: 'Slovenčina' },
   { code: 'sl', label: 'Slovenian', native: 'Slovenščina' },
   { code: 'so', label: 'Somali', native: 'Soomaali' },
   { code: 'su', label: 'Sundanese', native: 'Basa Sunda' },
   { code: 'sw', label: 'Swahili', native: 'Kiswahili' },
+  { code: 'ss', label: 'Swati', native: 'siSwati' },
   { code: 'sv', label: 'Swedish', native: 'Svenska' },
   { code: 'tl', label: 'Tagalog', native: 'Tagalog', also: ['fil'] },
-  { code: 'tg', label: 'Tajik', native: 'Тоҷикӣ', script: 'cyrillic' },
+  { code: 'tg', label: 'Tajik', native: 'Тоҷикӣ', script: 'cyrillic', altScripts: ['latin'] },
   { code: 'ta', label: 'Tamil', native: 'தமிழ்', script: 'tamil' },
   { code: 'tt', label: 'Tatar', native: 'Татар', script: 'cyrillic' },
   { code: 'te', label: 'Telugu', native: 'తెలుగు', script: 'telugu' },
+  { code: 'tet', label: 'Tetum', native: 'Tetun' },
   { code: 'th', label: 'Thai', native: 'ไทย', script: 'thai' },
+  { code: 'ti', label: 'Tigrinya', native: 'ትግርኛ', script: 'ethiopic' },
+  { code: 'ts', label: 'Tsonga', native: 'Xitsonga' },
+  { code: 'tn', label: 'Tswana', native: 'Setswana' },
   { code: 'tr', label: 'Turkish', native: 'Türkçe' },
-  { code: 'tk', label: 'Turkmen', native: 'Türkmen' },
+  { code: 'tk', label: 'Turkmen', native: 'Türkmen', altScripts: ['cyrillic'] },
+  { code: 'ak', label: 'Twi', native: 'Twi' },
   { code: 'uk', label: 'Ukrainian', native: 'Українська', script: 'cyrillic' },
   { code: 'ur', label: 'Urdu', native: 'اردو', script: 'arabic' },
   { code: 'ug', label: 'Uyghur', native: 'ئۇيغۇرچە', script: 'arabic' },
-  { code: 'uz', label: 'Uzbek', native: 'Ozbek' },
+  { code: 'uz', label: 'Uzbek', native: 'Ozbek', altScripts: ['cyrillic'] },
   { code: 'vi', label: 'Vietnamese', native: 'Tiếng Việt' },
   { code: 'cy', label: 'Welsh', native: 'Cymraeg' },
   { code: 'xh', label: 'Xhosa', native: 'isiXhosa' },
   { code: 'yi', label: 'Yiddish', native: 'ייִדיש', script: 'hebrew' },
   { code: 'yo', label: 'Yoruba', native: 'Yorùbá' },
+  { code: 'yua', label: 'Yucatec Maya', native: 'Maya t’aan' },
   { code: 'zu', label: 'Zulu', native: 'isiZulu' },
 ];
 

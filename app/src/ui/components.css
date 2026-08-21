@@ -1036,6 +1036,124 @@ body.app-mode .app-below {
 .folder-pick-new .folder-pick-input {
   flex: 1;
 }
+/* ---- "How should this read?": the readings menu (Gabe, 8/20) ----------------
+   Built to be chosen from by EYE, not by language code. The English reading is the
+   loud part of each row and the language name is the caption, because the question
+   a student can actually answer is "which of these sentences is my homework", not
+   "was that Papiamento or Spanish". Same row geometry as the folder picker, so the
+   two pickers read as the same kind of object. */
+.readings-source {
+  margin-bottom: 10px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  /* WRAP RULE: the original title wraps here, never scrolls sideways. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.readings {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.readings-status {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  padding: 2px 0;
+}
+.readings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  padding: 9px 12px;
+  cursor: pointer;
+  min-width: 0;
+  transition: border-color var(--transition);
+}
+.readings-row:hover {
+  border-color: var(--border-strong);
+}
+/* The reading currently on the task. */
+.readings-row.on {
+  border-color: var(--accent);
+}
+.readings-lang {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+/* The detector's own lean. A HINT, deliberately quiet: it was not confident enough
+   to act on, which is the only reason this menu exists. */
+.readings-guess {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(var(--glow-rgb), 0.14);
+  color: var(--accent);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.readings-text {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  /* WRAP RULE: a long reading wraps inside its row. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.readings-remove {
+  margin-top: 2px;
+  background: none;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.readings-remove:hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+/* ---- The bulk-select tip, between the quick-add bar and the task list ----
+   TWO NUMBERS SET THE SPACING AROUND IT, and they are the two below.
+     • the gap ABOVE (task bar → tip) is .quick-add's margin-bottom, overridden
+       here to 6px only while the tip is actually SHOWING. :not([hidden]) is not
+       decoration: :has() is structural and does not care about visibility, so
+       without it the rule kept firing in Calendar mode, where the tip is still in
+       the DOM at zero height, and quietly cut the gap under the bar from 18px to 6,
+     • the gap BELOW (tip → the FOLDERS header) is this rule's own margin-bottom.
+   The tip reads as belonging to the bar it explains, so it sits close under it
+   and keeps its distance from the list (Gabe, 8/20: 20px above and 8px below
+   was exactly backwards). Quiet on purpose: a standing note, not a message, at
+   the same weight as the folder-picker tip so the two match. */
+.quick-add:has(+ .tasks-bulk-tip:not([hidden])) {
+  margin-bottom: 6px; /* the gap ABOVE the tip */
+}
+.tasks-bulk-tip {
+  margin: 0 2px 18px; /* the third number is the gap BELOW the tip */
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.tasks-bulk-tip[hidden] { display: none; }
 /* The one-line shortcut tip under the "+ New folder" row (both pickers share it).
    Dim and small on purpose: it teaches without competing with the folder rows,
    and a separator line keeps it from reading as another clickable option. */
@@ -1133,10 +1251,66 @@ body.app-mode .app-below {
 }
 
 /* ===================== Multi-select (Tasks list) ===================== */
+/* ============ FOCUS: NO WHITE BOX, BUT NOT NOTHING EITHER (Gabe, 8/15-8/20) =====
+
+   THE PROBLEM WITH THE BROWSER DEFAULT. Chrome draws its own ring on anything
+   focusable (every button, link and input) and on a dark UI it lands as a hard
+   white box that ignores the border radius. Worse, browsers used to paint it on
+   MOUSE clicks too, which is noise on the 95% of interactions that were never
+   keyboard driven. Rules had been clearing it one element at a time for months,
+   which only ever catches the ones somebody noticed.
+
+   IT WAS THEN REMOVED ENTIRELY, AND THAT WENT TOO FAR. Clearing :focus AND
+   :focus-visible app-wide left Cobalt with no keyboard indicator at all: tab
+   through a task row and nothing tells you whether Enter hits the checkbox, an
+   arrow, or the overflow menu. That is a WCAG 2.4.7 failure, and the people it
+   locks out are the ones who cannot use a mouse in the first place. Schools ask
+   about this at procurement time, which makes it a product problem as well as a
+   decent-behaviour one.
+
+   THE SPLIT THAT RESOLVES IT. :focus-visible is the browser telling us it thinks
+   the user is navigating by keyboard. So:
+     • :focus that is NOT :focus-visible (a mouse click) gets nothing at all, which
+       is the entire original complaint, fixed.
+     • :focus-visible gets a ring of OUR design.
+
+   WHY DASHED, AND WHY OUTSIDE. Blue means SELECTED in this app, and an earlier
+   attempt at an accent-coloured focus ring was reverted for exactly that reason:
+   it was a 2px solid inset ring, which is character for character the selected
+   look. This one differs in SHAPE and POSITION rather than colour: dashed, and at
+   +2px offset so it sits OUTSIDE the element, where the selection ring is solid
+   and inset at -2px. Two different geometries read as two different states at a
+   glance, so nothing has to be told apart by hue.
+
+   ON A SELECTED ELEMENT the dashed ring wins the outline, at (0,2,1) against
+   .bm-card.selected's (0,2,0). That is correct and deliberate: it only happens
+   while the keyboard is genuinely on that row, the tint stays put underneath so
+   the row still reads as selected, and it answers the question the ring exists to
+   answer, which is "where am I". A mouse click cannot trigger it, so the range
+   endpoints that started this whole thread keep their solid ring.
+
+   The mini player needs naming separately: it is a Document-Picture-in-Picture
+   window, its own document, with every stylesheet cloned in but WITHOUT .app-mode
+   on the body, because that class carries the app shell's layout rules and would
+   wreck a 300px window. Its transport buttons and checkboxes are real focusable
+   controls. */
+body.app-mode :focus:not(:focus-visible),
+.focus-pip-body :focus:not(:focus-visible) {
+  outline: none;
+}
+/* html[data-kbd] is set by main.ts on Tab and cleared on any pointer press, and it
+   is doing real work here rather than belt-and-braces: :focus-visible alone let a
+   ring through on mouse clicks (Chrome grants it to a clicked <a>), and the rule is
+   meant to be absolute, a ring when you tab and never when you click. */
+html[data-kbd] body.app-mode :focus-visible,
+html[data-kbd] .focus-pip-body :focus-visible {
+  outline: 2px dashed var(--sel-outline);
+  outline-offset: 2px;
+}
 .task-item.selected {
-  outline: 2px solid var(--gold);
+  outline: 2px solid var(--sel-outline);
   outline-offset: -2px;
-  background: rgba(125, 180, 255, 0.07);
+  background-image: var(--sel-tint);
 }
 /* ===================== Calendar mode (Tasks tab) ===================== */
 .cal-bar {

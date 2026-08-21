@@ -1,0 +1,197 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>readings menu</title>
+<body style="margin:0;background:#07132e;color:#dbe6ff;font:12px/1.6 ui-monospace,monospace">
+  <pre id="out" style="padding:12px;white-space:pre-wrap">running</pre>
+  <div id="tpanel"></div>
+  <script type="module">
+    const say = (t) => { document.getElementById('out').textContent = t; };
+    window.addEventListener('unhandledrejection', (e) => say('REJECT: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+    window.addEventListener('error', (e) => say('ERROR: ' + e.message + '\n' + (e.error && e.error.stack || '')));
+    document.body.classList.add('app-mode');
+    // NO cache-buster on these imports. A "?v=" query makes a SEPARATE module
+    // instance, so `/src/prefs.ts?v=1` and the `/src/prefs.ts` that translate.ts
+    // imports internally are two different modules with two different caches: the
+    // setPrefsCache below then lands on a copy nothing under test is reading. Vite
+    // serves source no-cache in dev, so the buster was never buying anything here.
+    await import('/src/ui/theme.css'); await import('/src/ui/components.css');
+    await import('/src/ui/colorPicker.css'); await import('/src/ui/focus.css');
+    const { isAmbiguous, translationReadings, gateDecision } = await import('/src/util/translate.ts');
+    const { TasksView } = await import('/src/tasks/render.ts');
+    const { createSandboxData, SAMPLE_COURSES, sampleSchedule } = await import('/src/landing/sandbox.ts');
+    const { getPrefs, setPrefsCache } = await import('/src/prefs.ts');
+    const { PINNABLE } = await import('/src/prefs.ts');
+
+    const R = []; const ok = (n, c, x) => R.push((c ? 'PASS  ' : 'FAIL  ') + n + (x ? '  ' + x : ''));
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const click = (e) => e.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    // Enable a spread: two Latin languages that genuinely collide on short words,
+    // plus a Hebrew-script one, so the script filter has something to remove.
+    const langs = ['es', 'pt', 'he'];
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: langs } });
+    // PRIME THE LANGUAGE SIGNATURE before anything mounts. Changing the enabled list
+    // is exactly what makes the view throw away every stored verdict, which is right
+    // in the app and ruinous in a harness that seeds those verdicts by hand: the
+    // sweep is async and landed after the seeding, wiping it. Matching the signature
+    // up front means the sweep has nothing to do.
+    localStorage.setItem('cobalt:tx-langs', langs.join(','));
+
+    // ================= 1. WHEN IS THERE A QUESTION TO ASK =================
+    const v = (lang, sure, onList, accept) => ({ lang, sure, onList, accept });
+    const amb = (text, verdict) => isAmbiguous(text, verdict);
+    ok('accepted titles are never ambiguous', !amb('tarea', v('es', true, true, true)));
+    ok('ENGLISH is never ambiguous', !amb('read chapter 4', v('en', true, false, false)));
+    ok('English at low confidence is still not ambiguous', !amb('read chapter 4', v('en', false, false, false)));
+    ok('a confident language you did NOT enable is a clear answer, not a question',
+       !amb('Hausaufgaben machen', v('de', true, false, false)));
+    ok('an UNSURE reading of an enabled language IS a question',
+       amb('bo por tradusie kisas kisas no', v('es', false, true, false)));
+    ok('an unsure reading of a language you did not enable is a question too',
+       amb('bo por tradusie kisas kisas no', v('pap', false, false, false)),
+       'the detector is unsure, so its label is not the last word');
+    ok('no detected language at all is not a question', !amb('???', v('', false, false, false)));
+    // THE SCRIPT FILTER: a Hebrew title can only be read by a Hebrew-script language,
+    // and a Greek one by none of the three enabled here.
+    ok('a Hebrew title is a question (Hebrew is enabled)', amb('מבחן', v('he', false, true, false)));
+    ok('a GREEK title is not, because no enabled language is written in Greek',
+       !amb('εργασία για αύριο', v('el', false, false, false)));
+    ok('an Arabic title is not either', !amb('واجب الرياضيات', v('ar', false, false, false)));
+
+    // with nothing enabled there is never anything to offer
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: [] } });
+    ok('no enabled languages means no question anywhere', !amb('tarea', v('es', false, false, false)));
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: langs } });
+
+    // the gate itself is untouched by any of this
+    const allowed = new Set(langs);
+    ok('the gate still refuses junk', !gateDecision({ source:'tod cod', translated:'to cod', lang:'es', conf:0.99, allowed }).accept);
+    ok('the gate still accepts real titles', gateDecision({ source:'tarea', translated:'homework', lang:'es', conf:0.98, allowed }).accept);
+
+    // ================= 2. THE ROW OFFERS IT =================
+    ok('"readings" is pinnable', PINNABLE.indexOf('readings') >= 0, PINNABLE.join(','));
+
+    const iso = (d) => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const soon = iso(new Date(Date.now() + 3 * 864e5));
+    const mk = (id, title, extra) => Object.assign({ id, title, course:'', dueDate:soon, dueTime:'', priority:'normal', completed:false, createdAt:1 }, extra || {});
+    const tasks = {
+      q:    mk('q', 'bo por tradusie? kisas kisas no', { translationChecked:true, translationAmbiguous:true }),
+      eng:  mk('eng', 'read chapter 4', { translationChecked:true }),
+      done: mk('done', 'tarea de matematicas', { translationChecked:true, translatedTitle:'math homework', translatedLang:'es' }),
+      pick: mk('pick', 'kisas', { translationChecked:true, translatedTitle:'maybe', translatedLang:'pap', translationChosen:true }),
+    };
+    const data = await createSandboxData({ tasks, profile: { courses:{list:SAMPLE_COURSES}, schedule:sampleSchedule(), account:{displayName:'Gabe',onboarded:true} } });
+    const host = document.getElementById('tpanel');
+    const tv = new TasksView(data, { host });
+    await tv.mount(host); await sleep(600);
+    ok('no verdict sweep ran, so the seeded fields are intact',
+       !!tv.map.done.translatedTitle && !!tv.map.q.translationAmbiguous,
+       JSON.stringify({ done: tv.map.done.translatedTitle, q: tv.map.q.translationAmbiguous }));
+    const row = (id) => host.querySelector('.task-item[data-task-id="' + id + '"]');
+    const T = (id) => tv.map[id]; // the LIVE task, not the literal that seeded it
+
+    ok('an AMBIGUOUS row wears the button on the row itself', !!row('q') && !!row('q').querySelector('.act-readings'));
+    ok('a plain English row does NOT', !!row('eng') && !row('eng').querySelector('.act-readings'));
+    ok('a row that already has a translation does not wear it either',
+       !!row('done') && !row('done').querySelector('.act-readings'));
+    // …but it is still reachable from the "…" menu on every task.
+    const acts = (id) => tv['rowActions'](T(id)).map((a) => a.id + (a.auto ? '*' : ''));
+    ok('every task offers it in the menu', ['q','eng','done','pick'].every((k) => acts(k).indexOf('readings') >= 0 || acts(k).indexOf('readings*') >= 0),
+       JSON.stringify(acts('eng')));
+    const lab = (id) => tv['rowActions'](T(id)).filter((a) => a.id === 'readings')[0].label;
+    ok('the label reads "Translate from…" with no translation yet', lab('q') === 'Translate from…', lab('q'));
+    ok('…and "Change reading…" once there is one', lab('done') === 'Change reading…', lab('done'));
+
+    // ================= 3. PROVENANCE =================
+    const trOf = (id) => row(id) && row(id).querySelector('.task-translation');
+    ok('an AUTO translation says the app read it',
+       trOf('done') && trOf('done').title === 'Translated from Spanish', trOf('done') && trOf('done').title);
+    ok('a CHOSEN translation says the student chose it',
+       trOf('pick') && trOf('pick').title === 'You chose to read this as Papiamento', trOf('pick') && trOf('pick').title);
+    ok('a chosen translation is marked in the DOM', trOf('pick') && trOf('pick').classList.contains('chosen'));
+    ok('an auto translation is not', trOf('done') && !trOf('done').classList.contains('chosen'));
+
+    // ================= 4. A CHOICE SURVIVES THE AUTO PASS =================
+    // The scan skips chosen rows, and a language-list change does not wipe them.
+    const scanned = Object.values(tv.map).filter((t) => t.title && !t.completed && !t.translationChecked && !t.translationChosen);
+    ok('the auto pass skips a task whose reading was chosen', !scanned.some((t) => t.id === 'pick'), JSON.stringify(scanned.map((t) => t.id)));
+    const stale = Object.values(tv.map).filter((t) => (t.translationChecked || t.translatedTitle) && !t.translationChosen);
+    ok('a language-list change does not clear a chosen reading', !stale.some((t) => t.id === 'pick'), JSON.stringify(stale.map((t) => t.id)));
+    ok('…but it does clear an auto one', stale.some((t) => t.id === 'done'));
+
+    // ================= 5. THE MENU ITSELF =================
+    tv['openReadings'](T('q'));
+    const pop = () => host.querySelector('.popup') || document.querySelector('.popup');
+    // Checked with NO await: the request fails fast when signed out, so the working
+    // state is real but brief. Sleeping first tested the state after it, not it.
+    ok('it says it is working while it works',
+       pop() && /Reading it every way/.test(pop().textContent), pop() && pop().textContent.slice(0, 90));
+    await sleep(200);
+    ok('the menu opens', !!pop());
+    ok('it asks the question in its title', pop() && pop().querySelector('h3').textContent === 'How should this read?', pop() && pop().querySelector('h3').textContent);
+    ok('it shows the ORIGINAL title, so the choice is made against it',
+       pop() && (pop().querySelector('.readings-source') || {}).textContent === tasks.q.title,
+       pop() && (pop().querySelector('.readings-source') || {}).textContent);
+
+    // Signed out, every call fails. That must read as a NETWORK problem, never as
+    // "no language reads this as anything", which is a claim we have not earned.
+    const readings = await translationReadings('bo por tradusie? kisas kisas no');
+    ok('an unreachable translator returns null, not an empty list', readings === null, JSON.stringify(readings));
+    await sleep(1500);
+    const txt = pop() ? pop().textContent : '';
+    ok('and the menu says so in words', /Could not reach the translator/.test(txt), txt.slice(0, 140));
+    ok('it does NOT claim there is nothing to offer', !/reads this as anything but itself/.test(txt));
+
+    // ================= 6. A READING IS NOT A BULK EDIT =================
+    // Every other picker here applies to the whole selection. This one must not: the
+    // rows are translations of ONE title, so writing the chosen one across a
+    // selection replaces four tasks with English about a fifth.
+    const popTxt = () => (pop() ? pop().textContent : '');
+    tv.selectedIds = new Set(['q', 'eng', 'done']);
+    (pop() ? pop().closest('.popup-backdrop') : null)?.remove();
+    tv['openReadings'](T('q'));
+    await sleep(150);
+    ok('with a selection active it says it applies to this task only',
+       /This one task only/.test(popTxt()), popTxt().slice(0, 120));
+    const src = await (await fetch('/src/tasks/render.ts')).text();
+    // Vite serves TypeScript already transformed, and `private` is erased by that
+    // transform, so slicing on it silently produced an empty string and a vacuous pass.
+    // Anchor on the DEFINITIONS, not the first mention: both names appear earlier as
+    // `this.openX(task)` call sites, and openDetails is called long before either is
+    // defined, so a plain indexOf pair gave b < a and an empty slice.
+    const a = src.indexOf('openReadings(task) {'), b = src.indexOf('openDetails(task) {', a);
+    const body = a >= 0 && b > a ? src.slice(a, b) : '';
+    ok('the openReadings body was actually found', body.length > 200, body.length + ' chars');
+    ok('openReadings never calls applyToSelection', body.indexOf('applyToSelection') < 0);
+    ok('it writes exactly the one clicked task', (body.match(/putTask\(\{\s*\.\.\.task,/g) || []).length === 2,
+       (body.match(/putTask\(\{\s*\.\.\.task,/g) || []).length + ' writes');
+    tv.selectedIds = new Set();
+
+    // ================= 7. FOCUS MAKES THE SAME CLAIM =================
+    const { FocusView } = await import('/src/focus/view.ts');
+    const { clearFocusState } = await import('/src/focus/persist.ts');
+    clearFocusState();
+    const fhost = document.createElement('div'); document.body.appendChild(fhost);
+    const fv = new FocusView(data);
+    await fv.mount(fhost); await sleep(400);
+    fv.todos = [
+      { id:'a', text:'kisas', done:false, taskId:'pick', course:'', dueDate:'', dueTime:'',
+        translatedTitle:'maybe', translatedLang:'pap', translationChosen:true },
+      { id:'b', text:'tarea de matematicas', done:false, taskId:'done', course:'', dueDate:'', dueTime:'',
+        translatedTitle:'math homework', translatedLang:'es' },
+    ];
+    fv.selectedSeconds = 1800; fv['startSession'](); await sleep(500);
+    const frows = [].slice.call(document.querySelectorAll('.focus-overlay .focus-todo-item'));
+    const fr = (t) => frows.filter((r) => r.textContent.indexOf(t) >= 0)[0];
+    const ftr = (t) => fr(t) && fr(t).querySelector('.focus-todo-translation');
+    ok('Focus credits the STUDENT for a chosen reading',
+       ftr('kisas') && ftr('kisas').title === 'You chose to read this as Papiamento',
+       ftr('kisas') && ftr('kisas').title);
+    ok('…and itself for one it worked out',
+       ftr('tarea') && ftr('tarea').title === 'Translated from Spanish',
+       ftr('tarea') && ftr('tarea').title);
+
+    const fails = R.filter((x) => x.indexOf('FAIL') === 0);
+    say(R.join('\n') + '\n\n' + (fails.length ? '>>> ' + fails.length + ' FAILURES' : '>>> ALL ' + R.filter((x)=>/^(PASS|FAIL)/.test(x)).length + ' CHECKS PASS'));
+  </script>
+</body>

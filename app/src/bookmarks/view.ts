@@ -20,6 +20,7 @@ import { popupGuideButton } from '../ui/popupGuide';
 import { attachColorPicker } from '../ui/colorPicker';
 import { genId } from '../util/ids';
 import { normalizeUrl } from './url';
+import { shiftSelect } from '../util/select';
 import {
   installInAppDispatcher,
   syncShortcutsToExtension,
@@ -193,7 +194,6 @@ export class BookmarksView {
   // exists a plain click toggles. Two tabs that both show a list of things should
   // not have two different ways to pick several of them. ---
   private selectedIds = new Set<string>();
-  private lastSelId: string | null = null; // the shift-range anchor
   private selBar: SelBar | null = null; // the "N selected · Deselect all" strip
 
   // The pop-up fix-it guide. Created once, shown only once an "Open all" button
@@ -293,7 +293,6 @@ export class BookmarksView {
       activeKeyHandler = null;
     }
     this.selectedIds.clear();
-    this.lastSelId = null;
   }
 
   // --- multi-select ---------------------------------------------------------
@@ -303,27 +302,34 @@ export class BookmarksView {
    *  navigation it would otherwise perform. */
   private onCardClick(bm: Bookmark, e: MouseEvent): void {
     const t = e.target as Element;
-    if (t.closest('button, input, textarea, .bm-card-handle')) return; // the card's own controls
     const multi = e.ctrlKey || e.metaKey || e.shiftKey;
-    const range = e.shiftKey && !!this.lastSelId;
-    if (!multi && !range && !this.selectedIds.size) return; // a plain click with nothing selected = open the link
-    e.preventDefault(); // …otherwise the browser would navigate away mid-selection
+    // A MODIFIER-HELD CLICK IS ALWAYS A SELECTION GESTURE (Gabe, 8/20).
+    //
+    // The row's own controls swallow ordinary clicks, and they used to swallow
+    // shift-clicks too. That is how "shift-clicking a new end point highlights the
+    // one BEFORE it" happened: the card's buttons appear on hover, i.e. under the
+    // cursor at the exact moment you go to click, so the shift-click hit a button,
+    // nothing was selected, and the range still showed the previous end. Nobody
+    // holds Shift to press a delete button, so the modifier settles it.
+    if (!multi && t.closest('button, input, textarea, .bm-card-handle')) return; // the card's own controls
+
+    if (!multi && !this.selectedIds.size) return; // a plain click with nothing selected = open the link
+    e.preventDefault(); // otherwise the browser would navigate away mid-selection
     e.stopPropagation();
     window.getSelection()?.removeAllRanges();
-    if (range) {
+    if (e.shiftKey) {
+      // The SAME range rules as the Tasks list, from the same file. This view kept
+      // its own copy and that copy could only ever ADD, so shift-clicking back over
+      // a range here re-selected it instead of undoing it: the selection never
+      // emptied, and the next shift-click then measured from those leftovers and
+      // dragged in cards nowhere near the span drawn (Gabe, 8/20).
       const ids = [...this.grid.querySelectorAll<HTMLElement>('.bm-card[data-bm-id]')].map((c) => c.dataset.bmId!);
-      const a = ids.indexOf(this.lastSelId!);
-      const b = ids.indexOf(bm.id);
-      if (a >= 0 && b >= 0) for (let i = Math.min(a, b); i <= Math.max(a, b); i++) this.selectedIds.add(ids[i]);
-      else this.selectedIds.add(bm.id);
+      shiftSelect(ids, this.selectedIds, bm.id);
     } else if (this.selectedIds.has(bm.id)) {
       this.selectedIds.delete(bm.id);
     } else {
       this.selectedIds.add(bm.id);
     }
-    // An empty selection drops the anchor too, so the next shift-click can't range
-    // from a card deselected long ago and resurrect rows nobody re-picked.
-    this.lastSelId = this.selectedIds.size ? bm.id : null;
     this.syncSelectionUI();
   }
 
@@ -359,7 +365,6 @@ export class BookmarksView {
 
   private clearSelection(): void {
     this.selectedIds.clear();
-    this.lastSelId = null;
     this.syncSelectionUI();
   }
 
@@ -449,7 +454,6 @@ export class BookmarksView {
     for (const id of [...this.selectedIds]) {
       if (!this.state.list.some((b) => b.id === id)) this.selectedIds.delete(id);
     }
-    if (!this.selectedIds.size) this.lastSelId = null;
     this.syncSelectionUI();
   }
 
@@ -522,6 +526,26 @@ export class BookmarksView {
     // ONE listener for both modes. A preview must never NAVIGATE (preventDefault
     // up front), but multi-select still works there: the landing's Dan demo
     // bulk-groups cards on camera, and selecting is harmless without navigation.
+    // A MODIFIER CLICK IS CAUGHT ON THE WAY DOWN (Gabe, 8/20).
+    //
+    // The card's own controls (the ⋮⋮ handle, the group and shortcut chips, the
+    // edit and delete buttons) stopPropagation so an ordinary click on them does
+    // not also hit the card. That is right for a plain click and wrong for a
+    // shift-click: the buttons appear ON HOVER, i.e. under the cursor exactly when
+    // you go to click, so a shift-click meant for the card hit a button, was
+    // stopped dead, and the range still showed the previous end point. Nothing a
+    // child does can stop an event it has not received yet, so this listener runs
+    // in the CAPTURE phase and settles it before any of them get a say.
+    card.addEventListener(
+      'click',
+      (e) => {
+        if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return;
+        e.preventDefault(); // never navigate
+        e.stopPropagation(); // …and never press the control underneath
+        this.onCardClick(bm, e);
+      },
+      true
+    );
     card.addEventListener('click', (e) => {
       if (this.sample) e.preventDefault();
       this.onCardClick(bm, e);

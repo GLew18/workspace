@@ -1,0 +1,172 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Translation: 1000-title live test</title>
+<body style="margin:0;background:#07132e;color:#dbe6ff;font:12.5px/1.6 ui-monospace,monospace">
+  <div style="padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.12)">
+    <div style="font:600 15px system-ui;color:#7db4ff">Translation gate — 1000 live titles</div>
+    <div style="color:#9fb0d0;margin-top:4px">Open this while SIGNED IN to Cobalt (the function refuses anonymous calls).<br>
+      It reads whichever languages you have enabled in Settings ▸ Tasks ▸ Languages and expects a title
+      to be translated only if its language is one of them. To widen the test, enable more languages and re-run:
+      the corpus does not change, only what counts as a pass.</div>
+    <button id="go" style="margin-top:10px;padding:8px 16px;border-radius:10px;border:1px solid #7db4ff;background:transparent;color:#7db4ff;font:600 13px system-ui;cursor:pointer">Run</button>
+    <label style="margin-left:14px;color:#9fb0d0"><input id="cap" type="number" value="1000" min="50" max="3000" style="width:70px;background:#0e1f45;color:#dbe6ff;border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:3px 6px"> titles</label>
+    <span id="status" style="margin-left:12px;color:#9fb0d0"></span>
+  </div>
+  <pre id="out" style="padding:12px 16px;white-space:pre-wrap"></pre>
+  <script type="module">
+    const out = document.getElementById('out');
+    const statusEl = document.getElementById('status');
+    const say = (s) => (out.textContent += s + '\n');
+
+    // ---- FOREIGN corpus, by language code -------------------------------------
+    // A title here is expected to translate ONLY IF its language is enabled.
+    // Anything ambiguous (spelled the same in English) belongs in ENGLISH_LOOKALIKE
+    // below, never here.
+    const FOREIGN = {
+      es: ['tarea de matemáticas', 'leer capítulo 7', 'examen de biología el viernes', 'tarea', 'ensayo',
+        'estudiar para la prueba', 'entregar el ensayo antes del lunes', 'preparar la presentación de historia',
+        'resumen del libro', 'apuntes de clase', 'prueba', 'trabajo en grupo', 'repasar los verbos irregulares',
+        'hacer el laboratorio de química', 'escribir una redacción sobre el medio ambiente',
+        'terminar los problemas de álgebra', 'traer la calculadora', 'memorizar el poema', 'corregir el examen',
+        'buscar fuentes para el trabajo', 'practicar la conjugación', 'comprar materiales', 'página 15 ejercicios',
+        'el plan de estudio', 'mi casa está lejos'],
+      he: ['שיעורי בית במתמטיקה', 'לקרוא פרק שבע', 'מבחן בביולוגיה ביום שישי', 'שיעורי בית', 'חיבור',
+        'ללמוד למבחן', 'להגיש את העבודה עד יום שני', 'להכין מצגת בהיסטוריה', 'סיכום הספר', 'מחברת', 'בוחן',
+        'עבודה קבוצתית', 'לחזור על הפעלים', 'לעשות מעבדה בכימיה', 'לכתוב חיבור על איכות הסביבה',
+        'לסיים את תרגילי האלגברה', 'להביא מחשבון', 'פרויקט במדעים', 'לשנן את השיר', 'לתקן את המבחן',
+        'לקרוא עמודים ארבעים', 'למצוא מקורות לעבודה', 'לתרגל הטיות', 'לקנות חומרים', 'דקדוק'],
+      ar: ['واجب الرياضيات', 'اقرأ الفصل السابع', 'امتحان الأحياء يوم الجمعة', 'واجب منزلي', 'مقال',
+        'الدراسة للامتحان', 'تسليم المقال قبل الاثنين', 'تحضير عرض التاريخ', 'ملخص الكتاب', 'دفتر',
+        'عمل جماعي', 'مراجعة الأفعال', 'إجراء تجربة الكيمياء', 'كتابة مقال عن البيئة', 'إنهاء مسائل الجبر',
+        'إحضار الآلة الحاسبة', 'مشروع العلوم', 'حفظ القصيدة', 'تصحيح الامتحان', 'قراءة الصفحات',
+        'البحث عن مصادر', 'ممارسة التصريف', 'شراء مواد المشروع', 'الفصل الدراسي', 'كتاب القواعد'],
+      fr: ['devoirs de maths', 'lire le chapitre 7', 'contrôle de biologie vendredi', 'devoir', 'rédaction',
+        'réviser pour le contrôle', 'rendre la rédaction avant lundi', 'préparer l\'exposé d\'histoire',
+        'résumé du livre', 'prendre des notes', 'travail de groupe', 'revoir les verbes irréguliers',
+        'faire le TP de chimie', 'écrire une rédaction sur l\'environnement', 'terminer les exercices d\'algèbre',
+        'apporter la calculatrice', 'projet de sciences', 'apprendre le poème par cœur', 'corriger le contrôle',
+        'chercher des sources', 'pratiquer la conjugaison', 'acheter le matériel', 'le plan de travail',
+        'brouillon', 'exposé'],
+      de: ['hausaufgaben mathe', 'lies kapitel sieben', 'biologieprüfung am freitag', 'aufsatz', 'zusammenfassung'],
+      it: ['compiti di matematica', 'leggi il capitolo sette', 'verifica di biologia', 'tema', 'riassunto'],
+      pt: ['dever de matemática', 'ler o capítulo sete', 'prova de biologia', 'redação', 'resumo'],
+      ru: ['домашнее задание по математике', 'прочитать главу семь', 'контрольная по биологии', 'сочинение', 'конспект'],
+      zh: ['数学作业', '阅读第七章', '生物考试', '作文', '摘要'],
+      ja: ['数学の宿題', '第七章を読む', '生物のテスト', '作文', '요약'.slice(0, 0) + '要約'],
+      ko: ['수학 숙제', '일곱 번째 장 읽기', '생물 시험', '작문', '요약'],
+      nl: ['huiswerk wiskunde', 'lees hoofdstuk zeven', 'biologietoets', 'opstel', 'samenvatting'],
+      pl: ['zadanie domowe z matematyki', 'przeczytaj rozdział siedem', 'sprawdzian z biologii', 'wypracowanie', 'streszczenie'],
+      tr: ['matematik ödevi', 'yedinci bölümü oku', 'biyoloji sınavı', 'kompozisyon', 'özet'],
+      hi: ['गणित का गृहकार्य', 'सातवाँ अध्याय पढ़ें', 'जीव विज्ञान की परीक्षा', 'निबंध', 'सारांश'],
+    };
+
+    // ---- NEGATIVES: must NEVER be translated, whatever is enabled -------------
+    const ENGLISH = ['read chapter 4', 'math homework', 'study for the test', 'essay draft', 'page 15',
+      'lab report', 'finish the worksheet', 'bring a calculator', 'group project slides', 'annotate the poem',
+      'problem set 4', 'review quiz 3', 'write the conclusion', 'cite three sources', 'memorize the poem',
+      'correct the test', 'read pages 40 to 55', 'practice conjugation', 'buy project materials',
+      'science fair board', 'turn in the permission slip', 'email the teacher', 'print the rubric',
+      'check the syllabus', 'update the bibliography'];
+    // Spelled identically (or near enough) in English and another language. These are
+    // genuinely ambiguous, so they are INFORMATIONAL: neither outcome is a failure.
+    // "interrogation" is French for a quiz AND an English word, which is why it showed
+    // up as a "miss" on the first run. That was the corpus being wrong, not the gate.
+    const AMBIGUOUS = ['interrogation', 'important', 'nation', 'question', 'science', 'animal', 'radio',
+      'hotel', 'taxi', 'actor', 'final', 'total', 'normal', 'general', 'central'];
+    const SHORTHAND = ['tod cod', 'hw math', 'bio lab', 'ela hw', 'f: math', 'vh essay', 'tmrw', 'hw',
+      'pset 4', 'ch 7', 'ap bio', 'q3 review', 'lab w/ sam', 'essay v2', 'mon 8am', 'wed quiz', 'sat sat',
+      'tod', 'cod', 'vl', 'norm', 'thur hw', 'jan 11 essay', '8/16 quiz', 'in a week'];
+    const JUNK = ['asdf', 'huu', 'heybo', 'qwerty', 'zzz', 'aaa bbb', 'xyz 123', 'lorem', 'foo bar',
+      'test test', 'aaaa', 'blah', 'ok', 'idk', 'tbd', 'n/a', 'wip', 'misc', 'temp', 'draft',
+      'x', 'ugh', 'meh', 'hmm', 'yay'];
+
+    document.getElementById('go').addEventListener('click', async () => {
+      out.textContent = '';
+      const { firebaseConfig } = await import('/src/firebase.ts');
+      const { initializeApp, getApps, getApp } = await import('firebase/app');
+      const { getAuth } = await import('firebase/auth');
+      const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+      if (!getAuth(app).currentUser) { say('NOT SIGNED IN. Open Cobalt, sign in, then reload this page.'); return; }
+      const { analyzeTitle } = await import('/src/util/translate.ts');
+      const { getPrefs } = await import('/src/prefs.ts');
+      const { findLanguage } = await import('/src/util/languages.ts');
+      const enabledRaw = getPrefs().tasks.translateFrom;
+      if (!enabledRaw.length) { say('Translation is OFF (no languages picked).'); return; }
+      // normalise whatever the picker stored down to base codes
+      const enabled = new Set(enabledRaw.map((c) => ((findLanguage(c) || {}).code || c).toLowerCase().split('-')[0]));
+      if (enabled.has('he')) enabled.add('iw');
+      if (enabled.has('iw')) enabled.add('he');
+      say('languages enabled: ' + JSON.stringify([...enabled].sort()));
+
+      // Build the case list. A foreign title is only EXPECTED to translate when its
+      // language is enabled; otherwise it must be left alone, which makes the same
+      // corpus valid for four languages or for all of them.
+      const cases = [];
+      for (const [lg, arr] of Object.entries(FOREIGN))
+        for (const t of arr) cases.push({ t, lg, want: enabled.has(lg) ? 'foreign' : 'english' });
+      for (const t of ENGLISH) cases.push({ t, lg: 'en', want: 'english' });
+      for (const t of SHORTHAND) cases.push({ t, lg: 'shorthand', want: 'english' });
+      for (const t of JUNK) cases.push({ t, lg: 'junk', want: 'english' });
+      for (const t of AMBIGUOUS) cases.push({ t, lg: 'ambiguous', want: 'either' });
+      // Pad to the requested count with distinct variants so nothing is cache-served.
+      const CAP = Math.max(50, Math.min(3000, Number(document.getElementById('cap').value) || 1000));
+      const base = cases.slice();
+      let i = 0;
+      while (cases.length < CAP) { const b = base[i % base.length];
+        cases.push({ t: b.t + ' ' + (2 + Math.floor(i / base.length)), lg: b.lg, want: b.want }); i++; }
+      cases.length = Math.min(cases.length, CAP);
+      say('running ' + cases.length + ' titles…\n');
+
+      const slips = [], misses = [], amb = [], errors = [], accepted = [];
+      let done = 0;
+      const queue = cases.slice();
+      const worker = async () => {
+        for (;;) {
+          const c = queue.shift(); if (!c) return;
+          let r;
+          try { r = await analyzeTitle(c.t); } catch (e) { errors.push(c.t + ' — ' + e); done++; continue; }
+          if (r.status === 'error') errors.push(c.t);
+          if (r.status === 'foreign') { const w = window.__cobaltTranslate || {};
+            if (typeof w.confidence === 'number') accepted.push(w.confidence); }
+          if (c.want === 'either') { if (r.status === 'foreign') amb.push(JSON.stringify(c.t) + ' -> ' + JSON.stringify(r.text) + ' (' + r.sourceLang + ')'); }
+          else if (c.want === 'foreign' && r.status !== 'foreign') {
+            const w = window.__cobaltTranslate || {};
+            misses.push('[' + c.lg + '] ' + c.t + '   detected=' + (w.detected || '?') +
+              '  confidence=' + (w.confidence === undefined ? '?' : w.confidence) +
+              (w.typoFix ? '  (blocked as a near-copy)' : ''));
+          }
+          else if (c.want === 'english' && r.status === 'foreign') {
+            // WHY it got through matters more than THAT it got through: the whole
+            // question is whether the detector's own confidence can separate junk
+            // from a real title, or whether it genuinely cannot.
+            const w = window.__cobaltTranslate || {};
+            slips.push('[' + c.lg + '] ' + JSON.stringify(c.t) + ' -> ' + JSON.stringify(r.text) +
+              '   detected=' + r.sourceLang + '  confidence=' + (w.confidence === undefined ? '?' : w.confidence));
+          }
+          done++;
+          if (done % 25 === 0) statusEl.textContent = done + '/' + cases.length;
+        }
+      };
+      await Promise.all(Array.from({ length: 6 }, worker));
+      statusEl.textContent = 'done';
+
+      say('confidence spread of ACCEPTED translations: ' + (accepted.length
+        ? 'min ' + Math.min(...accepted).toFixed(3) + '  max ' + Math.max(...accepted).toFixed(3) +
+          '  (' + accepted.length + ' samples)'
+        : 'none recorded'));
+      say('');
+      say('SLIP-UPS (translated something that should have been left alone): ' + slips.length);
+      slips.forEach((s) => say('   ' + s));
+      say('');
+      say('MISSES (a real title in an ENABLED language, left untranslated): ' + misses.length);
+      misses.forEach((s) => say('   ' + s));
+      say('');
+      say('ambiguous words translated (informational, not a failure): ' + amb.length);
+      amb.slice(0, 10).forEach((s) => say('   ' + s));
+      say('');
+      say('network/API errors (not a gate failure): ' + errors.length);
+      say('');
+      say(slips.length === 0 ? '>>> ZERO SLIP-UPS across ' + cases.length + ' titles' : '>>> ' + slips.length + ' SLIP-UPS');
+    });
+  </script>
+</body>

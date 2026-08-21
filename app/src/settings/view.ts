@@ -32,6 +32,7 @@ import { END_SOUNDS, DEFAULT_END_SOUND, DEFAULT_END_VOLUME, playEndSound, FOCUS_
 import { armAudioContext } from '../focus/timer';
 import { LIBRARY_TRACKS, MUSIC_GENRES } from '../focus/library';
 import { loadPlaylists, playlistEmoji, playlistKey, type CustomPlaylist } from '../focus/playlists';
+import { focusSessionLive } from '../focus/persist';
 import { NOTIFY_GUIDES } from './notifyGuides';
 import {
   type NotifySettings,
@@ -1206,6 +1207,49 @@ export class SettingsView {
         })
       )
     );
+    // UNCLICKABLE, NOT REFUSED (Gabe, 8/20). Locking it out while a session runs is
+    // the whole feature, and a control that argues with you afterwards still invites
+    // the argument. A dead switch settles it before the click: nothing to push
+    // against, nothing to be talked out of.
+    // Only the OFF direction is ever locked, so the switch is dead only when it is
+    // already on and a session is live. Turning it ON mid-session stays available.
+    const lockAccountability = p.focus.timeAccountability && focusSessionLive();
+    let sw: HTMLButtonElement;
+    sec.append(
+      this.prefRow(
+        'Time accountability',
+        'Removes the +/- buttons during a session, so the length you commit to is the length you serve. It cannot be switched off while a session is running: a lock you can pick the moment it binds is only a suggestion.',
+        (sw = this.prefSwitch(p.focus.timeAccountability, (on) => {
+          // OFF IS THE GUARDED DIRECTION, and only that one. Turning it ON mid
+          // session is fine, it only tightens the commitment. Turning it off is
+          // exactly the negotiation the setting exists to prevent, so the switch
+          // refuses and puts itself back (Gabe, 8/20).
+          // The switch is disabled in this state, so this is only reachable if a
+          // session STARTED while Settings was already open. Silent, deliberately:
+          // the same "no" the disabled switch gives, without a popup about it.
+          if (!on && focusSessionLive()) {
+            sw.setAttribute('aria-checked', 'true');
+            return;
+          }
+          p.focus.timeAccountability = on;
+          save();
+        }))
+      )
+    );
+    if (lockAccountability) {
+      sw!.disabled = true;
+      sw!.title = 'Locked while a focus session is running. That is the point of it.';
+    }
+    sec.append(
+      this.prefRow(
+        'Group finished tasks',
+        'On, finished session tasks collect under a "Finished" drawer so the work left stays on top. Off, they simply sit at the bottom of the list where you can see them.',
+        this.prefSwitch(p.focus.groupFinished, (on) => {
+          p.focus.groupFinished = on;
+          save();
+        })
+      )
+    );
     sec.append(
       this.prefRow(
         'Link Focus and Tasks',
@@ -1594,8 +1638,8 @@ export class SettingsView {
     );
     sources.append(
       this.prefRow(
-        'How reminders reach you',
-        'Bulk edits can make many reminders come due at once. Send each one, fold the whole burst into a single message, or stay silent. Silent covers single reminders too, not just bulk ones: silence means silence. Every reminder is still listed in the notification log whichever you pick.',
+        'Bulk edits',
+        'Changing the due dates of many tasks can make several reminders fire at once. Send each one, fold the whole burst into a single message, or stay silent. Silent covers single reminders too, not just bulk ones: silence means silence. Every reminder is still listed in the notification log whichever you pick.',
         this.prefSeg<BurstMode>(
           [
             ['each', 'Each'],

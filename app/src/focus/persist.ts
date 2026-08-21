@@ -41,6 +41,15 @@ export interface FocusTodo {
   // Translation stashed at import so a foreign task keeps its English line in Focus.
   translatedTitle?: string;
   translatedLang?: string;
+  /** The student hid this translation with the globe, i.e. told us it was wrong.
+   *  Carried over from the source task so a dismissal is not undone by importing
+   *  the task into a session (Gabe, 8/20). */
+  translationHidden?: boolean;
+  /** The student PICKED this reading from the readings menu in the Tasks tab. Carried
+   *  across so this screen makes the same claim the other one does: saying "translated
+   *  from Spanish" about an answer the student gave is the app taking credit for a
+   *  judgment it could not make (Gabe, 8/20). */
+  translationChosen?: boolean;
   /** Folder membership — a SHARED TaskFolder.id, the same value the linked task
    *  carries in Tasks (folders are one list across both tabs; the old
    *  session-scoped FocusFolder namespace is gone). */
@@ -84,6 +93,10 @@ export interface FocusState {
    *  it)? Restores use this to re-arm the pause→resume music linkage. Optional:
    *  older saved states fall back to "a track was selected". */
   musicWasPlaying?: boolean;
+  /** Was time accountability in force for THIS session? Saved so a mid-session
+   *  reload cannot unlock the clock: without it, turning the setting off and
+   *  refreshing would hand the +/- buttons straight back. */
+  accountability?: boolean;
   quote: string;
   savedAt: number;
   /** The one tab this session runs in (see getTabId). Other tabs only offer "Enter". */
@@ -138,6 +151,22 @@ export function getTabId(): string {
 
 /** Does the saved session belong to THIS tab? (Old states without ownerTab — from
  *  before ownership existed — are treated as unowned: offered, never auto-run.) */
+/**
+ * Is a focus session running RIGHT NOW, on this device?
+ *
+ * Reads the persisted state rather than a view's own field, because the caller is
+ * usually not the Focus tab: Settings needs this to refuse unlocking time
+ * accountability mid-session, and Settings may be open while the session lives in
+ * the mini player, in another tab, or behind a reload. A session that is merely
+ * SUSPENDED or declined does not count; neither does one whose clock has run out.
+ */
+export function focusSessionLive(): boolean {
+  const s = loadFocusState();
+  if (!s || !s.sessionActive || s.suspended || s.declined) return false;
+  if (s.paused) return (s.pausedRemainingSec ?? 0) > 0;
+  return s.endTimeMs > Date.now();
+}
+
 export function ownsSession(s: FocusState | null): boolean {
   return !!s?.ownerTab && s.ownerTab === getTabId();
 }

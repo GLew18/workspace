@@ -244,25 +244,33 @@ export function isPastTime(ds: string, time: string): boolean {
 export const PAST_TIME_MSG = '⏰ That time has already passed. Pick a later time.';
 
 /**
- * A month/day with no year means THIS YEAR — full stop (Gabe, 8/19).
+ * A month/day with NO year means THE NEXT TIME THAT DATE HAPPENS (Gabe, 8/11).
+ * On 8/11/26, "8/6" is next year's 8/6, not the one that already went by: a
+ * student typing a bare date is always scheduling something, never backdating
+ * it, and the old this-year assumption silently created an overdue task.
  *
- * It used to roll forward to the next occurrence, so "8/16" typed on 8/20 became
- * NEXT August. That reversed a mistake into a commitment eleven months away
- * instead of saying anything about it, which is the opposite of what every other
- * past date does here: they are refused, out loud, with a toast. A date that has
- * gone by is now simply a past date, and the guards at each entry point turn it
- * away (see isPastDate).
+ * Today itself counts as "the next time", so "8/11" on 8/11 stays today.
  *
- * The cost, stated plainly: a bare "1/15" typed in the autumn now reads as this
- * January and is refused, so a date in the next calendar year has to carry its
- * year ("1/15/27"). That is the trade the refusal buys.
+ * Not rolling was tried on 8/19 and REVERTED the same day (Gabe): it made a bare
+ * "1/15" typed in the autumn mean THIS January and get refused, when a bare date
+ * is precisely the ambiguous case that should be read generously. The unambiguous
+ * one is a date typed WITH a year — see below.
+ *
+ * A date typed WITH a year is left exactly as typed, including into the past, and
+ * the entry-point guards then refuse it (isPastDate). Saying the year out loud
+ * leaves nothing to interpret: "8/16/26" on 8/20/26 can only mean a day that has
+ * gone, so it is turned away rather than quietly moved to 2027.
  */
 function nextOccurrence(monthIdx: number, day: number): string | null {
-  return mkDate(new Date().getFullYear(), monthIdx, day);
+  const now = new Date();
+  const thisYear = mkDate(now.getFullYear(), monthIdx, day);
+  if (!thisYear) return null;
+  return thisYear >= todayStr() ? thisYear : mkDate(now.getFullYear() + 1, monthIdx, day);
 }
 
-/** Try to parse a date starting at tokens[i]; returns the date and tokens consumed. */
-function parseDateAt(tokens: string[], i: number): { date: string; consumed: number } | null {
+/** Try to parse a date starting at tokens[i]; returns the date and tokens consumed.
+ *  `dayFirst` off skips the "11 jan" reading - see findDate for why. */
+function parseDateAt(tokens: string[], i: number, dayFirst = true): { date: string; consumed: number } | null {
   const tok = tokens[i].toLowerCase().replace(/,$/, ''); // tolerate a trailing comma
 
 
@@ -331,7 +339,7 @@ function parseDateAt(tokens: string[], i: number): { date: string; consumed: num
     }
   }
   // "<day> <month>[ <year>]"  → "11 jan", "11th january 2026"
-  const dFirst = dayNum(tok);
+  const dFirst = dayFirst ? dayNum(tok) : null;
   if (dFirst) {
     const mWord = tokens[i + 1]?.toLowerCase().replace(/,$/, '') ?? '';
     if (mWord in MONTHS) {
@@ -344,11 +352,38 @@ function parseDateAt(tokens: string[], i: number): { date: string; consumed: num
   return null;
 }
 
+/**
+ * Find the first date in `tokens`, MONTH-FIRST BEFORE DAY-FIRST (Gabe, 8/20).
+ *
+ * Both orders are valid - "march 1" and "1 march" mean the same day - but they
+ * can collide, and a left-to-right scan let the wrong one win. "read chapter 4
+ * march 1" hit the "4" first, read "4 march" as March 4th, and left a task
+ * called "read chapter 1". The number belonged to the chapter; the date was the
+ * two words after it.
+ *
+ * So the whole line is searched for a month-first date before any day-first
+ * reading is entertained. Month-first is far and away the common way to write it,
+ * and the day-first form only exists to be accommodating - it should never be the
+ * reading that takes something away from a title.
+ */
+function findDate(
+  tokens: string[],
+  from = 0
+): { date: string; consumed: number; at: number } | null {
+  for (const dayFirst of [false, true]) {
+    for (let i = from; i < tokens.length; i++) {
+      const hit = parseDateAt(tokens, i, dayFirst);
+      if (hit) return { ...hit, at: i };
+    }
+  }
+  return null;
+}
+
 /** Standalone short-date parser for inline date editing. */
 export function parseShortDate(str: string): string {
   const tokens = str.trim().split(/\s+/).filter(Boolean);
   if (!tokens.length) return '';
-  const hit = parseDateAt(tokens, 0);
+  const hit = parseDateAt(tokens, 0, false) ?? parseDateAt(tokens, 0, true);
   return hit ? hit.date : (looseDayOfMonth(tokens) ?? '');
 }
 
@@ -381,10 +416,8 @@ export function parseDateTime(input: string): { date: string; time: string } {
   }
   // Date — first matching expression in what remains, then a bare day-of-month fallback.
   let date = '';
-  for (let i = 0; i < tokens.length; i++) {
-    const hit = parseDateAt(tokens, i);
-    if (hit) { date = hit.date; tokens.splice(i, hit.consumed); break; }
-  }
+  const hit = findDate(tokens);
+  if (hit) { date = hit.date; tokens.splice(hit.at, hit.consumed); }
   if (!date) date = looseDayOfMonth(tokens) ?? '';
   if (time && !date) date = todayStr();
   return { date, time };
@@ -495,33 +528,27 @@ export function parseQuickAdd(input: string): ParsedTask | null {
     }
   }
 
-  // Date — first matching expression (1–2 tokens).
+  // Date - the first matching expression, month-first winning over day-first.
   let dueDate = '';
-  for (let i = 0; i < tokens.length; i++) {
-    const hit = parseDateAt(tokens, i);
-    if (hit) {
-      dueDate = hit.date;
-      tokens.splice(i, hit.consumed);
-      break;
-    }
+  const dateHit = findDate(tokens);
+  if (dateHit) {
+    dueDate = dateHit.date;
+    tokens.splice(dateHit.at, dateHit.consumed);
   }
 
-  // No leftover title after extraction — fall back instead of rejecting:
-  //   • course-only input ("ela") → title it with the course name.
-  //   • otherwise the user typed ONLY a date/time (e.g. "4/2", or "tomorrow").
-  //     A task needs a title and a due-date with no title is meaningless, so keep
-  //     the literal text as the title and drop the parsed date/time — rather than
-  //     rejecting the input as invalid.
+  // Nothing left over to be the title, because every word was a parse word. Rather
+  // than reject the input, the task is named AFTER WHAT WAS TYPED and keeps
+  // everything that was understood (Gabe, 8/20): "march 1" is a task called
+  // "march 1" due March 1, and "ela" is a task called "ela" in English.
+  //
+  // Two earlier versions were wrong in opposite directions. It used to keep the
+  // text and THROW THE DATE AWAY, on the reasoning that a due date with no title
+  // is meaningless — true, but the fix is to supply a title, not to discard the
+  // one thing the student actually said. Then a course-only entry was titled with
+  // the course's PROPER name ("ela" → "English"), which quietly replaced their
+  // words with ours. The literal text is the only answer that is never a surprise.
   let title = tokens.join(' ').trim();
-  if (!title) {
-    if (course) {
-      title = course;
-    } else {
-      title = text;
-      dueDate = '';
-      dueTime = '';
-    }
-  }
+  if (!title) title = text;
 
   // A time with no date defaults to today.
   if (dueTime && !dueDate) dueDate = todayStr();

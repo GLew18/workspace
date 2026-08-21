@@ -2,6 +2,24 @@
 
 // #region Imports — styles + the modules this entry point wires together
 import './ui/theme.css';
+
+/**
+ * KEYBOARD OR MOUSE? The focus ring depends on the answer (Gabe, 8/20).
+ *
+ * :focus-visible is supposed to settle this on its own, and mostly it does, but
+ * Chrome hands it out on plain mouse clicks for some elements: an <a> that gets
+ * focus from a click has been seen matching it, which is how a ring appeared after
+ * clicking a bookmark card. Gabe's requirement is exact, and it is the behaviour
+ * the app had before: a ring when you TAB, no ring when you click, ever.
+ *
+ * So the app records which device you last used, and the CSS asks. Tab (or any
+ * arrow / Home / End navigation) turns it on; touching a pointer turns it off.
+ * Capture phase, so nothing that stops propagation can hide the answer.
+ */
+const KEYS = new Set(['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown']);
+addEventListener('keydown', (e) => { if (KEYS.has(e.key)) document.documentElement.dataset.kbd = ''; }, true);
+addEventListener('pointerdown', () => { delete document.documentElement.dataset.kbd; }, true);
+addEventListener('mousedown', () => { delete document.documentElement.dataset.kbd; }, true);
 import { dropSelections } from './ui/selbar';
 import './ui/components.css';
 import './ui/colorPicker.css';

@@ -1,0 +1,199 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>finished arrows + folder picker</title>
+<body style="margin:0;background:#07132e;color:#dbe6ff;font:12px/1.6 ui-monospace,monospace">
+  <pre id="out" style="padding:12px;white-space:pre-wrap">running</pre>
+  <div id="tpanel"></div><div id="fpanel"></div>
+  <script type="module">
+    const say = (t) => { document.getElementById('out').textContent = t; };
+    window.addEventListener('unhandledrejection', (e) => say('REJECT: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+    window.addEventListener('error', (e) => say('ERROR: ' + e.message + '\n' + (e.error && e.error.stack || '')));
+    document.body.classList.add('app-mode');
+    const V = '?v=' + Date.now();
+    await import('/src/ui/theme.css' + V); await import('/src/ui/components.css' + V);
+    await import('/src/ui/colorPicker.css' + V); await import('/src/ui/focus.css' + V);
+    const { TasksView } = await import('/src/tasks/render.ts' + V);
+    const { FocusView } = await import('/src/focus/view.ts' + V);
+    const { createSandboxData, SAMPLE_COURSES, sampleSchedule } = await import('/src/landing/sandbox.ts' + V);
+    const { clearFocusState } = await import('/src/focus/persist.ts' + V);
+    const { cleanFolderName } = await import('/src/tasks/folderName.ts' + V);
+    const { saveTaskFolders } = await import('/src/tasks/folders.ts' + V);
+
+    const R = []; const ok = (n, c, x) => R.push((c ? 'PASS  ' : 'FAIL  ') + n + (x ? '  ' + x : ''));
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const deg = (elm) => {
+      const m = getComputedStyle(elm).transform;
+      if (!m || m === 'none') return 0;
+      const n = m.match(/matrix\(([^)]+)\)/);
+      if (!n) return NaN;
+      const [a, b] = n[1].split(',').map(Number);
+      return Math.round(Math.atan2(b, a) * 180 / Math.PI);
+    };
+    const click = (elm) => elm.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    // Click, then wait for the picture to STOP MOVING rather than for a fixed number
+    // of milliseconds. The arrows transition (0.2s) and the session redraws on its own
+    // clock, so a fixed sleep read a mid-flight angle at 120ms and a pre-redraw one at
+    // 500ms: the results lagged a click behind and looked like a logic bug.
+    const settle = async (read) => {
+      let prev = null;
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 80));
+        const now = JSON.stringify(read());
+        if (now === prev) return;
+        prev = now;
+      }
+    };
+    const clickSettle = async (elm, read) => { click(elm); await settle(read); };
+    const dbl = (elm) => elm.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    const key = (elm, k) => elm.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+
+    const iso = (d) => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const soon = iso(new Date(Date.now() + 3 * 864e5));
+    const mk = (id, title, extra) => Object.assign({ id, title, course:'', dueDate:soon, dueTime:'', priority:'normal', completed:false, createdAt:1 }, extra || {});
+    // Two tasks live IN the folder. Without members it is an orphan, and folder
+    // maintenance dissolves orphans on the next sweep, which quietly removed the very
+    // folder under test partway through the run.
+    const tasks = { a: mk('a','write essay',{folderId:'f1'}), b: mk('b','read chapter 4',{folderId:'f1'}), c: mk('c','lab report') };
+    clearFocusState();
+    const data = await createSandboxData({ tasks, profile: { courses:{list:SAMPLE_COURSES}, schedule:sampleSchedule(), account:{displayName:'Gabe',onboarded:true} } });
+    // The folder has to live in the DATA, not just on the view: any redraw re-reads
+    // the shared list, and a view-only folder vanishes on the first one.
+    await saveTaskFolders(data, [{ id: 'f1', name: 'tmrw', color: '#8b97a8' }]);
+
+    // ================= 1. THE FINISHED ARROWS =================
+    const fhost = document.getElementById('fpanel');
+    const fv = new FocusView(data);
+    await fv.mount(fhost); await sleep(300);
+    fv.todos = [
+      { id:'t1', text:'inside, done', done:true, folderId:'f1', course:'', dueDate:'', dueTime:'' },
+      { id:'t2', text:'inside, open', done:false, folderId:'f1', course:'', dueDate:'', dueTime:'' },
+      { id:'t3', text:'loose, done', done:true, course:'', dueDate:'', dueTime:'' },
+      { id:'t4', text:'loose, open', done:false, course:'', dueDate:'', dueTime:'' },
+    ];
+    fv.openFocusFolders = new Set(['f1']); // the folder is OPEN: this is the broken case
+    fv.selectedSeconds = 1800; fv['startSession'](); await sleep(400);
+    // Re-query the overlay EVERY time. Holding a reference to it reads a detached
+    // tree the moment the session rebuilds one, and a detached element has no
+    // computed style, so every rotation silently measured as 0.
+    const ov = () => document.querySelector('.focus-overlay');
+    const heads = () => [].slice.call(ov().querySelectorAll('.focus-finished-head'));
+    const inFolder = () => ov().querySelector('.focus-folder-body .focus-finished-head');
+    const loose = () => heads().filter((h) => !h.closest('.focus-folder-body'))[0];
+    const arrowOf = (h) => h.querySelector('.focus-folder-arrow');
+    const folderArrow = () => ov().querySelector('.focus-folder > .focus-folder-headrow > .focus-folder-head > .focus-folder-arrow');
+
+    // WHICH RULES ACTUALLY TURN THIS ARROW.
+    //
+    // Not getComputedStyle(el).transform: this browser pane does not composite
+    // reliably, so a transitioned transform can sit frozen at its start value and
+    // report identity for an arrow that is painted rotated in a real browser. The
+    // question the bug was really about is a CASCADE question anyway ("does the
+    // folder's rule reach into the drawer nested inside it"), and the cascade can be
+    // read directly, with no animation in the way.
+    const rotators = (elm) => {
+      const hits = [];
+      for (const sheet of document.styleSheets) {
+        let rules;
+        try { rules = sheet.cssRules; } catch { continue; } // cross-origin sheet
+        for (const r of rules) {
+          if (!r.selectorText || !r.style || !/rotate/.test(r.style.transform || '')) continue;
+          for (const sel of r.selectorText.split(',')) {
+            if (elm.matches(sel.trim())) { hits.push(sel.trim()); break; }
+          }
+        }
+      }
+      return hits;
+    };
+    const turns = (elm) => rotators(elm).length > 0;
+    const opened = (h) => h.classList.contains('open');
+
+    ok('two Finished drawers render (one nested, one loose)', heads().length === 2 && !!inFolder() && !!loose(), heads().length + ' heads');
+    ok('the open folder OWN arrow is turned down', turns(folderArrow()), rotators(folderArrow()).join(' | '));
+    // THE BUG: `.focus-folder.open .focus-folder-arrow` was a descendant rule, so it
+    // reached the arrow of the Finished drawer INSIDE the folder body and outweighed
+    // the rule meant to hold that one upright. A closed drawer pointed down.
+    ok('CLOSED drawer inside an OPEN folder is turned by NOTHING',
+       !opened(inFolder()) && !turns(arrowOf(inFolder())), rotators(arrowOf(inFolder())).join(' | '));
+    ok('CLOSED loose drawer is turned by nothing',
+       !opened(loose()) && !turns(arrowOf(loose())), rotators(arrowOf(loose())).join(' | '));
+
+    click(inFolder()); await sleep(150);
+    ok('opening the nested drawer turns ITS arrow down', opened(inFolder()) && turns(arrowOf(inFolder())), rotators(arrowOf(inFolder())).join(' | '));
+    ok('…and leaves the loose drawer upright', !opened(loose()) && !turns(arrowOf(loose())));
+    ok('the nested drawer reveals its rows', ov().textContent.indexOf('inside, done') >= 0);
+
+    click(loose()); await sleep(150);
+    ok('both open at once, both arrows turned', opened(inFolder()) && turns(arrowOf(inFolder())) && opened(loose()) && turns(arrowOf(loose())));
+    click(inFolder()); await sleep(150);
+    ok('closing the nested one leaves the loose one open',
+       !opened(inFolder()) && !turns(arrowOf(inFolder())) && opened(loose()) && turns(arrowOf(loose())),
+       'nested=' + rotators(arrowOf(inFolder())).join('|') + '  loose=' + rotators(arrowOf(loose())).join('|'));
+    ok('the folder head is untouched by either drawer', turns(folderArrow()));
+    click(loose()); await sleep(150);
+    ok('both closed again, nothing turned', !turns(arrowOf(inFolder())) && !turns(arrowOf(loose())));
+
+    // ---- size: the glyph, not its bounding box ----
+    // A rotated element reports a swapped box, and setting transform:none to undo it
+    // TRANSITIONS, so the box is wrong either way. Font size, weight and line-height
+    // are what decide how big the ▶ is drawn, and they are read straight.
+    const sz = (elm) => { const c = getComputedStyle(elm); return { font: c.fontSize, weight: c.fontWeight, line: c.lineHeight, family: c.fontFamily.slice(0, 24) }; };
+    const fa = sz(folderArrow()), na = sz(arrowOf(inFolder())), la = sz(arrowOf(loose()));
+    R.push('   folder arrow    ' + JSON.stringify(fa));
+    R.push('   finished nested ' + JSON.stringify(na));
+    R.push('   finished loose  ' + JSON.stringify(la));
+    ok('every Finished arrow is drawn at the folder arrow exact size',
+       JSON.stringify(na) === JSON.stringify(fa) && JSON.stringify(la) === JSON.stringify(fa),
+       'folder=' + JSON.stringify(fa) + '  finished=' + JSON.stringify(na));
+
+    // ================= 2. THE FOLDER PICKER =================
+    ok('cleanFolderName strips every kind of space',
+       cleanFolderName(' john lock ') === 'johnlock' && cleanFolderName('a\tb\nc') === 'abc' && cleanFolderName('ok') === 'ok',
+       cleanFolderName(' john lock '));
+
+    const thost = document.getElementById('tpanel');
+    const tv = new TasksView(data, { host: thost });
+    await tv.mount(thost); await sleep(400);
+    ok('the view loaded the shared folder', tv.folders.length === 1 && tv.folders[0].name === 'tmrw', JSON.stringify(tv.folders));
+    tv['openFolderPicker'](tasks.c);
+    await sleep(250);
+    const pick = () => thost.querySelector('.folder-pick') || document.querySelector('.folder-pick');
+    ok('the picker opened', !!pick());
+    const nameEl = pick().querySelector('.folder-pick-name');
+    ok('picker rows carry a named label', !!nameEl && nameEl.textContent === 'tmrw', nameEl && nameEl.textContent);
+    ok('the label advertises the gesture', nameEl && nameEl.title === 'Double-click to rename', nameEl && nameEl.title);
+
+    dbl(nameEl); await sleep(200);
+    const ed = pick().querySelector('.inline-edit-block');
+    ok('double-click opens an editor in the row', !!ed);
+    // A space is refused, and the row's click must not fire (that would file + close).
+    const before = ed.value;
+    const spaceEv = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    ed.dispatchEvent(spaceEv);
+    await sleep(60);
+    ok('the space key is refused in the rename editor', spaceEv.defaultPrevented && ed.value === before,
+       'prevented=' + spaceEv.defaultPrevented + ' value=' + JSON.stringify(ed.value));
+    ok('refusing a space raises a toast', !!document.querySelector('.toast'),
+       (document.querySelector('.toast') || {}).textContent);
+    // A pasted space is stripped.
+    ed.value = 'john lock'; ed.dispatchEvent(new Event('input', { bubbles: true })); await sleep(60);
+    ok('a pasted space is stripped', ed.value === 'johnlock', JSON.stringify(ed.value));
+    ed.value = 'johnlock';
+    key(ed, 'Enter'); await sleep(250);
+    ok('Enter commits the rename', tv.folders[0].name === 'johnlock', tv.folders[0].name);
+    ok('the menu stayed open through the rename', !!pick());
+    const after = (pick().querySelector('.folder-pick-name') || {}).textContent;
+    ok('the row shows the new name', after === 'johnlock', after);
+
+    // the "+ New folder" box refuses spaces too
+    const ni = pick().querySelector('.folder-pick-input');
+    ok('the new-folder box is present', !!ni);
+    const ev2 = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    ni.dispatchEvent(ev2);
+    ok('the new-folder box refuses spaces', ev2.defaultPrevented && !ni.value, 'prevented=' + ev2.defaultPrevented);
+    ni.value = 'two words'; ni.dispatchEvent(new Event('input', { bubbles: true })); await sleep(60);
+    ok('a pasted name is cleaned in the new-folder box', ni.value === 'twowords', JSON.stringify(ni.value));
+
+    const fails = R.filter((x) => x.indexOf('FAIL') === 0);
+    say(R.join('\n') + '\n\n' + (fails.length ? '>>> ' + fails.length + ' FAILURES' : '>>> ALL ' + R.filter((x)=>/^(PASS|FAIL)/.test(x)).length + ' CHECKS PASS'));
+  </script>
+</body>

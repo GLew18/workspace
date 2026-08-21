@@ -2,8 +2,8 @@
 //
 // One request per title both DETECTS the language and translates it to English, so
 // English titles are left alone and anything else comes back readable. The provider
-// is MyMemory (see the block above translateOnce for why it is not Google any more,
-// and why that was not a choice).
+// is Google Cloud Translation, reached through Cobalt's own Cloud Function (see the
+// block above translateOnce for the two providers before it and why each was left).
 //
 // analyzeTitle() returns a discriminated result so the caller can tell apart:
 //   • 'foreign' → translate it (we have the English text + detected language)
@@ -12,11 +12,16 @@
 
 import { getPrefs } from '../prefs';
 import { firebaseConfig } from '../firebase';
-import { areSiblings, expandCodes, findLanguage, languageLabel, scriptOf, writesScript } from './languages';
+import {
+  expandCodes, languageLabel, findLanguage, scriptOf, writesScript, type LanguageDef,
+} from './languages';
 
 export type TitleAnalysis =
   | { status: 'foreign'; text: string; sourceLang: string }
-  | { status: 'english' }
+  /** Left alone. `ambiguous` means it was left alone because nothing was SURE
+   *  enough, not because it read as English, so there is a real question here and
+   *  the student is the one who can answer it. See translationReadings. */
+  | { status: 'english'; ambiguous?: boolean }
   | { status: 'error' };
 
 // Non-Latin scripts (Hebrew, Arabic, Cyrillic, Greek, CJK, Hangul, Kana,
@@ -54,122 +59,75 @@ export async function analyzeTitle(text: string): Promise<TitleAnalysis> {
   // untouched, so "hola clase, do page 15" keeps "do page 15".
   let current = key;
   let sourceLang = '';
+  let confidence: number | null = null;
   for (let pass = 0; pass < 3; pass++) {
     const r = await translateOnce(current);
     if (r === null) return { status: 'error' }; // network fail → uncached, retried later
-    if (pass === 0) sourceLang = r.src;
+    if (pass === 0) {
+      sourceLang = r.src;
+      confidence = r.conf ?? null; // the FIRST pass is the one that read the title
+    }
     if (!r.tr || normKey(r.tr) === normKey(current)) break; // stable → all-English reached
     current = r.tr;
   }
 
-  // A CHANGED STRING IS NOT ENOUGH (Gabe, 8/15). This used to decide "foreign"
-  // purely by whether the translation differed from the input, never looking at what
-  // language was detected or how sure the detector was. Two gates now, because one
-  // was not enough:
+  // FIVE GATES, AND THE SECOND ONE IS A NUMBER AGAIN (Gabe, 8/20). All are in
+  // gateDecision, which is where to read them; this is what each is FOR.
   //
-  //   1. CONFIDENCE ≥ 0.9. Measured live: real titles score 0.97-1.00
-  //      ("דקדוק worksheet" iw 1.00, "tarea" es 0.97), noise scores far lower
-  //      ("heybo" so 0.61, "bio lab" da 0.41, "asdf" ar 0.66).
-  //   2. A LANGUAGE WE ACTUALLY TRANSLATE. Confidence cannot catch "huu", which
-  //      Google calls Swahili at 1.00 and renders "this one" — correctly, since it
-  //      is a real Swahili word. Only the allowlist rules that out.
-  const lang = (sourceLang || '').toLowerCase().split('-')[0];
-  const onList = !!lang && lang !== 'en' && translateFrom().has(lang);
-  // THE SECOND GATE IS "DID THE TEXT ACTUALLY CHANGE", and it replaces the
-  // confidence score the old provider reported (Gabe, 8/15).
+  //   1. A LANGUAGE THE STUDENT ENABLED. Settings ▸ Tasks ▸ Languages. Nothing
+  //      outside that list is ever translated, however sure the detector is.
+  //   2. CONFIDENCE ≥ 0.92, straight from Google's detect(). This is the gate that
+  //      was missing: "tod cod" — two of Cobalt's own parse words — was detected as
+  //      Spanish, which IS on the list, translated to "to cod", and shown, because
+  //      "did the text change" was the only thing left standing between junk and
+  //      the screen.
+  //   3. THE CHANGE GUARD. The text that came back must actually differ from the
+  //      text that went in. Google hands English straight back unchanged, so an
+  //      identical answer is the provider saying "there was nothing to do here" —
+  //      and showing a second line identical to the first is noise either way.
+  //   4. NOT JUST A TYPO FIX. See isTypoFix: a changed word that moved by one
+  //      character is a spellcheck, which is what an engine does when handed
+  //      something that is not a sentence in any language.
+  //   5. THE SCRIPT AGREES. See scriptAgrees: Spanish is not written in the Hebrew
+  //      alphabet, and characters can settle that for free.
   //
-  // That score was never the right instrument. It was a hard gate read out of a
-  // fixed slot in an undocumented response, so it could silently refuse everything,
-  // and it could not tell a real Spanish title from a real Spanish-looking accident.
-  // The provider leaving the text UNTOUCHED is a far better signal, and it is
-  // measured, not guessed: "huu" comes back as "huu", "heybo" as "heybo", "asdf" as
-  // "asdf" — every one of the false positives that started this, rejected by one
-  // rule. A genuine title changes: "tarea" → "task", "דקדוק" → "Grammar",
-  // "chapitre 3" → "chapter 3".
+  // The old confidence gate was dropped on 8/15 for a good reason: it was read out
+  // of an undocumented slot in the keyless endpoint's reply and could silently
+  // refuse everything. That reason is gone. This number comes from the real Cloud
+  // Translation API's detect(), asked for explicitly by the Cloud Function, and a
+  // MISSING one counts as "not sure" rather than "certain" — so if detection ever
+  // stops answering, the feature goes quiet instead of going wrong.
   //
-  // The check itself is the normKey comparison in `out` just below, which was
-  // already there; what changed is that it is now load-bearing rather than a
-  // backstop behind a number.
-  const trustworthy = onList;
-  lastCheck = { title: key, detected: lang, onList, translated: current, changed: normKey(current) !== normKey(key), accepted: trustworthy && normKey(current) !== normKey(key) };
+  // There is no word-count rule here. A one-word title in a language you enabled,
+  // detected with confidence, is a translation; length was never the thing that
+  // made it trustworthy (Gabe, 8/20).
+  const verdict = gateDecision({ source: key, translated: current, lang: sourceLang, conf: confidence, allowed: translateFrom() });
+  const { lang, onList, sure, changed } = verdict;
 
-  let out: TitleAnalysis =
-    !trustworthy || normKey(current) === normKey(key)
-      ? { status: 'english' }
-      : { status: 'foreign', text: current, sourceLang };
+  lastCheck = { title: key, detected: lang, onList, confidence, sure, translated: current, changed, typoFix: verdict.typoFix, scriptOk: verdict.scriptOk, accepted: verdict.accept };
 
-  // ---- FALLBACK: ask by NAME when auto-detect guessed wrong ----------------
+  const out: TitleAnalysis = verdict.accept
+    ? { status: 'foreign', text: current, sourceLang }
+    : { status: 'english', ambiguous: isAmbiguous(key, verdict) };
+
+  // THE NAME-A-LANGUAGE FALLBACK IS GONE (Gabe, 8/20).
   //
-  // Auto-detect confuses closely-related languages, and it does it worse on longer
-  // text, which is exactly backwards from what you would expect. Measured against
-  // the live API on 8/15, with Slovak:
+  // It re-asked the provider naming a specific language whenever auto-detect
+  // landed on a close relative of one the student had enabled: Bosnian for Slovak,
+  // Afrikaans for Dutch. It rescued real titles, and it cost more than it returned.
   //
-  //   "Som v pohode"                 → detected sk  → "I'm fine"           ✓
-  //   "Prečítaj si kapitolu sedem"   → detected BS  → unchanged            ✗
-  //   "Korýtnačka porazila zajaca"   → detected BS  → unchanged            ✗
-  //   "Domáca úloha z matematiky"    → detected MG  → unchanged            ✗
+  //   • Naming a language FORCES the engine to translate rather than decline, so
+  //     the branch most likely to be handed junk was the one least able to refuse.
+  //   • It bypassed the gates twice in two days. The last time it took "tod cod"
+  //     at 0.646 confidence and rendered it "to cod", under a 0.92 bar.
+  //   • Its guard was a language-family table being asked an empirical question
+  //     about what THIS detector confuses. Those are not the same question, and
+  //     the table got it wrong in both directions: it links Arabic and Hebrew,
+  //     which share no script, and separates Arabic and Persian, which share one.
   //
-  // Every one of those translates correctly when the pair is named outright
-  // (sk|en → "Read chapter seven", "Math homework"). So a mis-detect is not a
-  // dead end; it just means the question has to be asked differently. This is
-  // Gabe's report exactly: short phrases worked, longer ones silently did not.
-  //
-  // TWO GUARDS, and both are load-bearing:
-  //
-  //   1. THREE WORDS MINIMUM. Naming a language outright forces the engine to
-  //      translate rather than decline, so it will happily turn junk into
-  //      something. Measured: "huu" as Spanish → "HUU,", "asdf" as Spanish → a
-  //      line of German. Every false positive this feature has ever produced was
-  //      one or two words; a mis-detect only bites real sentences. So the two
-  //      cases are separated by length, and the short one never reaches here.
-  //   2. NOT ALREADY ENGLISH. The provider refuses English outright ("PLEASE
-  //      SELECT TWO DISTINCT LANGUAGES"), and that answer is trusted. Without this
-  //      guard, "Read Ch. 7 and annotate" asked as Spanish comes back "Read Ch. 7
-  //      and note" — an English title quietly reworded.
-  // WHEN COBALT SECOND-GUESSES THE DETECTOR.
-  //
-  // Only two cases, and the difference between them is the whole fix for the Asian
-  // languages (Gabe, 8/16):
-  //
-  //  1. IT NAMED NOTHING. No answer is not an answer; ask the student's languages
-  //     outright.
-  //  2. IT NAMED A CLOSE RELATIVE of a language they enabled. Afrikaans against
-  //     Dutch, Bosnian against Slovak: a short sentence genuinely cannot separate
-  //     those, so it is worth asking again. THIS is what rescues "Huiswerk wiskunde"
-  //     and the Slovak sentences.
-  //
-  // Everything else stands. If it names Chinese and the student enabled Japanese,
-  // that is not a near-miss — those are unrelated families that happen to share a set
-  // of characters — so the title is left alone. Treating that as a near-miss is what
-  // translated Chinese titles out of a language nobody had turned on.
-  //
-  // The script check stays on top: a language that cannot be written this way is
-  // never asked, however close a relative it is.
-  const script = scriptOf(key);
-  const words = key.replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').filter(Boolean);
-  const enabled = getPrefs().tasks.translateFrom;
-  const nearMiss = !!lang && enabled.some((c) => areSiblings(lang, findLanguage(c)?.code || c));
-  // Length only constrains LATIN text, and only when there is no near-miss to go on:
-  // it guards English-looking junk ("huu", "asdf"), all of which is Latin and none of
-  // which a detector calls a sibling of anything enabled.
-  const longEnough = script !== 'latin' || words.length >= (nearMiss ? 2 : 3);
-  if (out.status === 'english' && (!lang || nearMiss) && longEnough) {
-    for (const code of enabled) {
-      const def = findLanguage(code);
-      if (!writesScript(def, script)) continue; // it cannot be written this way
-      // With a near-miss, ask ONLY the relative — not every enabled language, which
-      // is how an unrelated one used to get a turn.
-      if (lang && !areSiblings(lang, def?.code || code)) continue;
-      const ask = def?.also?.[0] || def?.code || code; // the code the provider knows
-      const r = await translateOnce(key, ask);
-      if (!r) break; // network trouble — leave it unchecked and try again later
-      if (r.tr && normKey(r.tr) !== normKey(key)) {
-        out = { status: 'foreign', text: r.tr, sourceLang: def?.code || code };
-        lastCheck = { ...lastCheck, fallbackAskedAs: ask, accepted: true, translated: r.tr };
-        break;
-      }
-    }
-  }
+  // What is lost: a confidently mis-detected sibling is now simply left alone. That
+  // is the honest outcome, and it is the one the principle asks for. Nothing else
+  // in this file depends on it, and the gate below is the whole decision now.
 
   cache.set(key, out);
   return out;
@@ -226,6 +184,251 @@ export function resetTranslationCache(): void {
   window.dispatchEvent(new CustomEvent(TRANSLATE_LANGS_EVENT));
 }
 
+/**
+ * HOW SURE THE DETECTOR HAS TO BE before a translation is shown (Gabe, 8/20 —
+ * raised from the old 0.9).
+ *
+ * Measured against the keyless endpoint when this gate first existed: real titles
+ * scored 0.97–1.00 ("דקדוק worksheet" 1.00, "tarea" 0.97) while noise scored far
+ * lower ("heybo" 0.61, "bio lab" 0.41, "asdf" 0.66). 0.92 sits well clear of the
+ * noise and still under every genuine title measured.
+ */
+const MIN_CONFIDENCE = 0.92;
+
+/**
+ * THE GATE, as a function of its inputs and nothing else.
+ *
+ * Pulled out so it can be exercised directly, hundreds of cases at a time, without
+ * a network round-trip — the decision table is the part that has to be right, and
+ * it is the part that kept being wrong (Gabe, 8/20).
+ *
+ * Three conditions, all required:
+ *   • the detected language is one the student enabled (and is not English),
+ *   • the detector was at least MIN_CONFIDENCE sure,
+ *   • the text actually came back different.
+ * A missing confidence is NOT confidence.
+ */
+/** Edit distance, capped: we only ever ask "is this 0, 1, or more than 1". */
+function editDistance(a: string, b: string, cap = 2): number {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > cap) return cap + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      const v = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      row.push(v);
+      if (v < best) best = v;
+    }
+    if (best > cap) return cap + 1; // whole row already past the cap
+    prev = row;
+  }
+  return prev[b.length];
+}
+
+/**
+ * DID IT TRANSLATE, OR DID IT JUST CORRECT A TYPO? (Gabe, 8/20)
+ *
+ * Two live slip-ups survived the confidence gate, and they have the same shape:
+ *
+ *   "tod cod"  detected Spanish, confidently  ->  "to cod"
+ *   "foo bar"  detected Spanish, confidently  ->  "food bar"
+ *
+ * Confidence cannot catch these. The detector really is sure, and the text really
+ * did change, so both gates say yes. But look at WHAT changed: one word is
+ * identical and the other differs by a single character. That is not a
+ * translation, it is a spellcheck, and a spellcheck is what an engine falls back
+ * on when it is handed something that is not a sentence in any language.
+ *
+ * So: a translation has to move at least one word by more than one character.
+ *   "tarea" -> "homework"        every letter differs      yes
+ *   "página 15" -> "page 15"     página/page is 3 edits    yes
+ *   "el plan" -> "the plan"      el/the is 2 edits         yes
+ *   "tod cod" -> "to cod"        tod/to is 1 edit          NO
+ *   "foo bar" -> "food bar"      foo/food is 1 edit        NO
+ *
+ * Only applies when the two sides have the SAME number of words and are written
+ * in the same script. A real translation usually changes the word count or the
+ * alphabet, and either is proof enough on its own.
+ */
+function isTypoFix(source: string, translated: string): boolean {
+  const a = source.split(' ').filter(Boolean);
+  const b = translated.split(' ').filter(Boolean);
+  if (!a.length || a.length !== b.length) return false; // word count moved: a real edit
+  // Any word that moved by 2 or more characters means real work was done.
+  return !a.some((w, i) => editDistance(w, b[i]) > 1);
+}
+
+export function gateDecision(input: {
+  source: string;
+  translated: string;
+  lang: string;
+  conf: number | null | undefined;
+  allowed: Set<string>;
+}): {
+  lang: string;
+  onList: boolean;
+  sure: boolean;
+  changed: boolean;
+  typoFix: boolean;
+  scriptOk: boolean;
+  accept: boolean;
+} {
+  const lang = (input.lang || '').toLowerCase().split('-')[0];
+  const onList = !!lang && lang !== 'en' && input.allowed.has(lang);
+  const sure = typeof input.conf === 'number' && input.conf >= MIN_CONFIDENCE;
+  const src = normKey(input.source || '');
+  const dst = normKey(input.translated || '');
+  const changed = dst !== src;
+  const typoFix = changed && isTypoFix(src, dst);
+  const scriptOk = scriptAgrees(input.source || '', lang);
+  return {
+    lang, onList, sure, changed, typoFix, scriptOk,
+    accept: onList && sure && changed && !typoFix && scriptOk,
+  };
+}
+
+/**
+ * A TITLE IN A WRITING SYSTEM THE DETECTED LANGUAGE DOES NOT USE (Gabe, 8/20).
+ *
+ * The cheapest gate here, and the only one that costs nothing and cannot be argued
+ * with: Spanish is not written in the Hebrew alphabet. If a Hebrew-script title
+ * comes back detected as Spanish with 0.97 confidence, every other gate says yes and
+ * the student gets fluent English invented out of nothing. Characters settle it.
+ *
+ * IT ONLY EVER LOOKS AT NON-LATIN TITLES, and that restraint is the design. Half the
+ * catalog is written in more than one alphabet depending on where you are: Serbian
+ * in Latin, Uzbek in Latin, Malay in Jawi. Judging a LATIN title by script would
+ * refuse all of those, so a Latin title is never judged here at all — and a script
+ * Cobalt does not recognize (Thaana, Meetei Mayek) reads as Latin, so an unknown
+ * alphabet also passes rather than being refused for being unfamiliar. The rule can
+ * only ever fire on a script we know, against a language we know does not use it.
+ */
+function scriptAgrees(source: string, lang: string): boolean {
+  const script = scriptOf(source);
+  if (script === 'latin') return true; // never judge Latin text: too many languages share it
+  const def = findLanguage(lang);
+  if (!def) return true; // a language we have no entry for gets the benefit of the doubt
+  return writesScript(def, script);
+}
+
+/**
+ * IS THERE A QUESTION HERE THAT THE STUDENT COULD ANSWER? (Gabe, 8/20)
+ *
+ * A refusal is not always the end of the matter. Three refusals in particular are
+ * the app admitting it does not know, rather than the app knowing the answer is no:
+ * a short title that could be two of your languages, a creole the detector cannot
+ * place, a phrase whose words are shared across a whole family. Those are worth
+ * offering a choice on. The rest are not, and telling them apart is this function.
+ *
+ * NOT ambiguous, and each exclusion earns its place:
+ *   - The detector said ENGLISH. It is right about English essentially always, and
+ *     an offer on every English task is clutter on every row a student owns.
+ *   - It was ACCEPTED. There is already a translation on screen.
+ *   - It was SURE of a language you did not enable. That is a clear answer, just not
+ *     a welcome one; the fix is to enable that language, not to pick from a list
+ *     that cannot contain the right reading.
+ *   - No enabled language is even written in this title's alphabet. Offering there
+ *     would be a menu of certain wrong answers.
+ */
+export function isAmbiguous(
+  text: string,
+  verdict: { lang: string; onList: boolean; sure: boolean; accept: boolean }
+): boolean {
+  if (verdict.accept) return false;
+  if (!verdict.lang || verdict.lang === 'en') return false;
+  if (verdict.sure && !verdict.onList) return false;
+  return plausible(text).length > 0;
+}
+
+/** The enabled languages a title in THIS alphabet could plausibly be written in.
+ *  Script does the filtering for free: a Hebrew title rules out every Latin-script
+ *  language you enabled in one step, and a Latin one rules out nothing. */
+function plausible(text: string): LanguageDef[] {
+  const script = scriptOf(text);
+  return getPrefs()
+    .tasks.translateFrom.map((c) => findLanguage(c))
+    .filter((d): d is LanguageDef => !!d)
+    .filter((d) => writesScript(d, script));
+}
+
+/** One way a title could read, in English, and the language that reads it that way. */
+export interface Reading {
+  /** The language this reading assumes. */
+  lang: string;
+  /** Its English name, for the row. */
+  label: string;
+  /** The English text it produces. */
+  text: string;
+  /** True for the one the detector itself leaned toward, so the list can say so. */
+  guess: boolean;
+}
+
+/** At most this many. Past four the menu stops being a glance and becomes a
+ *  decision, and the student is being asked to do the app's job either way. */
+const MAX_READINGS = 4;
+
+/**
+ * EVERY WAY THIS TITLE COULD READ: one per enabled language that could plausibly
+ * have written it (Gabe, 8/20).
+ *
+ * This is the ONE place Cobalt names a source language to the provider, and the
+ * distinction from the fallback deleted on the same day is the entire point. Naming
+ * a language forces the engine to translate rather than decline, which is exactly
+ * wrong when a MACHINE picks the language on a guess and exactly right when a PERSON
+ * picks it: the student knows what language their class is taught in, and the
+ * detector never will. Nothing here is displayed on its own authority. It is a menu,
+ * built only on an explicit click, and a row becomes a translation only when it is
+ * chosen.
+ *
+ * Readings that come back unchanged are dropped, since a row offering the title you
+ * already typed is not an option. Readings identical to one already listed are
+ * dropped too: two languages agreeing is one answer, not two.
+ */
+export async function translationReadings(text: string): Promise<Reading[] | null> {
+  const key = text.trim();
+  if (!key) return [];
+  const defs = plausible(key);
+  if (!defs.length) return [];
+
+  // One auto-detect pass, doing two jobs: it gives the detector's own lean, which
+  // orders the list, and when that lean is one of the candidates it hands us that
+  // candidate's translation for free.
+  const auto = await translateOnce(key);
+  const guess = auto ? auto.src.toLowerCase().split('-')[0] : '';
+  const isGuess = (d: LanguageDef): boolean =>
+    d.code === guess || !!d.also?.some((a) => a.split('-')[0] === guess);
+
+  const order = [...defs.filter(isGuess), ...defs.filter((d) => !isGuess(d))].slice(0, MAX_READINGS);
+  // Concurrent, and at most four single-title calls, only ever on a click, against a
+  // per-person cap of 4000 titles a day.
+  const raw = await Promise.all(
+    order.map(async (d) => (auto && isGuess(d) ? auto : await translateOnce(key, d.code)))
+  );
+
+  // NULL IS NOT AN EMPTY LIST, and the menu says two different things about them.
+  // Every call failing means we never got to ask, which is a network problem the
+  // student can retry; an empty list means we asked and every language read the
+  // title as itself, which is an answer. Reporting the first as the second would put
+  // "no language reads this as anything" on screen while the app was simply offline
+  // (or, in a test harness, signed out).
+  if (!auto && raw.every((r) => r === null)) return null;
+
+  const out: Reading[] = [];
+  const seen = new Set<string>();
+  const src = normKey(key);
+  for (let i = 0; i < order.length; i++) {
+    const r = raw[i];
+    if (!r || !r.tr) continue;
+    const norm = normKey(r.tr);
+    if (!norm || norm === src || seen.has(norm)) continue;
+    seen.add(norm);
+    out.push({ lang: order[i].code, label: order[i].label, text: r.tr, guess: isGuess(order[i]) });
+  }
+  return out;
+}
+
 /** A translated title straight from the transport, before any gating. */
 interface Raw {
   /** The detected source language code, '' if the provider would not say. */
@@ -233,6 +436,10 @@ interface Raw {
   /** The English text. Equal to the input when the provider had nothing to change,
    *  which is the single most useful signal this file has — see analyzeTitle. */
   tr: string;
+  /** HOW SURE THE DETECTOR IS, 0–1, or null when it did not say (and when a source
+   *  language was named outright, where there is nothing to detect). Never read a
+   *  missing value as certainty — see MIN_CONFIDENCE. */
+  conf?: number | null;
 }
 
 /**
@@ -270,9 +477,13 @@ async function callTranslate(texts: string[], from = ''): Promise<(Raw | null)[]
 /** One round-trip. Returns null on any failure, which the caller treats as "ask
  *  again later" rather than "this title is English".
  *
- *  `from` names the source language outright instead of asking Google to detect it —
- *  see the fallback in analyzeTitle for why that is sometimes the only way to get a
- *  right answer. */
+ *  `from` names the source language outright instead of asking Google to detect it,
+ *  and it has EXACTLY ONE caller: translationReadings, building a menu for a student
+ *  to choose from. Never pass a `from` the app worked out by itself. Naming a
+ *  language makes the engine translate rather than decline, so anything automatic
+ *  coming through this door produces confident text for input that deserved silence,
+ *  which is precisely how the deleted fallback rendered "tod cod" as "to cod" at
+ *  0.646 confidence under a 0.92 bar. */
 async function translateOnce(text: string, from = ''): Promise<Raw | null> {
   try {
     const [one] = await callTranslate([text], from);
@@ -280,7 +491,9 @@ async function translateOnce(text: string, from = ''): Promise<Raw | null> {
     // Google does not refuse English the way MyMemory did; it simply hands the text
     // back unchanged with `en` detected. That is the same signal, said differently,
     // and the caller already treats "unchanged" as "not a translation".
-    return { src: (one.src || '').toLowerCase(), tr: one.tr };
+    // A NAMED language is the answer; there was nothing to detect. Reporting it back
+    // keeps the caller from having to remember what it asked for.
+    return { src: (from || one.src || '').toLowerCase(), tr: one.tr, conf: one.conf ?? null };
   } catch {
     return null;
   }

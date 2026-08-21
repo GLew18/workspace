@@ -863,15 +863,34 @@ exports.translateTitles = onCall({ region: 'us-central1' }, async (req) => {
   try {
     translator = translator || new Translate();
     const opts = from ? { from, to: 'en', format: 'text' } : { to: 'en', format: 'text' };
+    // HOW SURE IS THE DETECTOR? translate() reports WHICH language it decided on but
+    // never how confident it was, and that number is the one gate that can tell a
+    // real Spanish title from an accident that merely looks Spanish (Gabe, 8/20:
+    // "tod cod" came back as Spanish and was rendered "to cod"). detect() does
+    // report it, so it is asked alongside — one extra upstream call per batch, and
+    // only when we are detecting at all: naming `from` means there is nothing to be
+    // unsure about.
     const [out, meta] = await translator.translate(texts, opts);
     const list = Array.isArray(out) ? out : [out];
     // The detected language comes back alongside the text, one per input. With an
     // explicit `from` there is nothing to detect, so the answer IS `from`.
     const det = meta && meta.data && meta.data.translations ? meta.data.translations : [];
+    let conf = [];
+    if (!from) {
+      try {
+        const [d] = await translator.detect(texts);
+        conf = Array.isArray(d) ? d : [d];
+      } catch (e) {
+        conf = []; // detection unavailable → the client sees no number and declines
+      }
+    }
     return {
       results: list.map((tr, i) => ({
         tr,
         src: from || (det[i] && det[i].detectedSourceLanguage) || '',
+        // A number 0-1, or null when we did not ask / could not tell. NEVER
+        // defaulted to 1: "no answer" must read as "not sure", or the gate inverts.
+        conf: from ? null : typeof (conf[i] && conf[i].confidence) === 'number' ? conf[i].confidence : null,
       })),
     };
   } catch (err) {

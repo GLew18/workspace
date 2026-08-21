@@ -57,6 +57,15 @@ export interface Task {
   translationChecked?: boolean;
   /** User hid the translation line via the 🌐 toggle (default shown). */
   translationHidden?: boolean;
+  /** The auto pass declined this title because nothing was SURE enough, rather than
+   *  because it read as English. There is a real question here, so the row offers
+   *  "Translate from..." on its own instead of waiting to be found in the menu.
+   *  See isAmbiguous in util/translate.ts (Gabe, 8/20). */
+  translationAmbiguous?: boolean;
+  /** This translation is the STUDENT'S pick from the readings menu, not the app's
+   *  reading of the title. It outranks the auto pass: a re-scan must never overwrite
+   *  an answer a person gave, and the tooltip says whose answer it is. */
+  translationChosen?: boolean;
   /** User dismissed the QUIZ/TEST pill via its hover ✕ — "test" was just a word
    *  in the title, not an actual assessment. Render-time only; never re-badges. */
   assessmentDismissed?: boolean;

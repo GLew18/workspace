@@ -7,6 +7,24 @@
         "rule": "bounce-easing",
         "value": "cubic-bezier(0.34, 1.45, 0.55, 1)",
         "createdAt": "2026-08-16T21:18:11.518Z"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "app/src/ui/bookmarks.css"
+        ],
+        "createdAt": "2026-08-20T15:30:46.740Z",
+        "reason": "Claude triage: .bm-group-block's left border IS the group's own colour (--group-color, set per group in view.ts), not decoration. It encodes which group a block belongs to, matching the course-colour language used across the app."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "app/src/ui/components.css"
+        ],
+        "createdAt": "2026-08-20T15:30:58.872Z",
+        "reason": "Claude triage: .cal-chip's left border IS the course colour (--chip, set per task), not decoration. Same colour-coding language as course chips and folder icons throughout Cobalt."
       }
     ]
   }
