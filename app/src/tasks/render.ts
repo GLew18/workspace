@@ -18,7 +18,7 @@ import { getPrefs, setPrefsCache, PREFS_EVENT, type AppPrefs, type PinnedAction 
 import { makeWidthGrip } from '../util/resize';
 import { genId } from '../util/ids';
 import { buildQuickAdd } from './quickadd';
-import { makeTask, duplicateTask, groupTasks, dueBadge, sortTasks, type TaskGroup } from './store';
+import { makeTask, duplicateTask, clearTranslation, groupTasks, dueBadge, sortTasks, type TaskGroup } from './store';
 import { PRIORITIES, priorityDef } from './priorities';
 import { getCourseColor, onRegistryChange, matchCourseStrict } from '../courses/registry';
 import { classifyByRules, learnCorrection } from '../schoology/classify';
@@ -37,16 +37,31 @@ import {
   mutateTaskFolders,
   reorderTaskFolders,
   normFolder,
+  stampFolderName,
   FOLDERS_EVENT,
 } from './folders';
 import { acceptFolderName, cleanFolderName, guardFolderNameField, wireRename } from './folderName';
 import { runSync } from '../schoology/sync';
-import { analyzeTitle, languageName, translationReadings, TRANSLATE_LANGS_EVENT } from '../util/translate';
+import {
+  analyzeTitle, languageName, rankCandidates, translateAs, translateBatchAs,
+  MAX_CHIPS, TRANSLATE_LANGS_EVENT,
+} from '../util/translate';
 
-/** The language list a stored translation verdict was reached under. See
- *  autoTranslatePass: when this stops matching the current list, every stored
- *  verdict is thrown away and the titles are read again. */
-const TX_LANG_SIG_KEY = 'cobalt:tx-langs';
+/**
+ * The language list a stored translation verdict was reached under. See
+ * autoTranslatePass: when this stops matching the current list, every stored verdict
+ * is thrown away and the titles are read again.
+ *
+ * PER ACCOUNT (Gabe, 8/21). It was one un-scoped key for the whole browser, and that
+ * is what made translations vanish for a few seconds on almost every load: two
+ * different lists took turns writing the same slot, so each one arrived to find the
+ * other's signature and wiped everything. Two accounts on a shared browser did it,
+ * and so did the LANDING PAGE, which mounts this very view over a sandbox while prefs
+ * are still the defaults (landing/view.ts). Signing in after seeing the landing page
+ * was enough. Scoping it per uid stops the accounts colliding; the `sample` guard
+ * below stops the landing page taking part at all.
+ */
+const txLangSigKey = (uid: string): string => `cobalt:tx-langs:${uid || 'anon'}`;
 
 const CHECK_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
@@ -68,8 +83,12 @@ interface RowAction {
   auto: boolean;
   /** Run the action straight from the menu. */
   run: () => void;
-  /** Build the row button. */
-  build: () => HTMLElement;
+  /** Build the row button. OPTIONAL, because one action deliberately has no button:
+   *  'readings' asks its question inside the translation row instead of behind a
+   *  glyph of its own, so it exists in the … menu and nowhere else (Gabe, 8/21).
+   *  Anything without a build() is also absent from PINNABLE, so no pin can conjure
+   *  a button that was never written. */
+  build?: () => HTMLElement;
 }
 
 const FOLDER_BTN_SVG =
@@ -250,6 +269,7 @@ export class TasksView {
     this.listEl = el('div', { class: 'task-list' });
     bulkTip.hidden = this.mode !== 'list';
     panel.append(this.bannerHost, header, quickAdd, bulkTip, this.listEl);
+    this.watchQuickAdd(quickAdd);
 
     // The student changed which languages get translated → every task's stored
     // verdict is stale (see util/translate.ts resetTranslationCache). Registered
@@ -296,6 +316,7 @@ export class TasksView {
 
   private onUpdate(u: TasksUpdate): void {
     this.map = u.tasks;
+    this.recentLangsCache = null; // the tally below is counted FROM the map
     // Selection follows reality: drop ids that vanished or got completed.
     for (const id of [...this.selectedIds]) {
       const t = this.map[id];
@@ -392,6 +413,7 @@ export class TasksView {
     }
     if (!changed.length) return;
     this.map = { ...this.map, ...Object.fromEntries(changed.map((t) => [t.id, t])) };
+    this.recentLangsCache = null;
     this.render();
     await this.data.putTasksBulk(changed);
   }
@@ -584,7 +606,12 @@ export class TasksView {
     const show = getPrefs().calendar.showCompleted;
     const by = new Map<string, Task[]>();
     for (const t of Object.values(this.map)) {
-      if (!t.dueDate || this.completingIds.has(t.id) || (t.completed && !show)) continue;
+      // ARCHIVED tasks never draw a chip, whatever "Show completed" says (Gabe,
+      // 8/21). They used to be deleted at the next boot, so the calendar has
+      // always shown only the current run of work; now that they are kept, the
+      // grid would slowly fill up with months of finished chips. They live on the
+      // Task Archives screen, which is where a student goes looking for them.
+      if (!t.dueDate || t.archived || this.completingIds.has(t.id) || (t.completed && !show)) continue;
       if (filter && !filter(t)) continue;
       (by.get(t.dueDate) ?? by.set(t.dueDate, []).get(t.dueDate)!).push(t);
     }
@@ -1005,6 +1032,383 @@ export class TasksView {
     });
   }
 
+  private quickAddOff?: () => void;
+  /** Re-run the pinned/unpinned test on demand. See onShow(). */
+  private quickAddSync?: () => void;
+
+  /**
+   * CONDENSE THE ADD BAR ONCE IT PINS (Gabe, 8/21).
+   *
+   * The bar is `position: sticky`, so it is always reachable however far down the
+   * list you are, and this adds the one thing sticky cannot do by itself: tell the bar
+   * WHEN it is stuck, so it can grow a hairline and a shadow and read as sitting on
+   * top of the list rather than in it.
+   *
+   * It does not resize. The pinned state used to slim the bar too, and measuring it
+   * ended that: see the comment on .quick-add in components.css for the nine pixels it
+   * saved and the 26px lurch it cost.
+   *
+   * A SCROLL LISTENER, not an IntersectionObserver, and not for want of trying. The
+   * observer version needed a sentinel element and could not be verified: IO does not
+   * fire at all in the browser pane these changes are tested in, so shipping it would
+   * have meant shipping a behaviour nothing had ever watched work. This asks the only
+   * question that matters, directly — is the bar's top against the scroller's top? —
+   * which is true exactly when sticky has caught it. No sentinel, nothing to keep in
+   * sync, and it is measurable anywhere.
+   *
+   * The scroll container is `.app-below`; the window itself does not scroll in
+   * app-mode. No rAF throttle: browsers already coalesce scroll events to about one
+   * per frame, so the throttle bought nothing, and it cost the ability to test this
+   * at all (rAF does not fire in the browser pane either). Two rect reads per scroll
+   * event is what a sticky header costs everywhere.
+   */
+  private watchQuickAdd(bar: HTMLElement): void {
+    this.quickAddOff?.();
+    this.quickAddOff = undefined;
+    const root = bar.closest('.app-below') as HTMLElement | null;
+    if (!root || this.sample) return; // no scroller (landing demo, tests) = nothing to pin against
+    const sync = (): void => {
+      if (!bar.isConnected) return;
+      const rect = bar.getBoundingClientRect();
+      // HIDDEN MEANS UNANSWERABLE, NOT "PINNED" (Gabe, 8/21). The scroller is shared
+      // by every tab, so this fires while the Tasks panel is display:none — and a
+      // hidden element measures as an all-zero rect, whose "top" of 0 sits above the
+      // scroller's top and reads as stuck. Refusing to answer leaves the last real
+      // answer standing until onShow() asks again with the bar actually on screen.
+      if (!rect.height) return;
+      // Stuck means its top has caught the scroller's top, which is where `top: 0`
+      // parks it. One pixel of slack for sub-pixel layout.
+      const pinned = rect.top - root.getBoundingClientRect().top < 1;
+      // Class only. It changes nothing about the box, so this cannot move the list
+      // however often it fires.
+      bar.classList.toggle('pinned', pinned);
+    };
+    root.addEventListener('scroll', sync, { passive: true });
+    this.quickAddOff = () => root.removeEventListener('scroll', sync);
+    this.quickAddSync = sync;
+    sync(); // a re-mount while already scrolled must not open at full height
+  }
+
+  /**
+   * The Tasks tab was opened. Re-test the add bar's pinned state.
+   *
+   * Needed because every tab now opens at the top (openAtTop in ui/tabs.ts), and the
+   * scroll that does the resetting happens while THIS panel is hidden: the bar keeps
+   * whatever class it had when you left, and coming back to a list already at scroll
+   * zero fires no scroll event to correct it. So the bar sat at the top of an
+   * unscrolled list wearing its pinned shadow. mountTabs calls onShow with the panel
+   * already visible, which is the one moment the question can be answered honestly.
+   */
+  onShow(): void {
+    this.quickAddSync?.();
+  }
+
+  private verifyQueue = new Set<string>();
+  private verifying = false;
+  /** Titles whose verification could not reach the provider. In-memory only: a new
+   *  session, or a reload once the network is back, tries again. */
+  private verifyFailed = new Set<string>();
+
+  /**
+   * WHICH LANGUAGES CAN ACTUALLY READ THIS TITLE, settled before any is offered.
+   *
+   * The cheap filters (script, diacritics, orthographic shape) are pure string work
+   * and run instantly, but they can only rule out what is IMPOSSIBLE. They cannot tell
+   * that German, which could perfectly well have written a Latin-script sentence,
+   * simply cannot read this one: only the provider knows that, and only if asked.
+   *
+   * So it is asked, up front, once per title, and the answer is stored. That buys the
+   * thing Gabe wanted — no button that leads nowhere — and it pays for itself twice
+   * over, because a press then costs nothing.
+   *
+   * ONE CALL PER LANGUAGE, NOT PER TITLE: the queue collects every unverified title and
+   * asks each candidate language about all of them at once (up to 50 to a call), so a
+   * whole list costs about as much as a single task used to.
+   */
+  private queueVerify(task: Task): void {
+    if (task.translationVerifiedFor === task.title || this.verifyQueue.has(task.id)) return;
+    if (this.verifyFailed.has(task.id)) return; // already tried this session, no network
+    this.verifyQueue.add(task.id);
+    if (this.verifying) return;
+    this.verifying = true;
+    // A tick, so a render that queues twenty rows results in ONE pass over twenty.
+    setTimeout(() => void this.runVerify(), 60);
+  }
+
+  private async runVerify(): Promise<void> {
+    try {
+      const ids = [...this.verifyQueue];
+      this.verifyQueue.clear();
+      const jobs = ids
+        .map((id) => this.map[id])
+        .filter((t): t is Task => !!t && !!t.title && t.translationVerifiedFor !== t.title);
+      if (!jobs.length) return;
+
+      // title -> code -> english, built language by language.
+      const found = new Map<string, Record<string, string>>();
+      const byLang = new Map<string, Task[]>();
+      for (const t of jobs) {
+        found.set(t.id, {});
+        for (const d of rankCandidates(t.title, t.translationDetected, [], t.translationRuledOut || [])) {
+          const list = byLang.get(d.code) || [];
+          list.push(t);
+          byLang.set(d.code, list);
+        }
+      }
+      let reachable = true;
+      for (const [code, tasks] of byLang) {
+        const batch = tasks.slice(0, 50);
+        const { ok, results } = await translateBatchAs(batch.map((t) => t.title), code);
+        if (!ok) { reachable = false; break; } // offline: record nothing, try again later
+        results.forEach((text, i) => {
+          if (text) (found.get(batch[i].id) as Record<string, string>)[code] = text;
+        });
+      }
+      // OFFLINE CHANGES NOTHING ON THE TASK. Writing "verified, no options" here would
+      // leave the title permanently unanswerable because the network blinked once. The
+      // failure is remembered in memory instead, which stops the retry loop and lets
+      // the rows fall back to the unverified list rather than sitting on "checking".
+      if (!reachable) {
+        for (const t of jobs) this.verifyFailed.add(t.id);
+        this.render();
+        return;
+      }
+
+      const writes = jobs
+        .map((t) => {
+          const cur = this.map[t.id];
+          if (!cur || cur.title !== t.title) return null; // retitled mid-pass
+          return {
+            ...cur,
+            translationOptions: found.get(t.id) || {},
+            translationVerifiedFor: cur.title,
+          } as Task;
+        })
+        .filter((t): t is Task => t !== null);
+      if (writes.length) await this.data.putTasksBulk(writes);
+    } finally {
+      this.verifying = false;
+      if (this.verifyQueue.size) setTimeout(() => void this.runVerify(), 60);
+    }
+  }
+
+  /** Rows told to ask again from the … menu, after an answer was already showing.
+   *  Deliberately NOT persisted: it is a question on screen right now, not a property
+   *  of the task, and a reload should leave it where the stored fields say it is. */
+  private askingIds = new Set<string>();
+
+  /**
+   * THE LANGUAGES THIS ACCOUNT ACTUALLY WRITES IN, commonest first.
+   *
+   * Counted from the tasks already on screen: every confirmed translation is a term's
+   * worth of evidence about which languages this student's classes are taught in, and
+   * it beats any table shipped in the app. A student with forty Spanish assignments
+   * should not be offered Afrikaans first because the alphabet allows it.
+   *
+   * A reading the student CHOSE counts double, because they said it out loud.
+   */
+  private recentLangsCache: string[] | null = null;
+
+  private recentLangs(): string[] {
+    // COUNTED ONCE PER TASK MAP, not once per row. readings() consults this, and
+    // readings() is asked up to three times for every foreign or unplaced row in a
+    // render (the ⋯ menu's entry, the ask-row gate, and the ask row itself) — so an
+    // uncached scan of every task made drawing a list of foreign tasks quadratic.
+    // The answer only changes when the tasks do, and the two places that reassign
+    // this.map drop the cache with them.
+    if (this.recentLangsCache) return this.recentLangsCache;
+    const n = new Map<string, number>();
+    for (const t of Object.values(this.map)) {
+      const l = (t.translatedLang || '').toLowerCase().split('-')[0];
+      if (!l) continue;
+      n.set(l, (n.get(l) || 0) + (t.translationChosen ? 2 : 1));
+    }
+    this.recentLangsCache = [...n.entries()].sort((a, b) => b[1] - a[1]).map(([l]) => l);
+    return this.recentLangsCache;
+  }
+
+  /**
+   * THE LANGUAGES THIS TITLE WOULD ACTUALLY BE OFFERED AS, in the order they would
+   * appear. Empty means there is no question worth asking, and every piece of
+   * translation UI on the row is gated on it: the 🌐 "Translate from" line, and
+   * the "Translate from… / Change language…" entry in the ⋯ menu. One answer, so
+   * the menu can never open a row that then has nothing to show.
+   *
+   * FIRST, AND THIS IS THE ONE GABE ASKED FOR (8/21): a title the auto pass has
+   * already read and placed as plain English is not a question. It was offering
+   * "Translate from…" on every ordinary English task, which is a menu entry that
+   * can only ever waste a press. `translationAmbiguous` is the pass saying it was
+   * NOT sure, and those keep the offer; a chosen reading keeps it too, because
+   * changing your mind must stay possible.
+   *
+   * THEN the verification: once the pass has checked which languages can genuinely
+   * read this title, only those are candidates. Before it has run, the ranking
+   * stands and the row says it is checking.
+   */
+  private readings(task: Task): { code: string; label: string }[] {
+    if (!getPrefs().tasks.translateFrom.length) return [];
+    if (task.translationChecked && !task.translatedTitle && !task.translationAmbiguous && !task.translationChosen)
+      return [];
+    const ranked = rankCandidates(
+      task.title,
+      task.translationDetected,
+      this.recentLangs(),
+      task.translationRuledOut || []
+    );
+    // Verification counts only for the title it was run against; anything else is
+    // an answer about words this task no longer has.
+    if (!task.translationVerifiedFor || task.translationVerifiedFor !== task.title) return ranked;
+    const verified = Object.keys(task.translationOptions || {});
+    return ranked.filter((d) => verified.indexOf(d.code) >= 0);
+  }
+
+  /** Is this row currently asking which language it is in? */
+  private asking(task: Task): boolean {
+    if (!(this.askingIds.has(task.id) || task.translationAmbiguous)) return false;
+    // Nothing to offer = nothing to ask. An empty row of buttons is a question with
+    // no answers, which is exactly what "🌐 Translate from" with nothing after it
+    // was (Gabe, 8/21).
+    return this.readings(task).length > 0;
+  }
+
+  /**
+   * THE TRANSLATION ROW, ASKING INSTEAD OF ANSWERING.
+   *
+   * One button per language the title could plausibly be in, the detector's own
+   * lean first. Pressing one buys exactly one translation, which is why the buttons
+   * carry names rather than pre-fetched English: four calls to fill a line the
+   * student answers with one glance is four times the cost for less clarity.
+   */
+  private buildAskRow(task: Task): HTMLElement {
+    const row = el('div', { class: 'task-translation asking' });
+    row.append(el('span', { class: 'task-translation-badge', text: '🌐' }));
+    row.append(el('span', { class: 'task-ask-label', text: 'Translate from' }));
+    const chips = el('span', { class: 'task-ask-chips' });
+    row.append(chips);
+
+    // ONE RANKING, cut two ways. The row shows its head; "N more" shows the whole
+    // thing, in the SAME order (Gabe, 8/21). Expanding used to fall back to the raw
+    // enabled list, so opening it re-sorted the languages into settings order and
+    // threw away every bit of reasoning that had put the likeliest one first.
+    // VERIFIED ONLY (Gabe, 8/21). Once the pass has run, the ranking is filtered down
+    // to the languages that actually produced English. Before it has run, the row asks
+    // no question at all: it says it is checking, and the pass fills it in.
+    // Verification counts only for the title it was run against. Anything else is an
+    // answer about words this task no longer has.
+    const freshlyVerified = !!task.translationVerifiedFor && task.translationVerifiedFor === task.title;
+    // EVERY candidate is checked, so everything offered here has produced real English,
+    // including the ones behind "more". A cap on how many get checked was tried and
+    // reverted (Gabe, 8/21): it let an unchecked language into the visible shortlist,
+    // which is the one thing this whole pass exists to prevent. The cost of checking
+    // scales with how many languages are ENABLED, and that dial belongs to the student.
+    //
+    // THE SAME LIST the ⋯ menu decides by (readings), not a second calculation of it:
+    // when the two disagreed, the menu offered a question whose row then drew a bare
+    // "Translate from" with nothing after it.
+    const all = this.readings(task);
+    const best = all.slice(0, MAX_CHIPS);
+    // UNVERIFIED, AND THE PROVIDER IS REACHABLE: say so and go and find out. The row
+    // shows no buttons in the meantime, because an unchecked button is exactly the
+    // thing this pass exists to stop showing.
+    if (!freshlyVerified && !this.verifyFailed.has(task.id)) {
+      row.append(el('span', { class: 'task-ask-checking', text: 'checking which languages fit\u2026' }));
+      this.queueVerify(task);
+      return row;
+    }
+    // UNVERIFIED AND UNREACHABLE: fall back to the ranked candidates and the old
+    // press-to-find-out behaviour. Offline, "checking..." would sit there for ever and
+    // retry on every redraw, which is a worse answer than an unverified list: the
+    // student can still press one, and a press that lands on a language which cannot
+    // read it still says so and removes it.
+    const draw = (expanded: boolean): void => {
+      chips.textContent = '';
+      for (const d of expanded ? all : best) chips.append(chip(d));
+      // The escape hatch, and it should be rare: a ranking can be wrong, and being
+      // wrong must not mean the right answer is unreachable. NO ✕ next to it —
+      // the row is turned off with the globe in the toolbox, the same control that
+      // hides a finished translation, because they are the same line (Gabe, 8/21).
+      if (!expanded && all.length > best.length) {
+        const more = el('button', { class: 'task-ask-chip more', text: `${all.length - best.length} more…` });
+        more.addEventListener('click', (e) => { e.stopPropagation(); draw(true); });
+        chips.append(more);
+      }
+    };
+
+    const chip = (d: { code: string; label: string }): HTMLElement => {
+      const b = el('button', { class: 'task-ask-chip', text: d.label });
+      b.addEventListener('click', async (e) => {
+        e.stopPropagation(); // the row underneath selects; this is a control on it
+        if (b.disabled) return;
+        // INSTANT, when the verification pass already has the answer. Every button on
+        // a verified row does, which is the whole point of checking first: the press
+        // applies a reading rather than going to fetch one.
+        const cached = task.translationOptions?.[d.code];
+        if (cached) {
+          this.askingIds.delete(task.id);
+          void this.data.putTask({
+            ...task,
+            translatedTitle: cached,
+            translatedLang: d.code,
+            translationChosen: true,
+            translationChecked: true,
+            translationAmbiguous: false,
+            translationHidden: false,
+          });
+          return;
+        }
+        [...chips.querySelectorAll('button')].forEach((x) => ((x as HTMLButtonElement).disabled = true));
+        b.classList.add('busy');
+        const r = await translateAs(task.title, d.code);
+        if ('text' in r) {
+          this.askingIds.delete(task.id); // answered: the row goes back to showing it
+          void this.data.putTask({
+            ...task,
+            translatedTitle: r.text,
+            translatedLang: d.code,
+            translationChosen: true,
+            translationChecked: true,
+            translationAmbiguous: false,
+            translationHidden: false, // asking for a reading is asking to see it
+          });
+          // Answered, so the refusals collected while hunting for it have done their
+          // job. Cleared rather than left as a growing list nothing reads again.
+          if ((task.translationRuledOut || []).length) {
+            void this.data.putTask({ ...task, translationRuledOut: [] });
+          }
+          return;
+        }
+        // THE TWO FAILURES ARE NOT THE SAME FAILURE.
+        //
+        // 'offline' is a network problem: nothing is learned, the button comes back,
+        // try again in a moment.
+        //
+        // 'unchanged' is THE PROVIDER REFUSING. Handed this title and told to read it
+        // as French, it gave the title straight back, which is it saying this is not
+        // French. That is a fact about these words, and a better one than any guess
+        // this app makes, so it gets written down: the language stops being a
+        // candidate for this title entirely (Gabe, 8/21). Announcing that a language
+        // cannot read something and then offering it again on the next redraw was the
+        // app arguing with itself in public.
+        if (r.error === 'unchanged') {
+          const already = task.translationRuledOut || [];
+          void this.data.putTask({
+            ...task,
+            translationRuledOut: already.indexOf(d.code) >= 0 ? already : [...already, d.code],
+          });
+          this.notice(`🌐 ${d.label} cannot read this one, so it is off the list.`);
+          return; // the redraw arrives with one fewer button
+        }
+        b.classList.remove('busy');
+        [...chips.querySelectorAll('button')].forEach((x) => ((x as HTMLButtonElement).disabled = false));
+        this.notice('🌐 Could not reach the translator. Try again in a moment.');
+      });
+      return b;
+    };
+
+    draw(false);
+    return row;
+  }
+
   /** Folder upkeep, run on every task update — two jobs, in this order:
    *  1. RESURRECT: an Undo brought a member back after its folder dissolved →
    *     re-add the folder (30s window), so instant dissolution never orphans.
@@ -1204,9 +1608,28 @@ export class TasksView {
       title.append(upd);
     }
 
+    // ONE LINE UNDER THE TITLE, in one of two states (Gabe, 8/21).
+    //
+    //   ANSWERING  the translation, when there is one
+    //   ASKING     a row of language buttons, when nobody could place the title, or
+    //              when the student asked to change the language of an answer
+    //
+    // They are the same row — same slot, same globe, same toggle — which is the whole
+    // point: a question about the translation is not a second feature, it is the
+    // translation line before it knows the answer. And they are EXCLUSIVE. Changing
+    // the language replaces the answer with the question rather than stacking a
+    // second line under it, because the old answer is precisely what is in doubt.
+    const changing = this.askingIds.has(task.id);
+    // asking() is checked even while `changing`: pressing "Change language…" cannot
+    // conjure a question out of a title that has no readings left to offer.
+    const asks = !task.completed && !task.translationHidden
+      && (changing || !task.translatedTitle)
+      && this.asking(task);
+    if (asks) info.append(this.buildAskRow(task));
+
     // Foreign-language title: the auto-translated English shows beneath it, unless
     // the user hid it with the 🌐 toggle (in the actions row).
-    if (task.translatedTitle && !task.translationHidden) {
+    if (!asks && task.translatedTitle && !task.translationHidden) {
       const tr = el('div', {
         class: `task-translation${task.translationChosen ? ' chosen' : ''}`,
         // Provenance, and the two cases are genuinely different claims: one is the
@@ -1283,10 +1706,19 @@ export class TasksView {
     if (badge?.state === 'OVR')
       metaWrap.append(el('span', { class: `task-due-badge ${badge.state}`, text: badge.label }));
     // Assessment badge — QUIZ / TEST / EXAM (BADGE_ASSESSMENT_RE).
-    // Checked at render time so it covers manual tasks, old imports & translations.
-    // The hover ✕ dismisses it for good: "test" might just be a word in the title
-    // ("test your hypothesis"), and the teacher won't fix it — so the student can.
-    const assess =
+    //
+    // IMPORTED TASKS ONLY (Gabe, 8/21). The badge is a claim about what a piece of
+    // work IS, made by pattern-matching its title, and on a title the student typed
+    // themselves that claim is almost always unwanted: "test your hypothesis",
+    // "study for the test" and "test the code" all earn a TEST pill for tasks that
+    // are not tests. On a Schoology import the same pattern is reliable, because the
+    // text is a teacher's assignment name and a real test is posted as one.
+    //
+    // So the badge follows the SOURCE of the words rather than the words alone. It
+    // still checks at render time (covering old imports and translations), and the
+    // hover ✕ still dismisses it for good, because even a teacher writes "practice
+    // test" sometimes.
+    const assess = task.source === 'manual' ? null :
       BADGE_ASSESSMENT_RE.exec(task.title) ||
       // The TRANSLATED title may only speak for a badge the student has not
       // rejected (Gabe, 8/20). The pill is the one output with no original beside
@@ -1353,7 +1785,9 @@ export class TasksView {
     // override on top, for forcing an EMPTY control to stay put.
     const optional = this.rowActions(task);
     const pinned = getPrefs().tasks.pinnedActions;
-    for (const a of optional) if (a.auto || pinned.includes(a.id)) actions.append(a.build());
+    // `a.build` guards the buttonless one: 'readings' asks inside the translation row
+    // rather than from the actions cluster, so it has nothing to append here.
+    for (const a of optional) if (a.build && (a.auto || pinned.includes(a.id))) actions.append(a.build());
 
     // The "…" is ALWAYS present, even with nothing hidden: it is the only door to
     // the pin controls, so a stable door beats a row whose button count shifts.
@@ -1489,7 +1923,10 @@ export class TasksView {
   private bulkComplete(): void {
     const tasks = [...this.selectedIds]
       .map((id) => this.map[id])
-      .filter((t): t is Task => !!t && !t.completed);
+      .filter((t): t is Task => !!t && !t.completed)
+      // Before the dissolve loop below empties this.folders of anything this batch
+      // finishes off — same reason as the single path in complete().
+      .map((t) => stampFolderName(t, this.folders));
     this.clearSelection();
     if (!tasks.length) return;
     playCompleteChime(); // ONE chime for the batch, not N overlapping ones
@@ -1535,10 +1972,13 @@ export class TasksView {
       });
     }, 820);
 
-    // Same vocabulary as the single-task toast ("Task Deleted"): checking the box
-    // IS the delete in this app, so the batch shouldn't call it something else.
-    // Dissolved folders ride along in the one toast rather than firing their own.
-    const base = `${tasks.length} Task${tasks.length === 1 ? '' : 's'} Deleted`;
+    // COMPLETED, not "Deleted" (Gabe, 8/21). Checking the box is how a task leaves
+    // the list, but calling that a deletion described the mechanism instead of what
+    // the student did, and it reads like data loss for what is in fact the good
+    // outcome. The row is retained either way (the daily lightbulb counts it).
+    // Same vocabulary as the single-task toast, and dissolved folders ride along in
+    // the one toast rather than firing their own.
+    const base = `${tasks.length} task${tasks.length === 1 ? '' : 's'} completed`;
     const message = dissolved.length
       ? `${base} · 📁 ${dissolved.map((n) => `“${n}”`).join(', ')} dissolved`
       : base;
@@ -1583,9 +2023,14 @@ export class TasksView {
     if (task.completed) return;
     // Checking a SELECTED row completes the whole selection (one write, one undo).
     if (this.selectedIds.has(task.id) && this.selectedIds.size > 1) {
-      this.bulkComplete();
+      this.bulkComplete(); // stamps the folder names itself, over the whole batch
       return;
     }
+    // NOW, not at commit time: if this check-off is what finishes the folder, the
+    // dissolve below removes it from this.folders within the same call, and the
+    // write lands 820ms later against a list that no longer contains it. The Task
+    // Archives would then have a folder id pointing at nothing (see Task.folderName).
+    task = stampFolderName(task, this.folders);
     playCompleteChime();
 
     this.animateRowOut(animEl);
@@ -1627,8 +2072,8 @@ export class TasksView {
     // check-off finished its folder, the folder's fate rides along. Undo
     // restores both (the un-complete write resurrects the folder).
     const message = dissolvedFolderName
-      ? `“${name}” Task Deleted · 📁 “${dissolvedFolderName}” dissolved`
-      : `“${name}” Task Deleted`;
+      ? `“${name}” task completed · 📁 “${dissolvedFolderName}” dissolved`
+      : `“${name}” task completed`;
     // Completed tasks are retained (hidden) so the daily lightbulb can measure
     // progress; they're purged automatically once the day rolls over. Undo
     // simply un-completes; letting the toast expire keeps it done. Cancelling the
@@ -1731,14 +2176,7 @@ export class TasksView {
       // Retyping the title of a selected row renames the WHOLE selection, which
       // is the one bulk edit worth pausing on: it is how you fix a batch of
       // badly-named imports in one move, and undo is a re-edit away.
-      this.applyToSelection(task, (t) => ({
-        ...t,
-        title: v,
-        _manualTitle: true,
-        translatedTitle: '',
-        translatedLang: '',
-        translationChecked: false,
-      }));
+      this.applyToSelection(task, (t) => clearTranslation({ ...t, title: v, _manualTitle: true }));
     });
   }
 
@@ -1855,6 +2293,13 @@ export class TasksView {
 
   private async autoTranslatePass(): Promise<void> {
     if (this.autoTx) return;
+    // THE LANDING DEMO DOES NOT VOTE. It mounts this same view over an in-memory
+    // sandbox, signed out, with prefs still at their defaults, and its sample tasks
+    // arrive pre-translated. Letting it run meant it recorded the DEFAULT language
+    // list as the signature for the whole browser, so the next real sign-in found a
+    // mismatch and wiped every genuine translation (Gabe, 8/21). It has nothing to
+    // translate and nothing to say about anyone's language list.
+    if (this.sample) return;
 
     // THE LANGUAGE LIST IS PART OF THE ANSWER, so a stored answer is only valid for
     // the list that produced it. Comparing signatures here — rather than relying on
@@ -1868,11 +2313,22 @@ export class TasksView {
     // So it is only recorded AFTER a successful clear, and never while this view is
     // still empty — a language changed before the task list has loaded (Settings is
     // its own tab) would otherwise burn the signature against zero tasks.
-    if (localStorage.getItem(TX_LANG_SIG_KEY) !== sig && Object.keys(this.map).length) {
+    const sigKey = txLangSigKey(this.data.uid);
+    if (localStorage.getItem(sigKey) !== sig && Object.keys(this.map).length) {
       this.autoTx = true;
       try {
         const cleared = await this.clearStoredVerdicts();
-        localStorage.setItem(TX_LANG_SIG_KEY, sig); // only now, and only if that didn't throw
+        // Recorded only AFTER a successful clear, so a failure cannot skip the rescan
+        // forever. But a THROW here is worse than either: the verdicts are already
+        // gone and the signature is not written, so the next update wipes them again,
+        // and the next, with no way out (localStorage throws on quota, and this
+        // browser also holds up to 4 MB of account backups). Swallowing it costs one
+        // extra rescan; letting it escape costs every translation, permanently.
+        try {
+          localStorage.setItem(sigKey, sig);
+        } catch {
+          /* full or blocked: the rescan below still runs, it just runs again later */
+        }
         if (cleared) return; // the write comes back through watchTasks → this runs again
       } finally {
         this.autoTx = false;
@@ -1889,7 +2345,8 @@ export class TasksView {
 
     this.autoTx = true;
     const results: Array<{
-      id: string; title: string; translatedTitle: string; translatedLang: string; ambiguous: boolean;
+      id: string; title: string; translatedTitle: string; translatedLang: string;
+      ambiguous: boolean; detected: string;
     }> = [];
     try {
       for (const t of pending) {
@@ -1901,6 +2358,7 @@ export class TasksView {
           translatedTitle: r.status === 'foreign' ? r.text : '',
           translatedLang: r.status === 'foreign' ? r.sourceLang : '',
           ambiguous: r.status === 'english' && !!r.ambiguous,
+          detected: r.status === 'english' ? r.detected || '' : '',
         });
         await new Promise((res) => setTimeout(res, 150)); // gentle throttle
       }
@@ -1923,6 +2381,7 @@ export class TasksView {
             translatedLang: r.translatedLang,
             translationChecked: true,
             translationAmbiguous: r.ambiguous,
+            translationDetected: r.detected,
           } as Task;
         })
         .filter((t): t is Task => t !== null);
@@ -1939,27 +2398,51 @@ export class TasksView {
     const noteCount = task.notes?.length ?? 0;
     const inFolder = this.liveFolder(task);
 
-    // TRANSLATE — only exists at all when there IS a translation, so when it's
-    // here it has content by definition and always earns the row.
-    if (task.translatedTitle) {
+    // THE GLOBE, for both things the translation row can be (Gabe, 8/21).
+    //
+    // It used to appear only once a translation existed, which left the OTHER state
+    // with no control at all: a title the app could not place put a row of language
+    // buttons on screen with nothing to toggle it, and an ✕ to dismiss it, so the
+    // one row you could not turn off was the one that was only a question. Same
+    // glyph, same slot, one meaning: show or hide the translation line, whether that
+    // line is holding an answer or asking for one.
+    //
+    // `translationHidden` carries both, deliberately. It already meant "I do not want
+    // this line", and a question is that line.
+    // THE SAME TEST THE ROW ITSELF USES, and it has to be (Gabe, 8/21). This asked
+    // only whether the title was ambiguous, and `translationAmbiguous` is written
+    // once by the auto pass and never cleared — so when verification later came back
+    // having found NO language that can read this title, the ask row went quiet (see
+    // asking()) while the globe stayed on the row, toggling a line that no longer
+    // exists. readings() is what both of them now agree on, which also covers the
+    // emptied-language-picker case the old length check was here for.
+    const askable = !task.translatedTitle && !!task.translationAmbiguous && this.readings(task).length > 0;
+    if (task.translatedTitle || askable) {
       const shown = !task.translationHidden;
       const run = () => {
         // Target state computed ONCE from the clicked row, then written to all of
         // them. Flipping each task's own flag would leave a mixed selection mixed,
         // just inverted, which is not what a toggle means.
         const hidden = shown;
+        // Hiding the line ends a change-language in progress too. Otherwise the
+        // question would be waiting, invisible, and reappear on the next unhide over
+        // a translation the student never asked to revisit again.
+        if (hidden) for (const t of this.selTargets(task)) this.askingIds.delete(t.id);
         this.applyToSelection(task, (t) => ({ ...t, translationHidden: hidden }));
       };
+      const label = task.translatedTitle
+        ? shown ? 'Hide translation' : 'Show translation'
+        : shown ? 'Hide language options' : 'Choose a language';
       out.push({
         id: 'translate',
-        label: shown ? 'Hide translation' : 'Show translation',
+        label,
         iconHtml: '🌐',
         auto: true,
         run,
         build: () => {
           const b = el('button', {
             class: `act-translate${shown ? ' active' : ''}`,
-            title: shown ? 'Hide translation' : 'Show translation',
+            title: label,
             text: '🌐',
           });
           b.addEventListener('click', run);
@@ -1968,28 +2451,27 @@ export class TasksView {
       });
     }
 
-    // READINGS — "how should this read?". Earns the row only when the auto pass
-    // declined for want of certainty (translationAmbiguous) and nothing is showing
-    // yet: that is the case where the student cannot otherwise tell the difference
-    // between "Cobalt read this and it was English" and "Cobalt could not tell".
-    // Once a translation IS on screen it stays available in the menu, as a way to
-    // change the reading rather than discover one.
-    if (task.title) {
-      const has = !!task.translatedTitle;
+    // READINGS — NO BUTTON OF ITS OWN, and that is the point (Gabe, 8/21). A
+    // dedicated glyph on the row announced a whole new feature; the question is not a
+    // new feature, it is the translation line not knowing its language yet. So the
+    // asking happens IN the translation row (see buildAskRow) and this entry exists
+    // only in the … menu, for going back to the question after an answer is showing.
+    // `auto: false` always: it must never claim a slot on the row.
+    // ONLY WHEN IT HAS SOMETHING TO OFFER. An entry that explains why it cannot help
+    // was tried and cut (Gabe, 8/21): a menu item whose only job is to apologise is
+    // worse than no menu item, because the absence already says the same thing without
+    // costing a press. readings() is the same test the 🌐 row uses, which is what
+    // stops the menu opening a question the row then refuses to draw — and it is what
+    // keeps the entry off ordinary English tasks entirely.
+    if (task.title && this.readings(task).length) {
       out.push({
         id: 'readings',
-        label: has ? 'Change reading…' : 'Translate from…',
-        iconHtml: '🔤',
-        auto: !!task.translationAmbiguous && !has,
-        run: () => this.openReadings(task),
-        build: () => {
-          const b = el('button', {
-            class: 'act-readings',
-            title: has ? 'Change reading' : 'Translate from…',
-            text: '🔤',
-          });
-          b.addEventListener('click', () => this.openReadings(task));
-          return b;
+        label: task.translatedTitle ? 'Change language…' : 'Translate from…',
+        iconHtml: '🌐',
+        auto: false,
+        run: () => {
+          this.askingIds.add(task.id);
+          this.render();
         },
       });
     }
@@ -2107,11 +2589,13 @@ export class TasksView {
     // left-aligned menu would immediately run off), then clamped inside the box.
     let left = (a.right - b.left - m.width) / s;
     left = Math.max(8, Math.min(left, back.offsetWidth - m.width / s - 8));
-    // Below by default, flipped above when there isn't room, which is what keeps
-    // the last rows of a long list usable.
-    const below = (a.bottom - b.top + GAP) / s;
-    const above = (a.top - b.top - m.height - GAP) / s;
-    const top = below + m.height / s <= back.offsetHeight - 8 || above < 8 ? below : above;
+    // ALWAYS BELOW (Gabe, 8/21). It used to flip above when the row sat near the
+    // bottom, which meant the same button opened in two different places depending on
+    // how far down the list you happened to be: you learn where the menu appears, and
+    // then for the last few rows it does not appear there. One direction, every time,
+    // is worth more than never being clipped. The list scrolls, so a menu that runs
+    // past the bottom edge can still be reached; a menu that moves cannot be aimed at.
+    const top = (a.bottom - b.top + GAP) / s;
     menu.style.left = `${left}px`;
     menu.style.top = `${Math.max(8, top)}px`;
   }
@@ -2153,6 +2637,15 @@ export class TasksView {
 
         // Right side: the pin. Only ever a real two-way toggle now, since anything
         // auto-promoted was filtered out above and never reaches this list.
+        //
+        // NO PIN for an action with no button. 'readings' asks its question inside the
+        // translation row, so pinning it would light a 📌 against a control that
+        // cannot appear on the row at all (Gabe, 8/21).
+        if (!a.build) {
+          row.append(go);
+          body.append(row);
+          continue;
+        }
         const isPinned = pinned.includes(a.id);
         const pin = el('button', {
           class: `more-pin${isPinned ? ' on' : ''}`,
@@ -2194,103 +2687,6 @@ export class TasksView {
       if (e.target === backdrop) close();
     });
     build(body, close);
-  }
-
-  /**
-   * "HOW SHOULD THIS READ?" — the readings menu (Gabe, 8/20).
-   *
-   * Shown only on a click, and it is the one path in Cobalt that names a source
-   * language to the translator. That is sound here for the reason it was not sound
-   * automatically: the student picks, and the student knows what language their class
-   * is in. Every row is a real translation of the real title, so the choice is made
-   * on the ENGLISH, not on a language code and a hope.
-   *
-   * THE ONE PICKER IN THIS FILE THAT IS NOT BULK, and it is not an oversight. Every
-   * row here is a translation of THIS title. Writing the chosen row onto a selection
-   * would stamp one task's English across four unrelated ones, which is not "apply to
-   * all" but "replace all with something about a different task" (caught auditing
-   * this, 8/20). Reading a whole selection as one language is a real feature, it just
-   * needs a translation per title rather than one text copied around.
-   */
-  private openReadings(task: Task): void {
-    this.popup('How should this read?', (body, close) => {
-      // Say so, rather than silently doing less than the neighbouring pickers do.
-      if (this.selTargets(task).length > 1) {
-        body.append(el('div', {
-          class: 'popup-bulk-note',
-          text: 'This one task only. Each title needs its own translation.',
-        }));
-      }
-      body.append(el('div', { class: 'readings-source', text: task.title }));
-      const wrap = el('div', { class: 'readings' });
-      wrap.append(el('div', { class: 'readings-status', text: 'Reading it every way…' }));
-      body.append(wrap);
-
-      void translationReadings(task.title).then(
-        (list) => {
-          wrap.textContent = '';
-          if (list === null) {
-            wrap.append(el('div', { class: 'readings-status', text: 'Could not reach the translator. Try again in a moment.' }));
-            return;
-          }
-          if (!list.length) {
-            // Two different nothings, and the student can act on the first one.
-            const none = getPrefs().tasks.translateFrom.length
-              ? 'No language you have enabled reads this as anything but itself. If it is in a language you have not enabled yet, add it in Settings ▸ Tasks ▸ Languages.'
-              : 'No languages are enabled yet. Turn some on in Settings ▸ Tasks ▸ Languages and this will have something to offer.';
-            wrap.append(el('div', { class: 'readings-status', text: none }));
-            return;
-          }
-          for (const r of list) {
-            const b = el('button', {
-              class: `readings-row${task.translatedLang === r.lang && task.translatedTitle ? ' on' : ''}`,
-            });
-            const head = el('div', { class: 'readings-lang' });
-            head.append(el('span', { text: r.label }));
-            // The detector's own lean is worth marking, but only as a hint: it was
-            // not confident enough to act on, which is why this menu exists at all.
-            if (r.guess) head.append(el('span', { class: 'readings-guess', text: 'best guess' }));
-            b.append(head, el('div', { class: 'readings-text', text: r.text }));
-            b.addEventListener('click', () => {
-              void this.data.putTask({
-                ...task,
-                translatedTitle: r.text,
-                translatedLang: r.lang,
-                translationChosen: true,
-                translationChecked: true,
-                translationAmbiguous: false,
-                translationHidden: false, // choosing a reading is asking to see it
-              });
-              close();
-            });
-            wrap.append(b);
-          }
-          // Undo, for a choice that turned out wrong. Without it the only way back
-          // is the globe, which HIDES the line rather than retracting the answer,
-          // and a hidden wrong answer is still a wrong answer on the task.
-          if (task.translatedTitle) {
-            const rm = el('button', { class: 'readings-remove', text: 'Show the original only' });
-            rm.addEventListener('click', () => {
-              void this.data.putTask({
-                ...task,
-                translatedTitle: '',
-                translatedLang: '',
-                translationChosen: false,
-                translationHidden: false,
-                translationChecked: true,
-                translationAmbiguous: true, // still a question, still offerable
-              });
-              close();
-            });
-            wrap.append(rm);
-          }
-        },
-        () => {
-          wrap.textContent = '';
-          wrap.append(el('div', { class: 'readings-status', text: 'Could not reach the translator. Try again in a moment.' }));
-        }
-      );
-    });
   }
 
   private openDetails(task: Task): void {

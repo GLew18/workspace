@@ -21,6 +21,7 @@ import { parseIcal, taskEvents, scheduleEvents, type IcalEvent } from './ical';
 import { classifyBatch } from './classify';
 import { loadLabels, labelFor } from './extension';
 import { extractLinks } from '../tasks/attachments';
+import { clearTranslation } from '../tasks/store';
 import { genId } from '../util/ids';
 import { todayStr, addDays } from '../util/dates';
 import { getPrefs } from '../prefs';
@@ -253,11 +254,10 @@ export async function runSync(data: Data): Promise<SyncResult> {
     if (!cur._manualTitle && cur.title !== e.summary) {
       next.title = e.summary;
       changes.add('name');
-      // The cached translation belongs to the OLD title — drop it so the
-      // auto-translate pass re-reads the renamed one.
-      delete next.translatedTitle;
-      delete next.translatedLang;
-      delete next.translationChecked;
+      // Everything the app worked out about the OLD title goes with it, so the passes
+      // read the renamed one from scratch. See clearTranslation for why this is not a
+      // list of fields written out here.
+      Object.assign(next, clearTranslation(next));
       changed = true;
     }
     if (!cur._manualDueDate && (cur.dueDate !== e.date || cur.dueTime !== e.time)) {

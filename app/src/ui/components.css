@@ -518,9 +518,57 @@ body.app-mode .app-below {
 }
 
 /* ---- Quick add ---- */
+/* ---- The add bar, pinned to the top of the list (Gabe, 8/21) ----------------
+   `sticky`, not `fixed`: fixed would need the content column's width and left edge
+   hard-coded, and both are a clamp() that moves with the viewport. Sticky keeps the
+   bar in normal flow, so it is exactly as wide as the rows it sits above, at every
+   size, for free.
+   It sticks to `.app-below`, the real scroller in app-mode, which starts under the
+   92px header — so `top: 0` lands it against the header rather than the window. */
 .quick-add {
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 300; /* over rows, under the header (500) and every popup (600) */
   margin-bottom: 18px;
+  /* The backdrop the rows pass behind. Bled out sideways by the same amount it is
+     padded, so it covers the full width of the rows (and their focus rings) without
+     moving the input a pixel. */
+  margin-inline: -8px;
+  padding: 10px 8px;
+  background: var(--page-bg);
+  /* PAINT ONLY, and that is a measured decision rather than a habit (Gabe, 8/21).
+     The pinned state used to shrink the bar as well: less padding, smaller text, and
+     the tip folded away. Two measurements killed it.
+       1. It saved NINE pixels of screen. The tip is a normal-flow sibling, so it had
+          already scrolled out of view by the time anything pinned; folding it shortened
+          the DOCUMENT and bought no viewport at all.
+       2. Shortening the document under a sticky element moves everything below it. At
+          the pin threshold the list lurched 26px under the cursor, and animating the
+          change spread that lurch over 180ms instead of hiding it.
+     Nine pixels is not worth a jump, so the box never changes size and only its
+     surface does. Nothing here triggers layout, so there is nothing to jump.
+
+     No transition either. A 180ms fade on a shadow that appears the instant you
+     scroll past a threshold is imperceptible, and dropping it means the pinned state
+     can be MEASURED rather than inferred: a transitioning property reports its start
+     value in a pane that does not composite, so the test for "is there a shadow now"
+     was reading rgba(0,0,0,0) and passing on a technicality.
+
+     Explicitly NONE, not merely absent: theme.css sets `transition: all` app-wide for
+     hover states, and inheriting that here would put every property this element has,
+     layout ones included, on a timer behind a sticky bar. */
+  transition: none;
+}
+/* PINNED: the same bar, now sitting on top of the list instead of in it.
+   SOFT (Gabe, 8/21). It had a hard 1px hairline across the full width and square
+   corners where the bled-out background ended, which read as a seam cutting the page
+   in half. The hairline is gone and the shadow is halved: enough for the rows sliding
+   under it to read as under it, and nothing more. The bottom corners are rounded so
+   the bar ends the way every other surface in the app ends; the top two stay square
+   because that edge is flush against the header. */
+.quick-add.pinned {
+  border-radius: 0 0 14px 14px;
+  box-shadow: 0 5px 12px -9px rgba(0, 0, 0, 0.45);
 }
 .quick-add input,
 .quick-add textarea {
@@ -622,6 +670,25 @@ body.app-mode .app-below {
 }
 .task-group-header.tone-orange {
   color: #e85d04;
+}
+
+/* ---- ROOM UNDER THE LAST ROW (Gabe, 8/21) — THE KNOB IS THE NUMBER BELOW ----
+
+   The ⋯ menu always opens BELOW its button, in one direction, on purpose (see
+   dropdown() in tasks/render.ts: a menu that flips above for the last few rows is a
+   menu you cannot learn the position of). The cost of that choice is that the last
+   row's menu needs somewhere to go, and it was running off the bottom of the window.
+
+   So the list ends with empty space the list can be scrolled INTO, which is enough
+   because the menu is opened after the scrolling, not during it. Raise this number
+   if a longer menu still gets clipped; it is dead space at the very bottom of a
+   scrolled list and costs nothing else. The whole content column already contributes
+   88px of its own (`.app` padding-bottom, theme.css).
+
+   Not on the Dashboard's excerpt list, which is a short preview inside a card and
+   has no room to give away. */
+.task-list:not(.task-list-excerpt) {
+  padding-bottom: 150px;
 }
 
 /* ---- Task item ---- */
@@ -764,6 +831,86 @@ body.app-mode .app-below {
   opacity: 0.85;
   flex: none;
 }
+/* ---- The translation row when it does not know its language yet (Gabe, 8/21) ----
+   SAME ROW, SAME SLOT, SAME GLOBE as a finished translation. That is the whole idea:
+   a separate button somewhere else read as a new feature, when this is just the
+   translation line holding a question instead of an answer. The chips are the only
+   new thing on it, and they sit at the row's own size so the line does not jump when
+   one of them turns into the translation. */
+.task-translation.asking {
+  flex-wrap: wrap; /* many languages wrap DOWN, they never push the card wider */
+  font-style: normal; /* a question is not a quotation */
+  row-gap: 4px;
+}
+.task-ask-label {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  flex: none;
+}
+/* While the verification pass is asking the provider which languages can actually
+   read this title. Deliberately quiet and lowercase: it is a status, not an answer,
+   and it is replaced by real buttons a moment later. */
+.task-ask-checking {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+.task-ask-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.task-ask-chip {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 1.3;
+  padding: 2px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color var(--transition), color var(--transition);
+}
+.task-ask-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.task-ask-chip:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+/* The one being fetched keeps full strength while its siblings dim, so the row shows
+   WHICH language is being asked rather than just that something is happening. */
+.task-ask-chip.busy,
+.task-ask-chip.busy:disabled {
+  border-color: var(--accent);
+  color: var(--accent);
+  opacity: 1;
+}
+.task-ask-chip.busy::after {
+  content: '\2026';
+}
+/* "3 more…" is not a language, so it does not look like one of the answers. It is
+   the escape hatch for a ranking that got it wrong, not a sixth guess. */
+.task-ask-chip.more {
+  background: none;
+  border-color: transparent;
+  color: var(--text-dim);
+  font-weight: 500;
+  padding-inline: 4px;
+}
+.task-ask-chip.more:hover {
+  border-color: transparent;
+  color: var(--text);
+  text-decoration: underline;
+}
+
 /* ✱ "this assignment changed on Schoology" marker — sits right after the title. */
 .task-altered-badge {
   color: var(--accent);
@@ -1036,102 +1183,6 @@ body.app-mode .app-below {
 .folder-pick-new .folder-pick-input {
   flex: 1;
 }
-/* ---- "How should this read?": the readings menu (Gabe, 8/20) ----------------
-   Built to be chosen from by EYE, not by language code. The English reading is the
-   loud part of each row and the language name is the caption, because the question
-   a student can actually answer is "which of these sentences is my homework", not
-   "was that Papiamento or Spanish". Same row geometry as the folder picker, so the
-   two pickers read as the same kind of object. */
-.readings-source {
-  margin-bottom: 10px;
-  padding-bottom: 9px;
-  border-bottom: 1px solid var(--border);
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: var(--text-dim);
-  /* WRAP RULE: the original title wraps here, never scrolls sideways. */
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.readings {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-.readings-status {
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--text-dim);
-  padding: 2px 0;
-}
-.readings-row {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  text-align: left;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  color: var(--text);
-  font: inherit;
-  padding: 9px 12px;
-  cursor: pointer;
-  min-width: 0;
-  transition: border-color var(--transition);
-}
-.readings-row:hover {
-  border-color: var(--border-strong);
-}
-/* The reading currently on the task. */
-.readings-row.on {
-  border-color: var(--accent);
-}
-.readings-lang {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-}
-/* The detector's own lean. A HINT, deliberately quiet: it was not confident enough
-   to act on, which is the only reason this menu exists. */
-.readings-guess {
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: rgba(var(--glow-rgb), 0.14);
-  color: var(--accent);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.readings-text {
-  font-size: 13.5px;
-  font-weight: 600;
-  line-height: 1.4;
-  /* WRAP RULE: a long reading wraps inside its row. */
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.readings-remove {
-  margin-top: 2px;
-  background: none;
-  border: 1px dashed var(--border-strong);
-  border-radius: 10px;
-  color: var(--text-dim);
-  font: inherit;
-  font-size: 12.5px;
-  padding: 8px 12px;
-  cursor: pointer;
-}
-.readings-remove:hover {
-  color: var(--red);
-  border-color: var(--red);
-}
-
 /* ---- The bulk-select tip, between the quick-add bar and the task list ----
    TWO NUMBERS SET THE SPACING AROUND IT, and they are the two below.
      • the gap ABOVE (task bar → tip) is .quick-add's margin-bottom, overridden

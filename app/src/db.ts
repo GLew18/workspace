@@ -162,19 +162,56 @@ export class Data {
   }
 
   /**
-   * Remove completed tasks that are no longer due today, so they don't accumulate.
-   * Today's completed tasks are kept so the daily lightbulb can measure progress.
+   * Retire completed tasks whose day has passed into the Task Archives. Today's
+   * completed tasks stay put, so the daily lightbulb can still measure progress.
    * Run once at boot.
+   *
+   * THIS USED TO DELETE THEM (Gabe, 8/21). Everything a student had finished was
+   * destroyed on the next morning's first load, which is why "where did my old
+   * tasks go" had no answer. Now they are flagged and kept: they still leave every
+   * list (each one filters on `completed`), but they are somewhere — the Task
+   * Archives screen, which can hand one back or, deliberately, empty the lot.
+   *
+   * ONE write per task, and only for tasks not already flagged, so a boot with a
+   * full archive behind it costs nothing.
    */
-  async purgeStaleCompleted(): Promise<void> {
+  async archiveStaleCompleted(): Promise<void> {
     const all = await this.backend.getAll<Task>('tasks');
     const today = todayStr();
     for (const t of Object.values(all)) {
-      if (t.completed && t.dueDate !== today) {
-        await this.backend.remove('tasks', t.id);
-        delete this.lastTasks[t.id];
+      if (t.completed && !t.archived && t.dueDate !== today) {
+        const next = { ...normalizeTask(t), archived: true };
+        await this.backend.set('tasks', t.id, next);
+        if (this.lastTasks[t.id]) this.lastTasks[t.id] = next;
       }
     }
+  }
+
+  /**
+   * Delete many tasks in one pass — the Task Archives' "Delete all". One cache
+   * update and ONE notify for the batch, never a loop of removeTask (which would
+   * repaint, back up and re-notify per task; see putTasksBulk for the same rule).
+   */
+  async removeTasksBulk(ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    this.bulkDepth++;
+    this.lastWriteAt = Date.now();
+    const next = { ...this.lastTasks };
+    for (const id of ids) delete next[id];
+    this.lastTasks = next;
+    if (!Object.keys(next).length) localStorage.removeItem(this.hadDataKey());
+    this.notifyTasks({ tasks: this.lastTasks, suspectedWipe: false }); // optimistic, like putTasksBulk
+    try {
+      const results = await Promise.allSettled(ids.map((id) => this.backend.remove('tasks', id)));
+      const failed = results.filter((r) => r.status === 'rejected');
+      if (failed.length) {
+        console.error(`removeTasksBulk: ${failed.length}/${ids.length} deletes failed`, failed);
+      }
+    } finally {
+      this.bulkDepth--;
+      this.lastWriteAt = Date.now(); // hold the echo window open past the last delete
+    }
+    this.notifyTasks({ tasks: this.lastTasks, suspectedWipe: false });
   }
 
   async putTask(task: Task): Promise<void> {

@@ -816,6 +816,12 @@
    Chips are [group, shortcut]. */
 .lp-frame-body .bm-card-btns .bm-chip-btn:nth-child(2) { display: none; }
 .lp-frame-body .task-list { margin-top: 4px; }
+/* …and NONE of the real list's trailing runway (components.css gives it 150px so the
+   last row's ⋯ menu has somewhere to open). That runway is a third of this frame's
+   height, and the demo neither opens that menu nor has a window edge to run off —
+   what it does have is a scripted scroll that would be dragging through empty space.
+   The note above about every preview ending in the same 14px padding holds here. */
+.lp-frame-body .task-list { padding-bottom: 0; }
 /* No special-casing: the dashboard preview uses the same fixed frame and the same
    14px body padding as Tasks/Bookmarks/Focus, so every preview ends its content
    with an identical bottom padding (long content scrolls to a 14px-padded end,

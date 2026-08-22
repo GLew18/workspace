@@ -25,6 +25,12 @@
         ],
         "createdAt": "2026-08-20T15:30:58.872Z",
         "reason": "Claude triage: .cal-chip's left border IS the course colour (--chip, set per task), not decoration. Same colour-coding language as course chips and folder icons throughout Cobalt."
+      },
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-08-22T01:08:17.206Z",
+        "reason": "Cobalt's typeface is set by the project spec (theme.css header cites spec 9.4), loaded in app/index.html, and used by the locked .ws-mark wordmark whose construction Gabe fixed on 8/10. Shipped brand, not AI-default drift."
       }
     ]
   }

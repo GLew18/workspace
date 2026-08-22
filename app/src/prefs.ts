@@ -12,8 +12,12 @@
  *  that the colored strip is dormant, so hiding it would strand the feature. */
 import { DEFAULT_TRANSLATE_FROM } from './util/languages';
 
+// 'readings' is a PinnedAction with no button: it lives in the … menu only, because
+// the asking happens inside the translation row rather than behind a glyph of its own
+// (Gabe, 8/21). It is deliberately absent from PINNABLE, so it cannot be promoted onto
+// the row by a pin either.
 export type PinnedAction = 'translate' | 'readings' | 'attach' | 'folder' | 'duplicate';
-export const PINNABLE: PinnedAction[] = ['translate', 'readings', 'attach', 'folder', 'duplicate'];
+export const PINNABLE: PinnedAction[] = ['translate', 'attach', 'folder', 'duplicate'];
 
 export interface AppPrefs {
   /** '12h' shows 2:30pm; '24h' shows 14:30. (Persisted; display wiring is phased.) */

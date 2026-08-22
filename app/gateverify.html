@@ -17,6 +17,12 @@
     const { createSandboxData, SAMPLE_COURSES, sampleSchedule } = await import('/src/landing/sandbox.ts' + V);
     const { clearFocusState } = await import('/src/focus/persist.ts' + V);
     const L = await import('/src/util/languages.ts' + V);
+    const P = await import('/src/prefs.ts');
+    // PRIME THE LANGUAGE SIGNATURE to whatever prefs currently say. A mismatch is what
+    // makes the view clear every stored verdict on mount, and another harness in this
+    // same browser is enough to leave a stale one behind: the sweep then landed on the
+    // seeded translations below and emptied them mid-run.
+    localStorage.setItem('cobalt:tx-langs:anon', P.getPrefs().tasks.translateFrom.join(','));
 
     const R = []; const ok = (n, c, x) => R.push((c ? 'PASS  ' : 'FAIL  ') + n + (x ? '  ' + x : ''));
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -106,9 +112,9 @@
     // The lookbehind skips the DECLARATION, which of course names the parameter.
     const named = tSrc.match(/(?<!function )translateOnce\([^)]*,[^)]*\)/g) || [];
     ok('exactly ONE call site names a source language', named.length === 1, named.join(' | '));
-    const autoPath = tSrc.slice(tSrc.indexOf('export async function analyzeTitle'), tSrc.indexOf('export async function translationReadings'));
+    const autoPath = tSrc.slice(tSrc.indexOf('export async function analyzeTitle'), tSrc.indexOf('export async function translateAs'));
     ok('the automatic path never names one', !/translateOnce\([^)]*,/.test(autoPath));
-    ok('the one that does is the readings menu', /translateOnce\(key, d\.code\)/.test(tSrc.slice(tSrc.indexOf('export async function translationReadings'))));
+    ok('the one that does is the student-named path', /translateOnce\(key, lang\)/.test(tSrc.slice(tSrc.indexOf('export async function translateAs'))));
 
     // ================= 3. THE CATALOG =================
     const langs = L.LANGUAGES;

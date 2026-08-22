@@ -2,7 +2,7 @@
 
 import type { Data } from '../db';
 import type { Task, TaskMap, TaskFolder, Priority } from '../types';
-import { getTaskFolders, saveTaskFolders, makeFolder, normFolder, FOLDERS_EVENT } from '../tasks/folders';
+import { getTaskFolders, saveTaskFolders, makeFolder, normFolder, stampFolderName, FOLDERS_EVENT } from '../tasks/folders';
 import { makeResizeGrip, restoreSavedHeight } from '../util/resize';
 import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToast } from '../util/dom';
 import { attachColorPicker } from '../ui/colorPicker';
@@ -1343,7 +1343,10 @@ export class FocusView {
     const arrow = el('span', { class: 'focus-folder-arrow' + (isOpen ? ' open' : ''), text: '▶' });
     const head = el('button', { class: 'focus-finished-head' + (isOpen ? ' open' : '') });
     head.append(
-      el('span', { class: 'focus-finished-label', text: 'Finished' }),
+      // "Completed", matching the Tasks tab's toast: one word for one idea, wherever
+      // a check-off is described (Gabe, 8/21). The class name stays `finished` — it
+      // is a selector, not a sentence, and renaming it would touch CSS for nothing.
+      el('span', { class: 'focus-finished-label', text: 'Completed' }),
       el('span', { class: 'count-badge focus-finished-count', text: String(done.length) }),
       arrow
     );
@@ -2115,6 +2118,24 @@ export class FocusView {
   private restore(s: FocusState, keepRunning = false): void {
     this.originalTitle = document.title;
     this.sessionTodos = s.todos;
+    /**
+     * THE TASKS ARE THE TRUTH, THE SAVED SESSION IS A CACHE (Gabe, 8/21). Anything
+     * checked off in Tasks while this session was not being persisted — or while
+     * the app was closed entirely, or on another device — is recorded on the task
+     * and not in the saved todo. Reading it back here means a restored session
+     * opens agreeing with the Tasks tab instead of re-showing finished work.
+     *
+     * The cache is enough, and there are only two orderings. If the first task
+     * snapshot has ALREADY landed, getTasks() is warm and this line does the job.
+     * If it has NOT, this is a no-op and the snapshot arrives moments later with
+     * sessionTodos already populated, where onTasksUpdate mirrors it exactly the
+     * same way. There is no third case, and in particular NOTHING here may call
+     * getTasksAll(): that overwrites Data's whole cache with a one-shot read, and
+     * a read racing a concurrent putTasksBulk (an on-open Schoology sync fires at
+     * boot too) stomps freshly written tasks back out. That is the clobber
+     * syncLinkedTasks was rewritten to escape on 8/10 — see its comment.
+     */
+    this.mirrorTaskDone(this.sessionTodos, this.data.getTasks());
     // s.folders is ignored (legacy): folders now live in the shared profile list.
     this.totalSeconds = s.totalSeconds;
     this.endTimeMs = s.endTimeMs;
@@ -2167,6 +2188,20 @@ export class FocusView {
     // track comes back with the first click instead of staying silent.
     void this.resumeMusicForRestore(s.musicIndex);
     void this.acquireWakeLock();
+  }
+
+  /** Copy each linked task's completed state onto its todo. Returns whether
+   *  anything actually moved, so callers can skip a pointless redraw + write. */
+  private mirrorTaskDone(list: FocusTodo[], tasks: TaskMap): boolean {
+    let changed = false;
+    for (const todo of list) {
+      if (!todo.taskId) continue; // Focus-only todo: nothing on the other side to read
+      const src = tasks[todo.taskId];
+      if (!src || todo.done === src.completed) continue;
+      todo.done = src.completed;
+      changed = true;
+    }
+    return changed;
   }
 
   /** Which genre a library track id belongs to (ids are "<genreId>-NN"). */
@@ -2833,7 +2868,7 @@ export class FocusView {
       wrap.append(
         el('div', {
           class: 'focus-locked-note',
-          text: 'Time accountability is on. This session runs its full length.',
+          text: 'Time accountability is on. This session runs its selected length.',
         })
       );
       return wrap;
@@ -3714,21 +3749,17 @@ export class FocusView {
     // exception (see linked()) and is mirrored first: a task checked off in Tasks
     // checks its Focus row and sinks it, same as when the two lists are linked.
     if (!this.linked()) {
-      let doneChanged = false;
-      for (const list of [this.todos, this.sessionTodos]) {
-        for (const todo of list) {
-          if (!todo.taskId) continue;
-          const src = tasks[todo.taskId];
-          if (!src || todo.done === src.completed) continue;
-          todo.done = src.completed;
-          doneChanged = true;
-        }
-      }
+      // Both lists, one rule — shared with restore()'s reconcile so the two can
+      // never drift apart. Both calls are made BEFORE the || : short-circuiting
+      // would skip mirroring the second list whenever the first one changed.
+      const draftMoved = this.mirrorTaskDone(this.todos, tasks);
+      const sessionMoved = this.mirrorTaskDone(this.sessionTodos, tasks);
+      const doneChanged = draftMoved || sessionMoved;
       this.refreshImportBody?.();
       if (doneChanged) {
         this.redrawTodos?.();
         this.redrawSessionTodos?.();
-        if (this.interval) this.persist();
+        if (this.sessionRunningHere()) this.persist(); // a PAUSED session must be saved too
       }
       return;
     }
@@ -3803,7 +3834,17 @@ export class FocusView {
     if (changed) {
       this.redrawTodos?.();
       this.redrawSessionTodos?.();
-      if (this.interval) this.persist(); // only persist when a session is actually running
+      // ONLY WHEN A SESSION EXISTS — but a PAUSED one counts (Gabe, 8/21). This
+      // used to test `this.interval`, i.e. "is the clock ticking", and pausing
+      // stops the ticker dead: a task checked off in Tasks during a pause updated
+      // the row on screen and never reached storage, so the next reload restored
+      // the saved copy and the row came back unchecked. That is the "works for
+      // some tasks, not others" — the difference was whether the clock happened to
+      // be running. sessionRunningHere() also covers the dismissed mini player,
+      // where a session runs with no surface at all. The guard cannot simply go:
+      // persist() writes `sessionActive: true`, so calling it with no session
+      // would invent one in storage.
+      if (this.sessionRunningHere()) this.persist();
     }
   }
 
@@ -3884,11 +3925,16 @@ export class FocusView {
       const task: Task | undefined = tasks[todo.taskId!];
       if (!task) continue;
       if (task.completed === todo.done) continue; // already in step
-      writes.push({
-        ...task,
-        completed: todo.done,
-        completedAt: todo.done ? now : null,
-      });
+      // Checking off HERE sends the task to the Task Archives just as checking it
+      // off in Tasks does, so it needs the same record of which folder it left.
+      // The folder is still alive at this instant; the Tasks tab dissolves it a
+      // moment later, when this write comes back through its watcher.
+      writes.push(
+        stampFolderName(
+          { ...task, completed: todo.done, completedAt: todo.done ? now : null },
+          this.taskFolders
+        )
+      );
     }
     if (writes.length === 1) await this.data.putTask(writes[0]);
     else if (writes.length) await this.data.putTasksBulk(writes);

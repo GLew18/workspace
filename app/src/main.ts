@@ -27,6 +27,7 @@ import './ui/focus.css';
 import './ui/dashboard.css';
 import './ui/settings.css';
 import './ui/notifylog.css';
+import './ui/archive.css';
 import './ui/bookmarks.css';
 import './ui/landing.css';
 import './ui/auth.css';
@@ -75,6 +76,7 @@ import { Data } from './db';
 import { mountTabs, type TabController } from './ui/tabs';
 import { DashboardView } from './dashboard/view';
 import { TasksView } from './tasks/render';
+import { TaskArchiveView } from './tasks/archiveView';
 import { FocusView } from './focus/view';
 import { createWordmark } from './ui/laurel';
 import { el, textInput } from './util/dom';
@@ -216,7 +218,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   // These boot reads are independent of each other — run them CONCURRENTLY so
   // sign-in waits one database round-trip, not four sequential ones.
   const [, , , account, rawPrefs] = await Promise.all([
-    data.purgeStaleCompleted(), // clear yesterday's completed before anything renders
+    data.archiveStaleCompleted(), // retire yesterday's completed into the Archives before anything renders
     initRegistry(data), // load course config (seed defaults on first run)
     initLearn(data), // load the learned course model (Layer 1b)
     // First-run onboarding check: confirm name → connect Schoology, then re-render.
@@ -309,14 +311,23 @@ async function renderApp(user: AuthUser): Promise<void> {
     '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1v.2h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>';
   suggestBtn.addEventListener('click', () => openSuggestionBox(controller.current()));
 
+  // 🗄 Task Archives — everything checked off, with a Restore on every row (see
+  // tasks/archiveView.ts). It sits BETWEEN 💡 and 🔔 exactly as Gabe placed it
+  // (8/21). No count badge: unlike the bell, a number here would only ever say how
+  // much work you have finished, which is not something to be nagged about.
+  const archiveBtn = el('button', { class: 'icon-btn', 'aria-label': 'Task Archives', title: 'Task Archives' });
+  archiveBtn.innerHTML =
+    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="4" rx="1"/><path d="M5 7v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7"/><path d="M10 12h4"/></svg>';
+  archiveBtn.addEventListener('click', () => controller.goToTab('archive'));
+
   // No sign-out pill up here on purpose (per Gabe): the only way to sign out is
   // Settings → Sign out, behind its confirm dialog. One easy top-bar button made
   // it too casual to leave; this adds the friction back.
   // Icons first, name last (per Gabe): the two controls sit together as a pair on
   // the left, with the name reading as the label at the end of the cluster.
-  // 💡 sits FIRST: it is the only one of the three that is not a destination, so
-  // putting it left of the bell keeps the two navigating icons adjacent.
-  userBox.append(suggestBtn, bellBtn, settingsBtn, nameSpan);
+  // 💡 sits FIRST: it is the only one of the four that is not a destination, so
+  // putting it left of the rest keeps the three navigating icons adjacent.
+  userBox.append(suggestBtn, archiveBtn, bellBtn, settingsBtn, nameSpan);
   header.append(headerLeft, userBox);
 
   // --- Sidebar: the slide-out nav drawer (Dashboard / Tasks / Focus / Bookmarks) ---
@@ -354,6 +365,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   // register so they pick up the "active" highlight when their tab is showing.
   navBtns.set('settings', settingsBtn);
   navBtns.set('notifications', bellBtn);
+  navBtns.set('archive', archiveBtn);
 
   const tabsHost = el('div', { class: 'app' }); // centered content column
   below.append(sidebar, tabsHost);
@@ -377,6 +389,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   // --- Tabs + their views: each tab's content is built by its own module ---
   let controller: TabController;
   const notifyLogView = new NotificationLogView();
+  const archiveView = new TaskArchiveView(data);
   const dashboardView = new DashboardView(data, displayName, (id) => controller.goToTab(id));
   const tasksView = new TasksView(data);
   const focusView = new FocusView(data);
@@ -385,13 +398,19 @@ async function renderApp(user: AuthUser): Promise<void> {
     tabsHost,
     [
       { id: 'dashboard', label: 'Dashboard', render: (p) => dashboardView.mount(p) },
-      { id: 'tasks', label: 'Tasks', render: (p) => tasksView.mount(p) },
+      // onShow, not a re-mount: the list is expensive and keeps live state. It only
+      // re-tests the sticky add bar, which now that every tab opens at its top can
+      // be left wearing a pinned shadow at scroll zero (see TasksView.onShow).
+      { id: 'tasks', label: 'Tasks', render: (p) => tasksView.mount(p), onShow: () => tasksView.onShow() },
       { id: 'focus', label: 'Focus', render: (p) => void focusView.mount(p) },
       { id: 'bookmarks', label: 'Bookmarks', render: (p) => void new BookmarksView(data).mount(p) },
       // Re-mount every visit so unsaved edits revert to the last-saved version.
       { id: 'settings', label: 'Settings', onShow: (p) => void settingsView.mount(p) },
       // Same deal: re-mount so the log is current every time the bell is pressed.
       { id: 'notifications', label: 'Notifications', onShow: (p) => notifyLogView.mount(p) },
+      // …and the archive, which is a live read of the task map: re-mounting means
+      // it opens at the top showing whatever was checked off since you last looked.
+      { id: 'archive', label: 'Task Archives', onShow: (p) => archiveView.mount(p) },
     ],
     // EVERY tab change, which is the whole point of putting it here (Gabe, 8/16).
     // A selection belongs to the list it was made in, so leaving that list ends it.

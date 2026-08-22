@@ -29,6 +29,12 @@
   --red-fill: rgba(239, 68, 68, 0.85); /* hover fill for labeled delete buttons */
   --red-tint: rgba(239, 68, 68, 0.16); /* subtle hover hint for danger icon-buttons */
   --transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  /* THE PAGE ITSELF. Named because a second element now has to paint it: the sticky
+     add bar needs the rows to pass BEHIND it invisibly, and `fixed` attachment is
+     what makes that free. The gradient is anchored to the viewport rather than to
+     the element, so any box painting this shows exactly the pixels that would have
+     been there anyway, at any scroll position, with no seam to line up. */
+  --page-bg: linear-gradient(165deg, #0e2457 0%, #091a43 50%, #07132e 100%) fixed;
 
   /* secondary tokens */
   --border: rgba(255, 255, 255, 0.08);
@@ -110,7 +116,7 @@ html:has(.focus-pip-body) {
 
 body {
   /* subtle dark-blue → even-darker-blue gradient (still clearly blue), fixed */
-  background: linear-gradient(165deg, #0e2457 0%, #091a43 50%, #07132e 100%) fixed;
+  background: var(--page-bg);
   min-height: 100vh;
   color: var(--text);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;

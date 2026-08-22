@@ -1,0 +1,188 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>sticky add bar</title>
+<body>
+  <pre id="out" style="position:fixed;right:0;top:0;width:46%;max-height:100vh;overflow:auto;z-index:9000;margin:0;padding:10px;background:#07132e;color:#dbe6ff;font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap">running</pre>
+  <div id="root"></div>
+  <script type="module">
+    const say = (t) => { document.getElementById('out').textContent = t; };
+    window.addEventListener('unhandledrejection', (e) => say('REJECT: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+    window.addEventListener('error', (e) => say('ERROR: ' + e.message + '\n' + (e.error && e.error.stack || '')));
+    await import('/src/ui/theme.css'); await import('/src/ui/components.css');
+    await import('/src/ui/colorPicker.css'); await import('/src/ui/focus.css');
+    const { TasksView } = await import('/src/tasks/render.ts');
+    const { createSandboxData, SAMPLE_COURSES, sampleSchedule } = await import('/src/landing/sandbox.ts');
+    const { getPrefs, setPrefsCache } = await import('/src/prefs.ts');
+
+    const R = []; const ok = (n, c, x) => R.push((c ? 'PASS  ' : 'FAIL  ') + n + (x ? '  ' + x : ''));
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // THE REAL SHELL, rebuilt exactly as main.ts assembles it: body.app-mode makes
+    // #root a full-height flex column, the header is flex:none, and .app-below is the
+    // element that actually scrolls. Mounting the tasks view into a bare div (as the
+    // other harnesses do) would put it in a page that scrolls at the WINDOW, where a
+    // sticky bar behaves completely differently and proves nothing.
+    document.body.classList.add('app-mode');
+    const root = document.getElementById('root');
+    const header = document.createElement('div');
+    header.className = 'app-header';
+    header.textContent = 'header';
+    const below = document.createElement('div');
+    below.className = 'app-below';
+    const app = document.createElement('div');
+    app.className = 'app';
+    const panel = document.createElement('div');
+    panel.className = 'tab-panel active';
+    app.append(panel); below.append(app); root.append(header, below);
+
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: ['es'] } });
+    localStorage.setItem('cobalt:tx-langs:anon', 'es');
+
+    const iso = (d) => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const tasks = {};
+    for (let i = 0; i < 40; i++) {
+      const d = new Date(); d.setDate(d.getDate() + (i % 7) + 1);
+      tasks['t' + i] = { id:'t'+i, title:'task number ' + i, course:'', dueDate:iso(d), dueTime:'',
+        priority:'normal', completed:false, createdAt:i, translationChecked:true };
+    }
+    const data = await createSandboxData({ tasks, profile: { courses:{list:SAMPLE_COURSES}, schedule:sampleSchedule(), account:{displayName:'Gabe',onboarded:true} } });
+    const tv = new TasksView(data);
+    await tv.mount(panel); await sleep(700);
+    // KILL THE PANEL FADE-IN. `.tab-panel.active` animates from translateY(4px), and
+    // this browser pane freezes animations at their START value, so the panel sits 4px
+    // low forever and a correctly-pinned bar measures 4px below the scroller's top.
+    // That is a pane artifact, not the app (the animation has fill:both and settles at
+    // translateY(0) in a real browser). Inline, because a stylesheet rule loses to a
+    // running animation.
+    panel.style.animation = 'none';
+    panel.style.transform = 'none';
+    await sleep(100);
+
+    const bar = () => panel.querySelector('.quick-add');
+    const tip = () => panel.querySelector('.tasks-bulk-tip');
+    const cs = (e) => getComputedStyle(e);
+    const H = (e) => +e.getBoundingClientRect().height.toFixed(1);
+
+    ok('the shell scrolls at .app-below, not the window',
+       cs(below).overflowY === 'auto' && cs(document.body).overflow === 'hidden',
+       cs(below).overflowY + ' / ' + cs(document.body).overflow);
+    ok('the list is long enough to scroll', below.scrollHeight > below.clientHeight + 400,
+       below.scrollHeight + ' vs ' + below.clientHeight);
+    ok('the add bar is sticky', cs(bar()).position === 'sticky' && cs(bar()).top === '0px',
+       cs(bar()).position + ' top=' + cs(bar()).top);
+
+    // NOTHING between the bar and the scroller may clip or scroll, or sticky dies
+    // silently and the bar just scrolls away like any other element.
+    const blockers = [];
+    for (let n = bar().parentElement; n && n !== below; n = n.parentElement) {
+      const o = cs(n);
+      if (o.overflow !== 'visible' || o.overflowY !== 'visible') blockers.push(n.className + ':' + o.overflow);
+    }
+    ok('no ancestor clips the sticky context', blockers.length === 0, blockers.join(' | '));
+
+    // ---- at rest ----
+    const restH = H(bar()), restPad = cs(bar()).paddingTop, restFont = cs(bar().querySelector('textarea,input')).fontSize;
+    ok('at rest it is NOT pinned', !bar().classList.contains('pinned'));
+    ok('at rest the tip is showing', !!tip() && !tip().classList.contains('folded') && H(tip()) > 5, H(tip()) + 'px');
+    R.push('   at rest: bar ' + restH + 'px, tip ' + H(tip()) + 'px, font ' + restFont);
+
+    // The bar must be INVISIBLE as a bar until it pins: same paint as the page.
+    ok('at rest it paints the page background, so there is no visible bar',
+       cs(bar()).backgroundImage === cs(document.body).backgroundImage &&
+       cs(bar()).backgroundAttachment === 'fixed',
+       cs(bar()).backgroundAttachment + ' | matches=' + (cs(bar()).backgroundImage === cs(document.body).backgroundImage));
+    ok('at rest it casts no shadow', cs(bar()).boxShadow === 'none', cs(bar()).boxShadow);
+
+    // ---- scroll ----
+    // THE MEASUREMENT THAT SETTLED THE DESIGN. Sticky elements are still in flow, so
+    // anything that changes the pinned bar's HEIGHT moves every row below it. The
+    // first version slimmed the bar and folded the tip on pin, and this is what
+    // caught it: the list lurched under the cursor at the threshold, for nine pixels
+    // of screen that the tip was never occupying anyway.
+    below.scrollTop = 0; below.dispatchEvent(new Event('scroll')); await sleep(120);
+    const anchor = () => panel.querySelector('.task-item').getBoundingClientRect().top;
+    let pinAt = null, justBefore = null;
+    for (let y = 0; y < 300; y += 2) {
+      below.scrollTop = y; below.dispatchEvent(new Event('scroll'));
+      if (bar().classList.contains('pinned')) { pinAt = y; break; }
+      justBefore = anchor();
+    }
+    ok('it pins within the first screen of scrolling', pinAt !== null && pinAt < 200, 'at ' + pinAt + 'px');
+    const atPin = anchor();
+    // Two pixels of scroll should move the list two pixels. Anything more is the bar
+    // changing size and dragging the list with it.
+    ok('crossing the pin threshold does NOT jerk the list',
+       Math.abs((justBefore - atPin) - 2) <= 1, Math.round(justBefore - atPin) + 'px moved for 2px of scroll');
+
+    below.scrollTop = 600;
+    below.dispatchEvent(new Event('scroll'));
+    await sleep(200);
+    ok('scrolling pins it', bar().classList.contains('pinned'), bar().className);
+    ok('and it is still on screen, under the header',
+       bar().getBoundingClientRect().top >= below.getBoundingClientRect().top - 1 &&
+       bar().getBoundingClientRect().top < below.getBoundingClientRect().top + 2,
+       'bar top=' + Math.round(bar().getBoundingClientRect().top) + ' below top=' + Math.round(below.getBoundingClientRect().top));
+    const pinH = H(bar()), pinFont = cs(bar().querySelector('textarea,input')).fontSize;
+    R.push('   pinned: bar ' + pinH + 'px, font ' + pinFont);
+    ok('the bar is exactly the size it always was', Math.abs(pinH - restH) < 0.5, restH + ' -> ' + pinH);
+    ok('and so is its text', pinFont === restFont, restFont + ' -> ' + pinFont);
+    // The tip needs no folding: it is a normal-flow sibling and has already scrolled
+    // out of view by the time anything pins. Folding it only shortened the document.
+    ok('the tip has scrolled away on its own, unfolded',
+       tip().getBoundingClientRect().bottom < below.getBoundingClientRect().top &&
+       !tip().classList.contains('folded') && H(tip()) > 5,
+       'tip bottom=' + Math.round(tip().getBoundingClientRect().bottom) + ' viewport top=' + Math.round(below.getBoundingClientRect().top));
+    R.push('   VIEWPORT COST while pinned: ' + pinH + 'px (the tip costs nothing, it is off screen)');
+    // A REAL shadow, not a transition caught at its start value: this pane does not
+    // composite, so a transitioning box-shadow reports rgba(0,0,0,0) and would pass
+    // a bare !== 'none' check while painting nothing.
+    const sh = cs(bar()).boxShadow;
+    ok('pinned it separates itself from the list', sh !== 'none' && !/rgba\(0, 0, 0, 0\)/.test(sh), sh);
+    ok('and its bottom corners are rounded', cs(bar()).borderRadius === '0px 0px 14px 14px', cs(bar()).borderRadius);
+    ok('the shadow is soft, not a hairline', !/ 0px 0px 0px [^0]/.test(sh) && sh.indexOf('-9px') > 0, sh);
+    ok('and it still hides the rows behind it', cs(bar()).backgroundAttachment === 'fixed');
+    // NOTHING it animates may cause layout, or a scroll can drag the whole list.
+    const anim = cs(bar()).transitionProperty;
+    // "all" counts as a failure: it silently includes every layout property, which is
+    // the whole hazard, and it is what theme.css hands out by default.
+    ok('it transitions NOTHING that could move the list',
+       anim === 'none' || !/all|width|height|padding|margin|top|left|font-size/.test(anim), anim);
+
+    // Rows must actually pass BEHIND it, not over it.
+    const rowUnder = [].slice.call(panel.querySelectorAll('.task-item'))
+      .find((r) => { const b = r.getBoundingClientRect(); const q = bar().getBoundingClientRect();
+                     return b.top < q.bottom && b.bottom > q.top; });
+    ok('a row is genuinely overlapping the bar right now', !!rowUnder);
+    if (rowUnder) {
+      const zBar = +cs(bar()).zIndex, zRow = +cs(rowUnder).zIndex || 0;
+      ok('the bar paints above it', zBar > zRow, 'bar z=' + zBar + ' row z=' + (cs(rowUnder).zIndex || 'auto'));
+      const pt = document.elementFromPoint(
+        Math.round(bar().getBoundingClientRect().left + bar().getBoundingClientRect().width / 2),
+        Math.round(bar().getBoundingClientRect().top + bar().getBoundingClientRect().height / 2)
+      );
+      ok('a click in the bar hits the bar, not the row behind it',
+         !!pt && !!pt.closest('.quick-add'), pt && pt.className);
+    }
+    ok('the bar stays under the header', +cs(bar()).zIndex < 500, cs(bar()).zIndex);
+
+    // ---- back to the top ----
+    below.scrollTop = 0;
+    below.dispatchEvent(new Event('scroll'));
+    await sleep(200);
+    ok('scrolling back unpins it', !bar().classList.contains('pinned'));
+    ok('the tip is where it always was', H(tip()) > 5, H(tip()) + 'px');
+    ok('and the bar never changed height at all', Math.abs(H(bar()) - restH) < 0.5, H(bar()) + ' vs ' + restH);
+    ok('at rest it casts no shadow again', cs(bar()).boxShadow === 'none', cs(bar()).boxShadow);
+
+    // ---- the landing demo must not do any of this ----
+    const sandHost = document.createElement('div');
+    document.body.appendChild(sandHost);
+    const sv = new TasksView(data, { host: sandHost });
+    await sv.mount(sandHost); await sleep(400);
+    ok('a sample view never listens for scroll', !sv['quickAddOff']);
+    ok('the real view does', !!tv['quickAddOff']);
+
+    const fails = R.filter((x) => x.indexOf('FAIL') === 0);
+    say(R.join('\n') + '\n\n' + (fails.length ? '>>> ' + fails.length + ' FAILURES' : '>>> ALL ' + R.filter((x)=>/^(PASS|FAIL)/.test(x)).length + ' CHECKS PASS'));
+  </script>
+</body>

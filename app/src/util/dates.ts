@@ -108,3 +108,35 @@ export const formatMetaDate = (ds: string): string => {
   const d = dateFromISO(ds);
   return `${WEEKDAYS[d.getDay()].slice(0, 3)} ${formatShortDate(ds)}`;
 };
+
+/**
+ * A wall-clock TIMESTAMP, honoring the Time-format pref: "2:05 PM" / "14:05".
+ *
+ * Distinct from formatTimeOfDay above, which formats a due time ("3pm") from a
+ * "HH:MM" string and drops a zero minute. This one takes epoch milliseconds and
+ * always prints the minutes, because it labels a moment something HAPPENED — in a
+ * column of them, a row reading "2 PM" beside one reading "2:05 PM" is a misaligned
+ * column, not a tidier one.
+ *
+ * Shared by the two dated-history screens (the notification log and the Task
+ * Archives), which had byte-identical private copies of it.
+ */
+export const formatWallClock = (ms: number): string => {
+  const d = new Date(ms);
+  if (getPrefs().timeFormat === '24h') {
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  const h = d.getHours() % 12 || 12;
+  return `${h}:${String(d.getMinutes()).padStart(2, '0')} ${d.getHours() < 12 ? 'AM' : 'PM'}`;
+};
+
+/** Day heading for a dated history: 'Today' / 'Yesterday' / 'Mon, Aug 4'. Also
+ *  shared by the notification log and the Task Archives. */
+export const formatDayHeading = (ms: number): string => {
+  const d = new Date(ms);
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((startOf(new Date()) - startOf(d)) / 86_400_000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+};

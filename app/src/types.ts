@@ -21,6 +21,15 @@ export interface Task {
   source: TaskSource;
   completed: boolean;
   completedAt: string | null; // ISO
+  /**
+   * RETIRED TO THE TASK ARCHIVES (Gabe, 8/21) — a completed task whose day has
+   * passed. Set by Data.archiveStaleCompleted at boot, which is where completed
+   * tasks used to be DELETED outright. Nothing in the app hides a task because of
+   * this flag (every list already filters on `completed`); it exists so the two
+   * counters that measure "today" — the daily lightbulb and the calendar grid —
+   * can tell a task finished today apart from one dug out of last month.
+   */
+  archived?: boolean;
   priority: Priority;
   addedAt: string; // ISO
   /** Manual ⋮⋮ drag position within the task's due-date group. Absent = never
@@ -44,6 +53,21 @@ export interface Task {
    *  in at most ONE folder; foldered tasks render inside their folder's section
    *  instead of the main due-date groups. */
   folderId?: string;
+  /**
+   * THE FOLDER'S NAME, FROZEN AT CHECK-OFF (Gabe, 8/21), so the Task Archives can
+   * still say which folder a task came out of.
+   *
+   * `folderId` alone cannot answer that. A folder DISSOLVES the moment its last
+   * member is completed (see dissolvedFolders), and the task that finished it is
+   * exactly the one heading for the archive — so by the time the archive draws the
+   * row, the id points at a folder that no longer exists. Stamped by
+   * stampFolderName on the completing write, which is the last instant the answer
+   * is still knowable.
+   *
+   * A NAME and not a live lookup, deliberately: this records which folder the task
+   * WAS in, so a folder renamed afterwards does not rewrite that history.
+   */
+  folderName?: string;
   /** Optional AI-picked emoji prefix for the title. */
   emoji?: string;
   /** Cached English translation of a foreign-language title + its detected source
@@ -66,6 +90,59 @@ export interface Task {
    *  reading of the title. It outranks the auto pass: a re-scan must never overwrite
    *  an answer a person gave, and the tooltip says whose answer it is. */
   translationChosen?: boolean;
+  /** What auto-detect guessed when it was not sure enough to act on it. Kept only to
+   *  ORDER the language buttons on an unplaced title, so the likeliest answer is the
+   *  first one under the student's thumb. Never displayed as a claim. */
+  translationDetected?: string;
+  /**
+   * LANGUAGES THE PROVIDER HAS ALREADY REFUSED for this exact title (Gabe, 8/21).
+   *
+   * Asking Google to read a Vietnamese sentence as French returns the sentence back
+   * unchanged: that is the engine saying it cannot read this as French. The app was
+   * already reporting that in a toast and then offering French again on the next
+   * redraw, which is the app admitting a language is not a contender and continuing
+   * to present it as one.
+   *
+   * So the refusal is kept. A code in here is not a ranking penalty, it is an
+   * exclusion: that language is not offered for this title again, not even behind
+   * "more". Per TITLE, because it is a fact about these words rather than about the
+   * language or the student.
+   */
+  translationRuledOut?: string[];
+  /**
+   * THE READINGS THAT ACTUALLY WORK, checked before any of them was offered.
+   *
+   * Language code to the English it produces. Written by the verification pass, which
+   * asks the provider to read this title as each candidate language BEFORE the buttons
+   * are drawn, and keeps only the ones that came back as English rather than as the
+   * title again (Gabe, 8/21). Two things follow from it: a language that cannot read
+   * the title is never shown, and pressing one of the buttons that IS shown costs
+   * nothing, because the answer is already here.
+   */
+  translationOptions?: Record<string, string>;
+  /** The verification pass has finished for this title, whatever it found. Stops the
+   *  work repeating on every render and every reload. */
+  /**
+   * THE TITLE the verification above was run against, and the ONLY record that it
+   * happened.
+   *
+   * There used to be a separate `translationVerified` boolean beside it, which is one
+   * fact stored twice and therefore a fact that can contradict itself: a write that
+   * set the flag but not the title left the app believing in a verification it could
+   * not place. That happened, in a test, within a day of the field being added
+   * (Gabe, 8/21). Set means verified, and what it is set TO says what it covers.
+   *
+   * The belt to clearTranslation's braces, and the reason it exists is that the
+   * braces had already failed twice. Any path that changes a title without clearing
+   * the translation state leaves options describing words that are gone; comparing
+   * this to the live title catches that at RENDER time, whoever forgot, so the row
+   * re-verifies instead of filtering the new title's candidates through the old
+   * title's answers and finding nothing (Gabe, 8/21). Also heals tasks already
+   * carrying stale state from before this existed.
+   */
+  translationVerifiedFor?: string;
+
+
   /** User dismissed the QUIZ/TEST pill via its hover ✕ — "test" was just a word
    *  in the title, not an actual assessment. Render-time only; never re-badges. */
   assessmentDismissed?: boolean;

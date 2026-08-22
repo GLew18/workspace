@@ -21,6 +21,29 @@ export interface TabController {
 }
 // #endregion
 
+// #region openAtTop() — every tab (and every settings sub-tab) starts at its top
+/**
+ * SCROLL TO THE TOP OF WHATEVER WAS JUST OPENED (Gabe, 8/21).
+ *
+ * In the signed-in shell the window does not scroll — `.app-below` does
+ * (components.css) — and that ONE scroller is shared by every tab panel. So the
+ * position was effectively linked: scrolling halfway down Tasks and then opening
+ * Settings, Bookmarks or a settings section dropped you halfway down THAT too,
+ * looking at the middle of a page you had never seen. Opening something is always
+ * a request to start at its beginning.
+ *
+ * `node` is anywhere inside the surface being shown, and the scroller is found by
+ * walking UP from it rather than by a document-wide query: the landing page's live
+ * demo builds its own `.app-below` inside the device frame, and a global lookup
+ * would reach across into it.
+ */
+export function openAtTop(node: Element): void {
+  for (let n: Element | null = node; n; n = n.parentElement) {
+    if (n.scrollTop) n.scrollTop = 0;
+  }
+}
+// #endregion
+
 // #region mountTabs() — one panel per tab; renders on first view, switches the active one
 export function mountTabs(
   container: HTMLElement,
@@ -43,6 +66,9 @@ export function mountTabs(
       tab.render(panel);
     }
     tab.onShow?.(panel); // every visit — lets a tab reload from saved state
+    // AFTER onShow, so a tab that rebuilt its content is measured in its final
+    // shape. Every tab opens at its top, whatever the last one was scrolled to.
+    openAtTop(panel);
     onChange?.(id);
   };
 

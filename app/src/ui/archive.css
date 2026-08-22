@@ -1,0 +1,268 @@
+/* Cobalt: the 🗄 Task Archives screen (see src/tasks/archiveView.ts).
+
+   Deliberately the same reading surface as the Notifications screen (notifylog.css):
+   a centered page head, uppercase day headings, and one row per item with a fixed
+   time gutter. Gabe asked for "a similar appearance to notifs", and the two screens
+   ARE the same shape of thing — a dated history you scroll, not a control panel. The
+   classes are separate (.arch-* vs .nlog-*) rather than shared, because only the
+   frame matches: an archive row carries a course chip and an action button, and the
+   two will drift as they grow. */
+
+.arch-page {
+  padding: 4px 0 40px;
+}
+
+/* Head — title over a one-line purpose, both centered. "Delete all" is positioned
+   OUT of the flow so it cannot drag the centered text off-center by half its own
+   width (the same trick as .nlog-clear). */
+.arch-head {
+  position: relative;
+  margin-bottom: 22px;
+}
+.arch-head-text {
+  min-width: 0;
+  text-align: center;
+}
+.arch-title {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.arch-desc {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+/* Reads as an ordinary outline button until you approach it, then turns red: this
+   is the one control in the app that destroys tasks in bulk, so it should not look
+   inviting, and it should be unmistakable once the pointer is on it. */
+.arch-clear {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 13px;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition), background var(--transition);
+}
+.arch-clear:hover {
+  color: var(--red);
+  border-color: var(--red);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* Day heading — the completion day, in the app's uppercase rhythm. */
+.arch-day {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--accent);
+  margin: 20px 2px 8px;
+}
+/* The first heading sits directly under the page head, so it drops its top gap. */
+.arch-head + .arch-day {
+  margin-top: 0;
+}
+
+/* Row — time gutter, the task, then its two actions at the end. Translucent navy so
+   the app's blue gradient shows through, exactly as the notification rows do. */
+.arch-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(23, 32, 54, 0.55);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  transition: border-color var(--transition), background var(--transition);
+}
+.arch-row:hover {
+  background: rgba(28, 39, 65, 0.7);
+  border-color: rgba(125, 180, 255, 0.35);
+}
+/* Multi-select, drawn with the SAME outline and tint the Tasks list uses for a
+   selected row (.task-item.selected) — one gesture, so it should have one look. */
+.arch-row.selected {
+  outline: 2px solid var(--sel-outline);
+  outline-offset: -2px;
+  background-image: var(--sel-tint);
+}
+.arch-time {
+  flex: none;
+  width: 62px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.arch-main {
+  flex: 1;
+  min-width: 0;
+}
+/* Struck through: this is a list of FINISHED work, and the line is what says so at
+   a glance without adding a word to every row. */
+.arch-row-title {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text-dim);
+  text-decoration: line-through;
+  text-decoration-color: rgba(125, 180, 255, 0.45);
+  overflow-wrap: anywhere;
+}
+.arch-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+/* Course keeps its own color here, as it does in the Tasks list — that color is how
+   a student recognizes a class without reading. Inline-flex + flex:none so the chip
+   is exactly as wide as its text and the flex row can never stretch it. */
+.arch-course {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+/* The folder the task came out of. Icon + name, tinted with the folder's own color
+   when the folder still exists (an archived task's folder has usually dissolved, and
+   only its NAME survives — see Task.folderName). */
+.arch-folder {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.arch-folder svg {
+  flex: none;
+}
+.arch-due {
+  font-size: 12px;
+}
+/* The translation line, borrowed whole from the Tasks row (.task-translation in
+   components.css) so a foreign task looks the same in both places. This adds only
+   the strike that the rest of a finished row wears. */
+.arch-translation {
+  text-decoration: line-through;
+  text-decoration-color: rgba(125, 180, 255, 0.3);
+}
+
+/* Actions — Restore over Delete. Stacked and equal width so the pair reads as one
+   control with a safe half and a final half, and so the destructive one is never
+   where the pointer already is. */
+.arch-actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+}
+.arch-restore,
+.arch-delete {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 13px;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition), background var(--transition);
+}
+.arch-restore:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(125, 180, 255, 0.1);
+}
+/* Quiet until you reach for it, then unmistakably red. It is not styled red at rest
+   because a permanent delete sitting on every row in alarm colors makes the whole
+   screen look dangerous, when the screen is in fact where things are kept safe. */
+.arch-delete:hover {
+  color: var(--red);
+  border-color: var(--red);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Empty state — the same soft halo the bell's empty screen uses, so a blank archive
+   still carries the brand instead of reading as a dead end. */
+.arch-empty {
+  text-align: center;
+  padding: 56px 20px;
+}
+.arch-empty-icon {
+  width: 74px;
+  height: 74px;
+  margin: 0 auto;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  background: radial-gradient(circle, rgba(125, 180, 255, 0.16), transparent 70%);
+  opacity: 0.75;
+}
+.arch-empty-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin-top: 12px;
+}
+.arch-empty-sub {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 6px;
+  max-width: 460px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Narrow: the pinned "Delete all" runs straight into the centered title long before
+   the phone width, because the title is centered in the FULL head and the button is
+   floating over its right end. Below this width it rejoins the flow underneath,
+   centered, where it has the whole row to itself.
+
+   The rows relax at the same breakpoint: the time gutter and the Restore button stop
+   competing for the width, so the action can drop beneath a long task title. */
+@media (max-width: 560px) {
+  .arch-clear {
+    position: static;
+    display: block;
+    margin: 12px auto 0;
+  }
+  /* Time + task on the first line, the two actions on their own beneath. `flex-wrap`
+     alone was not enough: .arch-main is `flex: 1; min-width: 0`, so it obediently
+     squeezed to nothing rather than pushing the buttons down, and the meta line ran
+     underneath them. `flex-basis: 100%` on the actions is what actually claims a
+     line, and side by side down there costs no height. */
+  .arch-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    row-gap: 10px;
+  }
+  .arch-time {
+    width: auto;
+    padding-top: 1px; /* sits on the title's baseline now that the row is top-aligned */
+  }
+  .arch-actions {
+    flex-direction: row;
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+}

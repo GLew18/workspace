@@ -16,29 +16,12 @@ import {
   NOTIFY_LOG_EVENT,
   type NotifyLogEntry,
 } from './log';
-import { getPrefs } from '../prefs';
-
-/** "2:05 PM" / "14:05", honoring the time-format pref. */
-function clock(ms: number): string {
-  const d = new Date(ms);
-  if (getPrefs().timeFormat === '24h') {
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  }
-  const h = d.getHours() % 12 || 12;
-  const suffix = d.getHours() < 12 ? 'AM' : 'PM';
-  return `${h}:${String(d.getMinutes()).padStart(2, '0')} ${suffix}`;
-}
-
-/** Day heading: Today / Yesterday / "Mon, Aug 4". */
-function dayLabel(ms: number): string {
-  const d = new Date(ms);
-  const today = new Date();
-  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const diffDays = Math.round((startOf(today) - startOf(d)) / 86_400_000);
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-}
+// The timestamp and day-heading formatters used to live here as private
+// functions. The Task Archives is the same shape of screen and wanted both
+// verbatim, so they moved to util/dates.ts rather than being copied: two private
+// copies of "what day is this" is how the two screens end up disagreeing about
+// where Yesterday ends.
+import { formatWallClock, formatDayHeading } from '../util/dates';
 
 export class NotificationLogView {
   private host: HTMLElement | null = null;
@@ -54,12 +37,11 @@ export class NotificationLogView {
     this.host = page;
     panel.replaceChildren(page);
     this.draw();
-    // OPEN AT THE TOP (Gabe, 8/10). In the signed-in shell the window doesn't
-    // scroll, .app-below does (components.css), and that scroll position is
-    // shared across tabs — so arriving from a scrolled-down Tasks list dropped
-    // you at the bottom of the log, past the newest entries. The list is
-    // newest-first, so the top is the only sensible landing spot.
-    document.querySelector('.app-below')?.scrollTo({ top: 0 });
+    // OPEN AT THE TOP (Gabe, 8/10) is now every tab's behaviour, not this
+    // screen's private fix: mountTabs calls openAtTop after onShow (ui/tabs.ts).
+    // The document-wide `.app-below` lookup that used to live here is gone with
+    // it — it could reach into the landing demo's own shell.
+    //
     // Opening the screen IS reading it: clears the bell's unread dot. Done after
     // the first draw so entries that arrived while away still render normally.
     markNotifyLogSeen();
@@ -108,7 +90,7 @@ export class NotificationLogView {
     // day heading is emitted whenever the label changes as we walk down.
     let lastDay = '';
     for (const e of entries) {
-      const label = dayLabel(e.at);
+      const label = formatDayHeading(e.at);
       if (label !== lastDay) {
         lastDay = label;
         host.append(el('div', { class: 'nlog-day', text: label }));
@@ -120,7 +102,7 @@ export class NotificationLogView {
   private row(e: NotifyLogEntry): HTMLElement {
     const row = el('div', { class: 'nlog-row' });
 
-    const time = el('div', { class: 'nlog-time', text: clock(e.at) });
+    const time = el('div', { class: 'nlog-time', text: formatWallClock(e.at) });
 
     const main = el('div', { class: 'nlog-main' });
     main.append(el('div', { class: 'nlog-row-title', text: e.title }));

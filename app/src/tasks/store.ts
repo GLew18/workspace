@@ -24,6 +24,38 @@ export function makeTask(parsed: ParsedTask): Task {
 }
 
 /** Clone a task as a duplicate. */
+/**
+ * EVERY TRANSLATION FIELD, CLEARED, because the title they described is gone.
+ *
+ * A translation, the language it came from, the languages that could have written it,
+ * the ones the provider refused, the readings that worked: all of it is about a
+ * specific string of words. Change the words and every one of those answers is about
+ * a title that no longer exists.
+ *
+ * IT LIVES HERE BECAUSE IT WAS WRONG IN TWO PLACES AT ONCE (Gabe, 8/21). The inline
+ * title editor and the Schoology re-sync each cleared the three fields that existed
+ * when they were written, and neither learned about the five added since. A Greek
+ * task retitled in Polish kept its Greek verification, so the row filtered the Polish
+ * candidates against a Greek answer, matched nothing, and drew "Translate from" with
+ * no languages after it. One function, one list, and the next field added is handled
+ * everywhere by construction.
+ */
+export function clearTranslation<T extends Partial<Task>>(t: T): T {
+  return {
+    ...t,
+    translatedTitle: '',
+    translatedLang: '',
+    translationChecked: false,
+    translationHidden: false,
+    translationChosen: false,
+    translationAmbiguous: false,
+    translationDetected: '',
+    translationRuledOut: [],
+    translationOptions: {},
+    translationVerifiedFor: '',
+  };
+}
+
 export function duplicateTask(task: Task): Task {
   return {
     ...task,
@@ -213,7 +245,11 @@ export interface DailyProgress {
  */
 export function dailyProgress(map: TaskMap): DailyProgress {
   const today = todayStr();
-  const todays = Object.values(map).filter((t) => t.dueDate === today);
+  // ARCHIVED TASKS ARE NOT PART OF TODAY (Gabe, 8/21). They used to be deleted, so
+  // they could not turn up here; now they are kept. A task due today that was
+  // finished on an earlier day is archived, invisible in the list, and would
+  // otherwise silently light the bulb for work the student cannot see.
+  const todays = Object.values(map).filter((t) => t.dueDate === today && !t.archived);
   const total = todays.length;
   const done = todays.filter((t) => t.completed).length;
   return { done, total, pct: total === 0 ? 1 : done / total };

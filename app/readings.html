@@ -1,41 +1,57 @@
 <!doctype html>
 <meta charset="utf-8" />
-<title>readings menu</title>
+<title>the asking row</title>
 <body style="margin:0;background:#07132e;color:#dbe6ff;font:12px/1.6 ui-monospace,monospace">
   <pre id="out" style="padding:12px;white-space:pre-wrap">running</pre>
   <div id="tpanel"></div>
   <script type="module">
-    const say = (t) => { document.getElementById('out').textContent = t; };
+    // Declared before anything can throw, and APPENDING rather than replacing: an
+    // error used to wipe the progress log it was reported in, so a run that died on
+    // check 40 looked identical to one that never started.
+    const LOG = [];
+    const show = () => { document.getElementById('out').textContent = LOG.join(String.fromCharCode(10)); };
+    const say = (t) => { LOG.push(t); show(); };
     window.addEventListener('unhandledrejection', (e) => say('REJECT: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
-    window.addEventListener('error', (e) => say('ERROR: ' + e.message + '\n' + (e.error && e.error.stack || '')));
+    window.addEventListener('error', (e) => say('ERROR: ' + e.message + ' | ' + (e.error && e.error.stack || '')));
     document.body.classList.add('app-mode');
-    // NO cache-buster on these imports. A "?v=" query makes a SEPARATE module
-    // instance, so `/src/prefs.ts?v=1` and the `/src/prefs.ts` that translate.ts
-    // imports internally are two different modules with two different caches: the
-    // setPrefsCache below then lands on a copy nothing under test is reading. Vite
-    // serves source no-cache in dev, so the buster was never buying anything here.
+    // NO cache-buster: a "?v=" query makes a SEPARATE module instance, so the prefs
+    // module this file writes to would not be the one translate.ts reads from.
     await import('/src/ui/theme.css'); await import('/src/ui/components.css');
     await import('/src/ui/colorPicker.css'); await import('/src/ui/focus.css');
-    const { isAmbiguous, translationReadings, gateDecision } = await import('/src/util/translate.ts');
+    const TR = await import('/src/util/translate.ts');
+    const { isAmbiguous, readingCandidates, rankCandidates, translateAs, gateDecision, MAX_CHIPS } = TR;
+    const VN = 'T\u00f4i mu\u1ed1n \u0111i v\u1ec7 sinh.';
     const { TasksView } = await import('/src/tasks/render.ts');
     const { createSandboxData, SAMPLE_COURSES, sampleSchedule } = await import('/src/landing/sandbox.ts');
-    const { getPrefs, setPrefsCache } = await import('/src/prefs.ts');
-    const { PINNABLE } = await import('/src/prefs.ts');
+    const { getPrefs, setPrefsCache, PINNABLE } = await import('/src/prefs.ts');
 
-    const R = []; const ok = (n, c, x) => R.push((c ? 'PASS  ' : 'FAIL  ') + n + (x ? '  ' + x : ''));
+    // Live: this suite makes real network calls that fail slowly when signed out, so a
+    // run can take a while. Painting after every check turns "is it stuck?" into a
+    // visible answer instead of a guess.
+    // R IS the log, so a thrown error lands in the same list as the checks and the
+    // last PASS before it says exactly how far the run got.
+    const R = LOG;
+    const paint = show;
+    const ok = (n, c, x) => { R.push((c ? 'PASS  ' : 'FAIL  ') + n + (x ? '  ' + x : '')); paint(); };
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const click = (e) => e.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    /** Wait for a condition rather than for a duration. The verification pass makes a
+     *  real network call before the row can show anything, and signed out that call
+     *  fails on the transport's own timetable, not on ours. */
+    const waitFor = async (fn, ms = 20000) => {
+      R.push('   …waiting'); paint();
+      const until = Date.now() + ms;
+      while (Date.now() < until) {
+        try { if (fn()) return true; } catch { /* not ready yet */ }
+        await sleep(150);
+      }
+      return false;
+    };
 
-    // Enable a spread: two Latin languages that genuinely collide on short words,
-    // plus a Hebrew-script one, so the script filter has something to remove.
     const langs = ['es', 'pt', 'he'];
     setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: langs } });
-    // PRIME THE LANGUAGE SIGNATURE before anything mounts. Changing the enabled list
-    // is exactly what makes the view throw away every stored verdict, which is right
-    // in the app and ruinous in a harness that seeds those verdicts by hand: the
-    // sweep is async and landed after the seeding, wiping it. Matching the signature
-    // up front means the sweep has nothing to do.
-    localStorage.setItem('cobalt:tx-langs', langs.join(','));
+    // Prime the language signature so the mount does not sweep away seeded verdicts.
+    localStorage.setItem('cobalt:tx-langs:anon', langs.join(','));
 
     // ================= 1. WHEN IS THERE A QUESTION TO ASK =================
     const v = (lang, sure, onList, accept) => ({ lang, sure, onList, accept });
@@ -48,150 +64,642 @@
     ok('an UNSURE reading of an enabled language IS a question',
        amb('bo por tradusie kisas kisas no', v('es', false, true, false)));
     ok('an unsure reading of a language you did not enable is a question too',
-       amb('bo por tradusie kisas kisas no', v('pap', false, false, false)),
-       'the detector is unsure, so its label is not the last word');
+       amb('bo por tradusie kisas kisas no', v('pap', false, false, false)));
     ok('no detected language at all is not a question', !amb('???', v('', false, false, false)));
-    // THE SCRIPT FILTER: a Hebrew title can only be read by a Hebrew-script language,
-    // and a Greek one by none of the three enabled here.
     ok('a Hebrew title is a question (Hebrew is enabled)', amb('מבחן', v('he', false, true, false)));
     ok('a GREEK title is not, because no enabled language is written in Greek',
        !amb('εργασία για αύριο', v('el', false, false, false)));
     ok('an Arabic title is not either', !amb('واجب الرياضيات', v('ar', false, false, false)));
-
-    // with nothing enabled there is never anything to offer
     setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: [] } });
     ok('no enabled languages means no question anywhere', !amb('tarea', v('es', false, false, false)));
     setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: langs } });
 
-    // the gate itself is untouched by any of this
     const allowed = new Set(langs);
     ok('the gate still refuses junk', !gateDecision({ source:'tod cod', translated:'to cod', lang:'es', conf:0.99, allowed }).accept);
     ok('the gate still accepts real titles', gateDecision({ source:'tarea', translated:'homework', lang:'es', conf:0.98, allowed }).accept);
 
-    // ================= 2. THE ROW OFFERS IT =================
-    ok('"readings" is pinnable', PINNABLE.indexOf('readings') >= 0, PINNABLE.join(','));
+    // ================= 2. WHICH LANGUAGES GET OFFERED =================
+    // THE CASE GABE HIT (8/21): nine languages enabled, "importante" answered with all
+    // nine including French. A ranked shortlist of two to five is the fix.
+    const NINE = ['es','fr','af','pap','pt','it','ca','nl','sw'];
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: NINE } });
+    const codes = (t, d, recent) => readingCandidates(t, d, recent || []).map((x) => x.code);
 
+    // Eight, not nine: Swahili forms no "rt"/"nt"/"mp", so it is not a candidate for
+    // this word at all any more. Shape is doing its job before ranking even starts.
+    ok('shape drops the language that could not have written it', rankCandidates('importante', '', []).length === 8,
+       rankCandidates('importante', '', []).length + ' of 9 enabled');
+    const imp = codes('importante', 'es');
+    // ALWAYS TWO TO FOUR (Gabe, 8/21). This row only exists because the detector was
+    // NOT confident, so offering exactly one language would assert a confidence the
+    // app just said it did not have: if it were that sure it would have translated
+    // the title outright and shown no buttons. Contention is the entry condition, so
+    // contenders, plural, are the honest answer.
+    ok('at least two are always offered', imp.length >= 2, imp.length + ': ' + JSON.stringify(imp));
+    ok('and never more than ' + MAX_CHIPS, imp.length <= MAX_CHIPS, JSON.stringify(imp));
+    ok('the detector lean leads', imp[0] === 'es', JSON.stringify(imp));
+    R.push('   "importante" [detector: es] -> ' + JSON.stringify(imp));
+
+    // A ROMANCE WORD SURFACES THE ROMANCE LANGUAGES (Gabe, 8/21). "importante test"
+    // came back offering Italian and Portuguese with Spanish nowhere: the word carries
+    // no mark of any single Romance language, so all of them scored zero and the
+    // tie-break decided alone. Family spelling fixes the FIELD; the finer signals
+    // still decide the order within it.
+    // The FULL field, not the shortlist: the point is which languages are candidates
+    // at all, and the shortlist only shows the top MAX_CHIPS of them.
+    const romance = rankCandidates('importante test', '', []).map((d) => d.code);
+    ok('a Romance word offers Romance languages',
+       ['es','pt','it','ca'].filter((c) => romance.indexOf(c) >= 0).length >= 3, JSON.stringify(romance));
+    ok('and Spanish is among them', romance.indexOf('es') >= 0, JSON.stringify(romance));
+    // Two different mechanisms, so two different assertions. Swahili is EXCLUDED
+    // outright (it forms no "rt"/"nt"/"mp"); Afrikaans is a legitimate Latin-script
+    // candidate that the ranking simply pushes below the Romance field.
+    ok('a language that could not have written it is excluded', romance.indexOf('sw') < 0, JSON.stringify(romance));
+    ok('and one that merely has nothing to do with it ranks below the Romance field',
+       romance.indexOf('af') >= 4 && codes('importante test', '').indexOf('af') < 0,
+       JSON.stringify(romance) + ' shortlist=' + JSON.stringify(codes('importante test', '')));
+    R.push('   "importante test" [no detector] -> ' + JSON.stringify(romance));
+    // Even when history points elsewhere, the family still gets a seat.
+    const hist2 = codes('importante test', '', ['it', 'pt']);
+    ok('history reorders the field but does not empty it of Spanish',
+       hist2.indexOf('es') >= 0 && hist2[0] === 'it', JSON.stringify(hist2));
+
+    // Evidence beats both alphabetical order and the enabled-list order.
+    ok('a c-cedilla word puts Portuguese first with no detector help',
+       codes('composicao do texto'.replace('cao','\u00e7\u00e3o'))[0] === 'pt',
+       JSON.stringify(codes('composi\u00e7\u00e3o do texto')));
+    ok('an n-tilde puts Spanish first', codes('el ni\u00f1o y la ma\u00f1ana')[0] === 'es', JSON.stringify(codes('el ni\u00f1o y la ma\u00f1ana')));
+    ok('a -zione ending puts Italian first', codes('la relazione di storia')[0] === 'it', JSON.stringify(codes('la relazione di storia')));
+    // Dutch and Afrikaans share most of their function words, so this is the hardest
+    // pair in the table. Dutch must at least LEAD; cutting Afrikaans entirely is
+    // better still, and either counts.
+    const dut = codes('het verslag voor morgen');
+    ok('Dutch leads Afrikaans on a Dutch sentence',
+       dut[0] === 'nl' && (dut.indexOf('af') < 0 || dut.indexOf('af') > 0), JSON.stringify(dut));
+    ok('French ranks first when the title really IS French',
+       codes('le devoir pour demain')[0] === 'fr', JSON.stringify(codes('le devoir pour demain')));
+
+    // THE ACCOUNT HISTORY. A term of Spanish assignments is a better prior than any
+    // table shipped in the app.
+    const hist = codes('importante', '', ['es', 'pt']);
+    ok('a history of Spanish tasks puts Spanish first with no detector help',
+       hist[0] === 'es', JSON.stringify(hist));
+    ok('and the next-commonest follows it', hist[1] === 'pt', JSON.stringify(hist));
+
+    // Zero evidence anywhere: still a real choice, not nine and not one.
+    const blind = codes('zzz qqq');
+    ok('with no evidence at all it still offers a choice', blind.length >= 2, JSON.stringify(blind));
+    ok('...but only a few', blind.length <= MAX_CHIPS, JSON.stringify(blind));
+    // Every case, evidence or not, lands inside the same window.
+    const shapes = ['importante', 'tarea de matematicas', 'zzz qqq', 'le devoir pour demain',
+                    'composicao', 'het verslag voor morgen'].map((t) => codes(t, '').length);
+    ok('EVERY title gets between 2 and ' + MAX_CHIPS + ' options',
+       shapes.every((n) => n >= 2 && n <= MAX_CHIPS), JSON.stringify(shapes));
+
+    // Script still does the coarse work for free.
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: ['es','pt','he'] } });
+    ok('a HEBREW title offers only the Hebrew-script one',
+       JSON.stringify(codes('\u05de\u05d1\u05d7\u05df \u05d1\u05de\u05ea\u05de\u05d8\u05d9\u05e7\u05d4')) === JSON.stringify(['he']),
+       JSON.stringify(codes('\u05de\u05d1\u05d7\u05df \u05d1\u05de\u05ea\u05de\u05d8\u05d9\u05e7\u05d4')));
+    ok('an Arabic title offers nothing at all', codes('\u0648\u0627\u062c\u0628 \u0627\u0644\u0631\u064a\u0627\u0636\u064a\u0627\u062a').length === 0);
+    ok('two enabled languages are never cut', codes('bo por tradusie').length === 2);
+
+    // The row tests below run with all NINE enabled, which is the state Gabe was in.
+    // Set BEFORE the view mounts, with the signature primed to match, or mounting
+    // would see a changed list and sweep away the verdicts these tests seed.
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: NINE } });
+    localStorage.setItem('cobalt:tx-langs:anon', NINE.join(','));
+
+    // ============ 2b. ONLY LINGUISTICALLY POSSIBLE LANGUAGES ============
+    // Gabe's list, including the two he turned on purely to test with, which is what
+    // made the failure visible: "importante test si" came back offering Papiamento
+    // and Vietnamese ABOVE Spanish and Portuguese.
+    const GABE = ['es','fr','af','pap','pt','it','ca','nl','sw','vi','he'];
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: GABE } });
+    const PHRASE = 'importante test si';
+    const poss = rankCandidates(PHRASE, '', []).length;
+    const rank = rankCandidates(PHRASE, '', []).map((d) => d.code);
+    R.push('   POSSIBLE for "' + PHRASE + '": ' + JSON.stringify(rank));
+
+    // 1. Languages from another linguistic world are not listed AT ALL.
+    ok('VIETNAMESE is not offered, anywhere', rank.indexOf('vi') < 0, JSON.stringify(rank));
+    ok('and neither is Hebrew, on Latin text', rank.indexOf('he') < 0, JSON.stringify(rank));
+    ok('nor Swahili', rank.indexOf('sw') < 0, JSON.stringify(rank));
+    ok('the "more" gate counts only what is possible, not what is enabled',
+       poss === rank.length && poss < GABE.length, poss + ' possible of ' + GABE.length + ' enabled');
+
+    // 2. The Romance field IS listed, and leads.
+    const shown = readingCandidates(PHRASE, '', []).map((d) => d.code);
+    R.push('   SHOWN (top ' + MAX_CHIPS + '): ' + JSON.stringify(shown));
+    ok('exactly ' + MAX_CHIPS + ' are shown when more contend', shown.length === MAX_CHIPS && rank.length > MAX_CHIPS,
+       shown.length + ' shown of ' + rank.length + ' possible');
+    ok('every language shown is Romance', shown.every((c) => ['es','pt','it','ca','fr','gl','ro'].indexOf(c) >= 0),
+       JSON.stringify(shown));
+    ok('Spanish and Portuguese are both shown', shown.indexOf('es') >= 0 && shown.indexOf('pt') >= 0, JSON.stringify(shown));
+
+    // 3. HISTORY MAY ORDER EQUALS, NEVER PROMOTE. This is the exact failure: those
+    //    two languages were only ever picked while testing.
+    const withHist = rankCandidates(PHRASE, '', ['pap', 'vi', 'af']).map((d) => d.code);
+    R.push('   with history [pap, vi, af]: ' + JSON.stringify(withHist));
+    ok('a tested-once language does NOT outrank Spanish',
+       withHist.indexOf('es') < withHist.indexOf('pap'), JSON.stringify(withHist));
+    ok('...nor Portuguese', withHist.indexOf('pt') < withHist.indexOf('pap'), JSON.stringify(withHist));
+    ok('and history still cannot resurrect an impossible language', withHist.indexOf('vi') < 0, JSON.stringify(withHist));
+    ok('the shortlist is unchanged by history',
+       JSON.stringify(withHist.slice(0, MAX_CHIPS).slice().sort()) === JSON.stringify(shown.slice().sort()),
+       JSON.stringify(withHist.slice(0, MAX_CHIPS)));
+    // But it DOES order languages the linguistics left tied.
+    const tieA = rankCandidates(PHRASE, '', ['pt']).map((d) => d.code);
+    const tieB = rankCandidates(PHRASE, '', ['it']).map((d) => d.code);
+    ok('history breaks ties among equals', tieA.indexOf('pt') < tieB.indexOf('pt'),
+       JSON.stringify(tieA) + ' vs ' + JSON.stringify(tieB));
+
+    // 4. A real Vietnamese title still offers Vietnamese.
+    ok('Vietnamese IS offered for actual Vietnamese',
+       rankCandidates('bai tap ve nha', '', []).map((d) => d.code).indexOf('vi') >= 0,
+       JSON.stringify(rankCandidates('bai tap ve nha', '', []).map((d) => d.code)));
+    // 4b. A LANGUAGE MUST NOT BE EXCLUDED FROM ITS OWN VOCABULARY. Maori writes "wh"
+    //     and "ng" as single sounds, so a naive consonant-run rule reads "whakarongo"
+    //     as full of clusters and rules Maori out of ordinary Maori.
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: ['mi','es','haw','sm'] } });
+    const maori = rankCandidates('whakarongo ki te reo', '', []).map((d) => d.code);
+    ok('Maori survives its own digraphs', maori.indexOf('mi') >= 0, JSON.stringify(maori));
+    ok('a Polynesian language with no such word is still excluded by its alphabet',
+       rankCandidates('test brief', '', []).map((d) => d.code).indexOf('haw') < 0);
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: GABE } });
+
+    // 5. Hebrew still resolves to Hebrew alone (the case that always worked).
+    ok('a Hebrew title still offers Hebrew only',
+       JSON.stringify(rankCandidates('\u05de\u05d1\u05d7\u05df \u05d1\u05de\u05ea\u05de\u05d8\u05d9\u05e7\u05d4', '', []).map((d) => d.code)) === JSON.stringify(['he']));
+    // 6. Shape must not eat the Romance languages it cannot separate.
+    ok('shape never excludes a Romance language from Romance text',
+       ['es','pt','it','ca','fr'].every((c) => rank.indexOf(c) >= 0), JSON.stringify(rank));
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: NINE } });
+
+    // ============ 2c. A MARK THAT NAMES ITS OWN LANGUAGE ============
+    // Gabe's case: this sentence came back offering FRENCH first. Both languages
+    // matched on the single character they share (\u00f4) and history broke the tie,
+    // while \u1ed1 and \u1ec7 sat in the same sentence being Vietnamese and nothing else.
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: GABE } });
+    const vnRank = rankCandidates(VN, '', []).map((d) => d.code);
+    R.push('   "' + VN + '" -> ' + JSON.stringify(vnRank));
+    ok('a Vietnamese sentence offers Vietnamese FIRST', vnRank[0] === 'vi', JSON.stringify(vnRank));
+    ok('and French is not offered at all', vnRank.indexOf('fr') < 0, JSON.stringify(vnRank));
+    ok('nothing else is either: the marks name one language',
+       JSON.stringify(vnRank) === JSON.stringify(['vi']), JSON.stringify(vnRank));
+    // HISTORY MUST NOT BE ABLE TO BEAT A DIACRITIC. This is the exact sequence Gabe
+    // ran: it was Vietnamese, he picked French to test, then reopened the menu.
+    const vnAfter = rankCandidates(VN, '', ['fr', 'pap']).map((d) => d.code);
+    ok('picking French once does NOT put French ahead of Vietnamese next time',
+       JSON.stringify(vnAfter) === JSON.stringify(['vi']), JSON.stringify(vnAfter));
+    // The mark layer must not fire on text that has no diagnostic marks.
+    ok('an unmarked Romance phrase is untouched by the mark layer',
+       rankCandidates('importante test si', '', []).length > 4);
+    // Other marks, each exclusive to its own language.
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: ['de','fr','es','pl','hu','tr','vi','it'] } });
+    ok('\u00df names German', JSON.stringify(rankCandidates('gro\u00dfe Arbeit', '', []).map((d) => d.code)) === JSON.stringify(['de']));
+    ok('\u0142 names Polish', JSON.stringify(rankCandidates('ma\u0142e zadanie', '', []).map((d) => d.code)) === JSON.stringify(['pl']));
+    ok('\u0151 names Hungarian', JSON.stringify(rankCandidates('el\u0151 feladat', '', []).map((d) => d.code)) === JSON.stringify(['hu']));
+    ok('\u011f names Turkish', rankCandidates('\u00f6\u011frenci \u00f6devi', '', []).map((d) => d.code)[0] === 'tr');
+    // And a mark shared by several restricts to exactly those several.
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: ['da','no','sv','de','fr','es'] } });
+    const nordic = rankCandidates('l\u00e6se opgaven', '', []).map((d) => d.code);
+    ok('\u00e6 restricts to the languages that use it', nordic.every((c) => ['da','no','is'].indexOf(c) >= 0) && nordic.length >= 1,
+       JSON.stringify(nordic));
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: GABE } });
+
+    // ============ 2d. A REFUSAL IS EVIDENCE ============
+    // When the provider hands the title straight back, that is it saying it cannot
+    // read this as that language. The app used to say so in a toast and then offer
+    // the same language again on the next redraw.
+    const before2 = rankCandidates('importante test si', '', []).map((d) => d.code);
+    const after2 = rankCandidates('importante test si', '', [], ['fr', 'af']).map((d) => d.code);
+    ok('a ruled-out language is dropped from the ranking',
+       after2.indexOf('fr') < 0 && after2.indexOf('af') < 0, JSON.stringify(after2));
+    ok('...and from the count behind "more"',
+       rankCandidates('importante test si', '', [], ['fr', 'af']).length === before2.length - 2,
+       rankCandidates('importante test si', '', [], ['fr', 'af']).length + ' vs ' + before2.length);
+    ok('the others are untouched', after2.indexOf('es') >= 0 && after2.indexOf('pt') >= 0, JSON.stringify(after2));
+    ok('ruling everything out leaves no question at all',
+       rankCandidates('importante test si', '', [], before2).length === 0);
+
+    // ============ 2e. A REPLY THAT IS STILL THE TITLE IS NOT A TRANSLATION ============
+    // GABE'S CASE: asked to read "Elige una figura sobre la cual escribir." as German,
+    // the engine returned "Elige una figura sobre la cual write." One word done, the
+    // rest of the Spanish handed straight back. It differs from the input, so the old
+    // identical-text check passed it, and a plainly wrong reading was offered as real.
+    //
+    // translateAs cannot be called here (signed out), so the RULE is exercised through
+    // the same code path by feeding pairs to the exported checker.
+    const reads = (src, out) => TR.readingIsReal(src, out);
+    const SPAN = 'Elige una figura sobre la cual escribir.';
+    ok('the German near-miss is rejected', !reads(SPAN, 'Elige una figura sobre la cual write.'),
+       'Elige una figura sobre la cual write.');
+    ok('an identical reply is rejected', !reads(SPAN, SPAN));
+    ok('a real translation is accepted', reads(SPAN, 'Choose a figure to write about.'));
+    ok('a real translation of a short title is accepted', reads('tarea de matematicas', 'math homework'));
+    // Numbers and names legitimately survive a translation and must not count as
+    // "untranslated", or every title with a chapter number would be rejected.
+    ok('numbers surviving is fine', reads('capitulo 7 pagina 15', 'chapter 7 page 15'));
+    ok('a proper noun surviving is fine', reads('leer Romeo y Julieta', 'read Romeo and Juliet'));
+    ok('half the words surviving is NOT fine', !reads('leer el capitulo sobre la guerra', 'read el capitulo sobre la guerra'));
+    ok('one word of five surviving is fine', reads('leer el capitulo sobre la guerra', 'read the chapter about la war'));
+    // A one-word title has no ratio to measure, so only the identical check applies.
+    ok('a one word title still passes when it changes', reads('tarea', 'homework'));
+    ok('...and fails when it does not', !reads('tarea', 'tarea'));
+
+    // ================= 3. THE GLOBE OWNS BOTH STATES =================
     const iso = (d) => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
     const soon = iso(new Date(Date.now() + 3 * 864e5));
     const mk = (id, title, extra) => Object.assign({ id, title, course:'', dueDate:soon, dueTime:'', priority:'normal', completed:false, createdAt:1 }, extra || {});
+    /** Pre-seed the verification pass's result for a title, so a row that is NOT about
+     *  testing the pass does not sit through a real network timeout to reach its
+     *  fallback. Signed out every call fails, and each failure costs seconds. */
+    const preVerified = (title) => {
+      const opts = {};
+      for (const d of rankCandidates(title, '', [])) opts[d.code] = 'english for ' + d.code;
+      return { translationVerifiedFor: title, translationOptions: opts };
+    };
     const tasks = {
-      q:    mk('q', 'bo por tradusie? kisas kisas no', { translationChecked:true, translationAmbiguous:true }),
+      q:    mk('q', 'importante', { translationChecked:true, translationAmbiguous:true, translationDetected:'es', ...preVerified('importante') }),
       eng:  mk('eng', 'read chapter 4', { translationChecked:true }),
       done: mk('done', 'tarea de matematicas', { translationChecked:true, translatedTitle:'math homework', translatedLang:'es' }),
-      pick: mk('pick', 'kisas', { translationChecked:true, translatedTitle:'maybe', translatedLang:'pap', translationChosen:true }),
+      off:  mk('off', 'problema 5', { translationChecked:true, translationAmbiguous:true, translationHidden:true, ...preVerified('problema 5') }),
     };
     const data = await createSandboxData({ tasks, profile: { courses:{list:SAMPLE_COURSES}, schedule:sampleSchedule(), account:{displayName:'Gabe',onboarded:true} } });
     const host = document.getElementById('tpanel');
     const tv = new TasksView(data, { host });
-    await tv.mount(host); await sleep(600);
-    ok('no verdict sweep ran, so the seeded fields are intact',
-       !!tv.map.done.translatedTitle && !!tv.map.q.translationAmbiguous,
-       JSON.stringify({ done: tv.map.done.translatedTitle, q: tv.map.q.translationAmbiguous }));
+    await tv.mount(host); await sleep(700);
     const row = (id) => host.querySelector('.task-item[data-task-id="' + id + '"]');
-    const T = (id) => tv.map[id]; // the LIVE task, not the literal that seeded it
+    const T = (id) => tv.map[id];
+    ok('no verdict sweep ran, so the seeded fields are intact', !!T('done').translatedTitle && !!T('q').translationAmbiguous);
 
-    ok('an AMBIGUOUS row wears the button on the row itself', !!row('q') && !!row('q').querySelector('.act-readings'));
-    ok('a plain English row does NOT', !!row('eng') && !row('eng').querySelector('.act-readings'));
-    ok('a row that already has a translation does not wear it either',
-       !!row('done') && !row('done').querySelector('.act-readings'));
-    // …but it is still reachable from the "…" menu on every task.
-    const acts = (id) => tv['rowActions'](T(id)).map((a) => a.id + (a.auto ? '*' : ''));
-    ok('every task offers it in the menu', ['q','eng','done','pick'].every((k) => acts(k).indexOf('readings') >= 0 || acts(k).indexOf('readings*') >= 0),
-       JSON.stringify(acts('eng')));
-    const lab = (id) => tv['rowActions'](T(id)).filter((a) => a.id === 'readings')[0].label;
-    ok('the label reads "Translate from…" with no translation yet', lab('q') === 'Translate from…', lab('q'));
-    ok('…and "Change reading…" once there is one', lab('done') === 'Change reading…', lab('done'));
+    const globe = (id) => row(id) && row(id).querySelector('.act-translate');
+    ok('a row with a TRANSLATION wears the globe', !!globe('done'));
+    ok('a row ASKING a question wears the same globe', !!globe('q'));
+    ok('a plain English row wears none', !globe('eng'));
+    ok('there is no separate translate glyph any more', !host.querySelector('.act-readings'));
+    const tAct = (id) => tv['rowActions'](T(id)).filter((a) => a.id === 'translate')[0];
+    ok('its label says what it will do, for an answer', tAct('done').label === 'Hide translation', tAct('done').label);
+    ok('...and for a question', tAct('q').label === 'Hide language options', tAct('q').label);
+    ok('...and for one already hidden', tAct('off').label === 'Choose a language', tAct('off').label);
 
-    // ================= 3. PROVENANCE =================
-    const trOf = (id) => row(id) && row(id).querySelector('.task-translation');
-    ok('an AUTO translation says the app read it',
-       trOf('done') && trOf('done').title === 'Translated from Spanish', trOf('done') && trOf('done').title);
-    ok('a CHOSEN translation says the student chose it',
-       trOf('pick') && trOf('pick').title === 'You chose to read this as Papiamento', trOf('pick') && trOf('pick').title);
-    ok('a chosen translation is marked in the DOM', trOf('pick') && trOf('pick').classList.contains('chosen'));
-    ok('an auto translation is not', trOf('done') && !trOf('done').classList.contains('chosen'));
+    // ================= 4. THE ROW ASKS, IN THE TRANSLATION SLOT =================
+    const ask = (id) => row(id) && row(id).querySelector('.task-translation.asking');
+    ok('an unplaced title grows an ASKING row', !!ask('q'));
+    ok('it is the translation row, not a new element',
+       ask('q').classList.contains('task-translation') && !!ask('q').querySelector('.task-translation-badge'));
+    ok('it says what it wants', /Translate from/.test(ask('q').textContent), ask('q').textContent);
+    const chips = () => [].slice.call(ask('q').querySelectorAll('.task-ask-chip'));
+    const names = () => chips().filter((c) => !c.classList.contains('more')).map((c) => c.textContent);
+    ok('THE X IS GONE', !ask('q').querySelector('.dismiss') && names().indexOf('\u2715') < 0, JSON.stringify(names()));
+    ok('it offers a shortlist, not everything', names().length >= 2 && names().length <= MAX_CHIPS, JSON.stringify(names()));
+    // The school-word layer: a homework word is unambiguous where grammar is not.
+    ok('"tarea" puts Spanish at the front', codes('tarea de matematicas')[0] === 'es',
+       JSON.stringify(codes('tarea de matematicas')));
+    ok('"devoirs" puts French at the front', codes('devoirs de maths')[0] === 'fr', JSON.stringify(codes('devoirs de maths')));
+    ok('"compito" puts Italian at the front', codes('compito di storia')[0] === 'it', JSON.stringify(codes('compito di storia')));
+    ok('"huiswerk" is Dutch AND Afrikaans, so both are offered',
+       codes('huiswerk voor morgen').length >= 2 && codes('huiswerk voor morgen').indexOf('nl') >= 0,
+       JSON.stringify(codes('huiswerk voor morgen')));
+    ok('a missing accent does not lose the word', codes('capitulo 7')[0] === codes('capítulo 7')[0],
+       JSON.stringify(codes('capitulo 7')) + ' vs ' + JSON.stringify(codes('capítulo 7')));
+    R.push('   row for "importante" -> ' + JSON.stringify(names()));
+    ok('a row whose line is hidden asks nothing', !ask('off'));
+    ok('a plain English row asks nothing', !ask('eng'));
 
-    // ================= 4. A CHOICE SURVIVES THE AUTO PASS =================
-    // The scan skips chosen rows, and a language-list change does not wipe them.
-    const scanned = Object.values(tv.map).filter((t) => t.title && !t.completed && !t.translationChecked && !t.translationChosen);
-    ok('the auto pass skips a task whose reading was chosen', !scanned.some((t) => t.id === 'pick'), JSON.stringify(scanned.map((t) => t.id)));
-    const stale = Object.values(tv.map).filter((t) => (t.translationChecked || t.translatedTitle) && !t.translationChosen);
-    ok('a language-list change does not clear a chosen reading', !stale.some((t) => t.id === 'pick'), JSON.stringify(stale.map((t) => t.id)));
-    ok('…but it does clear an auto one', stale.some((t) => t.id === 'done'));
+    // THE GLOBE TOGGLES IT, which is the whole reason it is back.
+    click(globe('q')); await sleep(400);
+    ok('pressing the globe hides the question', !ask('q') && !!T('q').translationHidden);
+    ok('...and the globe is still there to bring it back', !!globe('q'));
+    click(globe('q')); await sleep(400);
+    ok('pressing it again brings the question back', !!ask('q') && !T('q').translationHidden);
+    ok('hiding a question never invents an answer', !T('q').translatedTitle);
 
-    // ================= 5. THE MENU ITSELF =================
-    tv['openReadings'](T('q'));
-    const pop = () => host.querySelector('.popup') || document.querySelector('.popup');
-    // Checked with NO await: the request fails fast when signed out, so the working
-    // state is real but brief. Sleeping first tested the state after it, not it.
-    ok('it says it is working while it works',
-       pop() && /Reading it every way/.test(pop().textContent), pop() && pop().textContent.slice(0, 90));
-    await sleep(200);
-    ok('the menu opens', !!pop());
-    ok('it asks the question in its title', pop() && pop().querySelector('h3').textContent === 'How should this read?', pop() && pop().querySelector('h3').textContent);
-    ok('it shows the ORIGINAL title, so the choice is made against it',
-       pop() && (pop().querySelector('.readings-source') || {}).textContent === tasks.q.title,
-       pop() && (pop().querySelector('.readings-source') || {}).textContent);
+    // ================= 5. THE ESCAPE HATCH =================
+    const more = () => chips().filter((c) => c.classList.contains('more'))[0];
+    ok('the cut languages are reachable, not lost', !!more(), (more() || {}).textContent);
+    click(more()); await sleep(200);
+    ok('pressing it shows every plausible language', names().length === rankCandidates('importante', '', []).length,
+       names().length + ' of ' + rankCandidates('importante', '', []).length);
+    // THE EXPANSION KEEPS THE RANKING (Gabe, 8/21). It used to fall back to the raw
+    // enabled list, so opening "N more" re-sorted everything into settings order and
+    // discarded the reasoning that had put the likeliest language first.
+    const full = rankCandidates('importante', 'es', []).map((d) => d.label);
+    ok('and in the SAME order the shortlist was in', JSON.stringify(names()) === JSON.stringify(full),
+       JSON.stringify(names()) + ' vs ' + JSON.stringify(full));
+    ok('the shortlist is literally the head of that list',
+       JSON.stringify(full.slice(0, 2)) === JSON.stringify(['Spanish', 'French']) ||
+       JSON.stringify(names().slice(0, 2)) === JSON.stringify(full.slice(0, 2)),
+       JSON.stringify(full.slice(0, 4)));
 
-    // Signed out, every call fails. That must read as a NETWORK problem, never as
-    // "no language reads this as anything", which is a claim we have not earned.
-    const readings = await translationReadings('bo por tradusie? kisas kisas no');
-    ok('an unreachable translator returns null, not an empty list', readings === null, JSON.stringify(readings));
-    await sleep(1500);
-    const txt = pop() ? pop().textContent : '';
-    ok('and the menu says so in words', /Could not reach the translator/.test(txt), txt.slice(0, 140));
-    ok('it does NOT claim there is nothing to offer', !/reads this as anything but itself/.test(txt));
+    // ================= 6. PRESSING ONE =================
+    // A VERIFIED BUTTON IS INSTANT. The verification pass already fetched the reading,
+    // so the press applies it rather than going to look for it. That is provable here
+    // precisely BECAUSE this harness is signed out: a press that needed the network
+    // would fail, so one that succeeds proves the answer came from the cache.
+    tv.render(); await sleep(300);
+    const pick = chips().filter((c) => !c.classList.contains('more'))[0];
+    const pickName = pick.textContent;
+    click(pick);
+    await waitFor(() => T('q').translatedTitle, 4000);
+    ok('pressing a verified language applies its reading with no network',
+       !!T('q').translatedTitle, T('q').translatedTitle || '(nothing)');
+    ok('it applies the reading for the language pressed',
+       T('q').translatedTitle === (T('q').translationOptions || {})[T('q').translatedLang],
+       pickName + ' -> ' + T('q').translatedTitle);
+    ok('and records it as the student choice', !!T('q').translationChosen);
+    ok('the question is answered, so the row stops asking', !ask('q'));
 
-    // ================= 6. A READING IS NOT A BULK EDIT =================
-    // Every other picker here applies to the whole selection. This one must not: the
-    // rows are translations of ONE title, so writing the chosen one across a
-    // selection replaces four tasks with English about a fifth.
-    const popTxt = () => (pop() ? pop().textContent : '');
-    tv.selectedIds = new Set(['q', 'eng', 'done']);
-    (pop() ? pop().closest('.popup-backdrop') : null)?.remove();
-    tv['openReadings'](T('q'));
-    await sleep(150);
-    ok('with a selection active it says it applies to this task only',
-       /This one task only/.test(popTxt()), popTxt().slice(0, 120));
+    // The transport's own reporting, exercised directly. translateAs is what an
+    // UNVERIFIED row falls back to, and signed out it must report the network rather
+    // than blaming the language.
+    const named = await translateAs('bo por tradusie', 'pt');
+    ok('translateAs reports a transport failure as such', named && named.error === 'offline', JSON.stringify(named));
+    const empty = await translateAs('', 'pt');
+    ok('an empty title is refused without a round-trip', empty && empty.error === 'unchanged', JSON.stringify(empty));
+
+    // ================= 7. GOING BACK TO THE QUESTION =================
+    // There is no dismiss any more, so the way back to a question after an answer is
+    // showing is the ... menu, and it must still be there.
+    const menu = (id) => tv['rowActions'](T(id)).filter((x) => x.id === 'readings')[0];
+    ok('a translated row offers "Change language" in the menu',
+       menu('done') && menu('done').label === 'Change language\u2026', menu('done') && menu('done').label);
+    ok('and it claims no slot on the row', menu('done').auto === false && !menu('done').build);
+    menu('done').run(); await sleep(400);
+    ok('running it turns a finished translation back into a question',
+       !!row('done').querySelector('.task-translation.asking'),
+       row('done').textContent.slice(0, 80));
+    ok('without destroying the answer it already had', !!T('done').translatedTitle, T('done').translatedTitle);
+
+    // ================= 8. THE POPUP IS GONE =================
     const src = await (await fetch('/src/tasks/render.ts')).text();
-    // Vite serves TypeScript already transformed, and `private` is erased by that
-    // transform, so slicing on it silently produced an empty string and a vacuous pass.
-    // Anchor on the DEFINITIONS, not the first mention: both names appear earlier as
-    // `this.openX(task)` call sites, and openDetails is called long before either is
-    // defined, so a plain indexOf pair gave b < a and an empty slice.
-    const a = src.indexOf('openReadings(task) {'), b = src.indexOf('openDetails(task) {', a);
-    const body = a >= 0 && b > a ? src.slice(a, b) : '';
-    ok('the openReadings body was actually found', body.length > 200, body.length + ' chars');
-    ok('openReadings never calls applyToSelection', body.indexOf('applyToSelection') < 0);
-    ok('it writes exactly the one clicked task', (body.match(/putTask\(\{\s*\.\.\.task,/g) || []).length === 2,
-       (body.match(/putTask\(\{\s*\.\.\.task,/g) || []).length + ' writes');
-    tv.selectedIds = new Set();
+    ok('no readings popup remains', src.indexOf('openReadings') < 0 && src.indexOf('How should this read?') < 0);
+    const css = await (await fetch('/src/ui/components.css')).text();
+    ok('and neither do its styles', css.indexOf('.readings-row') < 0 && css.indexOf('.readings-source') < 0);
+    const tSrc = await (await fetch('/src/util/translate.ts')).text();
+    ok('translationReadings is gone', tSrc.indexOf('translationReadings') < 0);
+    // The invariant that outlives every redesign: naming a language stays a thing
+    // only a person does.
+    const named2 = tSrc.match(/(?<!function )translateOnce\([^)]*,[^)]*\)/g) || [];
+    ok('exactly ONE call site names a source language', named2.length === 1, named2.join(' | '));
+    const autoPath = tSrc.slice(tSrc.indexOf('export async function analyzeTitle'), tSrc.indexOf('export async function translateAs'));
+    ok('the automatic path never names one', !/translateOnce\([^)]*,/.test(autoPath));
 
-    // ================= 7. FOCUS MAKES THE SAME CLAIM =================
-    const { FocusView } = await import('/src/focus/view.ts');
-    const { clearFocusState } = await import('/src/focus/persist.ts');
-    clearFocusState();
-    const fhost = document.createElement('div'); document.body.appendChild(fhost);
-    const fv = new FocusView(data);
-    await fv.mount(fhost); await sleep(400);
-    fv.todos = [
-      { id:'a', text:'kisas', done:false, taskId:'pick', course:'', dueDate:'', dueTime:'',
-        translatedTitle:'maybe', translatedLang:'pap', translationChosen:true },
-      { id:'b', text:'tarea de matematicas', done:false, taskId:'done', course:'', dueDate:'', dueTime:'',
-        translatedTitle:'math homework', translatedLang:'es' },
-    ];
-    fv.selectedSeconds = 1800; fv['startSession'](); await sleep(500);
-    const frows = [].slice.call(document.querySelectorAll('.focus-overlay .focus-todo-item'));
-    const fr = (t) => frows.filter((r) => r.textContent.indexOf(t) >= 0)[0];
-    const ftr = (t) => fr(t) && fr(t).querySelector('.focus-todo-translation');
-    ok('Focus credits the STUDENT for a chosen reading',
-       ftr('kisas') && ftr('kisas').title === 'You chose to read this as Papiamento',
-       ftr('kisas') && ftr('kisas').title);
-    ok('…and itself for one it worked out',
-       ftr('tarea') && ftr('tarea').title === 'Translated from Spanish',
-       ftr('tarea') && ftr('tarea').title);
+    // ================= 9. COMPLETED, NOT DELETED =================
+    // Checking a box is how a task LEAVES the list, but calling it a deletion
+    // described the mechanism rather than what the student did.
+    const rSrc = await (await fetch('/src/tasks/render.ts')).text();
+    ok('the check-off toast says completed', /task\$\{|tasks? completed/.test(rSrc) && rSrc.indexOf('task completed') > 0);
+    ok('and no check-off anywhere still says Deleted',
+       rSrc.indexOf('Task Deleted') < 0 && rSrc.indexOf('Tasks Deleted') < 0);
+    const fSrc = await (await fetch('/src/focus/view.ts')).text();
+    ok('the Focus drawer says Completed', /text: "Completed"/.test(fSrc) || /text: 'Completed'/.test(fSrc));
+
+    // ================= 10. THE TEST BADGE IS AN IMPORT'S CLAIM =================
+    // "study for the test" earns a TEST pill on a hand-typed task and should not:
+    // the pattern is only reliable on a teacher's assignment name.
+    const withBadge = (t) => {
+      const r = host.querySelector('.task-item[data-task-id="' + t + '"]');
+      return !!r && r.textContent.indexOf('TEST') >= 0;
+    };
+    await data.putTasksBulk([
+      mk('mine', 'study for the test', { source: 'manual', translationChecked: true }),
+      mk('theirs', 'Unit 4 Test', { source: 'schoology-ical', translationChecked: true }),
+      mk('nosrc', 'Chapter 3 Test', { translationChecked: true }),
+    ]);
+    await sleep(500);
+    ok('a task the student TYPED gets no TEST badge', !withBadge('mine'),
+       (host.querySelector('.task-item[data-task-id="mine"]') || {}).textContent);
+    ok('a SCHOOLOGY import still does', withBadge('theirs'),
+       (host.querySelector('.task-item[data-task-id="theirs"]') || {}).textContent);
+    ok('and so does a task with no source recorded (old data is not manual)', withBadge('nosrc'));
+
+    // ================= 11. THE "..." MENU OPENS BELOW =================
+    // It used to flip above near the bottom of a list, so the same button opened in
+    // two different places depending on how far you had scrolled.
+    const rows = [].slice.call(host.querySelectorAll('.task-item'));
+    ok('there are rows to test', rows.length >= 3, rows.length + ' rows');
+    let above = 0, checked = 0;
+    for (const rw of rows.slice(0, 6)) {
+      const dots = rw.querySelector('.act-more');
+      if (!dots) continue;
+      click(dots);
+      await sleep(120);
+      const menu = document.querySelector('.row-menu');
+      if (menu) {
+        checked++;
+        const m = menu.getBoundingClientRect(), d = dots.getBoundingClientRect();
+        if (m.top < d.bottom - 1) above++;
+        const back = document.querySelector('.row-menu-back');
+        if (back) back.remove();
+      }
+      await sleep(60);
+    }
+    ok('every "..." menu opened, and every one opened BELOW its button',
+       checked >= 3 && above === 0, checked + ' menus checked, ' + above + ' opened above');
+    const dSrc = await (await fetch('/src/tasks/render.ts')).text();
+    ok('and there is no flip-above branch left in the code', dSrc.indexOf('const above =') < 0);
+
+    // ============ 12. THE ACTUAL ROW, WITH GABE'S ACTUAL LIST ============
+    // Everything above tests the functions. This tests the thing on screen.
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: GABE } });
+    localStorage.setItem('cobalt:tx-langs:anon', GABE.join(','));
+    await data.putTasksBulk([
+      mk('real', 'importante test si', { translationChecked: true, translationAmbiguous: true, ...preVerified('importante test si') }),
+    ]);
+    await sleep(600);
+    const realRow = () => host.querySelector('.task-item[data-task-id="real"]');
+    const realAsk = () => realRow() && realRow().querySelector('.task-translation.asking');
+    const realChips = () => [].slice.call(realAsk().querySelectorAll('.task-ask-chip'));
+    const realNames = () => realChips().filter((c) => !c.classList.contains('more')).map((c) => c.textContent);
+    // The verification pass runs first and cannot reach anything here, so wait for the
+    // row to settle into its offline fallback before measuring it.
+    const settled = await waitFor(() => realAsk() && realChips().length > 0);
+    ok('the row settles out of "checking" instead of hanging there', settled,
+       realAsk() ? realAsk().textContent.slice(0, 80) : 'no ask row');
+    ok('the row asks', !!realAsk(), realRow() ? realRow().textContent.slice(0, 70) : 'no row');
+    R.push('   ON SCREEN: ' + JSON.stringify(realNames()) + '  + "' +
+           ((realChips().filter((c) => c.classList.contains('more'))[0] || {}).textContent || '') + '"');
+    ok('the row shows ' + MAX_CHIPS + ' languages', realNames().length === MAX_CHIPS, JSON.stringify(realNames()));
+    ok('no Vietnamese on the row', realNames().indexOf('Vietnamese') < 0, JSON.stringify(realNames()));
+    ok('no Papiamento on the row', realNames().indexOf('Papiamento') < 0, JSON.stringify(realNames()));
+    ok('Spanish and Portuguese ARE on the row',
+       realNames().indexOf('Spanish') >= 0 && realNames().indexOf('Portuguese') >= 0, JSON.stringify(realNames()));
+    const realMore = () => realChips().filter((c) => c.classList.contains('more'))[0];
+    ok('the rest are gated behind "more"', !!realMore(), realMore() && realMore().textContent);
+    click(realMore()); await sleep(200);
+    R.push('   EXPANDED: ' + JSON.stringify(realNames()));
+    ok('expanding reveals only the possible ones, never all eleven enabled',
+       realNames().length === rankCandidates('importante test si', '', []).length && realNames().length < GABE.length,
+       realNames().length + ' revealed, ' + GABE.length + ' enabled');
+    ok('and STILL no Vietnamese or Hebrew after expanding',
+       realNames().indexOf('Vietnamese') < 0 && realNames().indexOf('Hebrew') < 0, JSON.stringify(realNames()));
+
+    // ============ 13. THE REFUSAL LOOP, ON THE REAL ROW ============
+    // Signed out every call fails as 'offline', so the 'unchanged' path is driven by
+    // writing the refusal the way the handler does, then checking the row obeys it.
+    const ruleRow = () => host.querySelector('.task-item[data-task-id="real"]');
+    const ruleAsk = () => ruleRow() && ruleRow().querySelector('.task-translation.asking');
+    const ruleNames = () => [].slice.call(ruleAsk().querySelectorAll('.task-ask-chip'))
+      .filter((c) => !c.classList.contains('more')).map((c) => c.textContent);
+    await waitFor(() => ruleAsk() && ruleNames().length > 0);
+    ok('the row is asking before any refusal', !!ruleAsk() && ruleNames().indexOf('French') >= 0, JSON.stringify(ruleNames()));
+    await data.putTask({ ...tv.map.real, translationRuledOut: ['fr'] });
+    await sleep(500);
+    await waitFor(() => ruleAsk() && ruleNames().indexOf('French') < 0);
+    ok('a refused language disappears from the row', ruleNames().indexOf('French') < 0, JSON.stringify(ruleNames()));
+    ok('and the row still offers the others', ruleNames().length >= 2, JSON.stringify(ruleNames()));
+    R.push('   after refusing French: ' + JSON.stringify(ruleNames()));
+    // Refuse them all and the question stops being asked.
+    const everyone = rankCandidates('importante test si', '', []).map((d) => d.code);
+    await data.putTask({ ...tv.map.real, translationRuledOut: everyone });
+    await sleep(500);
+    await waitFor(() => !ruleAsk());
+    ok('refusing every candidate removes the question entirely', !ruleAsk(),
+       ruleRow() ? ruleRow().textContent.slice(0, 60) : 'row gone');
+    ok('and it never invents a translation to fill the gap', !tv.map.real.translatedTitle);
+
+    // ============ 14. VERIFIED BEFORE DISPLAYED ============
+    // The row must not offer a language until the provider has confirmed it can read
+    // this title. Signed out the pass cannot reach anything, so the STATES are driven
+    // by writing what the pass writes and checking the row obeys.
+    await data.putTasksBulk([
+      mk('unv', 'importante test si', { translationChecked: true, translationAmbiguous: true }),
+    ]);
+    await sleep(600);
+    const uRow = () => host.querySelector('.task-item[data-task-id="unv"]');
+    const uAsk = () => uRow() && uRow().querySelector('.task-translation.asking');
+    // Signed out, the pass cannot reach the provider, so this harness sees the
+    // FALLBACK rather than the checking state: buttons come back unverified, which is
+    // better than a row that says "checking" for ever. The checking state itself is
+    // asserted from the source, since it cannot be held still here.
+    const rs = await (await fetch('/src/tasks/render.ts')).text();
+    ok('an unverified, reachable title shows the checking state and no buttons',
+       /checking which languages fit/.test(rs) && rs.indexOf('this.queueVerify(task);') > 0);
+    ok('and an unreachable one falls back instead of retrying for ever',
+       rs.indexOf('this.verifyFailed.add(t.id)') > 0 && rs.indexOf('if (this.verifyFailed.has(task.id)) return;') > 0);
+    const fellBack = await waitFor(() => uAsk() && uAsk().querySelectorAll('.task-ask-chip').length > 0);
+    ok('offline, the row is still usable rather than stuck', fellBack,
+       uAsk() ? uAsk().textContent.slice(0, 80) : 'no row');
+
+    // Now the pass finishes: two languages could read it, the rest could not.
+    await data.putTask({
+      ...tv.map.unv,
+      // The title it was verified AGAINST, and the only record that it happened.
+      translationVerifiedFor: tv.map.unv.title,
+      translationOptions: { es: 'important test yes', pt: 'important test yes' },
+    });
+    await sleep(500);
+    const uNames = () => [].slice.call(uAsk().querySelectorAll('.task-ask-chip'))
+      .filter((c) => !c.classList.contains('more')).map((c) => c.textContent);
+    await waitFor(() => uAsk() && uNames().length === 2);
+    ok('only the languages that produced English are offered',
+       JSON.stringify(uNames().slice().sort()) === JSON.stringify(['Portuguese', 'Spanish']), JSON.stringify(uNames()));
+    ok('and the ones that could not are gone, not hidden behind "more"',
+       !uAsk().querySelector('.task-ask-chip.more'), uAsk().textContent);
+    R.push('   VERIFIED row offers: ' + JSON.stringify(uNames()));
+
+    // Pressing a verified button applies the stored reading with no round-trip. That
+    // matters here because signed out a round-trip would FAIL, so a press that works
+    // proves the answer came from the cache.
+    const spanish = [].slice.call(uAsk().querySelectorAll('.task-ask-chip')).filter((c) => c.textContent === 'Spanish')[0];
+    click(spanish);
+    await sleep(500);
+    await waitFor(() => tv.map.unv.translatedTitle);
+    ok('pressing it applies the cached reading with no network', tv.map.unv.translatedTitle === 'important test yes',
+       tv.map.unv.translatedTitle || '(nothing)');
+    ok('and marks it as the student\u2019s choice', !!tv.map.unv.translationChosen);
+
+    // A title where NOTHING could read it asks nothing at all.
+    await data.putTasksBulk([
+      mk('none', 'zzz qqq wvx', { translationChecked: true, translationAmbiguous: true,
+                                  translationVerifiedFor: 'zzz qqq wvx',
+                                  translationOptions: {} }),
+    ]);
+    await sleep(500);
+    await waitFor(() => {
+      const r = host.querySelector('.task-item[data-task-id="none"]');
+      return r && !r.querySelector('.task-translation.asking');
+    });
+    const nRow2 = host.querySelector('.task-item[data-task-id="none"]');
+    ok('a title no language could read shows no question', !!nRow2 && !nRow2.querySelector('.task-translation.asking'),
+       nRow2 ? nRow2.textContent.slice(0, 60) : 'row missing');
+    ok('and still invents nothing', !tv.map.none.translatedTitle);
+
+    // ============ 15. A RETITLED TASK DOES NOT KEEP THE OLD TITLE'S ANSWERS ============
+    // GABE'S BUG: a Greek task retitled in Polish drew "Translate from" with no
+    // languages after it. The Greek verification survived the rename, so the row
+    // filtered the POLISH candidates through the GREEK answer and matched nothing.
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: ['el','pl','es','de'] } });
+    await data.putTasksBulk([
+      mk('greek', '\u03b5\u03c1\u03b3\u03b1\u03c3\u03af\u03b1 \u03b3\u03b9\u03b1 \u03b1\u03cd\u03c1\u03b9\u03bf', {
+        translationChecked: true, translationAmbiguous: true,
+        translationVerifiedFor: '\u03b5\u03c1\u03b3\u03b1\u03c3\u03af\u03b1 \u03b3\u03b9\u03b1 \u03b1\u03cd\u03c1\u03b9\u03bf',
+        translationOptions: { el: 'homework for tomorrow' }, // only Greek is plausible for Greek text
+      }),
+    ]);
+    await sleep(500);
+    const gRow = () => host.querySelector('.task-item[data-task-id="greek"]');
+    const gAsk = () => gRow() && gRow().querySelector('.task-translation.asking');
+    const gChips = () => gAsk() ? [].slice.call(gAsk().querySelectorAll('.task-ask-chip')) : [];
+    await waitFor(() => gAsk() && gChips().length > 0);
+    ok('the Greek title offers Greek', gChips().map((c) => c.textContent).indexOf('Greek') >= 0,
+       JSON.stringify(gChips().map((c) => c.textContent)));
+
+    // Rename it to Polish the way the app does, WITHOUT clearing anything, to prove
+    // the render-time guard catches a path that forgot.
+    await data.putTask({ ...tv.map.greek, title: 'Przynie\u015b kalkulator na pi\u0105tkowy sprawdzian.' });
+    await waitFor(() => gAsk() && gChips().length > 0, 25000);
+    const after = gChips().map((c) => c.textContent);
+    ok('a retitled task NEVER shows an empty question', gChips().length > 0, JSON.stringify(after));
+    ok('and the stale verification is not applied to the new title',
+       after.indexOf('Greek') < 0, JSON.stringify(after));
+    R.push('   retitled Greek -> Polish offers: ' + JSON.stringify(after));
+
+    // And the helper itself: every translation field, not the three that existed once.
+    const { clearTranslation } = await import('/src/tasks/store.ts');
+    const dirty = {
+      title: 'x', translatedTitle: 'a', translatedLang: 'el', translationChecked: true,
+      translationHidden: true, translationChosen: true, translationAmbiguous: true,
+      translationDetected: 'el', translationRuledOut: ['de'], translationOptions: { el: 'a' },
+      translationVerifiedFor: 'x',
+    };
+    const clean = clearTranslation(dirty);
+    const leftovers = Object.keys(dirty).filter((k) => {
+      if (k === 'title') return false;
+      const v = clean[k];
+      return !(v === '' || v === false || (Array.isArray(v) && !v.length) ||
+               (v && typeof v === 'object' && !Object.keys(v).length));
+    });
+    ok('clearTranslation clears EVERY translation field', leftovers.length === 0, JSON.stringify(leftovers));
+    ok('and leaves the rest of the task alone', clean.title === 'x');
+    const rSrc2 = await (await fetch('/src/tasks/render.ts')).text();
+    ok('the title editor uses the helper rather than its own list',
+       /clearTranslation\(\{ \.\.\.t, title: v/.test(rSrc2));
+    const syncSrc = await (await fetch('/src/schoology/sync.ts')).text();
+    ok('and so does the Schoology re-sync',
+       syncSrc.indexOf('clearTranslation(next)') > 0 && syncSrc.indexOf('delete next.translatedTitle') < 0);
+
+    // ============ 16. NO MENU ENTRY WHEN THERE IS NOTHING TO OFFER ============
+    // The apologising toast was cut (Gabe, 8/21). The entry simply is not there when
+    // no enabled language could have written the title, which says the same thing
+    // without costing a press.
+    const menuOf = (id) => tv['rowActions'](tv.map[id]).filter((a) => a.id === 'readings')[0];
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: ['he'] } });
+    await data.putTasksBulk([mk('nolang', 'importante test si', { translationChecked: true })]);
+    await sleep(400);
+    ok('no entry when no language could have written it', !menuOf('nolang'));
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+    ok('and nothing apologises about it', !document.querySelector('.toast'));
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: [] } });
+    await sleep(200);
+    ok('nor when no languages are enabled at all', !menuOf('nolang'));
+    setPrefsCache({ ...getPrefs(), tasks: { ...getPrefs().tasks, translateFrom: GABE } });
+    await sleep(300);
+    ok('but it returns as soon as one could', !!menuOf('nolang'));
 
     const fails = R.filter((x) => x.indexOf('FAIL') === 0);
-    say(R.join('\n') + '\n\n' + (fails.length ? '>>> ' + fails.length + ' FAILURES' : '>>> ALL ' + R.filter((x)=>/^(PASS|FAIL)/.test(x)).length + ' CHECKS PASS'));
+    say(fails.length ? '>>> ' + fails.length + ' FAILURES' : '>>> ALL ' + R.filter((x) => /^(PASS|FAIL)/.test(x)).length + ' CHECKS PASS');
   </script>
 </body>

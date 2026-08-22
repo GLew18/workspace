@@ -26,6 +26,21 @@
         "--strictPort"
       ],
       "port": 5217
+    },
+    {
+      "name": "workspace-local",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": [
+        "C:\\Users\\jonle\\Dropbox\\Gabriel\\AI Projects\\Work Wave\\app\\node_modules\\vite\\bin\\vite.js",
+        "C:\\Users\\jonle\\Dropbox\\Gabriel\\AI Projects\\Work Wave\\app",
+        "--mode",
+        "localtest",
+        "--port",
+        "5218",
+        "--host",
+        "--strictPort"
+      ],
+      "port": 5218
     }
   ]
 }

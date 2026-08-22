@@ -11,6 +11,8 @@ import type { Data } from '../db';
 import type { CourseConfig, SchoologySettings } from '../types';
 import { el, textInput, escapeHtml, enterConfirms } from '../util/dom';
 import { attachColorPicker } from '../ui/colorPicker';
+import { openAtTop } from '../ui/tabs';
+import { confirmDanger } from '../ui/confirm';
 import { genId } from '../util/ids';
 import { capitalizeName } from '../util/names';
 import { getCourses, replaceCourses } from '../courses/registry';
@@ -237,7 +239,11 @@ export class SettingsView {
     const show = (idx: number) => {
       tabs.forEach(([, sec], i) => (sec.hidden = i !== idx));
       navButtons.forEach((b, i) => b.classList.toggle('active', i === idx));
+      // .settings-content is not the scroller — the shell's .app-below is — so
+      // this line alone never moved anything, and the sections read as
+      // scroll-linked (Gabe, 8/21). openAtTop walks up to the real one.
       content.scrollTop = 0;
+      openAtTop(content);
     };
     // PREMIUM group (Gabe, 8/13): paid-tier tabs sit at the bottom of the
     // sidebar under their own "Premium" subheader in a separated block. The
@@ -521,49 +527,11 @@ export class SettingsView {
     }
   }
 
-  /** A red, can't-miss confirmation for destructive/sensitive changes. */
+  /** A red, can't-miss confirmation for destructive/sensitive changes. The dialog
+   *  itself moved to ui/confirm.ts when the Task Archives needed the same one; this
+   *  stays as the thin call-through so the many call sites below are untouched. */
   private confirmDanger(title: string, onYes: () => void): void {
-    // Only one confirm can exist. Without this, pressing Enter used to stack a
-    // SECOND dialog: focus stayed on the button that opened the first one (e.g.
-    // the Sign out row), so the browser's native Enter-activation clicked that
-    // button again. Two backdrops darkened the screen, and after Yes signed the
-    // user out, the orphaned first dialog survived on <body> over the landing
-    // page. The focus move below kills the re-fire; this guard is the backstop.
-    if (document.querySelector('.confirm-backdrop')) return;
-    const back = el('div', { class: 'confirm-backdrop' });
-    const box = el('div', { class: 'confirm-box' });
-    box.append(el('h3', { class: 'confirm-title', text: title }));
-    const row = el('div', { class: 'confirm-actions' });
-    const cancel = el('button', { class: 'confirm-cancel', text: 'Cancel' });
-    cancel.addEventListener('click', () => back.remove());
-    const yes = el('button', { class: 'confirm-yes', text: 'Yes' });
-    yes.addEventListener('click', () => {
-      back.remove();
-      onYes();
-    });
-    row.append(cancel, yes);
-    box.append(row);
-    back.append(box);
-    back.addEventListener('click', (e) => {
-      if (e.target === back) back.remove();
-    });
-    // Escape = Cancel, self-cleaning the same way enterConfirms does.
-    const onEsc = (e: KeyboardEvent) => {
-      if (!back.isConnected) {
-        document.removeEventListener('keydown', onEsc);
-        return;
-      }
-      if (e.key === 'Escape') back.remove();
-    };
-    document.addEventListener('keydown', onEsc);
-    // Enter deliberately does NOT confirm here (Gabe, 8/7/26): these dialogs are
-    // the consequential ones (sign out, change the calendar link, delete a
-    // playlist), so confirming must be a deliberate CLICK on Yes, never a
-    // reflexive keystroke. Focus lands on Cancel instead: it pulls focus off the
-    // button that opened the dialog (whose native Enter re-fire was the stacking
-    // bug), and if Enter is pressed anyway, the harmless thing happens.
-    document.body.append(back);
-    cancel.focus();
+    confirmDanger(title, onYes);
   }
   // #endregion
 
@@ -1218,7 +1186,7 @@ export class SettingsView {
     sec.append(
       this.prefRow(
         'Time accountability',
-        'Removes the +/- buttons during a session, so the length you commit to is the length you serve. It cannot be switched off while a session is running: a lock you can pick the moment it binds is only a suggestion.',
+        'Removes the +/- buttons during a session, so the length you commit to is the length you serve. It cannot be switched off while a session is running.',
         (sw = this.prefSwitch(p.focus.timeAccountability, (on) => {
           // OFF IS THE GUARDED DIRECTION, and only that one. Turning it ON mid
           // session is fine, it only tightens the commitment. Turning it off is
@@ -1242,8 +1210,8 @@ export class SettingsView {
     }
     sec.append(
       this.prefRow(
-        'Group finished tasks',
-        'On, finished session tasks collect under a "Finished" drawer so the work left stays on top. Off, they simply sit at the bottom of the list where you can see them.',
+        'Group completed tasks',
+        'On, completed session tasks collect under a "Completed" drawer so the work left stays on top. Off, they simply sit at the bottom of the list where you can see them.',
         this.prefSwitch(p.focus.groupFinished, (on) => {
           p.focus.groupFinished = on;
           save();
