@@ -21,7 +21,7 @@ import { parseIcal, taskEvents, scheduleEvents, type IcalEvent } from './ical';
 import { classifyBatch } from './classify';
 import { loadLabels, labelFor } from './extension';
 import { extractLinks } from '../tasks/attachments';
-import { clearTranslation } from '../tasks/store';
+import { clearTranslation, clearDetailsTranslation } from '../tasks/store';
 import { genId } from '../util/ids';
 import { todayStr, addDays } from '../util/dates';
 import { getPrefs } from '../prefs';
@@ -250,8 +250,17 @@ export async function runSync(data: Data): Promise<SyncResult> {
     // What changed, by name — shown in the ✱ badge's tooltip. Starts from any
     // still-undismissed changes of earlier syncs, so nothing is silently replaced.
     const changes = new Set<string>(Array.isArray(cur.feedUpdated) ? cur.feedUpdated : []);
+    // WHAT IT SAID BEFORE, for the ✱ badge's before/after (see Task.feedPrev and
+    // tasks/feedDiff.ts). FIRST WRITE WINS per field, which is why this starts from
+    // whatever the last un-dismissed sync recorded: the student is comparing against
+    // the version they last read, not against yesterday's intermediate one.
+    const prev: NonNullable<Task['feedPrev']> = { ...(cur.feedPrev ?? {}) };
+    const remember = (k: keyof NonNullable<Task['feedPrev']>, v: string): void => {
+      if (prev[k] === undefined) prev[k] = v;
+    };
     let changed = false;
     if (!cur._manualTitle && cur.title !== e.summary) {
+      remember('title', cur.title);
       next.title = e.summary;
       changes.add('name');
       // Everything the app worked out about the OLD title goes with it, so the passes
@@ -261,8 +270,14 @@ export async function runSync(data: Data): Promise<SyncResult> {
       changed = true;
     }
     if (!cur._manualDueDate && (cur.dueDate !== e.date || cur.dueTime !== e.time)) {
-      if (cur.dueDate !== e.date) changes.add('due date');
-      if (cur.dueTime !== e.time) changes.add('due time');
+      if (cur.dueDate !== e.date) {
+        remember('dueDate', cur.dueDate);
+        changes.add('due date');
+      }
+      if (cur.dueTime !== e.time) {
+        remember('dueTime', cur.dueTime);
+        changes.add('due time');
+      }
       next.dueDate = e.date;
       next.dueTime = e.time;
       // A pin is an index within a DUE-DATE group, so a re-sync that moves the
@@ -272,8 +287,11 @@ export async function runSync(data: Data): Promise<SyncResult> {
       changed = true;
     }
     if ((cur.details ?? '') !== e.description) {
+      remember('details', cur.details ?? '');
       if (e.description) next.details = e.description;
       else delete next.details; // delete, not undefined — Firebase rejects undefined fields
+      // The reading belonged to the instructions that were just replaced.
+      Object.assign(next, clearDetailsTranslation(next));
       changes.add('instructions');
       changed = true;
 
@@ -292,6 +310,7 @@ export async function runSync(data: Data): Promise<SyncResult> {
       }
     }
     if ((cur.schoologyUrl ?? '') !== e.url) {
+      remember('schoologyUrl', cur.schoologyUrl ?? '');
       if (e.url) next.schoologyUrl = e.url;
       else delete next.schoologyUrl;
       changes.add('link');
@@ -299,6 +318,10 @@ export async function runSync(data: Data): Promise<SyncResult> {
     }
     if (changed) {
       next.feedUpdated = [...changes]; // surfaces the ✱ "updated" badge on the task row
+      // Never store an empty ghost. Today every branch that sets `changed` also
+      // calls remember(), so this is always populated here; the check is what keeps
+      // that true if a future branch forgets, rather than writing `{}` for nothing.
+      if (Object.keys(prev).length) next.feedPrev = prev;
       altered.push(next);
     }
   }

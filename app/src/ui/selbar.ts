@@ -62,7 +62,8 @@ function ensure(): HTMLElement {
   // The shift+click tip was tried here on 8/19 and moved OUT the next day: this bar
   // only appears once two rows are already selected, so it could only ever tell you
   // something you had just done. It lives above the task list now, where it can be
-  // read first (see tasks-bulk-tip).
+  // read first. (That tip has since moved again, into the 💡 Task Pro Tips popup
+  // in the Tasks header — tasks/render.ts openProTips.)
   node.append(countEl, el('span', { class: 'selbar-hint', text: 'or press Esc' }), clear);
   node.hidden = true;
   (mountHost ?? document.body).append(node);

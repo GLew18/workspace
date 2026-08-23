@@ -110,7 +110,14 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
   });
   /** Send on the resolved channels, once, ledgered. Skips (without consuming the
    *  ledger) when nothing would actually deliver. */
-  const fire = (key: string, title: string, body: string, ch: Channels, name?: string): void => {
+  const fire = (
+    key: string,
+    title: string,
+    body: string,
+    ch: Channels,
+    name?: string,
+    fromEdit = false
+  ): void => {
     const r = resolve(ch);
     if (!r.popup && !r.gmail) return;
     if (alreadySent(key)) return;
@@ -118,7 +125,14 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
     // `name` is the bare task title. When several of these fire at once the
     // burst grouper lists the NAMES under one heading, so the per-item
     // "Due soon:" prefix never shows up inside the combined body.
-    sendNotification(title, body, { popup: r.popup, gmail: r.gmail, name, onClick: opts.onClick });
+    //
+    // `fromEdit` says whether "Your creations and edits" gets a say (see
+    // sendNotification). DUE-SOON IS THE ONLY ONE THAT PASSES IT: a task is inside a
+    // reminder window because it was created there or its due date was moved there,
+    // which is exactly the case Gabe described. The agenda and tomorrow digests fire
+    // on the clock, and a new assignment arrives from Schoology rather than from the
+    // student, so neither is a creation or an edit of theirs.
+    sendNotification(title, body, { popup: r.popup, gmail: r.gmail, name, onClick: opts.onClick, fromEdit });
   };
 
   // New-assignment tracking: `seen` is seeded from the first task snapshot so
@@ -194,7 +208,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
           { course: t.course, priority: priorityLabel(t.priority), nowMs: now, dueMs, leadMins: lead, untimed: !t.dueTime },
           settings.appearance
         );
-        fire(`rem|${t.id}|${t.dueDate}|${t.dueTime}|${lead}`, `Due soon: ${t.title}`, body, settings.dueSoon.channels, t.title);
+        fire(`rem|${t.id}|${t.dueDate}|${t.dueTime}|${lead}`, `Due soon: ${t.title}`, body, settings.dueSoon.channels, t.title, true);
       }
     }
 
@@ -320,13 +334,13 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
   void data.getProfile('notifications').then((s) => {
     if (stopped) return;
     settings = normalizeNotifySettings(s);
-    setBurstMode(settings.burstMode);
+    setBurstMode(settings.burstMode, settings.notifyEdits);
     settingsLoaded = true;
     evaluate();
   });
   const onSettings = (e: Event): void => {
     settings = normalizeNotifySettings((e as CustomEvent).detail);
-    setBurstMode(settings.burstMode); // Settings Save flips it live
+    setBurstMode(settings.burstMode, settings.notifyEdits); // Settings Save flips it live
     settingsLoaded = true;
     evaluate();
   };

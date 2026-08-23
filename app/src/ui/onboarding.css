@@ -167,9 +167,21 @@
         border-box, border itself transparent so the gradient shows through.
      3. the FILL: translucent navy over a backdrop blur.
    Never add overflow:hidden here; nested popovers depend on it staying visible. */
+/* ONE SIZE FOR EVERY SCREEN (Gabe, 8/22). The panes used to be 500px, or 560px when
+   a screen asked for `.wide`, and each was as tall as whatever happened to be inside
+   it. Clicking through, the card visibly jumped wider and shorter between steps,
+   which reads as seven different screens rather than one flow moving forward.
+   So: one width, and a floor on the height that the TALLEST screen sets, which is
+   Connect: the Schoology tile, the headline, the caption, the guide button and the
+   link field. Content stays vertically centred, so a short screen is padded evenly
+   rather than pinned to the top of a tall box. If a screen ever measures taller than
+   this floor, raise the floor; do not shave that screen, because the deck resizing
+   under the student is the whole thing this exists to prevent. */
 .onb-sc {
   width: 100%;
-  max-width: 500px;
+  max-width: 560px;
+  min-height: 580px;
+  justify-content: center;
   margin: auto;
   position: relative;
   display: flex;
@@ -194,9 +206,6 @@
     0 0 0 9px rgba(255, 255, 255, 0.035),
     0 34px 90px rgba(0, 0, 0, 0.55),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-.onb-sc.wide {
-  max-width: 560px;
 }
 .onb-visual {
   width: 100%;
@@ -561,48 +570,6 @@
   outline: none;
   border-color: var(--gold);
 }
-/* "Show me where the link is": the button that opens the slideshow. */
-.onb-help {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
-  border: 1px solid var(--border-strong);
-  border-radius: 14px;
-  color: var(--text);
-  font-size: 13.5px;
-  font-weight: 650;
-  padding: 13px 16px;
-  margin-bottom: 14px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  text-align: left;
-}
-.onb-help:hover {
-  border-color: var(--gold);
-  box-shadow: 0 6px 24px rgba(125, 180, 255, 0.15);
-}
-.onb-help-play {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: var(--gold);
-  color: var(--on-accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  flex: none;
-  box-shadow: 0 4px 14px rgba(125, 180, 255, 0.4);
-}
-.onb-help-mins {
-  margin-left: auto;
-  color: var(--text-dim);
-  font-weight: 500;
-  font-size: 11.5px;
-  flex: none;
-}
-
 /* ==================== the iCal slideshow (icalGuide.ts) ====================
    The player chrome is Cobalt-dark; the SCENES inside are Schoology-light
    on purpose (see the fidelity note at the top of icalGuide.ts). Sits above
@@ -765,8 +732,12 @@
   display: none;
 }
 /* tighter head + CTA so the whole editor fits a laptop viewport */
+/* NOT a smaller heading (Gabe, 8/22: "make sure that all screens have equal header
+   text sizes, see how small Your courses is"). `.tight` used to shrink the headline
+   to buy vertical room back when a pane was only as tall as its content. The deck is
+   one fixed size now, so every screen keeps the full h1 and only the space under it
+   is tightened. */
 .onb-sc.tight h1 {
-  font-size: clamp(21px, 3.4vw, 27px);
   margin-bottom: 6px;
 }
 .onb-sc.tight .onb-sub {
@@ -1008,4 +979,211 @@
 .onb-skip:hover {
   color: var(--text);
   text-decoration: underline;
+}
+
+/* ---- The guide button, restyled to match Settings' fix-it guides (.notify-howto).
+   Both open an animated walkthrough of something the student cannot find, so they
+   were two different-looking controls doing one job. The play disc and the slide
+   count are gone with the old markup. ---- */
+.onb-help {
+  display: block;
+  width: 100%;
+  text-align: center;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  background: rgba(125, 180, 255, 0.1);
+  border: 1px solid rgba(125, 180, 255, 0.35);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: none;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+.onb-help:hover {
+  background: rgba(125, 180, 255, 0.18);
+  border-color: var(--accent);
+  box-shadow: none;
+}
+
+/* ================== screen 4 · the course-colour swatches ==================
+   Three chips settling into place, in the exact first three colours a new course is
+   given (courses/colors.ts). It fills the height the screen gained, and it is an
+   honest preview: this is what the colours on the next screen will look like. */
+.onb-swatches {
+  gap: 9px;
+  /* Off the caption above it: the chips are an illustration OF the caption, not a
+     third line of it. */
+  margin-top: 14px;
+  margin-bottom: 24px;
+  height: 34px;
+  align-items: center;
+}
+/* A NAMED chip, not a bare colour bar (Gabe, 8/22). The colour is the point of the
+   screen, so it is shown doing its job: a dot in the colour, the subject in the
+   colour, on a wash of the colour. Everything is derived from --c, so the three
+   chips are one rule seen three times. */
+.onb-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px 6px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c) 34%, transparent);
+  color: var(--c);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(-10px);
+  /* TWO animations: the entrance, then a drift that never stops (Gabe, 8/22 asked
+     for "some constant movement that is subtle"). The drift is listed second so it
+     wins the transform once it starts, and it starts as the drop finishes. Each
+     chip runs on its own slightly different clock, so the row breathes instead of
+     pulsing in unison. */
+  animation:
+    onb-swatch-drop 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards,
+    onb-swatch-drift 3.4s ease-in-out infinite;
+  animation-delay: calc(0.18s + var(--i) * 0.11s), calc(0.72s + var(--i) * 0.11s);
+  animation-duration: 0.5s, calc(3.4s + var(--i) * 0.5s);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+.onb-swatch::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--c);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--c) 70%, transparent);
+}
+@keyframes onb-swatch-drop {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* 3px, deliberately: enough to read as alive, small enough that nothing about the
+   row's position is ever in question. */
+@keyframes onb-swatch-drift {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+/* ================== screen 5 · the language orbit ==================
+   A globe with eight scripts drifting around it: the point of the screen, said
+   without a sentence. Each glyph sits at its own angle on the ring and breathes on
+   its own clock, so the group never pulses in unison. */
+/* HEIGHT = the ring, not less (Gabe, 8/22: "why is this language orb visual
+   overlapping with other elements"). The glyphs sit on a ring centred in this box,
+   so anything shorter than 2 x radius + a line of text lets the top and bottom ones
+   escape and land on the subtitle above and the picker below. 46 x 2 + 20 = 112. */
+.onb-langs {
+  position: relative;
+  height: 112px;
+  /* Clearance on BOTH sides. The ring is centred in this box now, so it reaches to
+     within a pixel of the box's own edges; without these margins the top glyph grazes
+     the caption above it, which is the collision this whole block exists to end. */
+  margin-top: 12px;
+  margin-bottom: 12px;
+  align-items: center;
+  /* The ring is decoration; it must never be what a click lands on. */
+  pointer-events: none;
+}
+.onb-lang-core {
+  font-size: 30px;
+  line-height: 1;
+  filter: drop-shadow(0 0 16px rgba(125, 180, 255, 0.55));
+  animation: onb-orbit-breathe 5s ease-in-out infinite;
+}
+.onb-lang-glyph {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+  opacity: 0.55;
+  /* 46px, down from 76 (Gabe, 8/22: "decrease the radius of the circle so that the
+     language text icons are closer to globe"). It also fits the ring inside its own
+     box, which is what stopped it colliding with the rows above and below.
+     LEADING translate(-50%, -50%): left/top 50% puts the glyph's top-left corner on
+     the centre, not the glyph itself, so without this the whole ring hangs down and
+     right by half a glyph. Measured, that left 12px of it below its own box and only
+     2px of clearance above the picker. Centring the glyph on its anchor makes the
+     ring symmetrical, which is the only way the box's height actually bounds it.
+     The rotate/translate/counter-rotate triple after it keeps each glyph upright. */
+  transform: translate(-50%, -50%) rotate(calc(var(--i) * (360deg / var(--n))))
+    translate(46px) rotate(calc(var(--i) * (-360deg / var(--n))));
+  animation: onb-glyph-float 4.5s ease-in-out infinite;
+  animation-delay: calc(var(--i) * -0.55s);
+}
+@keyframes onb-glyph-float {
+  0%,
+  100% {
+    opacity: 0.32;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+@keyframes onb-orbit-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+/* THE RESULTS LIST OPENS OVER THE CONTINUE BUTTON (Gabe, 8/22, screenshot).
+   Its own z-index could never do this. Every `.rise` element animates transform and
+   opacity, and an element with a running animation on those forms its own stacking
+   context, so the list's z-index only ever ranked it inside the picker's wrapper.
+   The wrapper is what has to outrank the button's wrapper, and being later in the
+   DOM the button won by default. */
+.onb-lang-wrap {
+  position: relative;
+  z-index: 5;
+}
+
+/* The picker, greyed once it has the two it asked for. */
+.lang-picker-full .lang-input {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onb-swatch {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .onb-lang-glyph,
+  .onb-lang-core {
+    animation: none;
+  }
+  .onb-lang-glyph {
+    opacity: 0.6;
+  }
+}
+
+/* Connect was the one screen that overshot the shared floor (617px against 476),
+   and the scan stage was most of it: a 172px box holding a 70px logo. Trimmed to
+   sit inside the common height, so the deck never changes size between steps. The
+   stage still has room for the beam and the chips the scan flies in. */
+.onb-stage {
+  min-height: 102px;
+  padding: 16px;
+  gap: 12px;
 }

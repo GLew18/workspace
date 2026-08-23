@@ -485,7 +485,7 @@
   }
 
   @media (prefers-reduced-motion:reduce){
-    .orb,.fly,.note-float{animation:none !important}
+    .orb,.fly,.note-float,.lang-core,.lang-glyph{animation:none !important}
     .screen{transition:none}
     .screen.on .rise,.screen.on .course-row,.screen.on .mini-task{animation-duration:.01s !important;animation-delay:0s !important}
     .prog-fill{transition:none}
@@ -493,6 +493,42 @@
     .app-mark{opacity:1;transform:none}
     .screen.on .ring-fg{animation-duration:.01s}
   }
+
+  /* ---- languages screen (mirrors src/ui/onboarding.css .onb-langs / .lang-*) ---- */
+  .langs-orbit{position:relative;width:100%;height:102px;display:flex;align-items:center;
+    justify-content:center;margin:4px 0 12px}
+  .lang-core{font-size:26px;filter:drop-shadow(0 0 12px rgba(125,180,255,.55));
+    animation:langCore 5.5s ease-in-out infinite}
+  @keyframes langCore{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+  .lang-glyph{position:absolute;font-size:15px;font-weight:700;color:var(--gold);
+    opacity:.55;transform:rotate(calc(360deg*var(--i)/var(--n))) translateX(58px)
+      rotate(calc(-360deg*var(--i)/var(--n)));
+    animation:langDrift 6s ease-in-out infinite;
+    animation-delay:calc(var(--i)*-.75s)}
+  @keyframes langDrift{0%,100%{opacity:.4;filter:blur(.3px)}50%{opacity:1;filter:none}}
+  .lang-picker{width:100%;max-width:420px;margin:0 auto;background:rgba(255,255,255,.04);
+    border:1px solid var(--border);border-radius:14px;padding:10px;text-align:left}
+  .lang-chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px;min-height:30px;align-items:center}
+  .lang-off{font-size:12.5px;color:var(--dim)}
+  .lang-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 8px 5px 10px;
+    border-radius:9px;background:rgba(255,255,255,.08);border:1px solid var(--border);
+    font-size:12.5px;font-weight:650}
+  .lang-chip-native{color:var(--dim);font-weight:500}
+  .lang-chip-x{background:none;border:0;color:var(--dim);cursor:pointer;font-size:13px;padding:0 1px}
+  .lang-chip-x:hover{color:#fff}
+  .lang-search{position:relative}
+  .lang-input{width:100%;background:rgba(0,0,0,.24);border:1px solid var(--border);
+    color:inherit;border-radius:10px;padding:9px 11px;font:inherit;font-size:13.5px}
+  .lang-input:focus{outline:none;border-color:rgba(125,180,255,.6)}
+  .lang-picker-full .lang-input{opacity:.5;cursor:not-allowed}
+  .lang-results{position:absolute;left:0;right:0;top:calc(100% + 5px);z-index:5;
+    max-height:150px;overflow-y:auto;background:#122145;border:1px solid var(--border);
+    border-radius:10px;box-shadow:0 14px 34px rgba(0,0,0,.45)}
+  .lang-result{display:flex;width:100%;gap:8px;align-items:baseline;background:none;
+    border:0;color:inherit;font:inherit;font-size:13px;text-align:left;padding:8px 11px;cursor:pointer}
+  .lang-result:hover{background:rgba(255,255,255,.07)}
+  .lang-result-native{color:var(--dim);font-size:12px}
+  .lang-empty{padding:9px 11px;font-size:12.5px;color:var(--dim)}
 </style>
 
 <div class="orb a"></div><div class="orb b"></div>
@@ -611,6 +647,7 @@ const DISCOVERED = [
 const clone = c => ({name:c.name, color:c.color, parseWords:[...c.parseWords]});
 const state = {
   i: 0,
+  languages: [], // picked on the languages screen; free tier gives two
   name: 'Gabe',
   courses: DEFAULTS.map(clone),
   connected: false,
@@ -622,11 +659,95 @@ const state = {
 // the setup screen must not complete the bar — done() pushes it to 100 together
 // with the payoff, so finishing and the reward land as one moment. (100 here was
 // the bug: go()'s own tick raced ahead and filled the bar early.)
-const PCT = [15, 32, 50, 66, 82, 92]; // welcome, explainer, connect, courses, name, payoff
+const PCT = [14, 28, 42, 56, 70, 84, 92]; // welcome, explainer, connect, courses, languages, name, payoff
 let lastPct = 15;
 let screenTimer = null; // any per-screen interval (the focus countdown) — cleared on nav
 const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deck = document.getElementById('deck');
+
+/* A slice of the real catalog (util/languages.ts). The prototype cannot import the
+   module, and the point of the screen is the interaction, not 185 rows of data. */
+const LANGS = [
+  ['he','Hebrew','עברית'],['es','Spanish','Español'],['fr','French','Français'],
+  ['ar','Arabic','العربية'],['ru','Russian','Русский'],['zh','Chinese','中文'],
+  ['ja','Japanese','日本語'],['ko','Korean','한국어'],['hi','Hindi','हिन्दी'],
+  ['pt','Portuguese','Português'],['de','German','Deutsch'],['it','Italian','Italiano'],
+  ['yi','Yiddish','ייִדיש'],['el','Greek','Ελληνικά'],['pl','Polish','Polski'],
+  ['tr','Turkish','Türkçe'],['vi','Vietnamese','Tiếng Việt'],['fa','Persian','فارسی'],
+  ['uk','Ukrainian','Українська'],['ur','Urdu','اردو'],
+];
+const findLang = c => LANGS.find(l => l[0] === c);
+
+/* buildLanguagePicker(), trimmed to what this screen uses: chips with an ✕, a
+   search box that greys out at `max`, and a results list. Behaviour matches
+   src/settings/languagePicker.ts — the real screen shares the Settings control. */
+function buildLangPicker(opts){
+  const wrap = document.createElement('div'); wrap.className = 'lang-picker';
+  const chips = document.createElement('div'); chips.className = 'lang-chips';
+  const search = document.createElement('div'); search.className = 'lang-search';
+  const results = document.createElement('div'); results.className = 'lang-results';
+  const input = document.createElement('input');
+  input.className = 'lang-input'; input.spellcheck = false;
+  let query = '';
+  const atLimit = () => opts.max !== undefined && opts.get().length >= opts.max;
+  const drawResults = () => {
+    results.replaceChildren();
+    const open = !atLimit() && (document.activeElement === input || !!query);
+    results.hidden = !open; if (!open) return;
+    const picked = new Set(opts.get());
+    const q = query.trim().toLowerCase();
+    const hits = LANGS.filter(l => !picked.has(l[0]) &&
+      (!q || l[1].toLowerCase().includes(q) || l[2].toLowerCase().includes(q) || l[0] === q));
+    if (!hits.length){
+      const e = document.createElement('div'); e.className = 'lang-empty';
+      e.textContent = query ? 'No language matches that.' : 'All of them are already on.';
+      results.append(e); return;
+    }
+    for (const l of hits){
+      const row = document.createElement('button'); row.className = 'lang-result';
+      const n = document.createElement('span'); n.textContent = l[1];
+      const nat = document.createElement('span'); nat.className = 'lang-result-native'; nat.textContent = l[2];
+      row.append(n, nat);
+      row.addEventListener('mousedown', e => e.preventDefault()); // keep focus so blur doesn't close first
+      row.addEventListener('click', () => { opts.set([...opts.get(), l[0]]); query=''; input.value=''; draw(); input.focus(); });
+      results.append(row);
+    }
+  };
+  const draw = () => {
+    chips.replaceChildren();
+    const codes = opts.get(); const full = atLimit();
+    input.disabled = full;
+    input.placeholder = full ? ('That\u2019s ' + opts.max + '. Remove one to swap it.') : (opts.placeholder || 'Add a language\u2026');
+    wrap.classList.toggle('lang-picker-full', full);
+    if (!codes.length){
+      const off = document.createElement('div'); off.className = 'lang-off';
+      off.textContent = opts.emptyText || 'Nothing picked yet.'; chips.append(off);
+    }
+    for (const code of codes){
+      const def = findLang(code);
+      const chip = document.createElement('span'); chip.className = 'lang-chip';
+      const nm = document.createElement('span'); nm.textContent = def ? def[1] : code.toUpperCase();
+      chip.append(nm);
+      if (def){ const nat = document.createElement('span'); nat.className='lang-chip-native'; nat.textContent = def[2]; chip.append(nat); }
+      const x = document.createElement('button'); x.className='lang-chip-x'; x.textContent='\u2715';
+      x.title = 'Stop translating ' + (def ? def[1] : code);
+      x.addEventListener('click', () => { opts.set(opts.get().filter(c => c !== code)); draw(); });
+      chip.append(x); chips.append(chip);
+    }
+    drawResults();
+  };
+  input.addEventListener('input', () => { query = input.value; drawResults(); });
+  input.addEventListener('focus', drawResults);
+  input.addEventListener('blur', () => setTimeout(() => {
+    if (document.activeElement === input) return;
+    query=''; input.value=''; drawResults();
+  }, 120));
+  input.addEventListener('keydown', e => { if (e.key === 'Escape') input.blur(); });
+  search.append(input, results);
+  wrap.append(chips, search);
+  draw();
+  return wrap;
+}
 
 /* ============================================================== deck engine */
 const SCREENS = []; // {build(el), enter?()}
@@ -875,6 +996,42 @@ SCREENS.push({ build(el){
     const last = lastRow?.querySelector('.course-name');
     last?.focus(); last?.select();
   });
+  el.querySelector('#n').addEventListener('click',()=>go(state.i+1));
+}});
+
+/* ========================================================== 4b · languages */
+/* THE SETTINGS PICKER (Gabe, 8/22). Translation is a substantial part of Cobalt and
+   it is highly personal, but it lived behind Settings, and students rarely open
+   Settings. Asking here is how the feature gets found — the same reason the courses
+   screen borrows the Settings courses editor.
+
+   Two is the ask because two is what the free tier gives. Nothing is REQUIRED:
+   Continue is live from the first frame and an empty list is a real answer. */
+SCREENS.push({ build(el){
+  el.innerHTML = `
+  <div class="sc">
+    <h1 class="rise">Your <span class="g">languages</span></h1>
+    <p class="sub rise d1">Assignments written in these get an English line underneath. Change it any time in Settings.</p>
+    <div class="langs-orbit rise d1" id="orbit"><span class="lang-core">🌐</span></div>
+    <div class="rise d2" style="width:100%" id="pickHost"></div>
+    <button class="cta rise d3" id="n">Continue</button>
+  </div>`;
+  // The globe, drifting through the scripts the picker can read. Every other screen
+  // opens with something moving; this one used to just sit there.
+  const orbit = el.querySelector('#orbit');
+  const GLYPHS = ['あ','ע','ñ','ت','Я','中','Ω','ह'];
+  GLYPHS.forEach((ch,i) => {
+    const g = document.createElement('span'); g.className='lang-glyph'; g.textContent=ch;
+    g.style.setProperty('--i', String(i)); g.style.setProperty('--n', String(GLYPHS.length));
+    orbit.append(g);
+  });
+  el.querySelector('#pickHost').append(buildLangPicker({
+    get: () => state.languages,
+    set: codes => { state.languages = codes; },
+    placeholder: 'Search 185 languages…',
+    emptyText: 'Nothing picked yet.',
+    max: 2, // two, which is what the free tier gives
+  }));
   el.querySelector('#n').addEventListener('click',()=>go(state.i+1));
 }});
 

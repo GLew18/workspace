@@ -29,6 +29,23 @@ export type TitleAnalysis =
 const cache = new Map<string, TitleAnalysis>();
 
 /**
+ * BOUNDED, since 8/22. This used to hold titles only, which are short and repeat
+ * across an import, so an unbounded map was a fair trade. Descriptions go through
+ * the same function now (see tasks/txSlot.ts) and they are multi-paragraph and
+ * almost never repeat, so the map would grow with every task read and give almost
+ * nothing back. Oldest out first, which a Map does by insertion order.
+ */
+const CACHE_MAX = 400;
+
+function remember(key: string, value: TitleAnalysis): void {
+  if (cache.size >= CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(key, value);
+}
+
+/**
  * Ask the translator to read `text`: detect its language and, if it isn't
  * entirely English, translate everything to English (keeping any English parts).
  */
@@ -118,7 +135,7 @@ export async function analyzeTitle(text: string): Promise<TitleAnalysis> {
   // is the honest outcome, and it is the one the principle asks for. Nothing else
   // in this file depends on it, and the gate below is the whole decision now.
 
-  cache.set(key, out);
+  remember(key, out);
   return out;
 }
 

@@ -56,6 +56,26 @@ export function clearTranslation<T extends Partial<Task>>(t: T): T {
   };
 }
 
+/** The same wipe, for the DESCRIPTION's translation (Gabe, 8/22). Separate from the
+ *  title's because the two texts change independently: a teacher who rewrites the
+ *  instructions has not renamed the assignment, and clearing the title's reading
+ *  there would throw away an answer that is still correct. */
+export function clearDetailsTranslation<T extends Partial<Task>>(t: T): T {
+  return {
+    ...t,
+    detailsTranslated: '',
+    detailsLang: '',
+    detailsChecked: false,
+    detailsHidden: false,
+    detailsChosen: false,
+    detailsAmbiguous: false,
+    detailsDetected: '',
+    detailsRuledOut: [],
+    detailsOptions: {},
+    detailsVerifiedFor: '',
+  };
+}
+
 export function duplicateTask(task: Task): Task {
   return {
     ...task,

@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>hero demo smoke</title></head>
+<body class="landing-mode">
+<pre id="out">running…</pre>
+<div id="stage" style="width:1100px;height:620px"></div>
+<script type="module">
+  import '/src/ui/theme.css';
+  import '/src/ui/components.css';
+  import '/src/ui/landing.css';
+  const out = document.getElementById('out');
+  const log = (s) => { out.textContent += '\n' + s; };
+  out.textContent = '';
+  const errs = [];
+  window.addEventListener('error', (e) => errs.push('window error: ' + e.message));
+  window.addEventListener('unhandledrejection', (e) => errs.push('unhandled: ' + (e.reason?.message || e.reason)));
+  const { startHeroDemo, SCENE_NAMES } = await import('/src/landing/demo/script.ts');
+  log('scenes: ' + SCENE_NAMES.join(', '));
+  const t0 = performance.now();
+  const h = startHeroDemo(document.getElementById('stage'), { instant: true, loops: 1 });
+  const done = new Promise((res) => {
+    const iv = setInterval(() => {
+      if (window.__demoLoopN >= 1) { clearInterval(iv); res('finished'); }
+    }, 60);
+    setTimeout(() => { clearInterval(iv); res('TIMEOUT'); }, 45000);
+  });
+  const verdict = await done;
+  try { h.stop?.(); } catch {}
+  log('loop result: ' + verdict + ' in ' + Math.round(performance.now() - t0) + 'ms');
+  log('last beat: ' + window.__demoBeat);
+  log('errors: ' + (errs.length ? errs.join(' | ') : 'none'));
+  log(verdict === 'finished' && !errs.length ? '\nPASS  the demo ran every scene in instant mode with no error'
+    : '\nFAIL  ' + verdict + ' ' + errs.join(' | '));
+</script>
+</body>
+</html>

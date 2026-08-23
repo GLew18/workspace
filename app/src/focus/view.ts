@@ -2,7 +2,7 @@
 
 import type { Data } from '../db';
 import type { Task, TaskMap, TaskFolder, Priority } from '../types';
-import { getTaskFolders, saveTaskFolders, makeFolder, normFolder, stampFolderName, FOLDERS_EVENT } from '../tasks/folders';
+import { getTaskFolders, saveTaskFolders, makeFolder, normFolder, FOLDERS_EVENT } from '../tasks/folders';
 import { makeResizeGrip, restoreSavedHeight } from '../util/resize';
 import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToast } from '../util/dom';
 import { attachColorPicker } from '../ui/colorPicker';
@@ -1674,13 +1674,9 @@ export class FocusView {
     const newRow = el('div', { class: 'folder-pick-new' });
     newRow.append(colorIn, input);
     wrap.append(newRow);
-    // Same tip as the Tasks-tab picker: f: works in every Focus add box too.
-    wrap.append(
-      el('div', {
-        class: 'folder-pick-tip',
-        text: '💡 Type f: in the add box to file a task straight into a folder',
-      })
-    );
+    // The f: tip that used to sit here moved to 💡 Task Pro Tips in the Tasks
+    // header, along with every other one (Gabe, 8/22). The tip still SAYS that f:
+    // works in the Focus boxes; it is just written down in one place now.
     card.append(wrap);
     back.append(card);
     back.addEventListener('click', (e) => {
@@ -3925,16 +3921,11 @@ export class FocusView {
       const task: Task | undefined = tasks[todo.taskId!];
       if (!task) continue;
       if (task.completed === todo.done) continue; // already in step
-      // Checking off HERE sends the task to the Task Archives just as checking it
-      // off in Tasks does, so it needs the same record of which folder it left.
-      // The folder is still alive at this instant; the Tasks tab dissolves it a
-      // moment later, when this write comes back through its watcher.
-      writes.push(
-        stampFolderName(
-          { ...task, completed: todo.done, completedAt: todo.done ? now : null },
-          this.taskFolders
-        )
-      );
+      writes.push({
+        ...task,
+        completed: todo.done,
+        completedAt: todo.done ? now : null,
+      });
     }
     if (writes.length === 1) await this.data.putTask(writes[0]);
     else if (writes.length) await this.data.putTasksBulk(writes);

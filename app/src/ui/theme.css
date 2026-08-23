@@ -35,6 +35,15 @@
      the element, so any box painting this shows exactly the pixels that would have
      been there anyway, at any scroll position, with no seam to line up. */
   --page-bg: linear-gradient(165deg, #0e2457 0%, #091a43 50%, #07132e 100%) fixed;
+  /* THE SAME SURFACE, FLAT, for boxes that cannot use the gradient itself.
+     `fixed` only stays anchored to the viewport while the box is painted with the
+     page; give it to a position:sticky element and Chrome promotes that element to
+     its own layer, and the gradient re-anchors to the ELEMENT. Across a strip that
+     is wide and 69px tall, a 165deg ramp is then almost entirely sideways: the
+     quick-add bar came out light on the left and dark on the right (Gabe, 8/22).
+     This is the colour the real page shows where that strip sits, and it holds to
+     within 3/255 from a 1280x720 laptop up to 1920x1080. */
+  --page-bg-flat: #0b1e4b;
 
   /* secondary tokens */
   --border: rgba(255, 255, 255, 0.08);

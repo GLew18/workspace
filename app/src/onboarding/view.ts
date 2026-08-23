@@ -34,12 +34,15 @@ import { attachColorPicker } from '../ui/colorPicker';
 import { capitalizeName, nameFromEmail } from '../util/names';
 import { runSync, fetchIcal } from '../schoology/sync';
 import { replaceCourses, getCourseColor } from '../courses/registry';
-import { recommendParseWords } from '../courses/recommend';
+import { recommendedSet } from '../courses/recommend';
+import { nextCourseColor } from '../courses/colors';
 import { BADGE_ASSESSMENT_RE, isSchoologyIcalUrl, parseIcal, taskEvents } from '../schoology/ical';
 import { detectSchoologyExtension, requestSgyData } from '../schoology/extension';
 import { todayStr } from '../util/dates';
 import { genId } from '../util/ids';
 import { openIcalGuide } from './icalGuide';
+import { buildLanguagePicker } from '../settings/languagePicker';
+import { normalizePrefs } from '../prefs';
 import { signOut } from '../auth'; // TEMPORARY: powers the "‹ Landing page" escape hatch
 import type { CourseConfig, Task } from '../types';
 
@@ -63,7 +66,6 @@ const SGY_LOGO =
 // Settings and the extension use. Any-URL was not enough: a YouTube link is a
 // perfectly valid URL and a perfectly useless calendar feed.
 
-const NEW_COURSE_COLOR = '#7db4ff';
 
 /**
  * The student's REAL courses, or nothing.
@@ -111,6 +113,12 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
     // during the scan. Empty feed means an empty animation, honestly.
     found: [] as string[],
     foundCount: 0,
+    // EMPTY, and asked for rather than assumed (Gabe, 8/22). New accounts used to
+    // inherit four default languages nobody chose, which is the same "presenting a
+    // guess as a finding" the courses screen exists to avoid — and translation is
+    // personal in a way a course list is not. Screen 5 asks; whatever is here at the
+    // payoff is what gets written.
+    languages: [] as string[],
   };
 
   // --- shell ------------------------------------------------------------------
@@ -137,8 +145,11 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
   // Per-screen bar targets. The LAST entry is 92, not 100, ON PURPOSE: arriving
   // at the setup screen must not complete the bar. The payoff pushes it to 100
   // so finishing and the reward land as one moment.
-  const PCT = [15, 32, 50, 68, 84, 92];
-  let lastPct = 15;
+  const PCT = [14, 28, 42, 56, 70, 84, 92];
+  // Seeded from PCT[0], not a hand-typed number: the bar RATCHETS (Math.max below),
+  // so a seed above the first target would make screen 1 open already overshot and
+  // the deck would silently be one screen's worth of progress ahead of itself.
+  let lastPct = PCT[0];
   let index = 0;
 
   type Screen = { build: (host: HTMLElement) => void; enter?: (host: HTMLElement) => void };
@@ -264,7 +275,12 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
     build(host) {
       const sc = pane(host);
 
-      const visual = el('div', { class: 'onb-visual rise', style: 'margin-bottom:26px' });
+      // 18, not 0: zeroing this had the Schoology tile sitting right on top of the
+      // headline (Gabe, 8/22). It was zeroed to stop the screen overshooting a height
+      // the deck no longer measures per-screen, so the reason is gone and the space
+      // comes back. Still under the 34px default, because Connect is the tallest
+      // screen and the deck's floor is set by it.
+      const visual = el('div', { class: 'onb-visual rise', style: 'margin-bottom:18px' });
       const stage = el('div', { class: 'onb-stage' });
       const chips = el('div', { class: 'onb-chips' });
       stage.append(sgyTile(true), el('div', { class: 'onb-beam' }), chips);
@@ -284,12 +300,15 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       // The animated walkthrough (icalGuide.ts): Schoology-accurate slides of the
       // REAL route (your name → Settings → scroll → copy). It replaced a text
       // list that described a route Schoology doesn't actually have.
-      const helpBtn = el('button', { class: 'onb-help', type: 'button' });
-      helpBtn.append(
-        el('span', { class: 'onb-help-play', text: '▶' }),
-        el('span', { text: 'Show me where the link is' }),
-        el('span', { class: 'onb-help-mins', text: '4 slides · 15 sec' })
-      );
+      // THE SAME BUTTON AS SETTINGS' fix-it guides (Gabe, 8/22). Both open an
+      // animated walkthrough of a thing the student cannot find, so they should not
+      // be two different-looking controls. The play disc and the "4 slides · 15 sec"
+      // tail went with the restyle: one centred accent line says it.
+      const helpBtn = el('button', {
+        class: 'onb-help',
+        type: 'button',
+        text: 'Can’t find your link? Open the guide →',
+      });
 
       const input = textInput({
         class: 'onb-field',
@@ -420,7 +439,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
   // a student builds here is exactly what they'll edit in Settings later.
   SCREENS.push({
     build(host) {
-      const sc = pane(host, 'wide tight');
+      const sc = pane(host, 'tight');
       const h1 = el('h1', { class: 'rise' });
       const discovered = draft.courses.length > 0; // filled only by a real scrape
       h1.append(discovered ? 'We found your ' : 'Your ', el('span', { class: 'g', text: 'courses' }));
@@ -433,9 +452,32 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
           class: 'onb-sub rise d1',
           text: discovered
             ? 'Pulled from Schoology. Fix anything that looks wrong, and add what’s missing.'
-            : 'Your calendar feed carries no course names, so add your courses here. You can also do this later in Settings.',
+            : 'Your feed carries no course names, so add them here. Change them any time in Settings.',
         })
       );
+
+      // Three chips settling into a stack, in the first three colours a new course
+      // is actually given (courses/colors.ts). Screens 1 to 3 all open with
+      // something moving; Courses and Languages were the two that just sat there
+      // (Gabe, 8/22), and this doubles as a preview of what the colours are FOR.
+      // NAMED, not bare colour bars (Gabe, 8/22): a stripe of yellow says nothing,
+      // "Math" in yellow says what the colour is for. Shown in the first three
+      // colours a new course is actually given, so it is a real preview and not a
+      // decoration. The names are generic subjects because the student's own list is
+      // right underneath and would only repeat itself.
+      const swatches = el('div', { class: 'onb-visual onb-swatches rise d1' });
+      const PREVIEW: Array<[string, string]> = [
+        ['Math', '#f2c531'],
+        ['History', '#ef4444'],
+        ['Science', '#4a9eff'],
+      ];
+      PREVIEW.forEach(([label, c], i) => {
+        const chip = el('span', { class: 'onb-swatch', text: label });
+        chip.style.setProperty('--c', c);
+        chip.style.setProperty('--i', String(i));
+        swatches.append(chip);
+      });
+      sc.append(swatches);
 
       // The pin-free wrapper exists so the list can scroll inside itself.
       const wrap = el('div', { class: 'onb-courses-wrap rise d2' });
@@ -492,7 +534,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
           }
           if (newIds.has(c.id)) {
             const used = new Set(draft.courses.flatMap((x) => x.parseWords));
-            for (const w of recommendParseWords(c.name, used)) {
+            for (const w of recommendedSet(c.name, used)) {
               const rec = el('button', { class: 'parse-rec', title: `Add “${w}”` });
               rec.append(el('span', { class: 'parse-rec-plus', text: '+' }), el('span', { text: w }));
               rec.addEventListener('click', () => {
@@ -546,7 +588,10 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
         const c: CourseConfig = {
           id: 'course_onb_' + Math.random().toString(36).slice(2, 9),
           name: 'New course',
-          color: NEW_COURSE_COLOR,
+          // Same rule as Settings: every course is born a colour nothing else here
+          // is wearing (courses/colors.ts). Onboarding is where a student makes
+          // four or five of these in a row, so it is where it matters most.
+          color: nextCourseColor(draft.courses.map((x) => x.color)),
           parseWords: [],
         };
         draft.courses.push(c);
@@ -567,7 +612,77 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
     },
   });
 
-  // ---------------------------------------------------------------- 5 · name
+  // ----------------------------------------------------------- 5 · languages
+  // THE SETTINGS PICKER, VERBATIM (Gabe, 8/22) — same builder, same markup, same
+  // classes, exactly as the courses screen borrows the Settings courses editor. The
+  // reason this screen exists at all is reach: translation is a substantial part of
+  // Cobalt and it is highly personal, but it lived behind Settings, and students
+  // rarely open Settings. Asking here is how the feature gets found.
+  //
+  // Two is the ask because two is what the free tier gives. Nothing is REQUIRED:
+  // Continue is live from the first frame, an empty list is a real answer, and the
+  // subtitle says where to change it later. An onboarding step that refuses to let
+  // you past is a worse first impression than a feature you discover a week in.
+  SCREENS.push({
+    build(host) {
+      const sc = pane(host, 'tight');
+      const h1 = el('h1', { class: 'rise' });
+      h1.append('Your ', el('span', { class: 'g', text: 'languages' }));
+      // ONE CAPTION, NOT TWO (Gabe, 8/22). The screen's subtitle and the picker's
+      // own lead were saying the same sentence twice, at roughly triple the length
+      // of every other screen's caption. The subtitle is now as short as theirs, and
+      // the picker's lead is suppressed rather than reworded, because with the
+      // subtitle above it there is nothing left for it to add.
+      sc.append(
+        h1,
+        el('p', {
+          class: 'onb-sub rise d1',
+          text: 'Assignments written in these get an English line underneath. Change it any time in Settings.',
+        })
+      );
+
+      // The globe, drifting through the scripts the picker can read. Screens 1 to 3
+      // all open with something moving; this one and Courses were the two that just
+      // sat there (Gabe, 8/22).
+      const orbit = el('div', { class: 'onb-visual onb-langs rise d1' });
+      const GLYPHS = ['あ', 'ע', 'ñ', 'ت', 'Я', '中', 'Ω', 'ह'];
+      GLYPHS.forEach((ch, i) => {
+        const g = el('span', { class: 'onb-lang-glyph', text: ch });
+        // Spread around the ring, each drifting on its own clock so the group never
+        // pulses in unison.
+        g.style.setProperty('--i', String(i));
+        g.style.setProperty('--n', String(GLYPHS.length));
+        orbit.append(g);
+      });
+      orbit.append(el('span', { class: 'onb-lang-core', text: '🌐' }));
+      sc.append(orbit);
+
+      // onb-lang-wrap carries the stacking order (see the CSS): the results list has
+      // to open OVER the Continue button below it, and z-index inside the picker
+      // cannot do that on its own.
+      const wrap = el('div', { class: 'onb-lang-wrap rise d2', style: 'width:100%' });
+      wrap.append(
+        buildLanguagePicker({
+          get: () => draft.languages,
+          set: (codes) => {
+            draft.languages = codes;
+          },
+          lead: '', // the subtitle above already said it
+          placeholder: 'Search 185 languages…',
+          emptyText: 'Nothing picked yet.',
+          // TWO, which is what the free tier gives.
+          max: 2,
+        })
+      );
+      sc.append(wrap);
+
+      const next = cta('Continue');
+      next.addEventListener('click', () => go(index + 1));
+      sc.append(next);
+    },
+  });
+
+  // ---------------------------------------------------------------- 6 · name
   // Pre-filled from the signed-in email (main.ts hands it over), so the student
   // is confirming a guess rather than answering a blank prompt.
   SCREENS.push({
@@ -616,7 +731,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
     },
   });
 
-  // ------------------------------------------------- 6 · commit, sync, payoff
+  // ------------------------------------------------- 7 · commit, sync, payoff
   let committed = false;
   SCREENS.push({
     build(host) {
@@ -644,6 +759,12 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
           await data.setProfile('account', { displayName: draft.name, onboarded: true });
           data.markOnboardedLocally(); // survives a transient blank read
           await replaceCourses(draft.courses);
+          // Merged onto the stored prefs rather than written as a bare object: a
+          // fresh account has none yet, and normalizePrefs is what fills in every
+          // other default so this write cannot flatten them.
+          const prefs = normalizePrefs(await data.getProfile('prefs'));
+          prefs.tasks.translateFrom = draft.languages;
+          await data.setProfile('prefs', prefs);
           if (draft.ical) {
             const url = draft.ical.replace(/^webcal:\/\//i, 'https://');
             await data.setProfile('schoology', { icalUrl: url, lastSyncAt: null });

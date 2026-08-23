@@ -16,7 +16,8 @@ import { confirmDanger } from '../ui/confirm';
 import { genId } from '../util/ids';
 import { capitalizeName } from '../util/names';
 import { getCourses, replaceCourses } from '../courses/registry';
-import { recommendParseWords } from '../courses/recommend';
+import { recommendedSet } from '../courses/recommend';
+import { nextCourseColor } from '../courses/colors';
 import { runSync } from '../schoology/sync';
 import { isSchoologyIcalUrl } from '../schoology/ical';
 import {
@@ -28,8 +29,7 @@ import {
   sendSetPasswordEmail,
 } from '../auth';
 import { getPrefs, setPrefsCache, PREFS_EVENT, type AppPrefs } from '../prefs';
-import { searchLanguages, findLanguage, type LanguageDef } from '../util/languages';
-import { resetTranslationCache } from '../util/translate';
+import { buildLanguagePicker } from './languagePicker';
 import { END_SOUNDS, DEFAULT_END_SOUND, DEFAULT_END_VOLUME, playEndSound, FOCUS_SOUND_EVENT } from '../focus/sounds';
 import { armAudioContext } from '../focus/timer';
 import { LIBRARY_TRACKS, MUSIC_GENRES } from '../focus/library';
@@ -60,7 +60,6 @@ const PLAY_SVG =
 const PAUSE_SVG =
   '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>';
 
-const NEW_COURSE_COLOR = '#9ca3af';
 
 // Sidebar tab icons (19px line icons, stroke follows the button's text color).
 const NAV_ICONS: Record<string, string> = {
@@ -316,100 +315,18 @@ export class SettingsView {
    * default) and the OFF set is the entire catalog. A switch per language would be
    * thirty-five rows to express four choices.
    */
+  /** The 🌐 language picker. The control itself moved to settings/languagePicker.ts
+   *  when onboarding started showing the same one; this is the Settings binding of
+   *  it. Nothing about the markup or behaviour changed in the move. */
   private languagePicker(): HTMLElement {
     const p = this.draft.prefs;
-    const wrap = el('div', { class: 'lang-picker' });
-    const chips = el('div', { class: 'lang-chips' });
-    const searchWrap = el('div', { class: 'lang-search' });
-    const results = el('div', { class: 'lang-results' });
-
-    const save = (): void => {
-      void this.savePrefs();
-      // The session cache holds verdicts reached under the OLD list, so a title
-      // judged English because Spanish was off would stay that way until a reload.
-      resetTranslationCache();
-    };
-
-    const input = textInput({ class: 'settings-input lang-input', placeholder: 'Add a language…' });
-    let query = '';
-
-    const drawResults = (): void => {
-      results.replaceChildren();
-      const open = document.activeElement === input || !!query;
-      results.hidden = !open;
-      if (!open) return;
-      const picked = new Set(p.tasks.translateFrom.map((c) => findLanguage(c)?.code ?? c));
-      const hits = searchLanguages(query).filter((l) => !picked.has(l.code));
-      if (!hits.length) {
-        results.append(el('div', { class: 'lang-empty', text: query ? 'No language matches that.' : 'All of them are already on.' }));
-        return;
-      }
-      // NO cap. The list used to stop at 8, which made a 100-language catalog look
-      // like a 8-language one (Gabe, 8/15). The box scrolls instead.
-      for (const l of hits) {
-        const row = el('button', { class: 'lang-result' });
-        row.append(el('span', { class: 'lang-result-name', text: l.label }), el('span', { class: 'lang-result-native', text: l.native }));
-        row.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus so blur doesn't close first
-        row.addEventListener('click', () => {
-          p.tasks.translateFrom = [...p.tasks.translateFrom, l.code];
-          save();
-          query = '';
-          input.value = '';
-          draw();
-          input.focus();
-        });
-        results.append(row);
-      }
-    };
-
-    const draw = (): void => {
-      chips.replaceChildren();
-      if (!p.tasks.translateFrom.length) {
-        chips.append(el('div', { class: 'lang-off', text: 'None. Task titles are left exactly as they arrive.' }));
-      }
-      for (const code of p.tasks.translateFrom) {
-        const def: LanguageDef | undefined = findLanguage(code);
-        const chip = el('span', { class: 'lang-chip' });
-        chip.append(el('span', { class: 'lang-chip-name', text: def?.label ?? code.toUpperCase() }));
-        if (def) chip.append(el('span', { class: 'lang-chip-native', text: def.native }));
-        const x = el('button', { class: 'lang-chip-x', text: '✕', title: `Stop translating ${def?.label ?? code}` });
-        x.addEventListener('click', () => {
-          p.tasks.translateFrom = p.tasks.translateFrom.filter((c) => c !== code);
-          save();
-          draw();
-        });
-        chip.append(x);
-        chips.append(chip);
-      }
-      drawResults();
-    };
-
-    input.addEventListener('input', () => {
-      query = input.value;
-      drawResults();
+    return buildLanguagePicker({
+      get: () => p.tasks.translateFrom,
+      set: (codes) => {
+        p.tasks.translateFrom = codes;
+        void this.savePrefs();
+      },
     });
-    input.addEventListener('focus', () => drawResults());
-    input.addEventListener('blur', () => {
-      // A frame's grace so a click on a result lands before the list closes.
-      window.setTimeout(() => {
-        if (document.activeElement === input) return;
-        query = '';
-        input.value = '';
-        drawResults();
-      }, 120);
-    });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') input.blur();
-    });
-
-    searchWrap.append(input, results);
-    wrap.append(
-      el('div', { class: 'lang-lead', text: 'Titles written in these languages get an English translation. Everything else is left alone, which is what keeps a short English word from being read as a foreign one.' }),
-      chips,
-      searchWrap
-    );
-    draw();
-    return wrap;
   }
 
   // --- shared pref-row builders (artifact-style rows: title + sub | control) ---
@@ -424,6 +341,27 @@ export class SettingsView {
     c.append(ctrl);
     row.append(main, c);
     return row;
+  }
+
+  /**
+   * Mark a row (or a block of them) as belonging to the row above it: indented
+   * behind a rail, and folded away when the parent is off (Gabe, 8/22).
+   *
+   * Returns the wrapper to append and the setter the parent's switch calls.
+   * Disabling as well as hiding is belt and braces — `hidden` already takes the
+   * controls out of the tab order — but it makes the state true rather than merely
+   * invisible, which matters to anything that walks the form.
+   */
+  private childBlock(...rows: HTMLElement[]): { wrap: HTMLElement; show: (on: boolean) => void } {
+    const wrap = el('div', { class: 'srow-child' });
+    wrap.append(...rows);
+    const show = (on: boolean): void => {
+      wrap.hidden = !on;
+      wrap.querySelectorAll('button, input, select, textarea').forEach((c) => {
+        (c as HTMLButtonElement).disabled = !on;
+      });
+    };
+    return { wrap, show };
   }
 
   private prefSwitch(initial: boolean, onToggle: (on: boolean) => void): HTMLButtonElement {
@@ -609,14 +547,17 @@ export class SettingsView {
         })
       )
     );
-    const quoteChildren: HTMLElement[] = [];
+    // SETTERS, not elements: the settings child folds away through childBlock's own
+    // show() (which disables its controls as well as hiding them), while the preview's
+    // quote line is a plain element that only needs hiding. One list, two behaviours.
+    const quoteChildren: Array<(on: boolean) => void> = [];
     sec.append(
       this.prefRow(
         'Daily quote',
         'Show a rotating quote beneath your greeting.',
         this.prefSwitch(p.dash.quote, (on) => {
           p.dash.quote = on;
-          quoteChildren.forEach((c) => (c.style.display = on ? '' : 'none'));
+          quoteChildren.forEach((set) => set(on));
           refreshPreview();
           save();
         })
@@ -638,8 +579,11 @@ export class SettingsView {
       save();
     });
     const styleRow = this.prefRow('Quote style', 'Which kind of quote rotates each day.', styleSel);
-    quoteChildren.push(styleRow);
-    sec.append(styleRow);
+    // A CHILD of Daily quote: which kind of quote rotates is not a question worth
+    // asking of someone who has turned quotes off.
+    const quoteChild = this.childBlock(styleRow);
+    quoteChildren.push(quoteChild.show);
+    sec.append(quoteChild.wrap);
 
     // Preview card — greeting + quote exactly as the Dashboard will render them.
     const preview = el('div', { class: 'spv' });
@@ -651,7 +595,7 @@ export class SettingsView {
     const pvAuthor = el('div', { class: 'spv-author' });
     pvQuoteWrap.append(pvQuote, pvAuthor);
     preview.append(pvGreet, pvQuoteWrap);
-    quoteChildren.push(pvQuoteWrap);
+    quoteChildren.push((on) => { pvQuoteWrap.style.display = on ? '' : 'none'; });
     sec.append(preview);
 
     const SAMPLE_QUOTES: Record<AppPrefs['dash']['quoteStyle'], [string, string]> = {
@@ -668,7 +612,7 @@ export class SettingsView {
       pvQuote.textContent = `“${q[0]}”`;
       pvAuthor.textContent = `— ${q[1]}`;
     };
-    quoteChildren.forEach((c) => (c.style.display = p.dash.quote ? '' : 'none'));
+    quoteChildren.forEach((set) => set(p.dash.quote));
     refreshPreview();
 
     sec.append(
@@ -1039,7 +983,11 @@ export class SettingsView {
     const add = el('button', { class: 'settings-add', text: '+ Add course' });
     add.addEventListener('click', () => {
       const id = 'course_' + genId();
-      this.draft.courses.push({ id, name: 'New course', color: NEW_COURSE_COLOR, parseWords: [] });
+      // A NOVEL COLOUR, not the same grey every time (Gabe, 8/22). The colour is
+      // how a class is recognised without reading, and two courses born identical
+      // is the one thing that breaks that. See courses/colors.ts.
+      const color = nextCourseColor(this.draft.courses.map((x) => x.color));
+      this.draft.courses.push({ id, name: 'New course', color, parseWords: [] });
       this.newCourseIds.add(id); // flag it so its row shows parse-word recommendations
       void this.saveCourses();
       draw();
@@ -1069,7 +1017,7 @@ export class SettingsView {
         'Play a cue when a session finishes.',
         this.prefSwitch(this.draft.endSoundEnabled, (on) => {
           this.draft.endSoundEnabled = on;
-          soundChildren.style.display = on ? '' : 'none';
+          soundChildren.hidden = !on;
           if (!on) this.stopPreview();
           void this.saveSound();
         })
@@ -1137,7 +1085,10 @@ export class SettingsView {
     };
     draw();
     soundChildren.append(list, volRow);
-    soundChildren.style.display = this.draft.endSoundEnabled ? '' : 'none';
+    // A CHILD of End Sound: which sound, and how loud, only exist while there is
+    // one. Indented so the pair reads as belonging to the switch above them.
+    soundChildren.classList.add('srow-child');
+    soundChildren.hidden = !this.draft.endSoundEnabled;
     sec.append(soundChildren);
 
     const p = this.draft.prefs;
@@ -1604,24 +1555,54 @@ export class SettingsView {
         })
       )
     );
+    // TWO QUESTIONS, NOT ONE (Gabe, 8/22). "Silent" used to be a third option
+    // inside Bulk edits, which asked "how should a burst arrive?" and answered
+    // "there are no bursts" — a different question hiding inside the answers to
+    // this one. Whether reminders fire at all is now its own switch, and Bulk edits
+    // is its child: with the parent off there is no burst to shape, so the row
+    // collapses away instead of sitting there inert.
+    const bulkSeg = this.prefSeg<BurstMode>(
+      [
+        ['each', 'Each'],
+        ['summary', 'One summary'],
+      ],
+      () => n.burstMode,
+      (v) => {
+        n.burstMode = v;
+        save();
+      }
+    );
+    const bulkRow = this.prefRow(
+      'Bulk edits',
+      'Changing the due dates of many tasks at once can put several of them inside a reminder window together. Send each reminder on its own, or fold the whole burst into a single message naming them all. Every reminder is listed in the notification log either way.',
+      bulkSeg
+    );
+    // The wrapper that folds away with the parent (see .srow-child in settings.css
+    // for why this is `hidden` rather than an animated collapse).
+    const bulkWrap = el('div', { class: 'srow-child' });
+    bulkWrap.append(bulkRow);
+
+    const syncBulk = (on: boolean): void => {
+      bulkWrap.hidden = !on;
+      // Disabled as well as hidden. `hidden` already takes it out of the tab order,
+      // so this is belt and braces — but it is also what makes the state true rather
+      // than merely invisible, and the row is read by anything that walks the form.
+      bulkSeg.querySelectorAll('button').forEach((b) => ((b as HTMLButtonElement).disabled = !on));
+    };
+
     sources.append(
       this.prefRow(
-        'Bulk edits',
-        'Changing the due dates of many tasks can make several reminders fire at once. Send each one, fold the whole burst into a single message, or stay silent. Silent covers single reminders too, not just bulk ones: silence means silence. Every reminder is still listed in the notification log whichever you pick.',
-        this.prefSeg<BurstMode>(
-          [
-            ['each', 'Each'],
-            ['summary', 'One summary'],
-            ['silent', 'Silent'],
-          ],
-          () => n.burstMode,
-          (v) => {
-            n.burstMode = v;
-            save();
-          }
-        )
+        'Your creations and edits',
+        'Adding a task, or moving one’s due date, is what puts it inside a reminder window. On, anything you create or edit that lands in one of your windows reminds you. Off, none of them do, and nothing is written to the notification log either. Your daily agenda, new assignments, and Focus notifications are separate and keep working.',
+        this.prefSwitch(n.notifyEdits, (on) => {
+          n.notifyEdits = on;
+          syncBulk(on);
+          save();
+        })
       )
     );
+    sources.append(bulkWrap);
+    syncBulk(n.notifyEdits);
 
     // --- shared preview + test builders ---
     const previewRefreshers: (() => void)[] = [];
@@ -1940,7 +1921,7 @@ export class SettingsView {
     previewRefreshers.push(refreshFs);
 
     // --- "Troubleshoot" button (top) — opens the animated fix-it guides ---
-    const howToBtn = el('button', { class: 'notify-howto', text: 'Notification not showing? Open the fix-it guides →' }) as HTMLButtonElement;
+    const howToBtn = el('button', { class: 'notify-howto', text: 'Notifications not allowed? Open the fix-it guides →' }) as HTMLButtonElement;
     howToBtn.addEventListener('click', () => this.openNotifyGuides());
 
     // --- Tasks / Focus: plain subheaders (like the other tabs) over each stack of
@@ -1994,7 +1975,12 @@ export class SettingsView {
       refreshPreviews();
     };
 
-    sec.append(howToBtn, perm, master, gmailNote, verifyWarn, appear, sources, groups);
+    // PERM CAPTION FIRST, THEN THE GUIDES (Gabe, 8/22). The caption is what tells you
+    // whether anything is wrong; the button is what you do about it. Reading "Blocked
+    // by your browser" and then finding the fix directly beneath it is the order the
+    // student actually needs, and it stops the button reading as a standing question
+    // when the answer is already "Allowed ✓".
+    sec.append(perm, howToBtn, master, gmailNote, verifyWarn, appear, sources, groups);
     refreshAll();
     return sec;
   }
@@ -2036,7 +2022,7 @@ export class SettingsView {
       if (gi < 0) {
         // ---- index: every cause, most likely first ----
         card.append(
-          el('div', { class: 'ngd-title', text: 'Notification not showing?' }),
+          el('div', { class: 'ngd-title', text: 'Notifications not allowed?' }), // plural, matching the button that opens this (Gabe, 8/22)
           el('div', { class: 'ngd-sub', text: 'Work down this list. It’s ordered by how often each cause is the culprit. Every guide plays the fix step by step.' })
         );
         const list = el('div', { class: 'ngd-list' });
@@ -2291,7 +2277,7 @@ export class SettingsView {
       const named = c.name.trim();
       if (!named || named.toLowerCase() === 'new course') return; // wait for a real name
       const used = new Set(this.draft.courses.flatMap((x) => x.parseWords));
-      const recs = recommendParseWords(named, used);
+      const recs = recommendedSet(named, used);
       if (!recs.length) return;
       for (const w of recs) {
         const rec = el('button', { class: 'parse-rec', title: `Add “${w}”` });

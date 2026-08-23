@@ -9,13 +9,20 @@
 
 import type { Task, TaskMap, Priority, ParsedTask, TaskFolder } from '../types';
 import type { Data, TasksUpdate } from '../db';
-import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToast } from '../util/dom';
+import { el, textInput, copyTextMetrics, autoWidthToText, showToast } from '../util/dom';
 import { extensionActive } from '../bookmarks/shortcuts';
 import { popupGuideButton } from '../ui/popupGuide';
 import { attachColorPicker } from '../ui/colorPicker';
+import { openPopup } from '../ui/popup';
+import { buildFeedDiff, hasFeedDiff } from './feedDiff';
+import {
+  TITLE_SLOT, DETAILS_SLOT, TX_SLOTS, verifySample,
+  txText, txTranslated, txLang, txChecked, txHidden, txAmbiguous, txChosen,
+  txDetected, txRuledOut, txOptions, txVerifiedFor, txWrite,
+  type TxSlot,
+} from './txSlot';
 import { formatMetaDate, formatShortDate, formatTimeOfDay, formatDate, todayStr } from '../util/dates';
 import { getPrefs, setPrefsCache, PREFS_EVENT, type AppPrefs, type PinnedAction } from '../prefs';
-import { makeWidthGrip } from '../util/resize';
 import { genId } from '../util/ids';
 import { buildQuickAdd } from './quickadd';
 import { makeTask, duplicateTask, clearTranslation, groupTasks, dueBadge, sortTasks, type TaskGroup } from './store';
@@ -37,7 +44,6 @@ import {
   mutateTaskFolders,
   reorderTaskFolders,
   normFolder,
-  stampFolderName,
   FOLDERS_EVENT,
 } from './folders';
 import { acceptFolderName, cleanFolderName, guardFolderNameField, wireRename } from './folderName';
@@ -94,8 +100,9 @@ interface RowAction {
 const FOLDER_BTN_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 
-// External-link / open-in-Schoology glyph.
-const SCHOOLOGY_SVG =
+// External-link / open-in-Schoology glyph. Exported for the Task Archives, whose
+// rows carry the same ↗ back to the assignment (tasks/archiveView.ts).
+export const SCHOOLOGY_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>';
 
 // The List ⇄ Calendar toggle's two faces.
@@ -230,15 +237,6 @@ export class TasksView {
       return;
     }
     const header = el('div', { class: 'tasks-header' });
-    // Shift+click is the one thing about this list nobody discovers by accident,
-    // so it is written down where it can be READ BEFORE it is needed (Gabe, 8/20).
-    // It lived on the selection bar first, which was backwards: that bar only
-    // appears once two rows are already picked, so the only people who ever saw
-    // the tip were the ones who had already worked it out.
-    const bulkTip = el('div', {
-      class: 'tasks-bulk-tip',
-      text: '💡 Shift+click to select multiple tasks',
-    });
     // List ⇄ Calendar toggle (quick nav; the Default-screen pref sets the start).
     this.mode = getPrefs().calendar.defaultScreen;
     this.calView = getPrefs().calendar.defaultView;
@@ -251,13 +249,15 @@ export class TasksView {
     this.modeBtn.addEventListener('click', () => {
       this.mode = this.mode === 'list' ? 'calendar' : 'list';
       syncModeBtn();
-      // Bulk select is a LIST gesture (onRowClick returns early in calendar mode),
-      // so its tip goes away with the list rather than advertising something that
-      // does nothing on the screen you are looking at.
-      bulkTip.hidden = this.mode !== 'list';
       this.render();
     });
-    header.append(this.modeBtn, this.makeRefreshBtn());
+    // 💡 Pro tips, BETWEEN the two round buttons (Gabe, 8/22). The tips used to be
+    // scattered: one printed above the list, one inside each folder picker, and the
+    // rest were things you could only learn by being told. They are one popup now,
+    // in the one place a student goes looking for "what else can this do".
+    const tipsBtn = el('button', { class: 'tasks-tips-btn', text: '💡', title: 'Task pro tips' });
+    tipsBtn.addEventListener('click', () => this.openProTips());
+    header.append(this.modeBtn, tipsBtn, this.makeRefreshBtn());
     // Settings changes (week start, density, colors…) repaint the calendar live.
     window.addEventListener(PREFS_EVENT, () => this.render()); // mount runs once per session
     // Esc clears the multi-select (unless an inline editor owns the keyboard).
@@ -267,8 +267,7 @@ export class TasksView {
     });
     const quickAdd = buildQuickAdd((parsed) => this.addTask(parsed), () => this.folders);
     this.listEl = el('div', { class: 'task-list' });
-    bulkTip.hidden = this.mode !== 'list';
-    panel.append(this.bannerHost, header, quickAdd, bulkTip, this.listEl);
+    panel.append(this.bannerHost, header, quickAdd, this.listEl);
     this.watchQuickAdd(quickAdd);
 
     // The student changed which languages get translated → every task's stored
@@ -446,6 +445,24 @@ export class TasksView {
   // --- rendering ----------------------------------------------------------
 
   private render(): void {
+    // The description popup carries a translation line that a press changes, so it
+    // has to redraw with everything else. Dropped once its body leaves the document,
+    // which is how it notices the popup was closed.
+    if (this.detailsRedraw) {
+      if (!this.detailsRedraw.body.isConnected) this.detailsRedraw = null;
+      else {
+        // ONLY WHEN SOMETHING IT SHOWS CHANGED. draw() replaces the popup's children,
+        // which throws away the scroll position of a long description, and render()
+        // runs on every task update, including each write of the auto-translate pass.
+        // Redrawing on all of them would drag the student back to the top of the
+        // instructions they were reading.
+        const sig = this.detailsRedraw.sig();
+        if (sig !== this.detailsRedraw.last) {
+          this.detailsRedraw.last = sig;
+          this.detailsRedraw.draw();
+        }
+      }
+    }
     this.listEl.replaceChildren();
     if (this.excerpt) {
       this.renderExcerpt();
@@ -1020,14 +1037,10 @@ export class TasksView {
       const newRow = el('div', { class: 'folder-pick-new' });
       newRow.append(colorIn, input);
       wrap.append(newRow);
-      // The picker is where a student first learns folders exist, so it is also
-      // the one place the typed shortcut will actually be read (Gabe, 8/19).
-      wrap.append(
-        el('div', {
-          class: 'folder-pick-tip',
-          text: '💡 Type f: in the task bar to file a task straight into a folder',
-        })
-      );
+      // The f: shortcut used to be written here. It moved to the 💡 Task Pro Tips
+      // popup in the Tasks header with the rest of them (Gabe, 8/22): a tip inside
+      // the folder picker is only ever read by someone already filing a folder by
+      // hand, which is the one moment it cannot save them anything.
       body.append(wrap);
     });
   }
@@ -1125,10 +1138,19 @@ export class TasksView {
    * asks each candidate language about all of them at once (up to 50 to a call), so a
    * whole list costs about as much as a single task used to.
    */
-  private queueVerify(task: Task): void {
-    if (task.translationVerifiedFor === task.title || this.verifyQueue.has(task.id)) return;
-    if (this.verifyFailed.has(task.id)) return; // already tried this session, no network
-    this.verifyQueue.add(task.id);
+  /** `slot:id`, because a task has a title AND a description to verify and they are
+   *  independent questions with independent answers. */
+  private vkey(slot: TxSlot, id: string): string {
+    return `${slot.name}:${id}`;
+  }
+
+  private queueVerify(task: Task, slot: TxSlot = TITLE_SLOT): void {
+    const text = txText(task, slot);
+    if (!text) return;
+    const k = this.vkey(slot, task.id);
+    if (txVerifiedFor(task, slot) === text || this.verifyQueue.has(k)) return;
+    if (this.verifyFailed.has(k)) return; // already tried this session, no network
+    this.verifyQueue.add(k);
     if (this.verifying) return;
     this.verifying = true;
     // A tick, so a render that queues twenty rows results in ONE pass over twenty.
@@ -1137,31 +1159,43 @@ export class TasksView {
 
   private async runVerify(): Promise<void> {
     try {
-      const ids = [...this.verifyQueue];
+      // A job is a (task, slot) pair now: the same task can be waiting on an answer
+      // about its title and a separate one about its description.
+      const keys = [...this.verifyQueue];
       this.verifyQueue.clear();
-      const jobs = ids
-        .map((id) => this.map[id])
-        .filter((t): t is Task => !!t && !!t.title && t.translationVerifiedFor !== t.title);
+      type Job = { task: Task; slot: TxSlot; text: string };
+      const jobs: Job[] = [];
+      for (const k of keys) {
+        const i = k.indexOf(':');
+        const slot = TX_SLOTS.find((sl) => sl.name === k.slice(0, i));
+        const t = this.map[k.slice(i + 1)];
+        if (!slot || !t) continue;
+        const text = txText(t, slot);
+        if (!text || txVerifiedFor(t, slot) === text) continue;
+        jobs.push({ task: t, slot, text });
+      }
       if (!jobs.length) return;
 
-      // title -> code -> english, built language by language.
+      // key -> code -> english, built language by language.
       const found = new Map<string, Record<string, string>>();
-      const byLang = new Map<string, Task[]>();
-      for (const t of jobs) {
-        found.set(t.id, {});
-        for (const d of rankCandidates(t.title, t.translationDetected, [], t.translationRuledOut || [])) {
+      const byLang = new Map<string, Job[]>();
+      for (const j of jobs) {
+        found.set(this.vkey(j.slot, j.task.id), {});
+        for (const d of rankCandidates(j.text, txDetected(j.task, j.slot), [], txRuledOut(j.task, j.slot))) {
           const list = byLang.get(d.code) || [];
-          list.push(t);
+          list.push(j);
           byLang.set(d.code, list);
         }
       }
       let reachable = true;
-      for (const [code, tasks] of byLang) {
-        const batch = tasks.slice(0, 50);
-        const { ok, results } = await translateBatchAs(batch.map((t) => t.title), code);
+      for (const [code, group] of byLang) {
+        const batch = group.slice(0, 50);
+        // verifySample, not the whole text: a description can be paragraphs long and
+        // the question here is only "can this language read it at all". See txSlot.ts.
+        const { ok, results } = await translateBatchAs(batch.map((j) => verifySample(j.text)), code);
         if (!ok) { reachable = false; break; } // offline: record nothing, try again later
         results.forEach((text, i) => {
-          if (text) (found.get(batch[i].id) as Record<string, string>)[code] = text;
+          if (text) (found.get(this.vkey(batch[i].slot, batch[i].task.id)) as Record<string, string>)[code] = text;
         });
       }
       // OFFLINE CHANGES NOTHING ON THE TASK. Writing "verified, no options" here would
@@ -1169,28 +1203,45 @@ export class TasksView {
       // failure is remembered in memory instead, which stops the retry loop and lets
       // the rows fall back to the unverified list rather than sitting on "checking".
       if (!reachable) {
-        for (const t of jobs) this.verifyFailed.add(t.id);
+        for (const j of jobs) this.verifyFailed.add(this.vkey(j.slot, j.task.id));
         this.render();
         return;
       }
 
-      const writes = jobs
-        .map((t) => {
-          const cur = this.map[t.id];
-          if (!cur || cur.title !== t.title) return null; // retitled mid-pass
-          return {
-            ...cur,
-            translationOptions: found.get(t.id) || {},
-            translationVerifiedFor: cur.title,
-          } as Task;
-        })
-        .filter((t): t is Task => t !== null);
+      // ONE WRITE PER TASK even when both slots were verified in the same pass:
+      // two putTask calls for one task would have the second overwrite the first.
+      const merged = new Map<string, Task>();
+      for (const j of jobs) {
+        const base = merged.get(j.task.id) ?? this.map[j.task.id];
+        if (!base) continue;
+        if (txText(base, j.slot) !== j.text) continue; // edited mid-pass
+        // The options are keyed by the SAMPLE that was verified, but they are only
+        // ever used as "this language works", plus a free answer for a short text
+        // where the sample IS the whole thing. A truncated sample is not passed off
+        // as the translation: see the press handler, which refetches when the text
+        // is longer than the sample.
+        merged.set(
+          j.task.id,
+          txWrite(base, j.slot, {
+            options: found.get(this.vkey(j.slot, j.task.id)) || {},
+            verifiedFor: j.text,
+          })
+        );
+      }
+      const writes = [...merged.values()];
       if (writes.length) await this.data.putTasksBulk(writes);
     } finally {
       this.verifying = false;
       if (this.verifyQueue.size) setTimeout(() => void this.runVerify(), 60);
     }
   }
+
+  /** The open description popup's redraw, if one is open. `sig` is everything the
+   *  popup draws, flattened, so render() can tell a change worth redrawing for from
+   *  the twenty updates a translate pass fires. See openDetails. */
+  private detailsRedraw:
+    | { body: HTMLElement; draw: () => void; sig: () => string; last: string }
+    | null = null;
 
   /** Rows told to ask again from the … menu, after an answer was already showing.
    *  Deliberately NOT persisted: it is a question on screen right now, not a property
@@ -1245,30 +1296,32 @@ export class TasksView {
    * read this title, only those are candidates. Before it has run, the ranking
    * stands and the row says it is checking.
    */
-  private readings(task: Task): { code: string; label: string }[] {
+  private readings(task: Task, slot: TxSlot = TITLE_SLOT): { code: string; label: string }[] {
     if (!getPrefs().tasks.translateFrom.length) return [];
-    if (task.translationChecked && !task.translatedTitle && !task.translationAmbiguous && !task.translationChosen)
+    const text = txText(task, slot);
+    if (!text) return [];
+    if (txChecked(task, slot) && !txTranslated(task, slot) && !txAmbiguous(task, slot) && !txChosen(task, slot))
       return [];
     const ranked = rankCandidates(
-      task.title,
-      task.translationDetected,
+      text,
+      txDetected(task, slot),
       this.recentLangs(),
-      task.translationRuledOut || []
+      txRuledOut(task, slot)
     );
-    // Verification counts only for the title it was run against; anything else is
+    // Verification counts only for the text it was run against; anything else is
     // an answer about words this task no longer has.
-    if (!task.translationVerifiedFor || task.translationVerifiedFor !== task.title) return ranked;
-    const verified = Object.keys(task.translationOptions || {});
+    if (txVerifiedFor(task, slot) !== text) return ranked;
+    const verified = Object.keys(txOptions(task, slot));
     return ranked.filter((d) => verified.indexOf(d.code) >= 0);
   }
 
   /** Is this row currently asking which language it is in? */
-  private asking(task: Task): boolean {
-    if (!(this.askingIds.has(task.id) || task.translationAmbiguous)) return false;
+  private asking(task: Task, slot: TxSlot = TITLE_SLOT): boolean {
+    if (!(this.askingIds.has(this.vkey(slot, task.id)) || txAmbiguous(task, slot))) return false;
     // Nothing to offer = nothing to ask. An empty row of buttons is a question with
     // no answers, which is exactly what "🌐 Translate from" with nothing after it
     // was (Gabe, 8/21).
-    return this.readings(task).length > 0;
+    return this.readings(task, slot).length > 0;
   }
 
   /**
@@ -1279,7 +1332,7 @@ export class TasksView {
    * carry names rather than pre-fetched English: four calls to fill a line the
    * student answers with one glance is four times the cost for less clarity.
    */
-  private buildAskRow(task: Task): HTMLElement {
+  private buildAskRow(task: Task, slot: TxSlot = TITLE_SLOT): HTMLElement {
     const row = el('div', { class: 'task-translation asking' });
     row.append(el('span', { class: 'task-translation-badge', text: '🌐' }));
     row.append(el('span', { class: 'task-ask-label', text: 'Translate from' }));
@@ -1295,7 +1348,9 @@ export class TasksView {
     // no question at all: it says it is checking, and the pass fills it in.
     // Verification counts only for the title it was run against. Anything else is an
     // answer about words this task no longer has.
-    const freshlyVerified = !!task.translationVerifiedFor && task.translationVerifiedFor === task.title;
+    const text = txText(task, slot);
+    const freshlyVerified = !!txVerifiedFor(task, slot) && txVerifiedFor(task, slot) === text;
+    const vk = this.vkey(slot, task.id);
     // EVERY candidate is checked, so everything offered here has produced real English,
     // including the ones behind "more". A cap on how many get checked was tried and
     // reverted (Gabe, 8/21): it let an unchecked language into the visible shortlist,
@@ -1305,14 +1360,14 @@ export class TasksView {
     // THE SAME LIST the ⋯ menu decides by (readings), not a second calculation of it:
     // when the two disagreed, the menu offered a question whose row then drew a bare
     // "Translate from" with nothing after it.
-    const all = this.readings(task);
+    const all = this.readings(task, slot);
     const best = all.slice(0, MAX_CHIPS);
     // UNVERIFIED, AND THE PROVIDER IS REACHABLE: say so and go and find out. The row
     // shows no buttons in the meantime, because an unchecked button is exactly the
     // thing this pass exists to stop showing.
-    if (!freshlyVerified && !this.verifyFailed.has(task.id)) {
+    if (!freshlyVerified && !this.verifyFailed.has(vk)) {
       row.append(el('span', { class: 'task-ask-checking', text: 'checking which languages fit\u2026' }));
-      this.queueVerify(task);
+      this.queueVerify(task, slot);
       return row;
     }
     // UNVERIFIED AND UNREACHABLE: fall back to the ranked candidates and the old
@@ -1342,39 +1397,45 @@ export class TasksView {
         // INSTANT, when the verification pass already has the answer. Every button on
         // a verified row does, which is the whole point of checking first: the press
         // applies a reading rather than going to fetch one.
-        const cached = task.translationOptions?.[d.code];
-        if (cached) {
-          this.askingIds.delete(task.id);
-          void this.data.putTask({
-            ...task,
-            translatedTitle: cached,
-            translatedLang: d.code,
-            translationChosen: true,
-            translationChecked: true,
-            translationAmbiguous: false,
-            translationHidden: false,
-          });
+        // The verification answer is only THE answer when it covered the whole text.
+        // A long description is verified on a leading slice (see verifySample), so
+        // handing that slice back as the translation would silently truncate it.
+        const cached = txOptions(task, slot)[d.code];
+        if (cached && verifySample(text) === text) {
+          this.askingIds.delete(vk);
+          void this.data.putTask(
+            txWrite(task, slot, {
+              translated: cached,
+              lang: d.code,
+              chosen: true,
+              checked: true,
+              ambiguous: false,
+              hidden: false,
+            })
+          );
           return;
         }
         [...chips.querySelectorAll('button')].forEach((x) => ((x as HTMLButtonElement).disabled = true));
         b.classList.add('busy');
-        const r = await translateAs(task.title, d.code);
+        const r = await translateAs(text, d.code);
         if ('text' in r) {
-          this.askingIds.delete(task.id); // answered: the row goes back to showing it
-          void this.data.putTask({
-            ...task,
-            translatedTitle: r.text,
-            translatedLang: d.code,
-            translationChosen: true,
-            translationChecked: true,
-            translationAmbiguous: false,
-            translationHidden: false, // asking for a reading is asking to see it
-          });
-          // Answered, so the refusals collected while hunting for it have done their
-          // job. Cleared rather than left as a growing list nothing reads again.
-          if ((task.translationRuledOut || []).length) {
-            void this.data.putTask({ ...task, translationRuledOut: [] });
-          }
+          this.askingIds.delete(vk); // answered: the row goes back to showing it
+          // ONE write, not two. Clearing the refusals used to be a second putTask
+          // built from the SAME stale `task`, so it landed after the first carrying
+          // the pre-translation values and undid the answer just written.
+          void this.data.putTask(
+            txWrite(task, slot, {
+              translated: r.text,
+              lang: d.code,
+              chosen: true,
+              checked: true,
+              ambiguous: false,
+              hidden: false, // asking for a reading is asking to see it
+              // Answered, so the refusals collected while hunting for it have done
+              // their job. Cleared rather than left as a list nothing reads again.
+              ruledOut: [],
+            })
+          );
           return;
         }
         // THE TWO FAILURES ARE NOT THE SAME FAILURE.
@@ -1390,11 +1451,12 @@ export class TasksView {
         // cannot read something and then offering it again on the next redraw was the
         // app arguing with itself in public.
         if (r.error === 'unchanged') {
-          const already = task.translationRuledOut || [];
-          void this.data.putTask({
-            ...task,
-            translationRuledOut: already.indexOf(d.code) >= 0 ? already : [...already, d.code],
-          });
+          const already = txRuledOut(task, slot);
+          void this.data.putTask(
+            txWrite(task, slot, {
+              ruledOut: already.indexOf(d.code) >= 0 ? already : [...already, d.code],
+            })
+          );
           this.notice(`🌐 ${d.label} cannot read this one, so it is off the list.`);
           return; // the redraw arrives with one fewer button
         }
@@ -1585,25 +1647,26 @@ export class TasksView {
     // rewrote the instructions) — show a gold ✱ until the user clicks it away.
     // The tooltip names exactly what changed (stored on the task by the sync);
     // the generic fallback covers flags written before the list existed.
-    if (task.feedUpdated) {
+    // hasFeedDiff, not just the flag: a sync that changed a field and changed it back
+    // still writes feedUpdated, but there is nothing different to read, so no badge
+    // (Gabe, 8/22). The popup and the badge answer the same question in one place.
+    if (task.feedUpdated && hasFeedDiff(task)) {
       const what = Array.isArray(task.feedUpdated) && task.feedUpdated.length
         ? task.feedUpdated.join(', ')
         : 'name, date, or instructions';
       const upd = el('span', {
         class: 'task-altered-badge',
         text: '✱',
-        title: `Changed on Schoology since import: ${what}. Click to dismiss`,
+        title: `Changed on Schoology since import: ${what}. Click to see what changed`,
       });
+      // CLICK SHOWS THE DIFF, IT NO LONGER JUST DISMISSES (Gabe, 8/22). The badge
+      // used to be a tooltip naming the fields and a click that made it go away,
+      // which asks the student to work out what a teacher actually altered in three
+      // paragraphs of instructions. Now it opens the before and after, and the
+      // dismiss lives in there, after the thing worth reading.
       upd.addEventListener('click', (ev) => {
         ev.stopPropagation(); // the row itself has click/dblclick behaviors
-        // PER TASK ON PURPOSE, never bulk (Gabe, 8/8). The sync writes this flag,
-        // not the user, and it names THIS assignment's specific changes in the
-        // tooltip. Clicking ✕ means "I read them", so bulk-dismissing would mark
-        // changes read that were never seen, and wipe the one signal that says
-        // which tasks to look at.
-        const next = { ...task };
-        delete next.feedUpdated; // delete, not undefined — Firebase rejects undefined
-        this.save(next);
+        this.openFeedDiff(task);
       });
       title.append(upd);
     }
@@ -1619,7 +1682,9 @@ export class TasksView {
     // translation line before it knows the answer. And they are EXCLUSIVE. Changing
     // the language replaces the answer with the question rather than stacking a
     // second line under it, because the old answer is precisely what is in doubt.
-    const changing = this.askingIds.has(task.id);
+    // vkey, not the bare id: askingIds holds `slot:id` now that the description asks
+    // the same question independently, and a bare id matches neither entry.
+    const changing = this.askingIds.has(this.vkey(TITLE_SLOT, task.id));
     // asking() is checked even while `changing`: pressing "Change language…" cannot
     // conjure a question out of a title that has no readings left to offer.
     const asks = !task.completed && !task.translationHidden
@@ -1923,10 +1988,7 @@ export class TasksView {
   private bulkComplete(): void {
     const tasks = [...this.selectedIds]
       .map((id) => this.map[id])
-      .filter((t): t is Task => !!t && !t.completed)
-      // Before the dissolve loop below empties this.folders of anything this batch
-      // finishes off — same reason as the single path in complete().
-      .map((t) => stampFolderName(t, this.folders));
+      .filter((t): t is Task => !!t && !t.completed);
     this.clearSelection();
     if (!tasks.length) return;
     playCompleteChime(); // ONE chime for the batch, not N overlapping ones
@@ -2023,14 +2085,9 @@ export class TasksView {
     if (task.completed) return;
     // Checking a SELECTED row completes the whole selection (one write, one undo).
     if (this.selectedIds.has(task.id) && this.selectedIds.size > 1) {
-      this.bulkComplete(); // stamps the folder names itself, over the whole batch
+      this.bulkComplete();
       return;
     }
-    // NOW, not at commit time: if this check-off is what finishes the folder, the
-    // dissolve below removes it from this.folders within the same call, and the
-    // write lands 820ms later against a list that no longer contains it. The Task
-    // Archives would then have a folder id pointing at nothing (see Task.folderName).
-    task = stampFolderName(task, this.folders);
     playCompleteChime();
 
     this.animateRowOut(animEl);
@@ -2335,28 +2392,37 @@ export class TasksView {
       }
     }
 
-    const pending = Object.values(this.map).filter(
-      // A CHOSEN reading is never re-examined. The student answered the question the
-      // auto pass could not, so re-asking it can only overwrite their answer with the
-      // silence that prompted them in the first place (Gabe, 8/20).
-      (t) => t.title && !t.completed && !t.translationChecked && !t.translationChosen
-    );
+    // BOTH SLOTS (Gabe, 8/22). The title and the description are read by the same
+    // pass, because they are the same question asked of two pieces of text, and a
+    // foreign assignment's instructions matter more than its name.
+    const pending: Array<{ task: Task; slot: TxSlot }> = [];
+    for (const t of Object.values(this.map)) {
+      if (t.completed) continue;
+      for (const slot of TX_SLOTS) {
+        // A CHOSEN reading is never re-examined. The student answered the question the
+        // auto pass could not, so re-asking it can only overwrite their answer with the
+        // silence that prompted them in the first place (Gabe, 8/20).
+        if (txText(t, slot) && !txChecked(t, slot) && !txChosen(t, slot)) pending.push({ task: t, slot });
+      }
+    }
     if (!pending.length) return;
 
     this.autoTx = true;
     const results: Array<{
-      id: string; title: string; translatedTitle: string; translatedLang: string;
+      id: string; slot: TxSlot; text: string; translated: string; lang: string;
       ambiguous: boolean; detected: string;
     }> = [];
     try {
-      for (const t of pending) {
-        const r = await analyzeTitle(t.title);
+      for (const { task: t, slot } of pending) {
+        const text = txText(t, slot);
+        const r = await analyzeTitle(text);
         if (r.status === 'error') break; // offline / rate-limited → stop; retry next update
         results.push({
           id: t.id,
-          title: t.title,
-          translatedTitle: r.status === 'foreign' ? r.text : '',
-          translatedLang: r.status === 'foreign' ? r.sourceLang : '',
+          slot,
+          text,
+          translated: r.status === 'foreign' ? r.text : '',
+          lang: r.status === 'foreign' ? r.sourceLang : '',
           ambiguous: r.status === 'english' && !!r.ambiguous,
           detected: r.status === 'english' ? r.detected || '' : '',
         });
@@ -2371,20 +2437,27 @@ export class TasksView {
       // its new values written straight back to the old ones. (Data.putTasksBulk
       // publishes optimistically for exactly this reason.) The title check stays:
       // a retitled task's translation belongs to a title that no longer exists.
-      const writes = results
-        .map((r) => {
-          const cur = this.map[r.id];
-          if (!cur || cur.title !== r.title) return null;
-          return {
-            ...cur,
-            translatedTitle: r.translatedTitle,
-            translatedLang: r.translatedLang,
-            translationChecked: true,
-            translationAmbiguous: r.ambiguous,
-            translationDetected: r.detected,
-          } as Task;
-        })
-        .filter((t): t is Task => t !== null);
+      // MERGED PER TASK, because one task can have produced a result for its title
+      // AND its description in the same pass. Two separate spreads of `this.map[id]`
+      // would each drop the other's answer.
+      const merged = new Map<string, Task>();
+      for (const r of results) {
+        const base = merged.get(r.id) ?? this.map[r.id];
+        // The text check stays: an edited task's reading belongs to words that are
+        // gone.
+        if (!base || txText(base, r.slot) !== r.text) continue;
+        merged.set(
+          r.id,
+          txWrite(base, r.slot, {
+            translated: r.translated,
+            lang: r.lang,
+            checked: true,
+            ambiguous: r.ambiguous,
+            detected: r.detected,
+          })
+        );
+      }
+      const writes = [...merged.values()];
       if (writes.length) await this.data.putTasksBulk(writes);
     }
   }
@@ -2427,7 +2500,7 @@ export class TasksView {
         // Hiding the line ends a change-language in progress too. Otherwise the
         // question would be waiting, invisible, and reappear on the next unhide over
         // a translation the student never asked to revisit again.
-        if (hidden) for (const t of this.selTargets(task)) this.askingIds.delete(t.id);
+        if (hidden) for (const t of this.selTargets(task)) this.askingIds.delete(this.vkey(TITLE_SLOT, t.id));
         this.applyToSelection(task, (t) => ({ ...t, translationHidden: hidden }));
       };
       const label = task.translatedTitle
@@ -2470,7 +2543,7 @@ export class TasksView {
         iconHtml: '🌐',
         auto: false,
         run: () => {
-          this.askingIds.add(task.id);
+          this.askingIds.add(this.vkey(TITLE_SLOT, task.id));
           this.render();
         },
       });
@@ -2664,37 +2737,170 @@ export class TasksView {
     });
   }
 
+  /** The app's modal card. The implementation moved to ui/popup.ts when the Task
+   *  Archives needed the same one; this stays as the thin call-through so the many
+   *  call sites below are untouched. `this.sample?.host` keeps a demo popup inside
+   *  the device frame. */
   private popup(title: string, build: (body: HTMLElement, close: () => void) => void): void {
-    const backdrop = el('div', { class: 'popup-backdrop' });
-    const box = el('div', { class: 'popup' });
-    box.append(el('h3', { text: title }));
-    const body = el('div', { class: 'popup-body' });
-    box.append(body);
-    // Every popup (folder picker, priority, attachments, details) shares ONE
-    // width — drag the right edge once and they all remember it. Width is the
-    // pinch here, not height: long folder names and URLs are what get squeezed.
-    box.append(makeWidthGrip({ box, storageKey: 'ws:popupWidth' }));
-    // These popups have no primary action: clicking a row IS the save in the
-    // pickers, and attachments auto-saves. (This used to look for a
-    // [data-enter-primary] element; nothing ever set that attribute after
-    // attachments lost its Save button, so the selector was dead code.)
-    // Still called, for the stacked-popup guard inside enterConfirms.
-    enterConfirms(backdrop, () => null);
-    backdrop.append(box);
-    (this.sample?.host ?? document.body).append(backdrop);
-    const close = () => backdrop.remove();
-    backdrop.addEventListener('click', (e) => {
-      if (e.target === backdrop) close();
-    });
-    build(body, close);
+    openPopup(title, build, this.sample?.host);
   }
 
+  /**
+   * TASK PRO TIPS — every "did you know" the Tasks tab has, in one place.
+   *
+   * Each of these used to live wherever it happened to be relevant: Shift+click was
+   * printed above the list, `f:` was written inside both folder pickers, and the
+   * other two were not written down anywhere. Scattering them meant a tip was only
+   * ever read by someone already in the situation it describes, which is a little
+   * late to be learning the shortcut for it (Gabe, 8/22). Collected here they can be
+   * read on purpose, once, from a button that is always in the same spot.
+   *
+   * Keep them SHORT and keep them things a student could not guess.
+   */
+  private openProTips(): void {
+    const TIPS: Array<[string, string]> = [
+      [
+        'File a task as you type it',
+        'Type f: followed by a folder name in the task bar, e.g. “essay f:English tmw”. The folder is created if it does not exist yet, and the same shortcut works in every Focus add box.',
+      ],
+      [
+        'Foreign titles translate themselves',
+        'A task written in a language you have enabled gets an English line under it automatically. Choose which languages in Settings ▸ Tasks ▸ Languages; anything not on that list is left exactly as written.',
+      ],
+      [
+        'Select more than one task',
+        'Shift+click a second task to select everything between the two, or Ctrl+click (⌘ on a Mac) to pick them out one at a time. Checking off, dating, filing or deleting any one of them does it to the whole selection.',
+      ],
+      [
+        'Checked something off by mistake?',
+        'Nothing you finish is thrown away. Open Task Archives from the filing-cabinet icon in the top bar, find it, and press Restore to put it back on your list.',
+      ],
+    ];
+    this.popup('Task Pro Tips:', (body) => {
+      const list = el('div', { class: 'protip-list' });
+      for (const [head, text] of TIPS) {
+        const tip = el('div', { class: 'protip' });
+        tip.append(
+          el('div', { class: 'protip-head', text: `💡 ${head}` }),
+          el('div', { class: 'protip-body', text })
+        );
+        list.append(tip);
+      }
+      body.append(list);
+    });
+  }
+
+  /**
+   * The ✱ badge's popup: what Schoology changed, as a before/after.
+   *
+   * "Got it" is the dismiss that used to be the click on the badge itself. It sits
+   * AFTER the diff for a reason — dismissing is what you do having read the thing,
+   * and the old design made it what you did INSTEAD of reading it.
+   *
+   * PER TASK ON PURPOSE, never bulk (Gabe, 8/8). The sync writes this flag, not the
+   * user, and it describes THIS assignment's specific changes. "Got it" means "I
+   * read them", so bulk-dismissing would mark changes read that were never seen and
+   * wipe the one signal that says which tasks to look at.
+   */
+  private openFeedDiff(task: Task): void {
+    this.popup('What changed on Schoology', (body, close) => {
+      body.append(
+        buildFeedDiff(task) ??
+          el('div', { class: 'fd-note', text: 'This task changed, but the earlier version was not recorded.' })
+      );
+      const row = el('div', { class: 'fd-actions' });
+      const ok = el('button', { class: 'fd-dismiss', text: 'Got it' });
+      ok.addEventListener('click', () => {
+        const next = { ...task };
+        delete next.feedUpdated; // delete, not undefined — Firebase rejects undefined
+        delete next.feedPrev; // the ghost goes with the badge it belonged to
+        void this.save(next);
+        close();
+      });
+      row.append(ok);
+      body.append(row);
+    });
+  }
+
+  /**
+   * The description, and its translation (Gabe, 8/22).
+   *
+   * THE SAME LINE THE TITLE GETS, in the same two exclusive states: the English
+   * underneath when there is a reading, a row of language buttons when nobody could
+   * place it or the student asked to change it. Not a second feature and not a second
+   * implementation: buildAskRow and the translation line are handed the description
+   * SLOT (see tasks/txSlot.ts) and behave exactly as they do for a title.
+   *
+   * The popup redraws itself on a task update, because the answer arrives
+   * asynchronously: pressing a language writes to the task, and without this the
+   * student would be looking at the version of the popup that existed before their
+   * own press.
+   */
   private openDetails(task: Task): void {
+    const slot = DETAILS_SLOT;
     this.popup(task.title, (body) => {
-      // Description ONLY (Gabe, 8/16): the popup used to append an "Open in
-      // Schoology" button, but the row already carries the dedicated ↗ — the
-      // duplicate here was clutter, not a second feature.
-      body.append(linkifyText(task.details || '', 'task-details-text'));
+      const draw = (): void => {
+        const t = this.map[task.id] || task;
+        body.replaceChildren();
+        // Description ONLY (Gabe, 8/16): the popup used to append an "Open in
+        // Schoology" button, but the row already carries the dedicated ↗, and the
+        // duplicate here was clutter rather than a second feature.
+        body.append(linkifyText(txText(t, slot), 'task-details-text'));
+
+        const changing = this.askingIds.has(this.vkey(slot, t.id));
+        const asks = !txHidden(t, slot) && (changing || !txTranslated(t, slot)) && this.asking(t, slot);
+        if (asks) {
+          body.append(this.buildAskRow(t, slot));
+          return;
+        }
+        if (!txTranslated(t, slot) || txHidden(t, slot)) return;
+
+        const tr = el('div', {
+          class: `task-translation${txChosen(t, slot) ? ' chosen' : ''}`,
+          title: txChosen(t, slot)
+            ? `You chose to read this as ${languageName(txLang(t, slot))}`
+            : `Translated from ${languageName(txLang(t, slot))}`,
+        });
+        tr.append(el('span', { class: 'task-translation-badge', text: '🌐' }));
+        tr.append(linkifyText(txTranslated(t, slot), 'task-details-text'));
+        body.append(tr);
+
+        // CHANGE LANGUAGE, the same offer the title's ⋯ menu carries. Only shown when
+        // there is another reading to change TO, so it can never be a press that
+        // leads nowhere.
+        if (this.readings(t, slot).length) {
+          const change = el('button', {
+            class: 'task-details-relang',
+            text: '🌐 Change language…',
+          });
+          change.addEventListener('click', () => {
+            this.askingIds.add(this.vkey(slot, t.id));
+            draw();
+          });
+          body.append(change);
+        }
+      };
+      const sig = (): string => {
+        const t = this.map[task.id] || task;
+        return [
+          txText(t, slot),
+          txTranslated(t, slot),
+          txLang(t, slot),
+          txHidden(t, slot),
+          txChosen(t, slot),
+          txAmbiguous(t, slot),
+          txVerifiedFor(t, slot),
+          Object.keys(txOptions(t, slot)).join(','),
+          txRuledOut(t, slot).join(','),
+          this.askingIds.has(this.vkey(slot, t.id)) ? '1' : '0',
+        ].join(' ');
+      };
+      draw();
+      // The press handler writes to the task; the redraw is how the popup shows it.
+      // Held with its body so render() can tell whether the popup is still open, which
+      // works for every way it can close (button, backdrop, Escape) without hooking
+      // each of them.
+      this.detailsRedraw = { body, draw, sig, last: sig() };
     });
   }
 
@@ -2923,7 +3129,7 @@ export class TasksView {
 /** Build a text block where any http(s) URL is a real, clickable link (new tab)
  *  instead of inert text — used by the ⓘ Description popup. Built with DOM nodes
  *  (never innerHTML), so the surrounding description text can't inject markup. */
-function linkifyText(text: string, cls: string): HTMLElement {
+export function linkifyText(text: string, cls: string): HTMLElement {
   const box = el('div', { class: cls });
   let last = 0;
   for (const m of text.matchAll(/https?:\/\/\S+/g)) {

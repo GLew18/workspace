@@ -49,25 +49,30 @@ export interface Task {
    *  'due date', 'due time', 'instructions', 'link'), accumulating across syncs
    *  until the user dismisses the ✱ badge on the task row by clicking it. */
   feedUpdated?: string[];
+  /**
+   * WHAT THE TASK SAID BEFORE (Gabe, 8/22) — the ghost the ✱ badge opens.
+   *
+   * `feedUpdated` names the fields a re-sync touched; this holds their VALUES as
+   * they stood before it did, so the badge can show a real before/after instead of
+   * a list of field names the student has to reconcile from memory. Rendered by
+   * tasks/feedDiff.ts.
+   *
+   * FIRST WRITE WINS, per field, and it is cleared with `feedUpdated` when the
+   * student dismisses the badge. So this is always "the version you last
+   * acknowledged", not "the version before the most recent sync": three syncs that
+   * each nudge a deadline should read "was Monday, now Thursday".
+   */
+  feedPrev?: {
+    title?: string;
+    dueDate?: string;
+    dueTime?: string;
+    details?: string;
+    schoologyUrl?: string;
+  };
   /** Folder membership (Tasks tab folders — profile 'taskFolders'). A task lives
    *  in at most ONE folder; foldered tasks render inside their folder's section
    *  instead of the main due-date groups. */
   folderId?: string;
-  /**
-   * THE FOLDER'S NAME, FROZEN AT CHECK-OFF (Gabe, 8/21), so the Task Archives can
-   * still say which folder a task came out of.
-   *
-   * `folderId` alone cannot answer that. A folder DISSOLVES the moment its last
-   * member is completed (see dissolvedFolders), and the task that finished it is
-   * exactly the one heading for the archive — so by the time the archive draws the
-   * row, the id points at a folder that no longer exists. Stamped by
-   * stampFolderName on the completing write, which is the last instant the answer
-   * is still knowable.
-   *
-   * A NAME and not a live lookup, deliberately: this records which folder the task
-   * WAS in, so a folder renamed afterwards does not rewrite that history.
-   */
-  folderName?: string;
   /** Optional AI-picked emoji prefix for the title. */
   emoji?: string;
   /** Cached English translation of a foreign-language title + its detected source
@@ -142,6 +147,32 @@ export interface Task {
    */
   translationVerifiedFor?: string;
 
+  /**
+   * THE SAME TEN FIELDS AGAIN, FOR THE DESCRIPTION (Gabe, 8/22: "extrapolate the
+   * whole language system to description as well, same mechanism, everything as
+   * title").
+   *
+   * A foreign-language assignment does not stop being foreign below the title, and
+   * the instructions are the part a student actually has to understand. So `details`
+   * gets the identical treatment: read automatically, translated underneath, language
+   * changeable, refusals remembered, hideable.
+   *
+   * Named for the field they describe rather than reusing the `translation*` prefix,
+   * because that prefix already means "the title's" on every task in every account
+   * and renaming it would be a migration that buys nothing. Which set belongs to
+   * which text is stated once, in tasks/txSlot.ts, and every piece of the pipeline
+   * reads it from there.
+   */
+  detailsTranslated?: string;
+  detailsLang?: string;
+  detailsChecked?: boolean;
+  detailsHidden?: boolean;
+  detailsAmbiguous?: boolean;
+  detailsChosen?: boolean;
+  detailsDetected?: string;
+  detailsRuledOut?: string[];
+  detailsOptions?: Record<string, string>;
+  detailsVerifiedFor?: string;
 
   /** User dismissed the QUIZ/TEST pill via its hover ✕ — "test" was just a word
    *  in the title, not an actual assessment. Render-time only; never re-badges. */

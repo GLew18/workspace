@@ -1172,7 +1172,9 @@
 }
 
 /* ===== Redesigned notification settings (master · appearance · type cards) ===== */
-.notify-perm { margin-top: 4px; margin-bottom: 14px; }
+/* The caption sits directly above the fix-it button it explains (Gabe, 8/22), so it
+   is pulled closer to it than to whatever follows: they read as one unit. */
+.notify-perm { margin-top: 4px; margin-bottom: 8px; }
 
 /* iOS-style switch, shared by the master and each type. */
 .nswitch {
@@ -1250,7 +1252,11 @@
 
 /* "How to set up" launcher button */
 .notify-howto {
-  display: block; width: 100%; text-align: center; margin: 0 0 14px;
+  /* 22px below, not 14: the caption above is pulled in tight to this button because
+     they are one unit, so the same gap underneath made the "All reminders" card look
+     attached to it too (Gabe, 8/22). The button's own look is unchanged and still
+     matches onboarding's .onb-help; only the space after it grew. */
+  display: block; width: 100%; text-align: center; margin: 0 0 22px;
   padding: 10px 14px; border-radius: 10px; cursor: pointer;
   background: rgba(125, 180, 255,0.10); border: 1px solid rgba(125, 180, 255,0.35);
   color: var(--accent); font-family: inherit; font-size: 13px; font-weight: 600;
@@ -1770,4 +1776,36 @@ a.settings-credits-lic:hover { color: var(--accent); border-color: var(--accent)
   padding: 9px 10px;
   font-size: 12px;
   color: var(--text-dim);
+}
+
+/* ---- A setting that belongs to the one above it (Gabe, 8/22) ----
+   Three of these exist: Quote style under Daily quote, the end-sound list and
+   volume under End Sound, and Bulk edits under Your creations and edits. Each one
+   is meaningless when its parent is off, and each used to just vanish, which said
+   nothing about WHY it had gone. Indented behind a rail, the ownership reads before
+   you touch anything: this answers a question the row above it opened.
+
+   The indent is on the WRAPPER, not on an inner .srow, so it works whether the
+   child is one row or a whole block of them.
+
+   HIDDEN, NOT ANIMATED, and that is a choice. The grid-template-rows 1fr -> 0fr
+   collapse was built first and bottomed out at the row's own padding rather than
+   at zero; adding a padding-free clip box to fix that stopped the track animating
+   at all. Every other conditional element in this file is simply `hidden`, it is
+   exact, and nobody asked for the row to slide. Consistency won. */
+.srow-child {
+  margin-left: 18px;
+  border-left: 2px solid var(--border);
+  padding-left: 16px;
+}
+.srow-child[hidden] {
+  display: none;
+}
+/* Narrow: the rail costs width the rows cannot spare once they stack (see the
+   container query above), so it shrinks to a hairline of indent. */
+@container settings (max-width: 560px) {
+  .srow-child {
+    margin-left: 8px;
+    padding-left: 8px;
+  }
 }

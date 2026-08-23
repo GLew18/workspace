@@ -1,0 +1,104 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>sync clears the right reading</title>
+<style>body{font:13px/1.6 ui-monospace,monospace;background:#0b1430;color:#dbe6ff;padding:20px}
+b.p{color:#7ee787}b.f{color:#ff7b72}</style></head>
+<body><pre id="out">running…</pre>
+<script type="module">
+  const out=document.getElementById('out'); out.textContent='';
+  let fails=0;
+  const ok=(m,d='')=>out.insertAdjacentHTML('beforeend',`<b class="p">PASS</b>  ${m}  <span style="opacity:.6">${d}</span>\n`);
+  const bad=(m,d='')=>{fails++;out.insertAdjacentHTML('beforeend',`<b class="f">FAIL</b>  ${m}  <span style="opacity:.6">${d}</span>\n`);};
+
+  const store = await import('/src/tasks/store.ts');
+  const slot  = await import('/src/tasks/txSlot.ts');
+
+  const full = (over={}) => Object.assign({
+    id:'t1', source:'schoology-ical', title:'Tarea', details:'Lee el capitulo',
+    dueDate:'2026-08-27', dueTime:'', timeLabel:'', course:'', completed:false,
+    completedAt:null, priority:'normal', addedAt:'2026-08-01T00:00:00.000Z', notes:[],
+    translatedTitle:'Homework', translatedLang:'es', translationChecked:true,
+    translationChosen:true, translationVerifiedFor:'Tarea', translationOptions:{es:'Homework'},
+    detailsTranslated:'Read the chapter', detailsLang:'es', detailsChecked:true,
+    detailsChosen:true, detailsVerifiedFor:'Lee el capitulo', detailsOptions:{es:'Read the chapter'},
+  }, over);
+
+  // 1. clearing the TITLE's reading must not touch the description's
+  {
+    const t = store.clearTranslation(full());
+    (t.translatedTitle==='' && t.detailsTranslated==='Read the chapter')
+      ? ok('clearing the title reading leaves the description reading alone')
+      : bad('clearing the title also wiped the description', JSON.stringify({tt:t.translatedTitle,dt:t.detailsTranslated}));
+  }
+  // 2. and the reverse
+  {
+    const t = store.clearDetailsTranslation(full());
+    (t.detailsTranslated==='' && t.translatedTitle==='Homework')
+      ? ok('clearing the description reading leaves the title reading alone')
+      : bad('clearing the description also wiped the title', JSON.stringify({tt:t.translatedTitle,dt:t.detailsTranslated}));
+  }
+  // 3. every field the title clears has a description twin that is cleared too
+  {
+    const a = store.clearTranslation({}), b = store.clearDetailsTranslation({});
+    (Object.keys(a).length === Object.keys(b).length && Object.keys(a).length === 10)
+      ? ok('both wipes cover the same ten fields', Object.keys(a).length + ' each')
+      : bad('the two wipes cover different field counts', Object.keys(a).length+' vs '+Object.keys(b).length);
+  }
+  // 4. txWrite must never leave undefined on a task (Firebase rejects it)
+  {
+    const t = slot.txWrite(full(), slot.DETAILS_SLOT, { translated: undefined, lang: 'es' });
+    (!('detailsTranslated' in t) && t.detailsLang === 'es')
+      ? ok('txWrite DELETES a field set to undefined rather than assigning it')
+      : bad('txWrite left an undefined on the task', JSON.stringify(Object.keys(t).filter(k=>t[k]===undefined)));
+    const anyUndef = Object.keys(t).filter(k => t[k] === undefined);
+    anyUndef.length ? bad('undefined values present', anyUndef.join(',')) : ok('no undefined anywhere on the written task');
+  }
+  // 5. the slots address genuinely different fields
+  {
+    const T = slot.TITLE_SLOT, D = slot.DETAILS_SLOT;
+    const overlap = Object.keys(T).filter(k => k!=='name' && T[k] === D[k]);
+    overlap.length ? bad('the two slots share a field', overlap.join(','))
+                   : ok('title and description slots share no field');
+  }
+  // 6. verifySample only truncates what is longer than the cap
+  {
+    const short='abc', long='x'.repeat(500);
+    (slot.verifySample(short)===short && slot.verifySample(long).length===slot.VERIFY_SAMPLE_CHARS)
+      ? ok('verifySample passes short text through and caps long text', 'cap '+slot.VERIFY_SAMPLE_CHARS)
+      : bad('verifySample is wrong', slot.verifySample(short)+' / '+slot.verifySample(long).length);
+  }
+  // 7. readers tolerate a task with none of the fields set
+  {
+    const bare={id:'x',title:'',details:''};
+    try{
+      const D=slot.DETAILS_SLOT;
+      const shape=[slot.txText(bare,D),slot.txTranslated(bare,D),slot.txLang(bare,D),
+        slot.txChecked(bare,D),slot.txHidden(bare,D),slot.txAmbiguous(bare,D),slot.txChosen(bare,D),
+        slot.txDetected(bare,D),JSON.stringify(slot.txRuledOut(bare,D)),JSON.stringify(slot.txOptions(bare,D)),
+        slot.txVerifiedFor(bare,D)].join('|');
+      // 11 readers joined by '|': three empty strings, four falses, an empty string,
+      // '[]', '{}', an empty string. Asserted as parts rather than one hand-counted
+      // literal, which is what got this check wrong the first time.
+      const parts = shape.split('|');
+      const good = parts.length === 11
+        && parts.slice(0, 3).every((v) => v === '')
+        && parts.slice(3, 7).every((v) => v === 'false')
+        && parts[7] === '' && parts[8] === '[]' && parts[9] === '{}' && parts[10] === '';
+      good ? ok('a task with no translation fields reads as empty, never undefined', shape)
+           : bad('unexpected empty-task shape', shape);
+    }catch(e){ bad('reading a bare task threw', e.message); }
+  }
+  // 8. legacy flag-shaped feedUpdated still counts as something to show
+  {
+    const fd = await import('/src/tasks/feedDiff.ts');
+    fd.hasFeedDiff({id:'x',title:'t',feedUpdated:true})
+      ? ok('a legacy boolean feedUpdated still earns its badge')
+      : bad('legacy boolean feedUpdated lost its badge');
+    fd.hasFeedDiff({id:'x',title:'Same',feedUpdated:['name'],feedPrev:{title:'Same'}})
+      ? bad('a fully reverted change still claims a badge')
+      : ok('a fully reverted change earns no badge');
+    fd.hasFeedDiff({id:'x',title:'New',feedUpdated:['name'],feedPrev:{title:'Old'}})
+      ? ok('a real change still earns its badge')
+      : bad('a real change lost its badge');
+  }
+  out.insertAdjacentHTML('beforeend','\n'+(fails?`<b class="f">>>> ${fails} FAILURE(S)</b>`:'<b class="p">>>> ALL CHECKS PASS</b>'));
+</script></body></html>

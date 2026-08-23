@@ -33,5 +33,12 @@
         "reason": "Cobalt's typeface is set by the project spec (theme.css header cites spec 9.4), loaded in app/index.html, and used by the locked .ws-mark wordmark whose construction Gabe fixed on 8/10. Shipped brand, not AI-default drift."
       }
     ]
+  },
+  "hook": {
+    "enabled": false,
+    "limits": {
+      "maxFindings": 5,
+      "maxChars": 8000
+    }
   }
 }

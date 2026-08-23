@@ -7,10 +7,11 @@
 // that puts it back on the list and a Delete that ends it for good, plus one
 // "Delete all" for when the student wants the slate clean.
 //
-// A ROW HERE IS THE TASK, NOT A RECEIPT FOR IT (Gabe, 8/21). It carries the same
-// things its row in the Tasks list carried: the translation under a foreign title,
-// its course, the folder it lived in, its date. Anything less and the archive reads
-// as a log of strings rather than the work itself.
+// A ROW HERE IS THE TASK, NOT A RECEIPT FOR IT (Gabe, 8/21). It is drawn with the
+// Tasks list's own markup and its own CSS classes — the translation under a foreign
+// title, the course in its color, the interpunct, the date — so the two cannot look
+// like different things. See the note on the markup in row() for what is deliberately
+// added and removed.
 //
 // It reads the SAME task map every other screen reads (data.watchTasks), so a task
 // checked off in Tasks or in a focus session appears here immediately — no separate
@@ -18,24 +19,31 @@
 // Data.archiveStaleCompleted) is not a filter here: this screen shows everything
 // completed, whether it retired last month or thirty seconds ago.
 
-import { el, showToast } from '../util/dom';
+import { el } from '../util/dom';
+// The SAME undo toast the Tasks tab uses to check a task off: one toast slot
+// app-wide, offered for UNDO_MS. Restoring and deleting here are the same kind of
+// act and get the same way out. NOTE what onExpire is and is not for: see the long
+// note on beginDelete.
+import { showUndoToast, UNDO_MS } from './complete';
 import type { Data } from '../db';
-import type { Task, TaskFolder, TaskMap } from '../types';
+import type { Task, TaskMap } from '../types';
 import { getCourseColor } from '../courses/registry';
-import { getTaskFolders, FOLDERS_EVENT } from './folders';
-import { formatMetaDate, formatWallClock, formatDayHeading } from '../util/dates';
+import { formatMetaDate, formatTimeOfDay, formatWallClock, formatDayHeading } from '../util/dates';
 import { languageName } from '../util/translate';
 import { confirmDanger } from '../ui/confirm';
+import { openPopup } from '../ui/popup';
+import { buildFeedDiff, hasFeedDiff } from './feedDiff';
+// The ↗ glyph and the description linkifier are the Tasks row's own, imported
+// rather than copied for the same reason the row's CSS classes are (see row()).
+import { SCHOOLOGY_SVG, linkifyText } from './render';
+import { openAttachment } from './attachments';
+import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
 import { shiftSelect } from '../util/select';
 import { selectionBar, type SelBar } from '../ui/selbar';
-
-const FOLDER_SVG =
-  '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 
 export class TaskArchiveView {
   private host: HTMLElement | null = null;
   private map: TaskMap = {};
-  private folders: TaskFolder[] = [];
   private watching = false;
   /** Multi-select, exactly as the Tasks list does it: modifier-click to start one,
    *  Shift to draw a range, then Restore or Delete acts on the whole set. */
@@ -43,6 +51,10 @@ export class TaskArchiveView {
   private selBar: SelBar | null = null;
   /** Visible row order, rebuilt by every draw — what Shift+click measures against. */
   private visIds: string[] = [];
+  /** Deleted on screen, not yet deleted for real: the undo window is still open.
+   *  See beginDelete. Held in memory on purpose, so a reload cancels rather than
+   *  commits. */
+  private pendingDelete = new Set<string>();
 
   constructor(private data: Data) {}
 
@@ -64,8 +76,6 @@ export class TaskArchiveView {
         // be pure waste. The next mount() draws from the map we just stored.
         if (this.host?.isConnected) this.draw();
       });
-      // Folders are shared with the Tasks tab; a rename there should show here.
-      window.addEventListener(FOLDERS_EVENT, () => void this.loadFolders());
       // Escape = deselect, the way out the selection bar advertises. Only while this
       // screen is the one showing, and NOT while a confirm is up: Escape cancels that
       // dialog, and cancelling a bulk delete must leave the selection you were about
@@ -77,12 +87,6 @@ export class TaskArchiveView {
       });
     }
     this.draw();
-    void this.loadFolders(); // async: colors and the legacy name fallback, drawn a beat later
-  }
-
-  private async loadFolders(): Promise<void> {
-    this.folders = await getTaskFolders(this.data);
-    if (this.host?.isConnected) this.draw();
   }
 
   /** Completed tasks, newest completion first. `completedAt` is the sort key; the
@@ -90,7 +94,7 @@ export class TaskArchiveView {
    *  blank) fall to the bottom rather than being dropped. */
   private entries(): Task[] {
     return Object.values(this.map)
-      .filter((t) => t.completed)
+      .filter((t) => t.completed && !this.pendingDelete.has(t.id))
       .sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
   }
 
@@ -142,10 +146,6 @@ export class TaskArchiveView {
       return;
     }
 
-    // The same tip the Tasks list carries above its own list, in the same words: a
-    // multi-select is invisible until you know the gesture exists.
-    host.append(el('div', { class: 'tasks-bulk-tip', text: '💡 Shift+click to select multiple tasks' }));
-
     // Group by the day it was finished, walking the already-sorted list and
     // emitting a heading whenever the label changes (same shape as the bell log).
     let lastDay = '';
@@ -187,18 +187,68 @@ export class TaskArchiveView {
 
     row.append(el('div', { class: 'arch-time', text: Number.isNaN(at) ? '—' : formatWallClock(at) }));
 
-    const main = el('div', { class: 'arch-main' });
-    const title = t.emoji ? `${t.emoji} ${t.title}` : t.title;
-    main.append(el('div', { class: 'arch-row-title', text: title }));
+    /**
+     * THE REAL ROW'S OWN CLASSES, NOT A LIKENESS OF THEM (Gabe, 8/22).
+     *
+     * "Since these were tasks, their views should match the real task UI identically
+     * besides features we explicitly added or removed." The first draft styled its
+     * own `.arch-course` / `.arch-due` and drifted immediately: the course came out
+     * as a bordered pill and the date wore a "Was due" caption, neither of which the
+     * Tasks list does. So the markup below is `.task-info` → `.task-title` →
+     * `.task-bottom-row` → `.task-meta-wrap` → `.task-meta` → `.course-chip` ·
+     * `.meta-date`, copied structure for structure from buildRow in tasks/render.ts
+     * and styled by that same CSS. There is nothing left for the two to disagree
+     * about, and a later change to the task row lands here for free.
+     *
+     * WHAT IS DELIBERATELY ABSENT, and every one of them is an EDIT rather than a
+     * view: the checkbox, the ⋮⋮ handle, the priority arrow, the ⋯ menu, click-to-edit
+     * on the course and date, the "+ course" / "+ due date" prompts that exist only
+     * to open those editors, the ✕ that dismisses the assessment pill and the click
+     * that dismisses the ✱. Plus the OVR badge, because nothing finished is overdue.
+     * WHAT IS ADDED: the completion-time gutter, and Restore / Delete.
+     *
+     * Everything the row can SAY, it still says: the ✱ change mark, the translation,
+     * the course, the date, the QUIZ/TEST pill, and the two read-only doors back to
+     * Schoology (↗ the assignment, ⓘ its instructions). Rereading what a finished
+     * assignment actually asked for is a thing students do.
+     */
+    const main = el('div', { class: 'task-info' });
+    const titleEl = el('div', { class: 'task-title', text: t.title });
+    // ✱ = a Schoology re-sync altered this task after it was imported. Read-only
+    // here: in the list a click means "I have read them", and there is nothing left
+    // to read them FOR once the work is done.
+    // Same gate as the Tasks row: a change that was undone leaves nothing to read.
+    if (t.feedUpdated && hasFeedDiff(t)) {
+      const what = Array.isArray(t.feedUpdated) && t.feedUpdated.length
+        ? t.feedUpdated.join(', ')
+        : 'name, date, or instructions';
+      const upd = el('span', {
+        class: 'task-altered-badge',
+        text: '✱',
+        title: `Changed on Schoology since import: ${what}. Click to see what changed`,
+      });
+      // Opens the same before/after the Tasks row opens, WITHOUT the "Got it" that
+      // clears it: dismissing is an edit, and there is nothing left to act on once
+      // the work is done. Reading what changed is still worth doing.
+      upd.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        openPopup('What changed on Schoology', (b) =>
+          b.append(
+            buildFeedDiff(t) ??
+              el('div', { class: 'fd-note', text: 'This task changed, but the earlier version was not recorded.' })
+          )
+        );
+      });
+      titleEl.append(upd);
+    }
+    main.append(titleEl);
 
     // THE TRANSLATION COMES WITH IT (Gabe, 8/21). A foreign title is unreadable
     // without it, here as much as in the list — an archive that drops the English
-    // line is an archive the student cannot search by eye. Same classes as the
-    // Tasks row so the two look like the same thing, and the same 🌐 provenance
-    // tooltip; `arch-translation` only adds the finished-work strike.
+    // line is an archive the student cannot search by eye.
     if (t.translatedTitle && !t.translationHidden) {
       const tr = el('div', {
-        class: `task-translation arch-translation${t.translationChosen ? ' chosen' : ''}`,
+        class: `task-translation${t.translationChosen ? ' chosen' : ''}`,
         title: t.translationChosen
           ? `You chose to read this as ${languageName(t.translatedLang || '')}`
           : `Translated from ${languageName(t.translatedLang || '')}`,
@@ -208,29 +258,90 @@ export class TaskArchiveView {
       main.append(tr);
     }
 
-    // Meta line: course, folder, date. All three optional, in the Tasks list's own
-    // order, and the date is bare — "Was due" was a caption on a column that is
-    // obviously a date (Gabe, 8/21).
-    const meta = el('div', { class: 'arch-meta' });
+    // The bottom row: COURSE · DATE and the QUIZ/TEST pill on the left, the two
+    // Schoology doors on the right. Same element, same order, same classes as the
+    // Tasks list. Course and date are simply omitted when empty rather than showing
+    // the "+ course" / "+ due date" prompts, which are doors to editors this screen
+    // does not have.
+    const bottom = el('div', { class: 'task-bottom-row' });
+    const metaWrap = el('div', { class: 'task-meta-wrap' });
+    const meta = el('div', { class: 'task-meta' });
     if (t.course) {
-      // Color only, exactly as the Tasks list styles its .course-chip — the border
-      // stays neutral. Tinting it would mean synthesizing an alpha from the stored
-      // hex, and the registry's colors are not guaranteed to be a format that
-      // string-appending an alpha pair survives.
-      const chip = el('span', { class: 'arch-course', text: t.course });
+      const chip = el('span', { class: 'course-chip', text: t.course });
       chip.style.color = getCourseColor(t.course);
       meta.append(chip);
     }
-    const folder = this.folderFor(t);
-    if (folder) {
-      const chip = el('span', { class: 'arch-folder', title: `Was in the “${folder.name}” folder` });
-      chip.innerHTML = FOLDER_SVG;
-      chip.append(el('span', { text: folder.name }));
-      if (folder.color) chip.style.color = folder.color;
-      meta.append(chip);
+    // `dueDate || dueTime`, the live row's own test rather than a tighter one of my
+    // own: the two travel together on every write path today, and copying the test
+    // exactly is what keeps that from mattering if one day one of them does not.
+    if (t.dueDate || t.dueTime) {
+      if (t.course) meta.append(el('span', { class: 'meta-dot', text: '·' }));
+      const when = [t.dueDate ? formatMetaDate(t.dueDate) : '', t.dueTime ? formatTimeOfDay(t.dueTime) : '']
+        .filter(Boolean)
+        .join(' ');
+      meta.append(el('span', { class: 'meta-date', text: when }));
     }
-    if (t.dueDate) meta.append(el('span', { class: 'arch-due', text: formatMetaDate(t.dueDate) }));
-    if (meta.childElementCount) main.append(meta);
+    metaWrap.append(meta);
+    // QUIZ / TEST / EXAM, re-derived from the title exactly as the list derives it:
+    // imported tasks only, the translation may speak for it unless the student hid
+    // that translation, and a dismissed pill stays dismissed.
+    const assess =
+      t.source === 'manual'
+        ? null
+        : BADGE_ASSESSMENT_RE.exec(t.title) ||
+          (t.translatedTitle && !t.translationHidden ? BADGE_ASSESSMENT_RE.exec(t.translatedTitle) : null);
+    if (assess && !t.assessmentDismissed) {
+      const word = assess[1].toLowerCase();
+      const label = (word === 'quizzes' ? 'quiz' : word.replace(/s$/, '')).toUpperCase();
+      metaWrap.append(el('span', { class: 'task-test-badge', text: label }));
+    }
+    bottom.append(metaWrap);
+
+    // ↗ the assignment on Schoology, ⓘ the instructions it came with. The only two
+    // controls from the real row that survive here, because they are the only two
+    // that READ rather than change.
+    if (t.schoologyUrl || t.details) {
+      const links = el('div', { class: 'task-actions' });
+      if (t.schoologyUrl) {
+        const link = el('button', { class: 'act-schoology', title: 'Open in Schoology' });
+        link.innerHTML = SCHOOLOGY_SVG;
+        link.addEventListener('click', () => openAttachment(t.schoologyUrl!));
+        links.append(link);
+      }
+      if (t.details) {
+        const info = el('button', { title: 'Description', text: 'ⓘ' });
+        info.addEventListener('click', () =>
+          openPopup(t.title, (b) => {
+            b.append(linkifyText(t.details || '', 'task-details-text'));
+            // AND ITS TRANSLATION, for the same reason the title's comes along: a
+            // foreign-language description is unreadable without it, and the
+            // instructions are the part that actually had to be understood.
+            // READ-ONLY, like everything else in here. No language buttons and no
+            // "change language": the row's controls are the ones that READ, and
+            // re-answering a question about finished work is not a thing to offer.
+            if (t.detailsTranslated && !t.detailsHidden) {
+              const tr = el('div', {
+                class: `task-translation${t.detailsChosen ? ' chosen' : ''}`,
+                title: t.detailsChosen
+                  ? `You chose to read this as ${languageName(t.detailsLang || '')}`
+                  : `Translated from ${languageName(t.detailsLang || '')}`,
+              });
+              tr.append(el('span', { class: 'task-translation-badge', text: '🌐' }));
+              tr.append(linkifyText(t.detailsTranslated, 'task-details-text'));
+              b.append(tr);
+            }
+          })
+        );
+        links.append(info);
+      }
+      bottom.append(links);
+    }
+    // A row with no course, no date, no pill and no links has an empty bottom row,
+    // and an empty flex strip still costs its margin. Only append it when it says
+    // something.
+    if (meta.childElementCount || metaWrap.childElementCount > 1 || bottom.childElementCount > 1) {
+      main.append(bottom);
+    }
 
     // Restore over Delete, stacked (Gabe, 8/21): the safe action is the one your
     // eye lands on first, and the destructive one is a deliberate reach downward.
@@ -243,22 +354,6 @@ export class TaskArchiveView {
 
     row.append(main, actions);
     return row;
-  }
-
-  /**
-   * Which folder to name on a row, and WHY it is not a plain lookup.
-   *
-   * `folderName` is the name frozen onto the task when it was checked off, and it
-   * is preferred because a folder dissolves the moment its last member is
-   * completed — so for most archived tasks the id points at nothing. The live list
-   * is consulted anyway, for the folder's COLOR (which is not stamped) and as the
-   * fallback for tasks completed before the stamp existed.
-   */
-  private folderFor(t: Task): { name: string; color: string } | null {
-    const live = t.folderId ? this.folders.find((f) => f.id === t.folderId) : undefined;
-    const name = t.folderName || live?.name || '';
-    if (!name) return null;
-    return { name, color: live?.color ?? '' };
   }
 
   // --- selection ----------------------------------------------------------
@@ -305,37 +400,105 @@ export class TaskArchiveView {
 
   // --- actions ------------------------------------------------------------
 
-  /** Put tasks back on the list: un-complete them and lift the archive flag, which
-   *  is exactly the state they had before being checked off. Due dates are left
-   *  alone — a restored assignment that was due last week IS overdue, and saying so
-   *  is the point. ONE write for the batch, never a loop (see putTasksBulk). */
+  /**
+   * Put tasks back on the list: un-complete them and lift the archive flag, which
+   * is exactly the state they had before being checked off. Due dates are left
+   * alone — a restored assignment that was due last week IS overdue, and saying so
+   * is the point. ONE write for the batch, never a loop (see putTasksBulk).
+   *
+   * WRITTEN IMMEDIATELY, then offered back (Gabe, 8/22). A restore is not
+   * destructive, so there is no reason to make the student wait five seconds to see
+   * the task reappear in Tasks. Undo writes the ORIGINAL objects back verbatim —
+   * not "complete it again", which would stamp a new completedAt and move the row
+   * to the top of today. Taking something back should leave no trace that it
+   * happened.
+   */
   private async restore(tasks: Task[]): Promise<void> {
     if (!tasks.length) return;
+    const before = tasks.map((t) => ({ ...t })); // the exact rows to put back on Undo
     const back = tasks.map((t) => ({ ...t, completed: false, completedAt: null, archived: false }));
     this.clearSelection();
     if (back.length === 1) await this.data.putTask(back[0]);
     else await this.data.putTasksBulk(back);
     // Same shape of sentence as the check-off toast in tasks/complete.ts
     // ("“name” task completed"), because this is its opposite and should read like it.
-    showToast(
-      back.length === 1 ? `“${clip(back[0].title)}” task restored` : `${back.length} tasks restored`
+    showUndoToast(
+      back.length === 1 ? `“${clip(back[0].title)}” task restored` : `${back.length} tasks restored`,
+      () => {
+        if (before.length === 1) void this.data.putTask(before[0]);
+        else void this.data.putTasksBulk(before);
+      },
+      () => {} // letting it expire simply keeps the restore
     );
   }
 
-  /** Delete for good. Red confirm every time, however few: this is the one thing on
-   *  the screen that cannot be taken back. */
+  /**
+   * Delete for good, after a red confirm AND a five-second stay of execution.
+   *
+   * THE ROWS GO FIRST AND THE DATA GOES LAST (Gabe, 8/22). Nothing is removed when
+   * you press Yes: the ids join `pendingDelete`, the rows vanish from the redraw,
+   * and the real `removeTasksBulk` only runs when the undo toast expires. So Undo
+   * is not a resurrection, it is a cancellation — the tasks were never gone, which
+   * is the only version of undo that cannot fail halfway.
+   *
+   * The toast lives on <body>, so switching tabs mid-window does NOT cancel
+   * anything: it keeps counting and commits on schedule, and Undo stays reachable
+   * the whole time. What does cancel it is a RELOAD, which takes the timer and this
+   * in-memory set with it and leaves the tasks untouched. That is the right
+   * direction to fail in, and it is why the pending set is not stored on the task.
+   */
   private deleteTasks(tasks: Task[]): void {
     if (!tasks.length) return;
     const n = tasks.length;
     const what = n === 1 ? `“${clip(tasks[0].title)}”` : `${n} tasks`;
     confirmDanger(
-      `Delete ${what} for good? This cannot be undone.`,
-      () => {
-        this.clearSelection();
-        void this.data.removeTasksBulk(tasks.map((t) => t.id));
-        showToast(n === 1 ? `${what} deleted` : `${n} tasks deleted`);
-      },
+      // "Delete X for good? This cannot be undone once the toast expires" argued
+      // with itself: the opening said permanent, the rest said not yet. One claim
+      // per sentence, and it is the WARNING half that gets said (Gabe, 8/22) —
+      // a red dialog is there to be cautionary, not to reassure.
+      `Delete ${what}? You can’t undo this after the toast expires.`,
+      () => this.beginDelete(tasks),
       'Delete'
+    );
+  }
+
+  /**
+   * The shared body of both delete paths: hide now, commit on a timer, cancel
+   * outright on Undo.
+   *
+   * THE WRITE RUNS ON ITS OWN TIMER, NOT ON THE TOAST'S onExpire, and that is the
+   * whole point of this method's shape. There is ONE toast slot in the app, and a
+   * new toast ENDS the old one early by calling its expire callback (claimToastSlot
+   * in util/dom.ts). So a delete parked in onExpire committed the instant anything
+   * else toasted: delete one task, press Restore on another, and the first was gone
+   * for real about half a second into a window the confirm had just promised. The
+   * check-off path solved this before us and is the pattern being copied here
+   * (complete() in tasks/render.ts): the real write is its own setTimeout, Undo
+   * clears it, and onExpire does nothing at all. Losing the toast early then costs
+   * the button, not the data.
+   */
+  private beginDelete(tasks: Task[]): void {
+    const ids = tasks.map((t) => t.id);
+    const n = ids.length;
+    this.clearSelection();
+    for (const id of ids) this.pendingDelete.add(id);
+    this.draw(); // the rows leave immediately, as if they were already gone
+    const commit = window.setTimeout(() => {
+      for (const id of ids) this.pendingDelete.delete(id);
+      // STILL COMPLETED? A restore or a Schoology re-sync can land inside the
+      // window, and deleting by id alone would throw that away. Anything that came
+      // back to life in the last five seconds is left alone.
+      const doomed = ids.filter((id) => this.map[id]?.completed);
+      if (doomed.length) void this.data.removeTasksBulk(doomed);
+    }, UNDO_MS);
+    showUndoToast(
+      n === 1 ? `“${clip(tasks[0].title)}” deleted` : `${n} tasks deleted`,
+      () => {
+        window.clearTimeout(commit); // nothing was deleted; nothing will be
+        for (const id of ids) this.pendingDelete.delete(id);
+        this.draw();
+      },
+      () => {} // the timer above owns the write, precisely so this cannot
     );
   }
 
@@ -347,13 +510,13 @@ export class TaskArchiveView {
    *  otherwise be the one row left behind by a button that says "Delete all". */
   private deleteAll(n: number): void {
     confirmDanger(
-      `Delete all ${n} archived task${n === 1 ? '' : 's'}? This cannot be undone.`,
+      // Same sentence as the single delete, deliberately: two phrasings for the same
+      // class of action is how a student learns to read one of them and not the
+      // other. "all 1 archived task" is sidestepped rather than pluralized around.
+      `${n === 1 ? 'Delete the one archived task' : `Delete all ${n} archived tasks`}? You can’t undo this after the toast expires.`,
       () => {
         const doomed = this.entries();
-        if (!doomed.length) return;
-        this.clearSelection();
-        void this.data.removeTasksBulk(doomed.map((t) => t.id));
-        showToast(`${doomed.length} archived task${doomed.length === 1 ? '' : 's'} deleted`);
+        if (doomed.length) this.beginDelete(doomed);
       },
       'Delete all'
     );

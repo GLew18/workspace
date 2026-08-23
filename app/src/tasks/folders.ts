@@ -93,24 +93,6 @@ export function folderMembers(folder: TaskFolder, map: TaskMap): Task[] {
   return Object.values(map).filter((t) => t.folderId === folder.id);
 }
 
-/**
- * Write the task's folder NAME onto it, so the Task Archives can still name the
- * folder after it is gone. Call this on any write that COMPLETES a task.
- *
- * A completing write is the last moment the answer exists: finishing a folder's
- * final member dissolves that folder in the same breath (see complete() in
- * tasks/render.ts), and the task left holding the dead id is precisely the one the
- * archive is about to draw. See Task.folderName.
- *
- * Returns the task untouched when there is nothing to add, so callers can wrap a
- * write in it unconditionally without churning the object.
- */
-export function stampFolderName<T extends Task>(task: T, folders: TaskFolder[]): T {
-  if (!task.folderId) return task;
-  const name = folders.find((f) => f.id === task.folderId)?.name;
-  return !name || name === task.folderName ? task : { ...task, folderName: name };
-}
-
 /** Folders that should DISSOLVE: every member completed, or no members at all
  *  (last member deleted/purged — an empty folder is an orphan either way). */
 export function dissolvedFolders(folders: TaskFolder[], map: TaskMap): TaskFolder[] {

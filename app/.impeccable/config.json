@@ -22,7 +22,29 @@
         "rule": "bounce-easing",
         "value": "cubic-bezier(0.34, 1.45, 0.55, 1)",
         "createdAt": "2026-08-17T12:40:28.861Z"
+      },
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-08-22T15:17:36.921Z",
+        "reason": "Re-recording the root-config decision here because the hook reads whichever .impeccable/config.json matches its cwd. Cobalt's typeface is set by the project spec (theme.css cites spec 9.4), loaded in app/index.html, and used by the locked .ws-mark wordmark whose construction Gabe fixed on 8/10. Shipped brand, not AI-default drift."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/ui/components.css"
+        ],
+        "createdAt": "2026-08-22T15:17:47.046Z",
+        "reason": "Re-recording the root-config decision (8/20) here because the hook reads whichever .impeccable/config.json matches its cwd. .cal-chip's left border IS the task's course/priority colour (--chip, set per task in render.ts), not decoration: the same colour-coding language as the course chips and folder icons across Cobalt."
       }
     ]
+  },
+  "hook": {
+    "enabled": false,
+    "limits": {
+      "maxFindings": 5,
+      "maxChars": 8000
+    }
   }
 }

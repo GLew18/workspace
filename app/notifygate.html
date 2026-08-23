@@ -1,0 +1,85 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>notifyEdits gate</title>
+<style>body{font:13px/1.5 ui-monospace,monospace;background:#0b1430;color:#dbe6ff;padding:20px}
+b.p{color:#7ee787}b.f{color:#ff7b72}</style></head>
+<body><pre id="out">running…</pre>
+<script type="module">
+  const out=document.getElementById('out'); out.textContent='';
+  let fails=0;
+  const ok=(m,d='')=>out.insertAdjacentHTML('beforeend',`<b class="p">PASS</b>  ${m}  <span style="opacity:.6">${d}</span>\n`);
+  const bad=(m,d='')=>{fails++;out.insertAdjacentHTML('beforeend',`<b class="f">FAIL</b>  ${m}  <span style="opacity:.6">${d}</span>\n`);};
+
+  const N = await import('/src/notify/notify.ts');
+
+  // Capture what actually reaches the browser: sendNotification -> deliver -> popup/email.
+  // The log records the routes that RAN, so the log is the ground truth.
+  const seen = [];
+  const origLog = N.logNotification;
+
+  // Read the log through the module's own reader if it has one; otherwise spy via
+  // the exported setter surface. Simplest reliable probe: monkeypatch Notification.
+  const fired = [];
+  window.Notification = class { constructor(t,o){ fired.push(t); } static permission='granted';
+    static requestPermission(){return Promise.resolve('granted');} };
+
+  N.setEmailAddress(''); // no email -> gmail route is inert, popup is what we measure
+
+  const run = (label, edits, opts) => {
+    N.setBurstMode('each', edits);
+    fired.length = 0;
+    N.sendNotification(label, 'body', { popup: true, ...opts });
+    return fired.length;
+  };
+
+  // 1. parent ON: an edit-driven reminder fires
+  (run('edit-on', true, { fromEdit: true }) === 1) ? ok('parent ON: a create/edit reminder fires')
+    : bad('parent ON: a create/edit reminder did NOT fire');
+
+  // 2. parent OFF: an edit-driven reminder is suppressed — Gabe's "when disabled, none"
+  (run('edit-off', false, { fromEdit: true }) === 0) ? ok('parent OFF: the create/edit reminder is suppressed')
+    : bad('parent OFF: the create/edit reminder still fired');
+
+  // 3. parent OFF: everything that is NOT a creation or an edit still delivers
+  (run('digest-off', false, {}) === 1) ? ok('parent OFF: a daily agenda / Focus / Test notification still delivers')
+    : bad('parent OFF: a non-edit notification was wrongly suppressed');
+
+  // 4. parent ON: non-edit unaffected
+  (run('digest-on', true, {}) === 1) ? ok('parent ON: a non-edit notification delivers')
+    : bad('parent ON: a non-edit notification did not deliver');
+
+  // 5. the child still groups a burst when the parent is on
+  N.setBurstMode('summary', true);
+  fired.length = 0;
+  N.sendNotification('a','b',{popup:true,name:'a',fromEdit:true});
+  N.sendNotification('c','d',{popup:true,name:'c',fromEdit:true});
+  await new Promise(r=>setTimeout(r,1400));
+  (fired.length === 1) ? ok('child "One summary": two edit reminders arrive as one', fired[0])
+    : bad('child "One summary" did not group', 'fired ' + fired.length);
+
+  // 6. the child "Each" still fires separately
+  N.setBurstMode('each', true);
+  fired.length = 0;
+  N.sendNotification('a','b',{popup:true,fromEdit:true});
+  N.sendNotification('c','d',{popup:true,fromEdit:true});
+  (fired.length === 2) ? ok('child "Each": two edit reminders arrive separately')
+    : bad('child "Each" grouped when it should not', 'fired ' + fired.length);
+
+  // 7. migration: an old 'silent' user lands on notifyEdits:false, grouping default
+  const mig = N.normalizeNotifySettings({ burstMode: 'silent' });
+  (mig.notifyEdits === false && mig.burstMode === 'summary')
+    ? ok("migration: old 'silent' becomes notifyEdits:false + default grouping")
+    : bad("migration: 'silent' mapped wrong", JSON.stringify({e:mig.notifyEdits,b:mig.burstMode}));
+
+  // 8. migration: an existing 'each' user keeps 'each' and stays notified
+  const mig2 = N.normalizeNotifySettings({ burstMode: 'each' });
+  (mig2.burstMode === 'each' && mig2.notifyEdits === true)
+    ? ok("migration: an existing 'each' user keeps 'each', parent stays on")
+    : bad("migration: 'each' user changed", JSON.stringify({e:mig2.notifyEdits,b:mig2.burstMode}));
+
+  // 9. a stored notifyEdits:false survives the read (boolean false must not be defaulted away)
+  (N.normalizeNotifySettings({ notifyEdits: false }).notifyEdits === false)
+    ? ok('a stored notifyEdits:false survives the read')
+    : bad('a stored notifyEdits:false was defaulted back to true');
+
+  out.insertAdjacentHTML('beforeend', '\n' + (fails ? `<b class="f">>>> ${fails} FAILURE(S)</b>` : '<b class="p">>>> ALL CHECKS PASS</b>'));
+</script></body></html>

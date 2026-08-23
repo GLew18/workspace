@@ -59,7 +59,12 @@
     await sleep(100);
 
     const bar = () => panel.querySelector('.quick-add');
-    const tip = () => panel.querySelector('.tasks-bulk-tip');
+    // THE TIP IS GONE (Gabe, 8/22): the Shift+click line that used to sit between
+    // the bar and the list moved into the 💡 Task Pro Tips popup with every other
+    // tip. The four checks that measured it are struck from this run rather than
+    // rewritten, because there is nothing left to measure. What they were really
+    // guarding is still guarded: that the bar never changes height, and that the
+    // viewport cost of pinning is the bar alone.
     const cs = (e) => getComputedStyle(e);
     const H = (e) => +e.getBoundingClientRect().height.toFixed(1);
 
@@ -83,14 +88,28 @@
     // ---- at rest ----
     const restH = H(bar()), restPad = cs(bar()).paddingTop, restFont = cs(bar().querySelector('textarea,input')).fontSize;
     ok('at rest it is NOT pinned', !bar().classList.contains('pinned'));
-    ok('at rest the tip is showing', !!tip() && !tip().classList.contains('folded') && H(tip()) > 5, H(tip()) + 'px');
-    R.push('   at rest: bar ' + restH + 'px, tip ' + H(tip()) + 'px, font ' + restFont);
+    ok('at rest nothing sits between the bar and the list', !panel.querySelector('.tasks-bulk-tip'));
+    R.push('   at rest: bar ' + restH + 'px, font ' + restFont);
 
-    // The bar must be INVISIBLE as a bar until it pins: same paint as the page.
-    ok('at rest it paints the page background, so there is no visible bar',
-       cs(bar()).backgroundImage === cs(document.body).backgroundImage &&
-       cs(bar()).backgroundAttachment === 'fixed',
-       cs(bar()).backgroundAttachment + ' | matches=' + (cs(bar()).backgroundImage === cs(document.body).backgroundImage));
+    // AT REST IT PAINTS NOTHING, and that is what makes it invisible.
+    //
+    // It used to paint the page gradient, and this check asserted exactly that. It
+    // no longer can: `background-attachment: fixed` only stays anchored to the
+    // viewport while the box is painted with the page, and a position:sticky element
+    // gets its own compositing layer, so Chrome re-anchored the gradient to the
+    // ELEMENT. Across a bar that is wide and 69px tall a 165deg ramp is then almost
+    // entirely sideways, and the bar came out light on the left and dark on the right
+    // (Gabe, 8/22). A flat stand-in was tried next and matched the page at desktop
+    // shapes but drifted 7/255 at phone shapes, which is a visible band.
+    //
+    // Nothing is behind this strip until it pins, so it does not need to paint at
+    // all, and painting nothing matches the page exactly at every viewport. The
+    // opaque fill lives on .pinned, checked below.
+    const transparent = (c) => c === 'transparent' || /rgba\(0, 0, 0, 0\)/.test(c);
+    ok('at rest it paints NOTHING, so it cannot mismatch the page at any viewport',
+       transparent(cs(bar()).backgroundColor) && cs(bar()).backgroundImage === 'none',
+       cs(bar()).backgroundColor + ' / ' + cs(bar()).backgroundImage.slice(0, 40));
+
     ok('at rest it casts no shadow', cs(bar()).boxShadow === 'none', cs(bar()).boxShadow);
 
     // ---- scroll ----
@@ -126,13 +145,7 @@
     R.push('   pinned: bar ' + pinH + 'px, font ' + pinFont);
     ok('the bar is exactly the size it always was', Math.abs(pinH - restH) < 0.5, restH + ' -> ' + pinH);
     ok('and so is its text', pinFont === restFont, restFont + ' -> ' + pinFont);
-    // The tip needs no folding: it is a normal-flow sibling and has already scrolled
-    // out of view by the time anything pins. Folding it only shortened the document.
-    ok('the tip has scrolled away on its own, unfolded',
-       tip().getBoundingClientRect().bottom < below.getBoundingClientRect().top &&
-       !tip().classList.contains('folded') && H(tip()) > 5,
-       'tip bottom=' + Math.round(tip().getBoundingClientRect().bottom) + ' viewport top=' + Math.round(below.getBoundingClientRect().top));
-    R.push('   VIEWPORT COST while pinned: ' + pinH + 'px (the tip costs nothing, it is off screen)');
+    R.push('   VIEWPORT COST while pinned: ' + pinH + 'px (the bar, and nothing else)');
     // A REAL shadow, not a transition caught at its start value: this pane does not
     // composite, so a transitioning box-shadow reports rgba(0,0,0,0) and would pass
     // a bare !== 'none' check while painting nothing.
@@ -140,7 +153,30 @@
     ok('pinned it separates itself from the list', sh !== 'none' && !/rgba\(0, 0, 0, 0\)/.test(sh), sh);
     ok('and its bottom corners are rounded', cs(bar()).borderRadius === '0px 0px 14px 14px', cs(bar()).borderRadius);
     ok('the shadow is soft, not a hairline', !/ 0px 0px 0px [^0]/.test(sh) && sh.indexOf('-9px') > 0, sh);
-    ok('and it still hides the rows behind it', cs(bar()).backgroundAttachment === 'fixed');
+    // OPAQUE is what hides them, and a flat colour is opaque by construction. The old
+    // check asserted `background-attachment: fixed`, which was never what did the
+    // hiding, only what kept the gradient lined up with the page.
+    const bg = cs(bar()).backgroundColor;
+    const alpha = (bg.match(/rgba?\([^)]*\)/) || [''])[0].split(',')[3];
+    ok('and it still hides the rows behind it',
+       bg !== 'transparent' && (alpha === undefined || parseFloat(alpha) === 1), bg);
+
+    // THE HANDOVER MUST NOT LEAVE A GAP. The bar is transparent until it pins, so
+    // there must be no scroll position where a row is behind it while it is still
+    // see-through. Stepped a pixel at a time across the threshold, checking the two
+    // facts together rather than assuming the class lands in time.
+    let gap = null;
+    for (let y = 0; y <= pinAt + 40; y += 1) {
+      below.scrollTop = y; below.dispatchEvent(new Event('scroll'));
+      const b = bar().getBoundingClientRect();
+      const row = panel.querySelector('.task-item').getBoundingClientRect();
+      const overlapping = row.top < b.bottom && row.bottom > b.top;
+      const seeThrough = transparent(cs(bar()).backgroundColor);
+      if (overlapping && seeThrough) { gap = y; break; }
+    }
+    ok('there is no scroll position where a row shows through it',
+       gap === null, gap === null ? 'checked every pixel to ' + (pinAt + 40) : 'row visible through the bar at ' + gap + 'px');
+    below.scrollTop = pinAt + 60; below.dispatchEvent(new Event('scroll')); await sleep(60);
     // NOTHING it animates may cause layout, or a scroll can drag the whole list.
     const anim = cs(bar()).transitionProperty;
     // "all" counts as a failure: it silently includes every layout property, which is
@@ -170,7 +206,6 @@
     below.dispatchEvent(new Event('scroll'));
     await sleep(200);
     ok('scrolling back unpins it', !bar().classList.contains('pinned'));
-    ok('the tip is where it always was', H(tip()) > 5, H(tip()) + 'px');
     ok('and the bar never changed height at all', Math.abs(H(bar()) - restH) < 0.5, H(bar()) + ' vs ' + restH);
     ok('at rest it casts no shadow again', cs(bar()).boxShadow === 'none', cs(bar()).boxShadow);
 

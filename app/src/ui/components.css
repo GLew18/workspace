@@ -469,6 +469,48 @@ body.app-mode .app-below {
 .tasks-mode-btn svg {
   display: block;
 }
+/* 💡 Task Pro Tips — the third of the header's identical circles, sitting between
+   the other two. Same size and same ring, because it is the same KIND of thing: a
+   small always-there control, not an alert. The emoji carries its own color, so
+   unlike its twins it sets no `color`. */
+.tasks-tips-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  background: rgba(125, 180, 255, 0.08);
+  border: 1px solid rgba(125, 180, 255, 0.3);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.tasks-tips-btn:hover {
+  background: rgba(125, 180, 255, 0.16);
+  border-color: rgba(125, 180, 255, 0.5);
+}
+/* The tips themselves. A heading you can skim and a sentence you only read if the
+   heading was the one you wanted — four paragraphs of equal weight would be a wall
+   nobody finishes. */
+.protip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.protip-head {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--text);
+}
+.protip-body {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  margin-top: 3px;
+}
+
 .tasks-refresh-btn {
   /* Icon-only ↻. Compact circle so the loading spin is clean and it never resizes
      (single-glyph states: ↻ / ✓ / ⚠). */
@@ -535,7 +577,17 @@ body.app-mode .app-below {
      moving the input a pixel. */
   margin-inline: -8px;
   padding: 10px 8px;
-  background: var(--page-bg);
+  /* TRANSPARENT AT REST, and that is the whole fix (Gabe, 8/22).
+     Nothing is behind this strip until it pins: rows live BELOW it, so before it
+     sticks there is nothing to hide and no reason to paint at all. Painting anyway
+     is what produced the artefact he saw, because the only two things it could
+     paint were both wrong. The page gradient re-anchors to the element on a sticky
+     box (see --page-bg-flat) and came out light on the left, dark on the right; a
+     flat stand-in matches the page at one screen shape and drifts at others, which
+     on a phone is a visible band. Painting nothing matches the page exactly, at
+     every viewport, for free. The opaque fill moves to .pinned below, where the bar
+     is a deliberate bar with its own shadow and rounded corners anyway. */
+  background: transparent;
   /* PAINT ONLY, and that is a measured decision rather than a habit (Gabe, 8/21).
      The pinned state used to shrink the bar as well: less padding, smaller text, and
      the tip folded away. Two measurements killed it.
@@ -567,6 +619,11 @@ body.app-mode .app-below {
    the bar ends the way every other surface in the app ends; the top two stay square
    because that edge is flush against the header. */
 .quick-add.pinned {
+  /* NOW it has rows passing behind it, so now it is opaque. Flat rather than the
+     page gradient for the reason in --page-bg-flat, and the drift that costs is
+     smallest here: pinned, the bar always sits at the same place under the header,
+     so the colour it is standing in for barely moves. */
+  background: var(--page-bg-flat);
   border-radius: 0 0 14px 14px;
   box-shadow: 0 5px 12px -9px rgba(0, 0, 0, 0.45);
 }
@@ -989,6 +1046,44 @@ body.app-mode .app-below {
   overflow-y: auto;
 }
 
+/* ---- the description's translation (Gabe, 8/22) ----------------------------
+   The SAME line the title gets, reused wholesale: .task-translation and
+   .task-ask-* are not restyled here, they are simply used in a popup instead of a
+   row. Only the two things a popup needs differently are set. */
+.popup-body > .task-translation {
+  /* Off the description above it, and clear of the button below. In a row this line
+     is tucked under the title; here it is a paragraph answering a paragraph. */
+  margin: 0 0 12px;
+  align-items: flex-start;
+}
+.popup-body > .task-translation .task-details-text {
+  margin-bottom: 0;
+  /* The translation of a long description is just as long; it scrolls with the same
+     ceiling rather than pushing the popup past the window. */
+  max-height: 40vh;
+}
+/* "Change language…" — quiet, because it is an offer, not the point of the popup. */
+.task-details-relang {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 11px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.task-details-relang:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.04);
+}
+
 /* ---- Task folders (the big-project Folders feature) ---- */
 .task-folders-label {
   font-size: 11px;
@@ -1183,39 +1278,14 @@ body.app-mode .app-below {
 .folder-pick-new .folder-pick-input {
   flex: 1;
 }
-/* ---- The bulk-select tip, between the quick-add bar and the task list ----
-   TWO NUMBERS SET THE SPACING AROUND IT, and they are the two below.
-     • the gap ABOVE (task bar → tip) is .quick-add's margin-bottom, overridden
-       here to 6px only while the tip is actually SHOWING. :not([hidden]) is not
-       decoration: :has() is structural and does not care about visibility, so
-       without it the rule kept firing in Calendar mode, where the tip is still in
-       the DOM at zero height, and quietly cut the gap under the bar from 18px to 6,
-     • the gap BELOW (tip → the FOLDERS header) is this rule's own margin-bottom.
-   The tip reads as belonging to the bar it explains, so it sits close under it
-   and keeps its distance from the list (Gabe, 8/20: 20px above and 8px below
-   was exactly backwards). Quiet on purpose: a standing note, not a message, at
-   the same weight as the folder-picker tip so the two match. */
-.quick-add:has(+ .tasks-bulk-tip:not([hidden])) {
-  margin-bottom: 6px; /* the gap ABOVE the tip */
-}
-.tasks-bulk-tip {
-  margin: 0 2px 18px; /* the third number is the gap BELOW the tip */
-  font-size: 11.5px;
-  line-height: 1.45;
-  color: var(--text-dim);
-}
-.tasks-bulk-tip[hidden] { display: none; }
-/* The one-line shortcut tip under the "+ New folder" row (both pickers share it).
-   Dim and small on purpose: it teaches without competing with the folder rows,
-   and a separator line keeps it from reading as another clickable option. */
-.folder-pick-tip {
-  margin-top: 2px;
-  padding-top: 9px;
-  border-top: 1px solid var(--border);
-  font-size: 11.5px;
-  line-height: 1.45;
-  color: var(--text-dim);
-}
+/* ---- Where the tips went (Gabe, 8/22) ----
+   `.tasks-bulk-tip` printed the Shift+click line under the quick-add bar, and
+   `.folder-pick-tip` printed the f: line inside both folder pickers. Both are gone,
+   and their rules with them: every tip in the Tasks tab now lives in the 💡 Task Pro
+   Tips popup (.protip-list, above), reached from the header. The spacing note that
+   used to live here described the gap the bulk tip opened between the bar and the
+   list; with no tip there, .quick-add's own margin is the whole story again. */
+
 /* The color well: a button whose background IS the current color (painted inline
    by ui/colorPicker.ts); clicking it opens the in-app picker card. */
 .folder-pick-color {
@@ -2547,3 +2617,113 @@ body:has(.selbar:not([hidden])) .toast {
 }
 .folder-pick-mini:hover { border-color: var(--accent); }
 .folder-pick-input.invalid { border-color: var(--red); }
+
+/* ---- "What changed on Schoology": the ✱ badge's before/after (tasks/feedDiff.ts) ----
+   A diff, read the way diffs are read everywhere else: the old version above the new
+   one, words that left struck through in red, words that arrived in green. The two
+   sides are labelled "was" and "now" rather than +/- because this is a student
+   looking at their homework, not a code review. */
+.fd-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.fd-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.fd-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--accent);
+}
+/* Each side is a row: a fixed tag column so "was" and "now" line up, then the text.
+   The ghost is dimmed as a whole — it is a memory of the task, not the task. */
+.fd-side {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 6px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.fd-was {
+  background: rgba(239, 68, 68, 0.05);
+  opacity: 0.85;
+}
+.fd-now {
+  background: rgba(34, 197, 94, 0.05);
+}
+.fd-side-tag {
+  flex: none;
+  width: 30px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  padding-top: 2px;
+}
+.fd-line {
+  min-width: 0;
+  white-space: pre-wrap; /* instructions carry their own line breaks */
+  overflow-wrap: anywhere;
+}
+.fd-same {
+  color: var(--text-dim);
+}
+/* The two colors do the work, so the marks stay quiet: a tint and a strike, not
+   blocks of solid red and green, which at paragraph length is unreadable. */
+.fd-del {
+  color: #ff8f8f;
+  background: rgba(239, 68, 68, 0.16);
+  text-decoration: line-through;
+  border-radius: 3px;
+}
+.fd-add {
+  color: #7ee2a8;
+  background: rgba(34, 197, 94, 0.16);
+  border-radius: 3px;
+}
+.fd-empty {
+  color: var(--text-dim);
+  font-style: italic;
+  opacity: 0.7;
+}
+.fd-note {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.fd-leftovers {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+/* "Got it" is the dismiss the ✱ used to be. It sits after the diff, because that is
+   the order the two things happen in. */
+.fd-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.fd-dismiss {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 15px;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition), background var(--transition);
+}
+.fd-dismiss:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(125, 180, 255, 0.1);
+}

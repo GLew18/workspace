@@ -44,7 +44,17 @@ export function playCompleteChime(): void {
 
 let currentToast: { el: HTMLElement; timer: number } | null = null;
 
-/** Show a single undo toast. Calls onExpire after 5s unless undone first.
+/**
+ * HOW LONG AN UNDO IS OFFERED FOR.
+ *
+ * Exported because a caller whose action is DESTRUCTIVE cannot put that action in
+ * `onExpire` and must run it on a timer of its own (see beginDelete in
+ * tasks/archiveView.ts). Its timer has to outlast the button, so it needs the same
+ * number rather than a guess at it.
+ */
+export const UNDO_MS = 5000;
+
+/** Show a single undo toast. Calls onExpire after UNDO_MS unless undone first.
  *  `host` scopes it to a container (e.g. the landing preview's device frame); it
  *  defaults to document.body (the normal full-page, viewport-pinned toast). */
 export function showUndoToast(
@@ -80,7 +90,7 @@ export function showUndoToast(
     releaseToastSlot(toast);
     leave();
     onExpire();
-  }, 5000);
+  }, UNDO_MS);
 
   btn.addEventListener('click', () => {
     clearTimeout(expireTimer);

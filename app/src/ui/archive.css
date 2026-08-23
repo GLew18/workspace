@@ -103,66 +103,30 @@
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
-.arch-main {
-  flex: 1;
-  min-width: 0;
-}
-/* Struck through: this is a list of FINISHED work, and the line is what says so at
-   a glance without adding a word to every row. */
-.arch-row-title {
-  font-size: 14px;
-  font-weight: 650;
-  color: var(--text-dim);
+/* THE ROW'S CONTENTS ARE THE TASKS LIST'S OWN (Gabe, 8/22). Everything between the
+   time gutter and the buttons is .task-info / .task-title / .task-bottom-row /
+   .task-meta / .course-chip / .meta-dot / .meta-date, styled by components.css, so
+   an archived task and a live one are the same object drawn twice. The rules below
+   are the ONLY divergences, and each is a consequence of the row being finished or
+   of it having no editors behind it.
+
+   Struck through, exactly as the real list strikes a completed task
+   (.task-item.completed .task-title). Written here because that selector needs a
+   .task-item ancestor, which an archive row deliberately is not. */
+.arch-row .task-title {
   text-decoration: line-through;
-  text-decoration-color: rgba(125, 180, 255, 0.45);
-  overflow-wrap: anywhere;
 }
-.arch-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 5px;
-  font-size: 12px;
-  color: var(--text-dim);
+/* The course and date are TEXT here, not editors. components.css gives them
+   `cursor: text` because in the Tasks list one click opens the field; there is
+   nothing to open here, and a caret invites a click that does nothing. */
+.arch-row .course-chip,
+.arch-row .meta-date {
+  cursor: inherit;
 }
-/* Course keeps its own color here, as it does in the Tasks list — that color is how
-   a student recognizes a class without reading. Inline-flex + flex:none so the chip
-   is exactly as wide as its text and the flex row can never stretch it. */
-.arch-course {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  font-size: 10.5px;
-  font-weight: 600;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 2px 8px;
-}
-/* The folder the task came out of. Icon + name, tinted with the folder's own color
-   when the folder still exists (an archived task's folder has usually dissolved, and
-   only its NAME survives — see Task.folderName). */
-.arch-folder {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-dim);
-}
-.arch-folder svg {
-  flex: none;
-}
-.arch-due {
-  font-size: 12px;
-}
-/* The translation line, borrowed whole from the Tasks row (.task-translation in
-   components.css) so a foreign task looks the same in both places. This adds only
-   the strike that the rest of a finished row wears. */
-.arch-translation {
-  text-decoration: line-through;
-  text-decoration-color: rgba(125, 180, 255, 0.3);
+/* One notch tighter than the Tasks list's 6px: the archive card is shorter (no
+   checkbox column, no full action cluster), so the same gap read as loose. */
+.arch-row .task-bottom-row {
+  margin-top: 4px;
 }
 
 /* Actions — Restore over Delete. Stacked and equal width so the pair reads as one
@@ -247,10 +211,11 @@
     margin: 12px auto 0;
   }
   /* Time + task on the first line, the two actions on their own beneath. `flex-wrap`
-     alone was not enough: .arch-main is `flex: 1; min-width: 0`, so it obediently
-     squeezed to nothing rather than pushing the buttons down, and the meta line ran
-     underneath them. `flex-basis: 100%` on the actions is what actually claims a
-     line, and side by side down there costs no height. */
+     alone was not enough: the task column is `.task-info`, which is `flex: 1;
+     min-width: 0`, so it obediently squeezed to nothing rather than pushing the
+     buttons down, and the meta line ran underneath them. `flex-basis: 100%` on the
+     actions is what actually claims a line, and side by side down there costs no
+     height. */
   .arch-row {
     flex-wrap: wrap;
     align-items: flex-start;

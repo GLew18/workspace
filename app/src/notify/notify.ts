@@ -28,8 +28,10 @@ export interface Channels {
   gmail: boolean; // an email (via the Firestore "Trigger Email" extension)
 }
 
-/** How a burst of simultaneous reminders is delivered — see NotifySettings. */
-export type BurstMode = 'each' | 'summary' | 'silent';
+/** How a burst of simultaneous reminders is delivered — see NotifySettings.
+ *  'silent' was a THIRD value here until 8/22; it is now the parent switch
+ *  `notifyEdits`, because "off" was never a way of grouping a burst. */
+export type BurstMode = 'each' | 'summary';
 
 export interface NotifySettings {
   // "All reminders" — a linked SELECT-ALL, not an independent gate. Clicking a master
@@ -50,17 +52,40 @@ export interface NotifySettings {
    *  ordinary tasks. Gates every task-driven reminder at once (due-soon, daily
    *  agenda, tomorrow preview) since they all read the same task list. */
   notifyDuplicates: boolean;
+  /**
+   * DOES ANYTHING YOU CREATE OR EDIT REMIND YOU AT ALL? (Gabe, 8/22)
+   *
+   * The parent of burstMode below. Adding a task, or moving one's due date, is what
+   * puts it inside a reminder window; this decides whether landing in that window
+   * interrupts you. ON, every creation and edit whose due time falls in one of your
+   * windows reminds you, and burstMode decides how a whole burst of them arrives.
+   * OFF, none of them do, one or twenty, and burstMode stops being a question worth
+   * asking — which is why Settings collapses it away.
+   *
+   * SCOPED, NOT A GLOBAL MUTE. Only reminders a creation or an edit caused answer to
+   * it, which today means the due-soon stream (see scheduler.ts `fire`). The daily
+   * agenda and tomorrow digests fire on the clock, a new assignment comes from
+   * Schoology rather than from the student, and a finished Focus session is not a
+   * task at all, so none of those are governed by it. Nor are the Settings Test
+   * buttons, whose whole job is to prove a channel works.
+   *
+   * Nothing is lost when it is off: every reminder is still written to the 🔔 log,
+   * with its popup/gmail flags recording the routes that ACTUALLY ran.
+   */
+  notifyEdits: boolean;
   /** How reminders interrupt you (Gabe, 8/10, extended 8/19). Bulk actions can
    *  make many come due at the same instant: move twelve tasks onto today, or
    *  create a batch of them, and twelve pop-ups (and twelve emails) fire back to
    *  back.
    *    'each'    — no grouping, every reminder interrupts you separately.
    *    'summary' — DEFAULT. A burst becomes one message naming them all.
-   *    'silent'  — NOTHING interrupts you, one reminder or twenty.
-   *  Silent covers single reminders as well as bursts on purpose (Gabe, 8/19):
-   *  "no pop-ups for a bulk change, but yes for the same task on its own" is not
-   *  a rule anyone could hold in their head, and a student who says silence means
-   *  it. Nothing is lost in any mode — the 🔔 log still lists every one. */
+   *
+   *  ONLY EVER ABOUT BURSTS NOW (Gabe, 8/22). It used to carry a third value,
+   *  'silent', which turned every reminder off — a whole different question wearing
+   *  a grouping control's clothes. That question is `notifyEdits` above, and this
+   *  is read only when that is on. Grouping never costs you the record: the 🔔 log
+   *  lists every reminder that was DELIVERED, whether it arrived alone or inside a
+   *  summary. What was never delivered is never logged. */
   burstMode: BurstMode;
   // Each notification carries its OWN Popup/Gmail choice (the per-card grid). A pop-up
   // fires iff its popup channel is on (and the browser granted permission); an email
@@ -77,6 +102,7 @@ export const DEFAULT_NOTIFY_SETTINGS: NotifySettings = {
   master: { popup: false, gmail: false }, // derived — see normalizeNotifySettings
   appearance: { course: true, priority: false, dueTime: true },
   notifyDuplicates: false, // OFF by default, per Gabe
+  notifyEdits: true, // the feature only works if it is on to begin with
   burstMode: 'summary', // a storm of pop-ups is never wanted
   // Popup defaults on for the core reminders — still inert until the user grants the
   // browser permission (the real opt-in). Gmail is opt-in per card + confirmation.
@@ -108,6 +134,7 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
     master: { ...d.master },
     appearance: { ...d.appearance },
     notifyDuplicates: d.notifyDuplicates,
+    notifyEdits: d.notifyEdits,
     burstMode: d.burstMode,
     dueSoon: { channels: { ...d.dueSoon.channels }, leads: [...d.dueSoon.leads] },
     dailyAgenda: { channels: { ...d.dailyAgenda.channels }, hour: d.dailyAgenda.hour, minute: d.dailyAgenda.minute },
@@ -130,9 +157,18 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
   if (ap && typeof ap === 'object') out.appearance = { course: ap.course ?? d.appearance.course, priority: ap.priority ?? d.appearance.priority, dueTime: ap.dueTime ?? d.appearance.dueTime };
   // Boolean, so `?? default` (not `||`) — a stored `false` must survive the read.
   if (typeof r.notifyDuplicates === 'boolean') out.notifyDuplicates = r.notifyDuplicates;
-  // burstMode replaced the groupBursts boolean on 8/19. Read both: an existing
-  // user's stored `false` still means "every reminder, separately".
-  if (r.burstMode === 'each' || r.burstMode === 'summary' || r.burstMode === 'silent') out.burstMode = r.burstMode;
+  // THREE SHAPES OF THE SAME ANSWER, oldest last.
+  //   · notifyEdits + burstMode  — today's pair.
+  //   · burstMode: 'silent'      — 8/19 to 8/22. It meant "no reminders at all",
+  //                                which is notifyEdits: false; the grouping it
+  //                                left behind is unknowable, so it takes the
+  //                                default and is invisible until the parent is
+  //                                turned back on.
+  //   · groupBursts: boolean     — before 8/19. `false` meant every reminder
+  //                                separately.
+  if (typeof r.notifyEdits === 'boolean') out.notifyEdits = r.notifyEdits;
+  if (r.burstMode === 'each' || r.burstMode === 'summary') out.burstMode = r.burstMode;
+  else if (r.burstMode === 'silent') out.notifyEdits = false;
   else if (typeof r.groupBursts === 'boolean') out.burstMode = r.groupBursts ? 'summary' : 'each';
   const ds = r.dueSoon as { leads?: unknown } | undefined;
   if (ds) { const leads = Array.isArray(ds.leads) ? ds.leads.filter((n): n is number => typeof n === 'number') : []; if (leads.length) out.dueSoon.leads = leads; }
@@ -350,10 +386,12 @@ interface Queued {
 let burstQueue: Queued[] = [];
 let burstTimer: number | null = null;
 let burstMode: BurstMode = 'summary'; // mirrors NotifySettings.burstMode
+let notifyEdits = true; // mirrors NotifySettings.notifyEdits — the parent of the above
 
-/** Point the burst grouper at the current setting (called wherever settings load). */
-export function setBurstMode(mode: BurstMode): void {
+/** Point the burst grouper at the current settings (called wherever settings load). */
+export function setBurstMode(mode: BurstMode, edits = true): void {
   burstMode = mode;
+  notifyEdits = edits;
 }
 
 /** Close the burst: one notification either way. */
@@ -370,7 +408,8 @@ function flushBurst(): void {
   // Many at once → each is logged individually, so the 🔔 screen still shows the
   // real history, and then ONE interruption lists them all. The combined message
   // is the delivery, not a log entry of its own (they were just logged).
-  // ('silent' never reaches here: sendNotification logs and returns.)
+  // (An edit-driven burst never reaches here with notifyEdits off: sendNotification
+  //  logs and returns. Bursts of anything else still group normally.)
   for (const item of q) {
     logNotification({ title: item.title, body: item.body, popup: item.popup, gmail: item.gmail });
   }
@@ -386,13 +425,34 @@ function flushBurst(): void {
 export function sendNotification(
   title: string,
   body: string,
-  opts: { popup?: boolean; gmail?: boolean; name?: string; onClick?: () => void } = {}
+  opts: {
+    popup?: boolean;
+    gmail?: boolean;
+    name?: string;
+    onClick?: () => void;
+    /**
+     * IS THIS REMINDER HERE BECAUSE THE STUDENT CREATED OR EDITED SOMETHING?
+     *
+     * Only these answer to `notifyEdits`. Gabe's wording drew the line: the parent
+     * governs "notifications for all edits/creations that fall within the user's due
+     * times" — a task you added, or whose due date you moved, landing inside a
+     * reminder window. It is NOT a global mute. A 7am agenda digest, a finished Focus
+     * session, and the Settings Test buttons are not edits, so they still deliver;
+     * the Test buttons in particular exist to PROVE a channel works, and one that
+     * says "Sent ✓" while quietly sending nothing is worse than no button.
+     *
+     * (Before 8/22 this gate was `burstMode: 'silent'` and it did mute everything.
+     * Renaming it to "Your creations and edits" is what made the wider reach wrong.)
+     */
+    fromEdit?: boolean;
+  } = {}
 ): void {
-  if (burstMode === 'silent') {
-    // Logged, never delivered — and the log says so, because the popup/gmail
-    // flags it records are the routes that ACTUALLY ran. Applies to a lone
-    // reminder too, not just a burst (see NotifySettings.burstMode).
-    deliver(title, body, { ...opts, popup: false, gmail: false });
+  if (opts.fromEdit && !notifyEdits) {
+    // THE PARENT SAID NO, so nothing happens at all: not delivered, and NOT LOGGED
+    // (Gabe, 8/22). It used to write a silent row, on the reasoning that the log is
+    // a history. But the 🔔 screen is a record of what actually reached you, and
+    // filling it with notifications you deliberately turned off makes it a list of
+    // non-events. Only what shows up goes in.
     return;
   }
   if (burstMode === 'each') {
