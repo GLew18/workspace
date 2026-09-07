@@ -92,6 +92,38 @@ body {
   padding: 0;
 }
 
+/* ---- THE FLOOR (Gabe, 8/29) ----------------------------------------------
+   Below a certain width a fluid layout stops degrading and starts breaking, and
+   past that point letting it keep shrinking serves nobody. Google does the same
+   thing on its own products: the page stops narrowing and the window scrolls
+   sideways instead.
+
+   360px, measured rather than picked. At 380 the app is completely fine. At 300
+   the header icons start clipping off the right edge and a task's meta row breaks
+   apart, with the course name and the date stacking onto separate lines. At 240
+   it is genuinely broken: "Claude" renders one letter per line down the card and
+   the OVERDUE badge collides with the priority arrow.
+
+   360 is also the real floor in hardware — the narrowest phones still in use are
+   360 CSS px, and an iPhone SE is 375 — so nothing anyone actually browses on
+   sees a horizontal scrollbar because of this.
+
+   ON BOTH ELEMENTS ON PURPOSE. `body` alone would let the app shell size itself
+   to a narrower `html` (the shell is height/overflow-managed in components.css and
+   its scroller measures its parent), and `html` alone leaves the body free to
+   shrink inside it. */
+html,
+body {
+  min-width: 360px;
+}
+
+/* A 650px desktop-only floor lived here briefly on 9/1 and was removed the same
+   day (Gabe): holding the layout wider than the window just trades reflow damage
+   for a clipped right edge and a horizontal scrollbar, which reads worse than the
+   reflow did. The narrow-width damage is fixed where it actually happens instead
+   — see the task meta row in components.css, where a shrunk-to-nothing course
+   name was the thing breaking one letter per line. */
+
 /* Always reserve the vertical scrollbar's space so switching between a short tab
    (Dashboard) and a tall one (Focus) doesn't shift the centered layout sideways.
    (Applies to the LANDING/sign-in pages — the signed-in shell scrolls .app-below
@@ -103,6 +135,13 @@ html {
 html:has(body.app-mode) {
   overflow-y: hidden;
   scrollbar-gutter: auto;
+  /* X AUTO, EXPLICITLY. The overflow created by the 360px floor lives BETWEEN html
+     and body — body is 360 wide and its own content fits inside that, so body has
+     nothing to scroll; the viewport is the narrower box. Measured at a real 300px
+     viewport before this line existed: the settings gear sat at x=348 and neither
+     element would scroll to it, so the floor hid a control instead of protecting
+     it. */
+  overflow-x: auto;
 }
 /* The PiP mini player clones these styles into its own tiny document; it must not
    inherit the always-on scrollbar above (a forced track in a 300px window).

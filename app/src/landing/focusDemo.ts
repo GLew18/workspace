@@ -3,12 +3,12 @@
 // The real Focus session renders as a full-screen overlay on <body>, which would
 // hijack the landing page. So the "See it in action → Focus" panel gets this: a
 // scaled-down copy of the real overlay (focus/view.ts buildOverlay), slightly
-// simplified for the showcase (no minimize button, no music transport) — timer
-// cluster left (quote → ring → "⏰ Ends" → Pause/End → ± rows), the "This session"
-// panel right. EVERY control is clickable: the clock ticks, ± (and ✎) adjust it,
+// simplified for the showcase (no minimize button, and no 🎵 menu behind the music
+// transport) — timer cluster left (quote → ring → "⏰ Ends" → Pause/End → ± rows),
+// the "This session" panel right. EVERY control is clickable: the clock ticks, ± (and ✎) adjust it,
 // todos toggle, the add-box adds, and Import Tasks opens a real list that imports.
 
-import { el, textInput, enterConfirms } from '../util/dom';
+import { el, textInput, enterConfirms, fadeRemove } from '../util/dom';
 import { makeWheel } from '../focus/wheel';
 
 const START_SECONDS = 25 * 60; // a classic 25:00 focus block
@@ -125,7 +125,7 @@ export function buildFocusDemo(): HTMLElement {
       class: `focus-ctrl ${sign > 0 ? 'gold' : 'danger'}`,
       text: sign > 0 ? 'Add' : 'Trim',
     });
-    const close = () => back.remove();
+    const close = () => fadeRemove(back);
     cancel.addEventListener('click', close);
     ok.addEventListener('click', () => {
       const amount = hourW.value() * 3600 + minW.value() * 60 + secW.value();

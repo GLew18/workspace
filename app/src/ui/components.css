@@ -90,7 +90,8 @@
        content to its right compresses. The header itself is untouched. ---- */
 .app-below {
   position: relative;
-  transition: padding-left 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  /* No padding-left transition any more: the drawer overlays instead of pushing
+     (see .ws-scrim below), so there is no longer a layout property to animate. */
 }
 
 /* Signed-in shell (body.app-mode, set in main.ts): the WINDOW doesn't scroll —
@@ -98,7 +99,16 @@
    running a full-height track that slices through it. */
 body.app-mode {
   height: 100vh;
-  overflow: hidden;
+  /* Y HIDDEN, X AUTO — not `overflow: hidden` (Gabe, 8/29).
+     The vertical rule is the original one: .app-below scrolls instead, so the
+     scrollbar starts beneath the header. The horizontal half is new, and it is what
+     makes the 360px floor in theme.css usable rather than merely a clip. Below 360
+     the layout stops shrinking, so in a 300px window the right-hand edge — header
+     icons, a task's overdue badge — sits outside the viewport. `hidden` on both axes
+     put it permanently out of reach; `auto` on x lets the window scroll sideways to
+     it, which is the whole point of having a floor. */
+  overflow-y: hidden;
+  overflow-x: auto;
 }
 body.app-mode #root {
   height: 100%;
@@ -114,8 +124,76 @@ body.app-mode .app-below {
   overflow-y: auto;
   scrollbar-gutter: stable; /* keeps tab switches from shifting the layout sideways */
 }
-.app-below.nav-open {
-  padding-left: 248px;
+/* THE DRAWER OVERLAYS, IT DOES NOT PUSH (Gabe, 9/1 — the YouTube model).
+   This used to be `.app-below.nav-open { padding-left: 248px }`, which reflowed
+   the ENTIRE page every time the drawer opened: every card re-wrapped, every grid
+   re-columned, and on a narrow window opening the nav could push the content into
+   exactly the squeezed state the wrap fixes above exist to prevent. The sidebar was
+   already `position: fixed`, so that padding was the only thing coupling it to the
+   layout — dropping it makes the drawer purely an overlay and the page underneath
+   never moves at all. The scrim below is what replaces the spatial cue the shove
+   used to give. */
+
+/* THE ONE DIM (Gabe, 9/3/26): the drawer's scrim, as he tuned it, is the dim for
+   every popup in the app too — same 20% black, same half-second ease-out. These
+   three values are the single definition; the drawer's scrim below and every
+   popup backdrop (priority/attachment popups, bookmark modals, focus modals and the
+   song window, Settings' editor, confirm and help sheets — each in its own file)
+   read them, so they can never drift apart. The blur a few backdrops used to add is
+   gone with this, since the drawer has none. NOT dimmed: the row ⋯ menu and the
+   calendar popover, which are anchored menus rather than popups, and the sign-in
+   screen, which is a page of its own. */
+:root {
+  --scrim-dim: rgba(0, 0, 0, 0.2);
+  --scrim-dur: 0.25s; /* 0.25, down from 0.5 (Gabe, 9/3/26) — in AND out */
+  --scrim-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --scrim-dur: 0.18s;
+    --scrim-ease: ease;
+  }
+}
+/* Backdrops are appended, not toggled, so they fade in by animation rather than
+   transition — the same curve and duration as the drawer's scrim. */
+@keyframes scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* …and back out again on close (Gabe, 9/3/26), on the same curve. Applied by
+   fadeRemove() in util/dom.ts, which removes the node when this finishes. Every
+   modal in the app closes through it. Two classes per selector, so this beats each
+   base rule's own animation wherever that rule is declared. */
+@keyframes scrim-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.popup-backdrop.closing,
+.bm-backdrop.closing,
+.help-backdrop.closing,
+.editor-backdrop.closing,
+.confirm-backdrop.closing,
+.focus-songwin-backdrop.closing,
+.focus-modal-back.closing {
+  animation: scrim-out var(--scrim-dur) var(--scrim-ease) both;
+  pointer-events: none; /* a leaving overlay must not swallow the next click */
+}
+/* The dim behind an open drawer. A real element rather than a pseudo so it can own
+   the click-outside-to-close (see main.ts); it sits under the sidebar's z-index 400
+   and over everything else, and is inert (pointer-events: none) while closed so it
+   can never swallow a click on the page it is covering. */
+.ws-scrim {
+  position: fixed;
+  inset: var(--header-h) 0 0 0;
+  background: var(--scrim-dim);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--scrim-dur) var(--scrim-ease);
+  z-index: 399;
+}
+.app-below.nav-open .ws-scrim {
+  opacity: 1;
+  pointer-events: auto;
 }
 .ws-sidebar {
   position: fixed;
@@ -197,16 +275,44 @@ body.app-mode .app-below {
    · Flex centering, NOT line-height. A digit's glyph box is taller than its ink, so
      line-height centers the box and leaves the ink riding high; align-items centers
      the ink. `line-height: 1` stops the box re-introducing the offset.
-   · padding-top 2px plus `top: 1px` is the optical nudge that settles the number
-     into the circle. It is deliberate, not drift.
+   · NO PADDING. There is nothing left to nudge with — see below.
 
-   ONE NOTE, because it is a real defect and the reason the padding looks odd: the
-   original declared `padding: 2 5px`, and `2` has no unit, so the WHOLE shorthand
-   was invalid and dropped. Only `padding-top: 2px` ever applied, leaving 0 left and
-   right. The 5px side padding has therefore never rendered. This is written out
-   longhand below so the CSS finally says what it does; the RESULT is byte-identical
-   to what shipped. Adding the intended 5px sides would change the look Gabe likes,
-   so it is deliberately not done here. */
+   THE 2px THAT MADE THE NUMBER SIT LOW (Gabe, 8/26 — "number too far down").
+   An earlier revision of this rule declared `padding: 2 5px`. `2` carries no unit,
+   which makes the WHOLE shorthand invalid, so the browser dropped all four sides and
+   the badge shipped with zero padding. A later pass rewrote it longhand as
+   `padding: 2px 0 0`, described it as an optical nudge, and claimed the result was
+   byte-identical to what shipped. It was not: that rewrite TURNED ON a 2px top
+   padding that had never rendered a day in its life.
+
+   Measured in Chrome with Inter 800 at 10.5px inside the 18px circle, as the gap
+   between the circle's edge and the digit's line box:
+     with `padding: 2px 0 0` → 3.75px above, 1.75px below. The digit's INK centers
+     1.1px below the circle's center.
+     with no padding         → 2.75px above, 2.75px below. Ink center lands 0.1px
+     from the circle's center, which is nothing.
+   So the fix is to delete the padding, not to add a compensating nudge.
+
+   THIS WAS NEVER A MAC BUG, and the first version of this note said it was. It
+   blamed DirectWrite's vertical grid-fitting against CoreText's lack of it. That is
+   a real difference between the two platforms and it is not what happened here.
+
+   CSS LAYOUT IS DETERMINISTIC AND IDENTICAL ON EVERY PLATFORM. Padding, box height
+   and flex centring resolve to the same numbers in Chrome on Windows as on macOS;
+   only RASTERISATION (antialiasing, hinting, subpixel coverage) differs. So the 2px
+   pushed the digit exactly as far down on the PC as it did here, and the badge has
+   been off-centre on both for as long as the longhand rewrite has existed.
+
+   What the Mac changed is whether anyone could SEE it. At 2x, an 18px circle is 36
+   device pixels of crisp edge and a 1px error is two full pixels of visibly uneven
+   whitespace. At 1x the same circle is 18 soft pixels and the error is one, inside
+   grey antialiasing, which reads as "slightly odd" rather than "wrong". Retina did
+   not create the defect; it made it legible.
+
+   The consequence that matters for the PC: this fix DELETES an error rather than
+   compensating for one, so there is nothing here that can over-correct on a 1x
+   display. Windows gets the same centred digit, or at worst the same digit it always
+   had. Nothing in this rule is, or should ever be, platform-conditional. */
 .count-badge {
   --badge-size: 18px;
   display: inline-flex;
@@ -214,10 +320,18 @@ body.app-mode .app-below {
   justify-content: center;
   min-width: var(--badge-size);
   height: var(--badge-size);
-  padding: 2px 0 0; /* the optical nudge — see above */
+  /* SIDES ONLY, AND ONLY WHEN THE CONTENT NEEDS THEM. Vertical padding is what put
+     the digit off-centre and stays at zero forever. The 4px sides cost a one-digit
+     badge nothing — "3" is 6.8px wide, so 6.8 + 8 is still under the 18px min-width
+     and the circle keeps its exact shape — and they are what stops the two-character
+     cases ("9+" on the bell, a two-digit due count on the Tasks nav) from touching
+     the rim. Those grow to ~21px and read as a short pill, which is what a badge
+     with two glyphs in it should look like. The visual pass on 8/26 called "9+"
+     cramped; this is that, fixed, without moving any single-digit badge a pixel. */
+  padding: 0 4px;
   border-radius: 999px;
   line-height: 1;
-  font-weight: 800;
+  font-weight: 700;
   font-variant-numeric: tabular-nums; /* digits keep one width, so it never jitters */
   flex: none;
 }
@@ -280,6 +394,28 @@ body.app-mode .app-below {
 }
 .app-user-name {
   margin-left: 22px;
+}
+/* ---- THE HEADER AT PHONE WIDTH (Gabe, 8/29) -------------------------------
+   The floor in theme.css is 360px, and this is what makes 360 an honest number
+   rather than an aspiration: measured at a 360 viewport, the header needed 420 and
+   pushed the gear and the account name straight off the right edge. Nothing above
+   had any narrow-width handling at all — 28px of padding either side and a 22px
+   margin on the name, at every width from a phone to a monitor.
+
+   Three savings, cheapest first: the side padding halves, the icons close up from
+   4px to 2px, and the name goes. The name is the one thing here that is decoration
+   rather than a control — the account it names is in Settings, one press away
+   behind the gear it was crowding off the screen. */
+@media (max-width: 460px) {
+  .app-header {
+    padding: 0 12px;
+  }
+  .app-user {
+    gap: 2px;
+  }
+  .app-user-name {
+    display: none;
+  }
 }
 .app-user button {
   background: none;
@@ -387,7 +523,11 @@ body.app-mode .app-below {
 /* ---- Sign-in screen ---- */
 .signin {
   max-width: 360px;
-  margin: 14vh auto 0;
+  /* Clamped, not raw 14vh (Gabe, 9/6/26, wanting the spacing to read the same on
+     his PC, his Mac and his phone). A bare 14vh put this card 151px down a
+     1080px screen and 90px down a 640px one; the ends are pinned now so the
+     card sits in the same place on any window that is not extreme. */
+  margin: clamp(72px, 14vh, 150px) auto 0;
   text-align: center;
   padding: 0 18px;
 }
@@ -559,6 +699,13 @@ body.app-mode .app-below {
   align-items: center;
 }
 
+/* The pin marker (see watchQuickAdd in tasks/render.ts): pure measurement, zero
+   height, no margins of its own so it cannot add a pixel to the list. */
+.quick-add-sentinel {
+  height: 0;
+  margin: 0;
+}
+
 /* ---- Quick add ---- */
 /* ---- The add bar, pinned to the top of the list (Gabe, 8/21) ----------------
    `sticky`, not `fixed`: fixed would need the content column's width and left edge
@@ -626,6 +773,37 @@ body.app-mode .app-below {
   background: var(--page-bg-flat);
   border-radius: 0 0 14px 14px;
   box-shadow: 0 5px 12px -9px rgba(0, 0, 0, 0.45);
+}
+/* Box + "+" side by side. The ROW is the flex container, never .quick-add itself:
+   the "f:" autocomplete menu hangs off .quick-add and measures its width, so that
+   box has to stay full-width and block. */
+.quick-add-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.quick-add-row input,
+.quick-add-row textarea {
+  flex: 1;
+  min-width: 0; /* a flex item's automatic minimum is its content — without this the box refuses to shrink */
+}
+/* Reads as the same control as the Focus tab's .focus-add-btn (which it is, at a
+   larger radius to match this bar's 12px box). Height comes from `align-items:
+   stretch`, so it tracks the input as that auto-grows on a wrapped line. */
+.quick-add-btn {
+  flex: none;
+  width: 48px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 12px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.quick-add-btn:hover {
+  filter: brightness(1.06);
 }
 .quick-add input,
 .quick-add textarea {
@@ -745,7 +923,13 @@ body.app-mode .app-below {
    Not on the Dashboard's excerpt list, which is a short preview inside a card and
    has no room to give away. */
 .task-list:not(.task-list-excerpt) {
-  padding-bottom: 150px;
+  /* 210, up from 150 (Gabe, 9/2/26). Measured: the tallest ⋯ menu a row can
+     carry is five entries at ~36px each plus the card's own padding, about
+     200px, and 150 left it 50px short — so the last row's menu was clipped even
+     after scrolling all the way down. The dropdown also clamps itself to the
+     window now (see dropdown() in tasks/render.ts); this is what keeps that
+     clamp from ever having to engage on the row that needs it most. */
+  padding-bottom: 210px;
 }
 
 /* ---- Task item ---- */
@@ -887,6 +1071,13 @@ body.app-mode .app-below {
   font-style: normal;
   opacity: 0.85;
   flex: none;
+  /* ROOM FOR THE GLYPH (Gabe, 9/1/26: "the right side of it is a little cut off").
+     An emoji's drawn width runs wider than the advance width the box is sized to —
+     measured 11.5px of box for a glyph that paints past it — so the globe ran into
+     the 6px gap and read as clipped against the text beside it. A min-width of one
+     and a bit em gives it its own space; the box is `flex: none`, so nothing else
+     moves. Text alignment is unchanged: the glyph still sits at the box's start. */
+  min-width: 1.25em;
 }
 /* ---- The translation row when it does not know its language yet (Gabe, 8/21) ----
    SAME ROW, SAME SLOT, SAME GLOBE as a finished translation. That is the whole idea:
@@ -979,11 +1170,24 @@ body.app-mode .app-below {
 .task-altered-badge:hover {
   filter: brightness(1.2);
 }
+/* Bottom row: [ meta + due badge ] .......... [ actions ]
+   WRAPS RATHER THAN CRUSHING (Gabe, 9/1). This was `nowrap`, and that is what
+   actually produced the "one letter per row" course name in a narrow window — not
+   anything on the chip itself. .task-actions is `flex: none`, so in a nowrap row it
+   keeps its full width and .task-meta-wrap (min-width: 0) absorbs the entire
+   shortfall. Measured on a 140px-wide card: actions held 115px of the 128px row and
+   the meta was left with FIVE PIXELS, so "English Language Arts" unspooled down 19
+   lines, one character each.
+
+   `wrap` only ever engages when the two genuinely do not fit, so every normal width
+   still renders the identical single line it always did; below that the actions drop
+   to their own line and the meta gets the full card width back. Same treatment
+   .lp-setup-body already uses on this row in landing.css for the same reason. */
 .task-bottom-row {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px; /* row gap tighter than column gap — a wrapped line should hug */
   margin-top: 6px;
 }
 .task-meta-wrap {
@@ -1015,8 +1219,23 @@ body.app-mode .app-below {
 }
 .course-chip {
   font-weight: 600;
-  min-width: 0;
-  overflow-wrap: anywhere; /* WRAP RULE */
+  /* NOT `min-width: 0` + `overflow-wrap: anywhere` (Gabe, 9/1). That pair is what
+     made a long course name unspool ONE LETTER PER LINE in a narrow window:
+     `anywhere` reports a min-content width of a SINGLE CHARACTER, so the flex
+     algorithm is happy to crush the chip to 1ch, and "English Language Arts"
+     becomes a vertical column of letters. `break-word` still breaks a genuinely
+     unbreakable run when it would otherwise overflow (the WRAP RULE's URL case is
+     preserved), but it reports min-content as the LONGEST WORD, so the squeeze
+     stops at something readable.
+
+     `flex: none` is the other half: .task-meta wraps (flex-wrap: wrap), so a chip
+     that no longer shrinks simply pushes the date onto the next line instead of
+     being compressed — which is what the WRAP RULE asked for in the first place.
+     max-width keeps it inside the card when the name alone is wider than the row.
+     Still wraps, still never an ellipsis. */
+  flex: none;
+  max-width: 100%;
+  overflow-wrap: break-word;
 }
 .course-chip.empty,
 .task-meta .meta-date.empty {
@@ -1044,6 +1263,16 @@ body.app-mode .app-below {
   /* Schoology instructions run long — 40vh scrolled far too early (per Gabe). */
   max-height: 60vh;
   overflow-y: auto;
+  /* WRAP LONG UNBREAKABLE TOKENS, same as .task-title (Gabe, 9/1/26).
+     Setting only overflow-y makes the browser compute overflow-x as `auto` too, so
+     without this a bare URL in a description did not wrap — it ran off the right
+     edge behind a scrollbar with no arrow and no track, reachable only by a sideways
+     gesture inside that one paragraph. Measured: an 80-character link gave
+     scrollWidth 520 against clientWidth 284, so 236px of a teacher's link was
+     simply invisible. Schoology descriptions are mostly links, which is why this
+     mattered more here than anywhere else in the app. */
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 /* ---- the description's translation (Gabe, 8/22) ----------------------------
@@ -1051,10 +1280,21 @@ body.app-mode .app-below {
    .task-ask-* are not restyled here, they are simply used in a popup instead of a
    row. Only the two things a popup needs differently are set. */
 .popup-body > .task-translation {
-  /* Off the description above it, and clear of the button below. In a row this line
-     is tucked under the title; here it is a paragraph answering a paragraph. */
+  /* Off the description above it. In a row this line is tucked under the title;
+     here it is a paragraph answering a paragraph. (Nothing sits below it any more:
+     the two pill buttons were removed on 9/1/26.) */
   margin: 0 0 12px;
+  /* flex-start, not the row's `baseline`, because the translated text here is an
+     overflow container and a scroll box reports its BOTTOM edge as its baseline —
+     baseline alignment would drop the globe to the foot of a long paragraph. */
   align-items: flex-start;
+}
+/* …which then has to be corrected for, or the globe sits high against the first
+   line instead of on it (Gabe, 9/1/26: it must read exactly like the title's).
+   Matching the badge's line box to the paragraph's (13px × 1.55 = 20.15px) puts the
+   glyph on the same optical line that `baseline` gives it in a row. */
+.popup-body > .task-translation .task-translation-badge {
+  line-height: 20.15px;
 }
 .popup-body > .task-translation .task-details-text {
   margin-bottom: 0;
@@ -1062,27 +1302,9 @@ body.app-mode .app-below {
      ceiling rather than pushing the popup past the window. */
   max-height: 40vh;
 }
-/* "Change language…" — quiet, because it is an offer, not the point of the popup. */
-.task-details-relang {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-dim);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 5px 11px;
-  cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
-}
-.task-details-relang:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
-  background: rgba(255, 255, 255, 0.04);
-}
+/* (.task-details-relang, the popup's "Change language…" / "Hide translation" pills,
+   was deleted on 9/1/26 with the buttons it styled. Hiding is the row's globe now,
+   and changing the language is the row's ⋯ menu.) */
 
 /* ---- Task folders (the big-project Folders feature) ---- */
 .task-folders-label {
@@ -1104,7 +1326,15 @@ body.app-mode .app-below {
   display: flex;
   /* Icon, count and arrow stay on the name's FIRST line when it wraps. */
   align-items: flex-start;
-  gap: 10px;
+  /* WRAPS RATHER THAN CRUSHING THE NAME (Gabe, 9/1), the same defect and the same
+     fix as .task-bottom-row above: the handle, icon, count and arrow are all
+     `flex: none`, so in a nowrap row .task-folder-name (min-width: 0) absorbed the
+     whole shortfall and a folder called "workspace-additions" came apart as
+     "works / pace- / additio / ns". Wrapping lets the count and arrow drop to their
+     own line and hands the name the full row back; it only engages when they truly
+     do not fit, so ordinary widths look exactly as they did. */
+  flex-wrap: wrap;
+  gap: 4px 10px;
   width: 100%;
   min-width: 0;
   text-align: left;
@@ -1162,7 +1392,14 @@ body.app-mode .app-below {
   font-weight: 650;
   font-size: 14px;
   min-width: 0;
-  overflow-wrap: anywhere; /* WRAP RULE — a very long folder name wraps, never overflows the row */
+  /* WRAP RULE — a very long folder name wraps, never overflows the row. `break-word`
+     rather than `anywhere` for the same reason as .course-chip above (Gabe, 9/1):
+     both break an unbreakable run, but `anywhere` also reports min-content as one
+     character, which is what let a narrow window stack the name one letter per
+     line. This one keeps `min-width: 0` because it shares the row with a count and
+     an arrow that must stay put; word-level min-content is enough to stop the
+     letter-column. */
+  overflow-wrap: break-word;
 }
 .task-folder-count {
   font-size: 12px;
@@ -1184,6 +1421,123 @@ body.app-mode .app-below {
 .task-folder-body .task-group-header {
   font-size: 11px;
 }
+/* "· N NEW" ON A COLLAPSED FOLDER (Gabe, 9/1/26) — the sync filed assignments in
+   here and the student has not opened it since.
+
+   THE COLOUR IS THE ENTIRE TREATMENT. This was a filled red pill fused to the task
+   count, and Gabe's verdict on seeing it running was that it looked like an ad. So:
+   no background, no border, no bolding, no size bump — the same 12px regular as the
+   count it follows, so "2 tasks · 1 new" reads as one phrase rather than a label
+   with a badge stuck on it. Red is the only thing separating it from the grey, and
+   that is enough precisely because nothing else on a folder row is ever red.
+
+   Restraint is affordable here because this is not a passive decoration: it appears
+   only when something is genuinely unseen, and it is gone the moment the folder is
+   opened. */
+.task-folder-meta {
+  display: inline-flex;
+  align-items: baseline; /* three text runs on one line share a baseline, not a box */
+  /* 5px, against the head's own 10px: the count, the separator and "1 new" are one
+     phrase. At the head's spacing they read as three unrelated items. */
+  gap: 5px;
+  flex: none;
+}
+.task-folder-sep {
+  font-size: 12px;
+  color: var(--text-dim);
+  opacity: 0.5; /* same weight as the separator between a task's course and its date */
+}
+.task-folder-new {
+  font-size: 12px;
+  color: #ef4444;
+  font-variant-numeric: tabular-nums; /* "1 new" and "3 new" keep one width */
+  white-space: nowrap; /* never breaks between the number and the word */
+}
+
+/* The auto-file caption — one quiet line at the top of an open folder saying
+   which course's Schoology assignments drop in here (see autoFileCaption in
+   tasks/render.ts). Sub-text weight and a hairline underneath: it is a setting
+   ABOUT the folder, so it must never compete with the tasks below it.
+
+   The checkmark reuses .task-cb verbatim and shrinks it to caption scale — a
+   completion box at 22px next to 12.5px text reads as a task with no title. */
+.task-folder-autofile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 9px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--text-dim);
+  /* Dimmed while off: an unticked setting is an offer, not a statement. */
+  opacity: 0.72;
+  transition: opacity 0.2s ease;
+}
+.task-folder-autofile:hover,
+.task-folder-autofile.on {
+  opacity: 1;
+}
+.task-folder-autofile .task-cb.autofile-cb {
+  width: 15px;
+  height: 15px;
+  margin-top: 0;
+  border-width: 1.5px;
+  border-radius: 5px;
+  /* ZERO THE INHERITED BUTTON PADDING, or the tick vanishes. Every <button> gets
+     `padding: 1px 6px` from the base rule, and with border-box a 15px box spends
+     3px on borders and 12px on that padding — leaving the checkmark exactly 0px of
+     content width to live in. Measured: the svg computed to width 0 with height 10,
+     a solid blue square with nothing in it. */
+  padding: 0;
+}
+.task-folder-autofile .task-cb.autofile-cb svg {
+  width: 10px;
+  height: 10px;
+}
+/* Ticked is the ACCENT, not the green a finished task wears: nothing here is
+   done, this is a switch that is on. */
+.task-folder-autofile .task-cb.autofile-cb.checked {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.task-folder-autofile-text {
+  /* WRAP RULE: a long course name wraps the caption onto a second line, never clips. */
+  min-width: 0;
+  overflow-wrap: break-word;
+  line-height: 1.5;
+}
+/* The "(ends when folder dissolves)" footnote. One step dimmer than the sentence it
+   trails, so it reads as a clarification rather than a second instruction — it must
+   not compete with the rule itself for attention. */
+.task-folder-autofile-note {
+  opacity: 0.62;
+  white-space: nowrap; /* the parenthetical breaks as one unit or not at all */
+}
+
+/* The course reads exactly as it does on a task row (same class, same color), so
+   there is nothing new to learn about what the colored word means. */
+.task-folder-autofile .course-chip {
+  cursor: text;
+}
+/* THE EDITOR STAYS IN THE SENTENCE (Gabe, 9/1/26 — he caught it mid-edit).
+   .inline-edit-block is `display: block`, which is fine everywhere else it is used
+   because there it replaces a flex item (a task title, the course chip inside the
+   flex .task-meta row). This caption is the first place it lands inside a RUN OF
+   TEXT, and a block box forces a line break on both sides of itself: double-clicking
+   the course tore one sentence into three stacked lines, with the box on its own in
+   the middle.
+
+   inline-block puts it back in the flow, so the caption reads as one sentence while
+   you type in it and wraps at its natural width like any other line of prose. Scoped
+   to this caption on purpose — the global rule is load-bearing in the flex rows. */
+.task-folder-autofile .inline-edit-block {
+  display: inline-block;
+  vertical-align: middle;
+  white-space: nowrap; /* the course being typed is one short name; it never needs to break */
+}
+
 .task-folder-empty {
   color: var(--text-dim);
   font-size: 12.5px;
@@ -1269,7 +1623,7 @@ body.app-mode .app-below {
   font-size: 11.5px;
   color: var(--text-dim);
 }
-/* "+ New folder" row: color well + name box side by side. */
+/* "+ New folder" row: color well + name box + the create button, side by side. */
 .folder-pick-new {
   display: flex;
   align-items: center;
@@ -1277,6 +1631,29 @@ body.app-mode .app-below {
 }
 .folder-pick-new .folder-pick-input {
   flex: 1;
+  min-width: 0; /* a flex item's automatic minimum is its content; without this the box can't shrink */
+}
+/* The create button. Shared by all three "+ New …" rows — Tasks folders, Focus
+   folders, Bookmarks groups (Gabe, 8/26). 38px square against the input's 10/12
+   padding, so the two line up without either being told its height. */
+.folder-pick-add {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 10px;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.folder-pick-add:hover {
+  filter: brightness(1.06);
 }
 /* ---- Where the tips went (Gabe, 8/22) ----
    `.tasks-bulk-tip` printed the Shift+click line under the quick-add bar, and
@@ -1410,21 +1787,40 @@ body.app-mode .app-below {
    answer, which is "where am I". A mouse click cannot trigger it, so the range
    endpoints that started this whole thread keep their solid ring.
 
-   The mini player needs naming separately: it is a Document-Picture-in-Picture
-   window, its own document, with every stylesheet cloned in but WITHOUT .app-mode
-   on the body, because that class carries the app shell's layout rules and would
-   wreck a 300px window. Its transport buttons and checkboxes are real focusable
-   controls. */
-body.app-mode :focus:not(:focus-visible),
-.focus-pip-body :focus:not(:focus-visible) {
+   The mini player used to need naming separately here: it is a
+   Document-Picture-in-Picture window, its own document, with every stylesheet cloned
+   in but WITHOUT .app-mode on the body, because that class carries the app shell's
+   layout rules and would wreck a 300px window, so a rule scoped to .app-mode missed
+   its transport buttons entirely. The rules below are unscoped as of 8/26 and cover
+   it along with everything else, so .focus-pip-body no longer appears in them. */
+/* TWO HOLES THIS RULE USED TO HAVE, both closed on 8/26 after Gabe still saw a ring
+   on a plain click.
+
+   HOLE 1, the important one: the pair below only ever CLEARED `:focus:not(
+   :focus-visible)`. When Chrome hands :focus-visible to a MOUSE click — which is the
+   whole reason html[data-kbd] exists, see the note under it — the element matched
+   neither the clearing rule (it IS focus-visible) nor the painting rule (no data-kbd
+   on a click), so nothing in this file touched it and the browser's own white box
+   came through. `:where(:focus)` clears the UA outline unconditionally instead: it
+   is an AUTHOR rule so it beats the UA sheet, and :where() holds it at specificity
+   (0,0,0) so every selection ring below still wins on top of it.
+
+   HOLE 2: the clear was scoped to body.app-mode and .focus-pip-body, so the landing
+   page, the sign-in screen and the onboarding flow were never covered at all. It is
+   unscoped now — one rule for every document Cobalt draws. */
+:where(:focus) {
   outline: none;
 }
 /* html[data-kbd] is set by main.ts on Tab and cleared on any pointer press, and it
    is doing real work here rather than belt-and-braces: :focus-visible alone let a
    ring through on mouse clicks (Chrome grants it to a clicked <a>), and the rule is
-   meant to be absolute, a ring when you tab and never when you click. */
-html[data-kbd] body.app-mode :focus-visible,
-html[data-kbd] .focus-pip-body :focus-visible {
+   meant to be absolute, a ring when you tab and never when you click.
+
+   (0,2,1) still, unscoped: enough to beat every selection ring in the app, all of
+   which are two chained classes at (0,2,0) — .bm-card.selected, .task-item.selected,
+   .arch-row.selected, .focus-todo-item.selected. That is the precedence the note
+   above describes. */
+html[data-kbd] :focus-visible {
   outline: 2px dashed var(--sel-outline);
   outline-offset: 2px;
 }
@@ -1691,6 +2087,12 @@ html[data-kbd] .focus-pip-body :focus-visible {
 .task-due-badge.TOD {
   color: var(--red);
   border-color: rgba(239, 68, 68, 0.4);
+}
+/* OVR wears exactly the TEST pill's clothes (Gabe, 9/1/26: "visually identical") —
+   same red tint behind the same red text, so the two urgency pills read as one
+   family instead of one filled and one hollow. */
+.task-due-badge.OVR {
+  background: rgba(239, 68, 68, 0.1);
 }
 .task-due-badge.TOM {
   color: #e85d04;
@@ -2108,7 +2510,8 @@ body:has(.selbar:not([hidden])) .toast {
 .popup-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim-dim); /* the drawer's dim, see :root above */
+  animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2602,6 +3005,20 @@ body:has(.selbar:not([hidden])) .toast {
 }
 .folder-pick-row:hover .group-pick-edit { opacity: 1; }
 .group-pick-edit:hover { color: var(--text); }
+/* Delete, beside the pencil (Gabe, 9/1/26). Same hover-revealed treatment, so the
+   row stays as quiet as it was; red only on hover, because the mark itself is not a
+   warning — the links inside survive the group being dropped. `margin-left: 0`
+   overrides the pencil's auto: the pencil owns the gap, these two sit together. */
+.group-pick-del {
+  margin-left: 0;
+  padding: 0 2px;
+  color: var(--text-dim);
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.14s ease, color 0.14s ease;
+}
+.folder-pick-row:hover .group-pick-del { opacity: 1; }
+.group-pick-del:hover { color: var(--red); }
 /* Save, inside an inline rename row. Sized to sit beside .folder-pick-input. */
 .folder-pick-mini {
   flex: none;

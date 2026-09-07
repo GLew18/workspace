@@ -83,6 +83,10 @@ export default defineConfig({
   build: {
     target: 'es2021',
     outDir: 'dist',
-    sourcemap: true,
+    // OFF for production: sourcemap:true publishes the complete TypeScript source
+    // alongside the bundle, and the deployed site served every .map file to anyone
+    // who asked (confirmed live 9/3/26). Flip to true temporarily if you need to
+    // debug a minified stack trace, then flip it back before deploying.
+    sourcemap: false,
   },
 });

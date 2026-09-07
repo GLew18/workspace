@@ -78,7 +78,7 @@ function toggle(x: number, y: number, mode: 'on' | 'off' | 'turnsOn'): string {
 function sitePanel(popups: 'off' | 'turnsOn' | 'on'): string {
   return (
     B(120, 16, 225, 228, PANEL, 10, `stroke="${LINE}"`) +
-    T(136, 40, 11, TXT, 'localhost:5173', 600) +
+    T(136, 40, 11, TXT, 'cobaltstudy.com', 600) +
     T(326, 41, 11, DIM, '✕', 600) +
     B(132, 52, 201, 1, LINE, 0) +
     // the warning block, compressed to two lines
@@ -106,7 +106,7 @@ function browserBar(): string {
     B(14, 14, 432, 30, OMNI, 15, `stroke="${LINE}"`) +
     `<circle cx="34" cy="29" r="8" fill="none" stroke="${DIM}" stroke-width="1.4"/>` +
     T(34, 33, 10, DIM, 'i', 700, 'middle') +
-    T(52, 33, 10.5, TXT, 'localhost:5173/...') +
+    T(52, 33, 10.5, TXT, 'cobaltstudy.com/...') +
     T(432, 33, 10, DIM, '☆', 500, 'middle')
   );
 }

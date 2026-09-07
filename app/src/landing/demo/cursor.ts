@@ -154,6 +154,36 @@ export class GhostCursor {
     }
   }
 
+  /** Take something WITH the hand off the right edge (the loop seam's mini player):
+   *  land on `grip`, press, and glide right past the frame while `target` translates
+   *  by exactly the hand's own delta every frame, so the hand rides the grip all the
+   *  way out. No pointer events are fired: the window has no drag handler, and the
+   *  app's own makeDraggable would map window coordinates into the scaled frame and
+   *  teleport it (the 8/17 audit) — this is staging, not input. Like exit(), it is
+   *  the ONE legal off-screen move. */
+  async carry(target: HTMLElement, grip: Element, dx: number): Promise<void> {
+    // GRIP THE LEFT END (Gabe, 9/3/26: "the cursor is still not on the pip when
+    // dismissing it off the screen"). The hand and the window do move as one — but
+    // the frame CLIPS at its right edge, and a hand holding the bar's centre crosses
+    // that edge halfway through the drag, leaving 220px of window sliding out with
+    // nothing on it. Held near the left edge, the hand stays inside the frame until
+    // the window is all but gone (~26px), so it is on the window the whole way.
+    await this.moveTo(grip, { ax: 0.06, ay: 0.5 });
+    this.elCursor.classList.add('pressed');
+    await this.wait(120); // the grab reads before anything moves
+    this.offscreenOk = true;
+    const from = { x: this.x, y: this.y };
+    target.style.transition = 'none';
+    const steps = this.opts.instant ? 2 : 30; // ~0.6s at the scripted tempo
+    for (let i = 1; i <= steps; i++) {
+      const e = easeInOut(i / steps);
+      target.style.transform = `translateX(${dx * e}px)`;
+      this.place(from.x + dx * e, from.y);
+      await this.wait(16);
+    }
+    this.elCursor.classList.remove('pressed');
+  }
+
   /** The loop seam's exit: glide off the frame's right edge, legally. */
   async exit(): Promise<void> {
     this.offscreenOk = true;
@@ -234,6 +264,36 @@ export class GhostCursor {
       const r = e.getBoundingClientRect();
       return r.width > 0 || r.height > 0 ? e : undefined;
     }, 4000, label);
+  }
+
+  /** fresh(), plus patience: the SAME node has to keep coming back for `holdMs`
+   *  before it counts. For targets a view is about to redraw on its own clock (the
+   *  session todo list after a write-back, the 🎵 menu after its library refresh),
+   *  fresh() returns the instant an attached node exists — which can be the very
+   *  node the redraw is about to replace, so the hand sets off for a corpse, or,
+   *  since a corpse has no box, does not set off at all (Gabe's audit, 9/3/26: two
+   *  beats in the last scene did exactly that, every loop). */
+  async stable<T extends Element>(fn: () => T | null | undefined, label = 'element', holdMs = 320): Promise<T> {
+    const t0 = performance.now();
+    let last: T | null = null;
+    let since = t0;
+    while (performance.now() - t0 < 4000) {
+      this.check();
+      const e = fn();
+      let live = false;
+      if (e && e.isConnected) {
+        const r = e.getBoundingClientRect();
+        live = r.width > 0 || r.height > 0;
+      }
+      if (live && e === last) {
+        if (performance.now() - since >= holdMs) return e as T;
+      } else {
+        last = live ? (e as T) : null;
+        since = performance.now();
+      }
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    throw new Error(`${label}: never held still`);
   }
 
   /** Wait (REAL time, instant mode included) for a target to settle inside
@@ -350,6 +410,56 @@ export class GhostCursor {
     return null;
   }
 
+  /**
+   * WHAT A REAL MOUSE WOULD ACTUALLY HIT (Gabe, 9/1/26: Dan was editing rows from
+   * behind the add-task bar).
+   *
+   * The cursor dispatches events straight AT an element, so unlike a real click it
+   * never asks whether anything is on top of it. The add-task bar is sticky and
+   * opaque once it pins, and rows slide under it — in the app a click there lands on
+   * the bar (verified with elementFromPoint), but the demo happily double-clicked a
+   * title nobody could see and typed into it.
+   *
+   * So ask the document the same question a mouse asks. If something unrelated owns
+   * that pixel, scroll the target clear of it and ask again; the hand's own wheel
+   * gesture is what moves it, so the viewer sees why the shot changed. Three tries,
+   * then give up and let the beat proceed — a demo that deadlocks over a pixel is
+   * worse than one that clicks a covered row.
+   *
+   * The stage carries `pointer-events: none` against real mice, which would make
+   * every hit test return the page behind it, so it is lifted for the duration of
+   * the test and restored before this function yields. No frame exists in which a
+   * visitor's mouse could reach the demo.
+   */
+  private async clearOccluders(target: Element, o: ClickOpts): Promise<void> {
+    if (this.opts.instant) return; // headless: nothing is painted to hit-test against
+    const stage = this.space.closest<HTMLElement>('.lp-hero-stage');
+    for (let i = 0; i < 3; i++) {
+      const vp = this.viewportPoint(target, o.ax, o.ay);
+      const prev = stage?.style.pointerEvents;
+      if (stage) stage.style.pointerEvents = 'auto';
+      const hit = document.elementFromPoint(vp.x, vp.y);
+      if (stage) stage.style.pointerEvents = prev ?? '';
+      // Unrelated = a genuine overlay. An ancestor or a child of the target means
+      // the point simply is not on the target, which scrolling cannot fix.
+      if (!hit || hit === target || target.contains(hit) || hit.contains(target)) return;
+      const sc = this.nearestScroller(target);
+      const hr = hit.getBoundingClientRect();
+      if (!sc || hr.bottom <= vp.y) {
+        // Nothing to scroll, or the cover sits BELOW the point (a bottom bar) —
+        // record it so the smoke run can see what the hand walked into.
+        const w = window as unknown as { __demoOccluded?: string[]; __demoScene?: string; __demoBeat?: string };
+        (w.__demoOccluded ??= []).push(
+          `[${w.__demoScene ?? '?'}${w.__demoBeat ? ` @ ${w.__demoBeat}` : ''}] ${target.className} covered by ${hit.className}`
+        );
+        return;
+      }
+      const cr = sc.getBoundingClientRect();
+      const s = this.scale() || 1;
+      await this.ensureInView(sc, target, (hr.bottom - cr.top) / s + 10);
+    }
+  }
+
   /** Move to the target, press, click — with the pressed-cursor visual. */
   async click(target: Element, o: ClickOpts = {}): Promise<void> {
     await this.settleIntoBounds(target); // transitions finish before the hand arrives
@@ -363,6 +473,7 @@ export class GhostCursor {
         if (sc) await this.ensureInView(sc, target, 16);
       }
     }
+    await this.clearOccluders(target, o); // nothing sticky may stand between hand and target
     await this.moveTo(target, o);
     const vp = this.viewportPoint(target, o.ax, o.ay);
     const init: MouseEventInit = { clientX: vp.x, clientY: vp.y, shiftKey: !!o.shift, ctrlKey: !!o.ctrl };
@@ -398,7 +509,7 @@ export class GhostCursor {
    *  tiny hesitations after word breaks. Ends WITHOUT committing (callers press
    *  Enter themselves when the flow calls for it). */
   async typeInto(field: HTMLInputElement | HTMLTextAreaElement, text: string): Promise<void> {
-    field.focus();
+    field.focus({ preventScroll: true }); // never scroll the visitor's page to the field
     if (this.opts.instant) {
       field.value += text;
       field.dispatchEvent(new InputEvent('input', { bubbles: true }));
@@ -417,7 +528,7 @@ export class GhostCursor {
    *  like a person). The full honest sequence a real Ctrl+V emits: modifier
    *  keydown, V keydown, a paste ClipboardEvent, one insertFromPaste input. */
   async paste(field: HTMLInputElement | HTMLTextAreaElement, text: string): Promise<void> {
-    field.focus();
+    field.focus({ preventScroll: true }); // never scroll the visitor's page to the field
     await this.wait(200); // the beat of reaching for Ctrl+V
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', ctrlKey: true, bubbles: true }));
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true }));
@@ -432,7 +543,7 @@ export class GhostCursor {
   /** Select-all + retype (the rename gesture after an inline editor opens with
    *  the old value selected). */
   async retype(field: HTMLInputElement | HTMLTextAreaElement, text: string): Promise<void> {
-    field.focus();
+    field.focus({ preventScroll: true }); // never scroll the visitor's page to the field
     field.select();
     await this.wait(140);
     field.value = '';
@@ -460,17 +571,24 @@ export class GhostCursor {
     await this.moveTo(target);
     const vp = this.viewportPoint(target);
     const s = this.scale();
+    // THE HAND RIDES THE DRAG (Gabe, 9/2/26: on the hue slider "he's not actually
+    // touching" it). Two things pulled the pointer off what it was dragging. The
+    // events walked an EASED path while the drawn cursor advanced in equal steps, so
+    // the two separated in the middle of every drag; and the finish re-placed the
+    // cursor at the target's CENTRE, which teleported it backwards off the thumb it
+    // had just pushed — leaving the hue visibly changed with nothing on the slider.
+    // Both now follow one eased path and stop where the drag stopped.
+    const from = { x: this.x, y: this.y };
     this.fire(target, 'pointerdown', { clientX: vp.x, clientY: vp.y, button: 0 });
     const steps = this.opts.instant ? 2 : 14;
     for (let i = 1; i <= steps; i++) {
       const e = easeInOut(i / steps);
       this.fire(target, 'pointermove', { clientX: vp.x + dx * s * e, clientY: vp.y + dy * s * e });
-      this.place(this.x + (dx / steps) * 1, this.y + (dy / steps) * 1);
+      this.place(from.x + dx * e, from.y + dy * e);
       await this.wait(16);
     }
     this.fire(target, 'pointerup', { clientX: vp.x + dx * s, clientY: vp.y + dy * s, button: 0 });
-    const end = this.localPoint(target);
-    this.place(end.x, end.y);
+    this.place(from.x + dx, from.y + dy);
   }
 
   /** HTML5 drag-and-drop between two rows (the focus todo reorder). Chrome lets
@@ -520,9 +638,28 @@ export class GhostCursor {
       container.dispatchEvent(new Event('scroll'));
       return;
     }
-    await this.moveTo(container, { ax: 0.55, ay: 0.45, noHover: true });
-    await this.wait(120);
-    const vp = this.viewportPoint(container, 0.55, 0.45);
+    // ONLY REPOSITION IF THE HAND IS NOT ALREADY OVER IT (Gabe, 9/2/26: "he moves
+    // his cursor to a spot, scrolls, stops, moves his cursor up and then scrolls
+    // again"). A wheel works wherever the pointer happens to be, so walking it back
+    // to the same centre point before every scroll was a tic, not a gesture — and
+    // consecutive scrolls did it once each. A pointer already inside the box scrolls
+    // from where it stands.
+    const cr = container.getBoundingClientRect();
+    const here = this.localPoint(container, 0.5, 0.5);
+    const inside =
+      Math.abs(this.x - here.x) < cr.width / (2 * (this.scale() || 1)) - 12 &&
+      Math.abs(this.y - here.y) < cr.height / (2 * (this.scale() || 1)) - 12;
+    if (!inside) {
+      await this.moveTo(container, { ax: 0.55, ay: 0.45, noHover: true });
+      await this.wait(120);
+    }
+    // The wheel fires WHERE THE HAND IS, which is the whole reason it may stay put.
+    // (localPoint's inverse: local design pixels back into viewport pixels.)
+    const s = this.scale() || 1;
+    const sr = this.space.getBoundingClientRect();
+    const vp = inside
+      ? { x: sr.left + this.x * s, y: sr.top + this.y * s }
+      : this.viewportPoint(container, 0.55, 0.45);
     const from = container.scrollTop;
     let lastNotch = 0;
     await new Promise<void>((resolve) => {

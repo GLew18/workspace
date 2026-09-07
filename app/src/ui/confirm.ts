@@ -8,7 +8,7 @@
 //
 // Styles: .confirm-* in ui/settings.css.
 
-import { el } from '../util/dom';
+import { el, fadeRemove } from '../util/dom';
 
 /** A red, can't-miss confirmation for destructive/sensitive changes. */
 export function confirmDanger(title: string, onYes: () => void, yesLabel = 'Yes'): void {
@@ -24,17 +24,17 @@ export function confirmDanger(title: string, onYes: () => void, yesLabel = 'Yes'
   box.append(el('h3', { class: 'confirm-title', text: title }));
   const row = el('div', { class: 'confirm-actions' });
   const cancel = el('button', { class: 'confirm-cancel', text: 'Cancel' });
-  cancel.addEventListener('click', () => back.remove());
+  cancel.addEventListener('click', () => fadeRemove(back));
   const yes = el('button', { class: 'confirm-yes', text: yesLabel });
   yes.addEventListener('click', () => {
-    back.remove();
+    fadeRemove(back);
     onYes();
   });
   row.append(cancel, yes);
   box.append(row);
   back.append(box);
   back.addEventListener('click', (e) => {
-    if (e.target === back) back.remove();
+    if (e.target === back) fadeRemove(back);
   });
   // Escape = Cancel, self-cleaning the same way enterConfirms does.
   const onEsc = (e: KeyboardEvent) => {
@@ -42,7 +42,7 @@ export function confirmDanger(title: string, onYes: () => void, yesLabel = 'Yes'
       document.removeEventListener('keydown', onEsc);
       return;
     }
-    if (e.key === 'Escape') back.remove();
+    if (e.key === 'Escape') fadeRemove(back);
   };
   document.addEventListener('keydown', onEsc);
   // Enter deliberately does NOT confirm here (Gabe, 8/7/26): these dialogs are

@@ -15,7 +15,7 @@
 
 import type { Data } from '../db';
 import { selectionBar, type SelBar } from '../ui/selbar';
-import { el, textInput, enterConfirms, showToast } from '../util/dom';
+import { el, textInput, enterConfirms, showToast, fadeRemove } from '../util/dom';
 import { popupGuideButton } from '../ui/popupGuide';
 import { attachColorPicker } from '../ui/colorPicker';
 import { genId } from '../util/ids';
@@ -79,7 +79,7 @@ const FAVICON_OVERRIDES: Record<string, string> = {
 
 // #region URL + favicon helpers
 /** Pretty URL for the card's second line: host + the full path/query/hash so you
- *  see the precise link (e.g. "cobalt.app/tasks"), dropping only the scheme, a
+ *  see the precise link (e.g. "cobaltstudy.com/tasks"), dropping only the scheme, a
  *  leading www., and a bare trailing slash. The card CSS keeps it to one line with
  *  an ellipsis, so a long path truncates instead of wrapping. */
 function hostOf(url: string): string {
@@ -229,6 +229,11 @@ export class BookmarksView {
     this.guideBtn.hidden = true;
     page.append(this.guideBtn);
 
+    // SEARCH AND ADD SHARE THE TOP ROW (Gabe, 9/6/26), the same shape the Tasks
+    // tab's quick-add bar has had since 8/26: the box takes the room it needs and
+    // the add control sits at its right end. It keeps its WORDS, though — a bare
+    // "+" against a box labelled "Search links…" reads as "add a search", which
+    // is why this one says "Add link" and the Tasks one does not have to.
     const searchWrap = el('div', { class: 'bm-search-wrap' });
     const searchInput = textInput({
       class: 'bm-search',
@@ -240,7 +245,13 @@ export class BookmarksView {
       this.search = searchInput.value;
       this.renderGrid();
     });
-    searchWrap.append(searchInput);
+    const addBtn = el('button', { class: 'bm-add-btn', type: 'button', title: 'Add link' });
+    addBtn.append(
+      el('span', { class: 'bm-add-plus', text: '+' }),
+      el('span', { class: 'bm-add-word', text: 'Add link' })
+    );
+    addBtn.addEventListener('click', () => this.openEditor(null));
+    searchWrap.append(searchInput, addBtn);
     page.append(searchWrap);
 
     this.grid = el('div', { class: 'bm-grid' });
@@ -255,11 +266,8 @@ export class BookmarksView {
     });
     page.append(this.grid);
 
-    const addWrap = el('div', { class: 'bm-add-wrap' });
-    const addBtn = el('button', { class: 'bm-add-btn', text: '+ Add link' });
-    addBtn.addEventListener('click', () => this.openEditor(null));
-    addWrap.append(addBtn);
-    page.append(addWrap);
+    // (The dashed "+ Add link" button that used to sit under the grid moved up
+    // into the search row on 9/6/26 — see above.)
 
     panel.append(page);
     this.renderGrid();
@@ -445,7 +453,8 @@ export class BookmarksView {
       this.grid.append(
         el('div', {
           class: 'bm-empty',
-          text: this.state.list.length === 0 ? 'No links yet. Add your first one below.' : 'No links match your search.',
+          // "above" since 9/6/26 — Add link moved into the search row at the top.
+          text: this.state.list.length === 0 ? 'No links yet. Add your first one above.' : 'No links match your search.',
         })
       );
     }
@@ -721,7 +730,7 @@ export class BookmarksView {
       // difference Gabe spotted between the two popups on 8/16.
       box.append(el('div', { class: 'popup-bulk-note', text: `Applies to all ${targets.length} selected links.` }));
     }
-    const close = () => back.remove();
+    const close = () => fadeRemove(back);
 
     const pick = async (groupId: string | undefined) => {
       for (const t of targets) {
@@ -802,6 +811,23 @@ export class BookmarksView {
           draw();
         });
         b.append(edit);
+        // DELETE THE GROUP (Gabe, 9/1/26). There was no way to remove one at all:
+        // a group could be made, renamed and recoloured, and then lived forever.
+        //
+        // THE LINKS SURVIVE, and that is the whole design. A group is a way of
+        // arranging cards, not a container that owns them, so dropping it returns its
+        // members to the ungrouped grid rather than taking them down with it. That is
+        // also why this needs no confirm step: nothing is destroyed, and re-grouping
+        // them is the same two clicks it was the first time.
+        const del = el('span', { class: 'group-pick-del', text: '✕', title: `Delete “${g.name}” (its links stay)` });
+        del.addEventListener('click', (e) => {
+          e.stopPropagation(); // deleting is not picking
+          for (const l of this.state.list) if (l.groupId === g.id) delete l.groupId;
+          this.state.groups = this.state.groups.filter((x) => x.id !== g.id);
+          void this.save().then(() => this.renderGrid()); // the block folds away, its cards rejoin the grid
+          draw();
+        });
+        b.append(del);
         b.addEventListener('click', () => void pick(g.id));
         wrap.append(b);
       }
@@ -838,8 +864,15 @@ export class BookmarksView {
       nameInp.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') create();
       });
+      // The + the Tasks and Focus folder pickers grew on 8/26. Same class, same
+      // look: this row IS those rows, down to the .folder-pick-new wrapper.
+      const addBtn = el('button', { type: 'button', class: 'folder-pick-add', text: '+', title: 'Create group' });
+      // mousedown cancels the focus move only; click does the work, so Space/Enter
+      // on the focused button works too (see the note in tasks/render.ts).
+      addBtn.addEventListener('mousedown', (e) => e.preventDefault());
+      addBtn.addEventListener('click', () => create());
       const newRow = el('div', { class: 'folder-pick-new' });
-      newRow.append(colorInp, nameInp);
+      newRow.append(colorInp, nameInp, addBtn);
       wrap.append(newRow);
       requestAnimationFrame(() => nameInp.focus());
     };
@@ -870,7 +903,7 @@ export class BookmarksView {
     // Footer: Delete (edit only) · Cancel · Save
     const footer = el('div', { class: 'bm-modal-footer' });
     const close = () => {
-      back.remove();
+      fadeRemove(back);
     };
     if (existing) {
       const delBtn = el('button', { class: 'bm-btn bm-btn-danger', text: 'Delete' });
@@ -950,7 +983,7 @@ export class BookmarksView {
     }
     const footer = el('div', { class: 'bm-modal-footer' });
     const cancel = el('button', { class: 'bm-btn', text: 'Cancel' });
-    cancel.addEventListener('click', () => back.remove());
+    cancel.addEventListener('click', () => fadeRemove(back));
     const yes = el('button', { class: 'bm-btn bm-btn-danger', text: 'Delete' });
     yes.addEventListener('click', async () => {
       const ids = new Set(targets.map((b) => b.id));
@@ -959,14 +992,14 @@ export class BookmarksView {
       this.clearSelection();
       await this.save();
       if (hadShortcut) void syncShortcutsToExtension(this.state.list as ShortcutBookmark[]);
-      back.remove();
+      fadeRemove(back);
       this.renderGrid();
     });
     footer.append(el('div', { class: 'bm-modal-spacer' }), cancel, yes);
     box.append(footer);
     back.append(box);
     back.addEventListener('click', (e) => {
-      if (e.target === back) back.remove();
+      if (e.target === back) fadeRemove(back);
     });
     (this.sample?.host ?? document.body).append(back);
     // Same policy as Settings' confirmDanger (Gabe, 8/7/26): deleting is

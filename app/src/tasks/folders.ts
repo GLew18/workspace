@@ -53,6 +53,37 @@ export async function mutateTaskFolders(
 }
 
 /**
+ * Persist a FIELD CHANGE on one existing folder, without clobbering folders this
+ * view has never seen.
+ *
+ * mutateTaskFolders cannot do this job: it only adds folders that are missing and
+ * removes them by id, so an edit to a folder already in the stored list would be
+ * silently dropped. Same re-read-first discipline, applied to a patch instead.
+ *
+ * The reason this exists rather than another `saveTaskFolders(data, this.folders)`:
+ * the Tasks tab and Focus are BOTH mounted for the whole session (main.ts), each
+ * holding its own copy of the list and resyncing only on an async FOLDERS_EVENT.
+ * Writing a view's whole array persists whatever that copy last saw, so a folder
+ * created in Focus a moment earlier is erased by an unrelated edit in Tasks. That
+ * is not hypothetical — see the note on mutateTaskFolders.
+ *
+ * Returns the fresh, patched list. A no-op (unknown id) still returns the fresh
+ * list, so the caller can adopt it either way.
+ */
+export async function patchTaskFolder(
+  data: Data,
+  id: string,
+  patch: Partial<Omit<TaskFolder, 'id'>>
+): Promise<TaskFolder[]> {
+  const fresh = await getTaskFolders(data);
+  const hit = fresh.find((f) => f.id === id);
+  if (!hit) return fresh;
+  Object.assign(hit, patch);
+  await saveTaskFolders(data, fresh);
+  return fresh;
+}
+
+/**
  * Move `fromId` into `toId`'s slot and persist the new order. Folder order IS
  * the array order, so this is a splice.
  *
@@ -83,9 +114,28 @@ export function normFolder(name: string): string {
 }
 
 /** Create a folder (color comes from the creating task's course — the caller
- *  resolves it, since course colors live in the registry). */
-export function makeFolder(name: string, color: string): TaskFolder {
-  return { id: 'fold_' + genId(), name: name.trim(), color };
+ *  resolves it, since course colors live in the registry).
+ *
+ *  `course` is the creating task's course, remembered as the auto-file default so
+ *  the folder's caption already names the right one when it first appears. It is
+ *  only ever a DEFAULT: the checkmark starts off, and the student can retype the
+ *  course on the caption. */
+export function makeFolder(name: string, color: string, course = ''): TaskFolder {
+  const f: TaskFolder = { id: 'fold_' + genId(), name: name.trim(), color };
+  if (course) f.autoFileCourse = course;
+  return f;
+}
+
+/** The course a folder auto-files, for the caption and for the sync.
+ *
+ *  Falls back to the course of any member that has one, because a folder made
+ *  from a course-less task still earns the caption the moment something inside it
+ *  gets a course (Gabe: "It can be the course of any task, not just the creator").
+ *  Returns '' when nothing in the folder has a course — which is exactly when the
+ *  caption stays invisible. */
+export function autoFileCourseOf(folder: TaskFolder, map: TaskMap): string {
+  if (folder.autoFileCourse) return folder.autoFileCourse;
+  return folderMembers(folder, map).find((t) => t.course)?.course || '';
 }
 
 /** A folder's member tasks (active + completed), from the live task map. */

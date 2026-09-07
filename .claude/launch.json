@@ -41,6 +41,32 @@
         "--strictPort"
       ],
       "port": 5218
+    },
+    {
+      "name": "workspace-web-mac",
+      "runtimeExecutable": "/Users/gabriellewinsohn/.local/node/bin/node",
+      "runtimeArgs": [
+        "/Users/gabriellewinsohn/Library/CloudStorage/Dropbox/Gabriel/AI Projects/Work Wave/app/node_modules/vite/bin/vite.js",
+        "/Users/gabriellewinsohn/Library/CloudStorage/Dropbox/Gabriel/AI Projects/Work Wave/app",
+        "--port",
+        "5173",
+        "--host",
+        "--strictPort"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "workspace-web-mac-alt",
+      "runtimeExecutable": "/Users/gabriellewinsohn/.local/node/bin/node",
+      "runtimeArgs": [
+        "/Users/gabriellewinsohn/Library/CloudStorage/Dropbox/Gabriel/AI Projects/Work Wave/app/node_modules/vite/bin/vite.js",
+        "/Users/gabriellewinsohn/Library/CloudStorage/Dropbox/Gabriel/AI Projects/Work Wave/app",
+        "--port",
+        "5219",
+        "--host",
+        "--strictPort"
+      ],
+      "port": 5219
     }
   ]
 }

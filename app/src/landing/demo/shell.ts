@@ -31,6 +31,24 @@ import { createDanData, danDueTodayCount } from './seed';
 
 // The signed-in header's exact glyphs (main.ts) — copied, not imported, because
 // main.ts exports nothing; these must never drift from the real ones.
+// Chrome's PiP title-bar glyphs, redrawn: the ⓘ page-info mark and the back-to-tab
+// control (a window with the corner "return" arrow). Line icons in currentColor.
+const PIP_INFO_SVG =
+  '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">' +
+  '<circle cx="12" cy="12" r="9"/><path d="M12 11.2v5.2M12 7.8h.01"/></svg>';
+// (Redrawn 9/3/26, Gabe: the first one "looks a little twisted". This is the
+// picture-in-picture mark itself — a window, the small inset screen at its bottom
+// right, and an arrow from it toward the top-left — three shapes that never cross.)
+const PIP_BACK_SVG =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12.5" y="11.5" width="6.5" height="4.5" rx="0.6" fill="currentColor" stroke="none"/><path d="M11 11L7 7"/><path d="M7 11V7h4"/></svg>';
+
+// The ✕ is drawn too, not typed (visual auditor, 9/3/26): a 13px text "✕" has about
+// 10×9px of ink beside an icon with 13×11, and the pair read as two sizes.
+const PIP_X_SVG =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">' +
+  '<path d="M6 6l12 12M18 6L6 18"/></svg>';
+
 const MENU_SVG =
   '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
 const BULB_SVG =
@@ -55,31 +73,15 @@ export interface DemoShell {
   navBtn(id: string): HTMLElement;
   /** The header's hamburger / bell / gear (cursor targets). */
   chrome: { menu: HTMLElement; bell: HTMLElement; gear: HTMLElement };
-  /** Update the frame's URL bar, mirroring deviceFrame's live URL. */
-  setUrl(path: string): void;
   destroy(): void;
 }
-
-const TAB_URL: Record<string, string> = {
-  dashboard: 'dashboard',
-  tasks: 'tasks',
-  focus: 'focus',
-  bookmarks: 'links',
-  settings: 'settings',
-};
 
 export async function buildDemoShell(): Promise<DemoShell> {
   const data = await createDanData();
 
+  // No browser bar (Gabe, 9/1/26): the traffic lights read Mac-only and the
+  // cobaltstudy.com URL was fabricated — the frame is just the app now.
   const root = el('div', { class: 'lp-frame lp-demoshell' });
-  const bar = el('div', { class: 'lp-frame-bar' });
-  const urlEl = el('div', { class: 'lp-frame-url', text: 'cobalt.app/dashboard' });
-  bar.append(
-    el('span', { class: 'lp-dot r' }),
-    el('span', { class: 'lp-dot y' }),
-    el('span', { class: 'lp-dot g' }),
-    urlEl
-  );
 
   const body = el('div', { class: 'lp-demoshell-body' });
 
@@ -103,8 +105,12 @@ export async function buildDemoShell(): Promise<DemoShell> {
   userBox.append(suggestBtn, bellBtn, gearBtn, el('span', { class: 'app-user-name', text: 'Dan' }));
   header.append(headerLeft, userBox);
 
-  // --- Below: sidebar + tab panels (replica of renderApp's .app-below) ----
+  // --- Below: scrim + sidebar + tab panels (replica of renderApp's .app-below).
+  // The drawer OVERLAYS rather than pushes now (main.ts, 9/1), so the shell
+  // carries the same scrim: click the dimmed page to close, exactly like the app.
   const below = el('div', { class: 'app-below' });
+  const scrim = el('div', { class: 'ws-scrim' });
+  scrim.addEventListener('click', () => below.classList.remove('nav-open'));
   const sidebar = el('aside', { class: 'ws-sidebar' });
   const NAV_TABS = [
     { id: 'dashboard', label: 'Dashboard' },
@@ -138,7 +144,7 @@ export async function buildDemoShell(): Promise<DemoShell> {
   // edits revert. Scene 5 (create the `cobalt` course) is its one demo consumer.
   const settingsView = new SettingsView(data, {
     displayName: 'Dan',
-    email: 'dan@heschel.org',
+    email: 'dan@gmail.com',
     onNameChange: () => {},
     host: () => body, // the color card and friends mount INSIDE the frame
   });
@@ -157,7 +163,6 @@ export async function buildDemoShell(): Promise<DemoShell> {
     ],
     (id) => {
       navBtns.forEach((b, k) => b.classList.toggle('active', k === id));
-      if (TAB_URL[id]) urlEl.textContent = `cobalt.app/${TAB_URL[id]}`;
       // The real app drops any live selection when the tab changes (main.ts
       // does exactly this); without it a selection bar floats over Settings.
       dropSelections();
@@ -165,9 +170,44 @@ export async function buildDemoShell(): Promise<DemoShell> {
   );
   gearBtn.addEventListener('click', () => controller.goToTab('settings'));
 
-  below.append(sidebar, tabsHost);
+  // Scrim BEFORE the sidebar so the sidebar paints over it (main.ts order).
+  below.append(scrim, sidebar, tabsHost);
   body.append(header, below);
-  root.append(bar, body);
+  root.append(body);
+
+  // THE MINI PLAYER'S WINDOW (Gabe, 9/3/26). In the real app the minimized session
+  // lives in a Document-Picture-in-Picture window: Chrome draws a title bar over it
+  // (an ⓘ, the site's origin, a back-to-tab button, a ✕) and the widget fills the
+  // window under it. Sample mode never opens a real OS window (openPipWidget bails),
+  // so the demo showed the bare in-tab float instead — not what a visitor gets. This
+  // dresses the float as that window the instant FocusView appends it. A mutation
+  // observer runs before the next paint, so the bare float never shows. The chrome
+  // is a fabrication by necessity: it is the browser's, not Cobalt's, and there is no
+  // other way to put it inside a frame. Styles: .lp-pip-* in landing.css.
+  const dressPip = (w: HTMLElement): void => {
+    if (w.closest('.lp-pip-window')) return;
+    const win = el('div', { class: 'lp-pip-window' });
+    const bar = el('div', { class: 'lp-pip-titlebar' });
+    const info = el('span', { class: 'lp-pip-info' });
+    info.innerHTML = PIP_INFO_SVG;
+    const back = el('span', { class: 'lp-pip-back', title: 'Back to tab' });
+    back.innerHTML = PIP_BACK_SVG;
+    const x = el('span', { class: 'lp-pip-x', title: 'Close' });
+    x.innerHTML = PIP_X_SVG;
+    bar.append(info, el('span', { class: 'lp-pip-origin', text: 'cobaltstudy.com' }), el('span', { class: 'lp-pip-spacer' }), back, x);
+    w.replaceWith(win);
+    w.classList.add('focus-widget-pip'); // the app's own "I am inside the pip window" styling
+    win.append(bar, w);
+    // FocusView removes the widget itself on expand/dismiss; the window must not be
+    // left standing empty behind it.
+    new MutationObserver(() => {
+      if (w.parentElement !== win) win.remove();
+    }).observe(win, { childList: true });
+  };
+  const pipWatch = new MutationObserver((recs) => {
+    for (const r of recs) for (const n of r.addedNodes) if (n instanceof HTMLElement && n.classList.contains('focus-widget')) dressPip(n);
+  });
+  pipWatch.observe(body, { childList: true });
 
   return {
     root,
@@ -178,8 +218,8 @@ export async function buildDemoShell(): Promise<DemoShell> {
     navOpen: () => below.classList.contains('nav-open'),
     navBtn: (id) => navBtns.get(id)!,
     chrome: { menu: menuBtn, bell: bellBtn, gear: gearBtn },
-    setUrl: (path) => (urlEl.textContent = `cobalt.app/${path}`),
     destroy: () => {
+      pipWatch.disconnect();
       // FocusView owns timers + window listeners that outlive the DOM; teardown
       // silences them (persist is a no-op in sample mode, so nothing is saved).
       focusView.teardown();

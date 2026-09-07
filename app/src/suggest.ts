@@ -14,7 +14,7 @@
 // severity picker turns a ten-second thought into a chore, and the thing being
 // collected is worth less than the friction of collecting it properly.
 
-import { el, showToast, enterConfirms } from './util/dom';
+import { el, showToast, enterConfirms, fadeRemove } from './util/dom';
 import { firebaseConfig, hasFirebaseConfig } from './firebase';
 
 const MAX_CHARS = 2000;
@@ -131,7 +131,7 @@ export function openSuggestionBox(screen = ''): void {
     send.disabled = n === 0;
   });
 
-  const close = () => back.remove();
+  const close = () => fadeRemove(back);
   x.addEventListener('click', close);
   back.addEventListener('click', (e) => {
     if (e.target === back) close();

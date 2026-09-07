@@ -2,6 +2,20 @@
 
 type Attrs = Record<string, string | number | boolean | undefined>;
 
+// A ResizeObserver keeps a STRONG reference to whatever it's observing for as
+// long as `.observe()` is active — removing the element from the DOM does not
+// stop it, and does not fire a final callback to self-teardown on either
+// (there's nothing left to measure). textInput() below is used for plenty of
+// transient boxes (an inline edit that gets swapped back to static text the
+// moment it blurs, a folder rename, dozens of times a session), and none of
+// those call sites have a natural moment to call `.disconnect()` themselves —
+// threading that into 25+ places was more invasive than the box it fixes.
+// FinalizationRegistry is the right tool for exactly this: it holds the
+// textarea WEAKLY and runs the callback once the GC decides nothing else
+// references it, at which point there's nothing left to leak by then either.
+const resizeObserverCleanup =
+  typeof FinalizationRegistry !== 'undefined' ? new FinalizationRegistry<ResizeObserver>((ro) => ro.disconnect()) : null;
+
 /** Create an element with attributes/classes and children. */
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -80,6 +94,23 @@ export function textInput(attrs: Attrs = {}): HTMLTextAreaElement & { rewrap: ()
       }
     });
     io.observe(ta);
+  }
+  // Re-fit on a WIDTH change too, not just on typing (Gabe, 9/1). A narrower window
+  // re-wraps an untouched placeholder onto a 2nd line, but nothing the user did
+  // fired an `input` event, so the box stayed at its old (shorter) height and
+  // clipped the new line. Gated on width actually changing: grow() itself only
+  // ever touches height, so without the guard this would re-fire itself forever.
+  if ('ResizeObserver' in window) {
+    let lastWidth = 0;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      if (w && w !== lastWidth) {
+        lastWidth = w;
+        grow();
+      }
+    });
+    ro.observe(ta);
+    resizeObserverCleanup?.register(ta, ro);
   }
   // Never insert a newline — this is a one-line field that merely wraps visually.
   ta.addEventListener('keydown', (e) => {
@@ -261,4 +292,19 @@ export function enterConfirms(back: HTMLElement, primary: () => HTMLElement | nu
     btn.click();
   };
   document.addEventListener('keydown', onKey);
+}
+
+/** Fade an overlay out, THEN remove it. The drawer's scrim fades both ways, so a
+ *  popup that vanished on the frame it closed read as a cut beside it (Gabe,
+ *  9/3/26). Lives here rather than in ui/popup.ts because every modal in the app
+ *  closes through it now, and they all already import from this module. The node
+ *  stops taking clicks the moment it starts leaving, and a timer backstops the
+ *  animation event so a node can never be stranded on screen. */
+export function fadeRemove(node: HTMLElement): void {
+  if (node.dataset.closing) return; // already on its way out — never queue a second
+  node.dataset.closing = '1';
+  node.classList.add('closing');
+  const done = (): void => node.remove();
+  node.addEventListener('animationend', done, { once: true });
+  window.setTimeout(done, 700); // > the fade; the backstop, not the schedule
 }

@@ -186,6 +186,20 @@ export interface TaskFolder {
   id: string; // 'fold_<genId>'
   name: string;
   color: string;
+  /** AUTO-FILE (Gabe, 9/1/26): the course whose newly FETCHED Schoology
+   *  assignments drop straight into this folder. Set when the folder is born, from
+   *  the course of the task that created it; the student can retype it on the
+   *  folder's caption (parse words, exactly like the quick-add bar). Manually made
+   *  tasks are never auto-filed — this is about work arriving on its own. */
+  autoFileCourse?: string;
+  /** The caption's checkmark. Off until the student ticks it, so a folder never
+   *  starts swallowing assignments nobody asked it to. */
+  autoFile?: boolean;
+  /** Ids of assignments the sync dropped in here that the student has not looked at
+   *  yet — what the folder's red dot counts. Cleared the moment the folder is
+   *  expanded, because opening it IS seeing them. Ids rather than a number so a
+   *  second sync cannot double-count an assignment already sitting there. */
+  newAutoFiled?: string[];
 }
 
 /** Parser output for the natural-language quick-add box. */

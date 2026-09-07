@@ -59,9 +59,13 @@ const sceneDashboard: Scene = {
     // future seed change can't quietly push the schedule card off screen.
     const app = shell.body.querySelector<HTMLElement>('.app')!;
     expect(app.scrollHeight <= app.clientHeight + 1, 'dashboard (incl. schedule) must fit the frame without scrolling');
-    await cur.wait(650);
-    await cur.moveTo({ x: 640, y: 320 }, { slow: 1.25 }); // drift in like a hand settling
-    await cur.wait(1900); // the screen reads on its own
+    // NO DRIFT-AND-PARK (Gabe, 9/2/26: at the open "his cursor just hovers over
+    // today's task, not doing anything"). The dashboard is the establishing shot and
+    // it reads on its own; a hand crossing the screen to stop on a row it will not
+    // touch is the exact dead beat he keeps striking out. One short hold, then the
+    // story starts — the cursor stays where it began and travels on its first real
+    // errand, the hamburger, in the next scene.
+    await cur.wait(900);
   },
 };
 
@@ -81,10 +85,8 @@ const sceneTasksBulk: Scene = {
     await cur.wait(350);
     await cur.click(shell.chrome.menu); // tuck the drawer away for the full list
     await cur.wait(400);
-
-    // No scroll tour: the seed is sized to fit one view (Gabe, 8/16), so the
-    // list reads at a glance and the selection is the first beat.
-    await cur.wait(500);
+    // (The extra post-drawer hold died 9/1/26 — it was the ghost of the removed
+    // scroll tour, exactly the "cursor parked, nothing happening" beat Gabe cut.)
 
     // Query at USE time (the view re-renders once its async load settles; a
     // row captured before that redraw is detached and its rect is garbage),
@@ -140,21 +142,32 @@ const row = (shell: DemoShell, id: string): HTMLElement => {
  *  open it from a swatch, DRAG the circle across the square, slide the hue,
  *  and leave the choice set. The caller's next outside click closes the card,
  *  exactly how the control works in the app. */
-async function pickColor(ctx: DemoCtx, swatch: Element): Promise<void> {
+async function pickColor(ctx: DemoCtx, swatch: Element, dx = 34, dy = -20, hueDx = 26): Promise<void> {
   const { shell, cur } = ctx;
   await cur.click(swatch);
   const pop = await cur.waitFor<HTMLElement>('.cp-pop', shell.body);
   const sq = pop.querySelector<HTMLElement>('.cp-sq')!;
-  await cur.dragPointer(sq, 34, -20); // the circle rides toward richer + brighter
+  // dx/dy steer the circle: +x = more saturated, -y = brighter. The default
+  // rides toward richer + brighter; the Cobalt course passes a gentler dx so
+  // its color lands slightly LIGHTER (Gabe, 9/1/26).
+  await cur.dragPointer(sq, dx, dy);
   await cur.wait(300);
+  // hueDx walks the hue bar: a short slide stays in the blues, a long one carries
+  // it round to red (the bookmarks Math group, 9/2/26).
   const hue = pop.querySelector<HTMLElement>('.cp-hue')!;
-  await cur.dragPointer(hue, 26, 0); // and the hue bar gets its own slide
+  await cur.dragPointer(hue, hueDx, 0);
   await cur.wait(450); // the chosen color reads on the live chip
 }
 
-/** The ⋯ menu on a row → click the entry whose label matches. */
+/** The ⋯ menu on a row → click the entry whose label matches.
+ *  The row is staged HIGH first (240px of headroom): the menu always opens
+ *  DOWNWARD (render.ts dropdown), and in the app a clipped menu is reachable by
+ *  scrolling the page — the demo frame cannot scroll, so a low row put the menu
+ *  half outside the screen (Gabe, 9/1/26: the folder popup was clipped). */
 async function moreMenu(ctx: DemoCtx, taskId: string, label: RegExp): Promise<void> {
   const { shell, cur } = ctx;
+  const scroller = shell.body.querySelector<HTMLElement>('.app')!;
+  await cur.ensureInView(scroller, row(shell, taskId), 240);
   await cur.click(row(shell, taskId).querySelector('.act-more')!);
   const menu = await cur.waitFor<HTMLElement>('.row-menu', shell.body);
   const entry = [...menu.querySelectorAll<HTMLElement>('.more-row')].find((r) => label.test(r.textContent ?? ''));
@@ -165,7 +178,7 @@ async function moreMenu(ctx: DemoCtx, taskId: string, label: RegExp): Promise<vo
 
 /** Scene 3 — the Social Studies project: Dan duplicates "Research your assigned
  *  figure", renames the copy into an intermediary step, then files the whole
- *  chain into a "Social Studies project" folder. Duplicate lives in the ⋯ menu (the
+ *  chain into a "Social-Studies-project" folder. Duplicate lives in the ⋯ menu (the
  *  row's real anatomy), rename is the real dblclick inline editor, and the
  *  folder is created inside the real folder picker. */
 const sceneHistoryProject: Scene = {
@@ -213,38 +226,31 @@ const sceneHistoryProject: Scene = {
     await cur.waitUntil(async () => (await shell.data.getTasksAll())[dupId]?.dueDate === dupIso, 4000, 'duplicate re-dated two days out');
     await cur.wait(700);
 
-    // Range-select the chain the way the app actually works (Gabe, 8/16):
-    // ctrl-click anchors the first row, shift-click the last row sweeps
-    // EVERYTHING between — the essay's day sits between the two chain days,
-    // so it gets swept in. Dan then deselects the one row that doesn't
-    // belong. No skipping, ever.
+    // Ctrl-click picks EXACTLY the chain (Gabe, 9/1/26): control adds one row
+    // at a time, so the essay never gets dragged in and there is nothing to
+    // deselect — the old shift-sweep-then-fix beat is gone.
     const chain = [dupId, 'dan_hp2'];
-    const chainRows = [...shell.body.querySelectorAll<HTMLElement>('.task-item[data-task-id]')]
-      .filter((r) => chain.includes(r.dataset.taskId!));
-    await cur.click(chainRows[0], { ctrl: true, ax: 0.6 });
+    await cur.click(row(shell, chain[0]), { ctrl: true, ax: 0.6 });
+    await cur.wait(220);
+    await cur.click(row(shell, chain[1]), { ctrl: true, ax: 0.6 });
     await cur.wait(200);
-    await cur.click(chainRows[chainRows.length - 1], { shift: true, ax: 0.6 });
-    expect(
-      row(shell, 'dan_essay').classList.contains('selected'),
-      'the essay sits inside the range and must select with it (real range behavior)'
-    );
-    await cur.wait(420); // let the over-selection read before Dan fixes it
-    await cur.click(row(shell, 'dan_essay'), { ctrl: true, ax: 0.6 });
-    await cur.wait(160);
     expect(
       chain.every((id) => row(shell, id).classList.contains('selected')) &&
         !row(shell, 'dan_essay').classList.contains('selected'),
-      'history chain selected with the essay toggled back off'
+      'exactly the two chain rows ctrl-selected'
     );
 
     // File them: ⋯ → Add to folder → "+ New folder…" → type the name → Enter.
+    // HYPHENS, not spaces (Gabe, 9/1/26): folder names refuse spaces (the f:
+    // token reads one word), and hyphens are what keeps the space-guard toast
+    // out of the shot entirely.
     await moreMenu(ctx, 'dan_hp2', /folder/i);
     await cur.waitFor('.folder-pick', shell.body);
     const nameIn = shell.body.querySelector<HTMLTextAreaElement>('.folder-pick-input')!;
     // A real hand CLICKS the field before typing (nothing autofocuses it).
     await cur.click(nameIn);
     await cur.wait(180);
-    await cur.typeInto(nameIn, 'Social Studies project');
+    await cur.typeInto(nameIn, 'Social-Studies-project');
     await cur.wait(140);
     cur.pressKey(nameIn, 'Enter');
 
@@ -254,7 +260,7 @@ const sceneHistoryProject: Scene = {
       return fids.size === 1;
     }, 4000, 'all chain tasks filed into one folder');
     await cur.waitFor('.task-folder-name', shell.body);
-    await cur.wait(650); // let the folder block read
+    await cur.wait(550); // let the folder block read
     // The selection survives a folder action (that's the app's contract) — Dan
     // clears it the way the bar itself says to: one click on "Deselect all".
     const clearBtn = shell.body.querySelector<HTMLElement>('.selbar-clear');
@@ -263,10 +269,27 @@ const sceneHistoryProject: Scene = {
       await cur.wait(300);
     }
 
+    // AUTO-FILE (new, 9/1/26): the open folder's caption offers to file this
+    // course's future Schoology imports here. Dan ticks the checkmark ON…
+    const scroller = shell.body.querySelector<HTMLElement>('.app')!;
+    const autoWrap = await cur.waitFor<HTMLElement>('.task-folder-autofile', shell.body);
+    await cur.ensureInView(scroller, autoWrap, 40);
+    await cur.click(
+      await cur.fresh(() => shell.body.querySelector<HTMLElement>('.task-folder-autofile .autofile-cb'), 'auto-file checkmark')
+    );
+    await cur.waitUntil(async () => {
+      const prof = await shell.data.getProfile<{ list?: Array<{ name: string; autoFile?: boolean }> }>('taskFolders');
+      return !!prof?.list?.some((f) => f.name === 'Social-Studies-project' && f.autoFile);
+    }, 4000, 'auto-file ticked on');
+    await cur.wait(900); // the caption lights up — let the switch read
+    // NO COURSE-RETYPE HERE (Gabe, 9/2/26). Retyping the caption to another course
+    // is a real feature and it stays in the app; showing it on a folder called
+    // Social-Studies-project meant filing MATH assignments into it, which reads as
+    // nonsense to anyone watching. The tick alone is the beat.
+
     // MANUAL PRIORITY, demonstrated here (Gabe, 8/17: imports arrive normal,
     // Dan is the only priority-setter): the research task gets a High arrow,
     // right in the folder block he just built, fully in view.
-    const scroller = shell.body.querySelector<HTMLElement>('.app')!;
     await cur.ensureInView(scroller, row(shell, 'dan_hp2'));
     await cur.click(row(shell, 'dan_hp2').querySelector('.task-actions button[title="Priority"]')!);
     await cur.waitFor('.priority-option', shell.body);
@@ -366,7 +389,6 @@ const scenePremiumAndCourse: Scene = {
     // Today group near the top. Re-stage before touching it again — clicking
     // the row at its OLD position is exactly the off-screen bug (Gabe, 8/17).
     await cur.ensureInView(scroller, row(shell, 'dan_prem'));
-    await cur.wait(300);
 
     // Priority: the permanent arrow button → Very High.
     await cur.click(row(shell, 'dan_prem').querySelector('.task-actions button[title="Priority"]')!);
@@ -392,7 +414,6 @@ const scenePremiumAndCourse: Scene = {
     );
     // The shared .app scroller carries the Tasks tab's position in — park it.
     if (scroller.scrollTop > 0) await cur.scrollBy(scroller, -scroller.scrollTop, 400);
-    await cur.wait(400);
     await cur.click(coursesBtn);
     await cur.wait(600); // orientation: a new screen deserves a beat
     // Seven seeded courses put "+ Add course" ~250px below the fold — wheel
@@ -417,7 +438,7 @@ const scenePremiumAndCourse: Scene = {
       () => shell.body.querySelector<HTMLElement>('.course-row:last-child .course-color'),
       'course color swatch'
     );
-    await pickColor({ shell, cur }, swatch);
+    await pickColor({ shell, cur }, swatch, 14, -30); // gentler drag = slightly lighter Cobalt (Gabe, 9/1/26)
 
     // Parse word: Dan ACCEPTS the app's own recommendation — the "+coba" chip
     // the row suggests for "Cobalt" (Gabe, 8/17: press it, don't type it). The
@@ -440,13 +461,37 @@ const scenePremiumAndCourse: Scene = {
     }, 4000, 'Cobalt course saved with the recommended parse word coba');
     await cur.wait(450);
 
+    // …and one of his OWN beside it (Gabe, 9/1/26): the chips can be accepted
+    // OR invented — Dan types "co" into the parse-word box and commits it.
+    const wordIn = await cur.fresh(
+      () => shell.body.querySelector<HTMLTextAreaElement>('.course-row:last-child .parse-add'),
+      'parse-word box'
+    );
+    await cur.ensureInView(scroller, wordIn);
+    await cur.click(wordIn);
+    await cur.typeInto(wordIn, 'co');
+    await cur.wait(200);
+    cur.pressKey(wordIn, 'Enter');
+    await cur.waitUntil(async () => {
+      const prof = await shell.data.getProfile<{ list?: Array<{ name: string; parseWords?: string[] }> }>('courses');
+      const c = prof?.list?.find((x) => x.name === 'Cobalt');
+      return !!c && (c.parseWords ?? []).includes('co');
+    }, 4000, 'Dan’s own parse word "co" saved onto Cobalt');
+    await cur.wait(450); // the new chip joins the row — let it read
+
+    // WHEEL BACK UP BEFORE LEAVING, and that is the fix for the jump Gabe saw right
+    // after the Cobalt colour (9/2/26). Opening a tab parks it at its top — real app
+    // behaviour, and correct — but the reset is INSTANT, so switching away from a
+    // scrolled Settings screen read as the page snapping upward on its own. Doing
+    // the scroll here, as a visible gesture with the hand on it, means there is
+    // nothing left for the tab switch to reset.
+    if (scroller.scrollTop > 0) await cur.scrollBy(scroller, -scroller.scrollTop, 700);
+
     // Back to Tasks; tag the task by typing the parse word into its course chip.
     await cur.click(shell.chrome.menu);
     await cur.wait(480);
     await cur.click(shell.navBtn('tasks'));
     await cur.waitFor('.task-item[data-task-id="dan_prem"]', shell.body);
-    // Park the inherited Settings scroll before the first visible beat.
-    if (scroller.scrollTop > 0) await cur.scrollBy(scroller, -scroller.scrollTop, 400);
     await cur.wait(250);
     await cur.click(shell.chrome.menu);
     await cur.wait(380);
@@ -464,23 +509,35 @@ const scenePremiumAndCourse: Scene = {
   },
 };
 
-/** Scene 6 — the essay's description (auto-linked rubric URL at the end) and
- *  attachments: the Rubric is ALREADY there (the import's link extraction put
- *  it there), Dan adds his own "essay doc" link beside it. */
+/** Scene 6 — TWO translated descriptions (Gabe, 9/1/26: the Spanish task's and
+ *  the Hebrew task's, each shown in its language with the translation under it —
+ *  descriptions get the same pass titles do), then the essay's attachments: the
+ *  Rubric is ALREADY there (the import's link extraction), Dan adds "essay doc". */
 const sceneEssayAttachments: Scene = {
-  name: 'essay-description-attachments',
+  name: 'descriptions-attachments',
   async run({ shell, cur }) {
-    // Stage the essay row into frame first — the list has grown by a folder
-    // block and two new tasks since the last time it was at the top.
     const scroller = shell.body.querySelector<HTMLElement>('.app')!;
-    await cur.ensureInView(scroller, row(shell, 'dan_essay'));
-    await cur.click(row(shell, 'dan_essay').querySelector('.task-actions button[title="Description"]')!);
-    const back = await cur.waitFor<HTMLElement>('.popup-backdrop', shell.body);
-    expect(back.querySelector('a[href*="rubric" i], a[href*="docs.google" i]'), 'description did not auto-link the rubric URL');
-    await cur.wait(3400); // an actual READING beat: the auto-linked rubric URL is the payoff
-    await cur.click(back, { ax: 0.07, ay: 0.5 }); // backdrop click closes
-    await cur.wait(350);
+    // The reading beat is the ONE sanctioned pause, and it stays short
+    // (Gabe, 9/1/26: two–three seconds, not a stall).
+    const readDescription = async (id: string, translated: RegExp): Promise<void> => {
+      await cur.ensureInView(scroller, row(shell, id));
+      await cur.click(row(shell, id).querySelector('.task-actions button[title="Description"]')!);
+      const back = await cur.waitFor<HTMLElement>('.popup-backdrop', shell.body);
+      // Polled, not read once: the popup body fills in on its own frame, and an
+      // instant read raced it (the visual auditor caught the flake, 9/1/26).
+      await cur.waitUntil(
+        () => translated.test(back.textContent ?? ''),
+        3000,
+        `description popup missing the translation for ${id}`
+      );
+      await cur.wait(2300);
+      await cur.click(back, { ax: 0.07, ay: 0.5 }); // backdrop click closes
+      await cur.wait(300);
+    };
+    await readDescription('dan_spanish', /irregular verbs/i);
+    await readDescription('dan_ivrit', /chapter 5 in the book/i);
 
+    await cur.ensureInView(scroller, row(shell, 'dan_essay'));
     await cur.click(row(shell, 'dan_essay').querySelector('.task-actions button[title="Attachments"]')!);
     const pop = await cur.waitFor<HTMLElement>('.popup-backdrop', shell.body);
     expect(/rubric/i.test(pop.textContent ?? ''), 'seeded Rubric attachment missing');
@@ -511,14 +568,18 @@ const sceneCalendar: Scene = {
   async run({ shell, cur }) {
     const scroller = shell.body.querySelector<HTMLElement>('.app')!;
     await cur.scrollBy(scroller, -scroller.scrollTop, 400);
-    await cur.click(shell.body.querySelector('.tasks-mode-btn')!);
+    // Fresh at use (9/1/26): the typed tasks' translate write-backs redraw the
+    // header on their own schedule, and a toggle captured before that redraw is
+    // a corpse — the click lands nowhere, the waitFor times out, and the loop
+    // restarts mid-flow (the "cut off before bookmarks" Gabe saw).
+    await cur.click(await cur.fresh(() => shell.body.querySelector<HTMLElement>('.tasks-mode-btn'), 'calendar toggle'));
     await cur.waitFor('.cal-bar', shell.body);
     await cur.wait(600);
 
     // The History folder carries its OWN calendar in this mode — open it via
     // the ▶ arrow: the head's center is the name span, where the real click
     // handler deliberately does nothing (an off-limits pixel for a real mouse).
-    const folderHead = [...shell.body.querySelectorAll<HTMLElement>('.task-folder-head')].find((h) => /social studies project/i.test(h.textContent ?? ''));
+    const folderHead = [...shell.body.querySelectorAll<HTMLElement>('.task-folder-head')].find((h) => /social-studies-project/i.test(h.textContent ?? ''));
     expect(folderHead, 'Social Studies project folder missing in calendar mode');
     if (!folderHead!.closest('.task-folder')!.classList.contains('open')) {
       const arrowEl = folderHead!.querySelector<HTMLElement>('.task-folder-arrow');
@@ -530,7 +591,7 @@ const sceneCalendar: Scene = {
     // …and CLOSE it again (Gabe, 8/17): open-then-close is what tells the
     // viewer the folder OWNS its own calendar inside the bigger one.
     const headNow = (): HTMLElement =>
-      [...shell.body.querySelectorAll<HTMLElement>('.task-folder-head')].find((h) => /social studies project/i.test(h.textContent ?? ''))!;
+      [...shell.body.querySelectorAll<HTMLElement>('.task-folder-head')].find((h) => /social-studies-project/i.test(h.textContent ?? ''))!;
     const closeArrow = headNow().querySelector<HTMLElement>('.task-folder-arrow');
     await cur.click(closeArrow ?? headNow(), { ax: closeArrow ? 0.5 : 0.9 });
     await cur.waitUntil(() => !shell.body.querySelector('.task-folder-body.cal-scope .cal-grid'), 3000, 'scoped calendar folded away');
@@ -561,7 +622,8 @@ const sceneCalendar: Scene = {
     await cur.click(arrows()[0]); // ‹
     await cur.waitUntil(() => shell.body.querySelector('.cal-label')?.textContent === before, 3000, 'calendar returned to this month');
     await cur.wait(600);
-    await cur.click(shell.body.querySelector('.tasks-mode-btn')!); // back to list
+    // Back to list — fresh for the same redraw-race reason as the way in.
+    await cur.click(await cur.fresh(() => shell.body.querySelector<HTMLElement>('.tasks-mode-btn'), 'list toggle'));
     await cur.waitFor('.quick-add', shell.body);
     await cur.wait(300);
   },
@@ -580,14 +642,15 @@ const sceneBookmarks: Scene = {
     // Park the inherited scroll on entry (shared .app scroller).
     const bmScroller = shell.body.querySelector<HTMLElement>('.app')!;
     if (bmScroller.scrollTop > 0) await cur.scrollBy(bmScroller, -bmScroller.scrollTop, 400);
-    await cur.wait(300);
     await cur.click(shell.chrome.menu);
     await cur.wait(380);
 
     const scroller = shell.body.querySelector<HTMLElement>('.app')!;
     const addLink = async (name: string, url: string): Promise<void> => {
       const addBtn = shell.body.querySelector<HTMLElement>('.bm-add-btn')!;
-      await cur.ensureInView(scroller, addBtn); // it drifts down as cards land
+      // Since 9/6/26 the button lives in the search row at the TOP of the tab, so
+      // this scrolls back up to it rather than chasing it down past the new cards.
+      await cur.ensureInView(scroller, addBtn);
       await cur.click(addBtn);
       const modal = await cur.waitFor<HTMLElement>('.bm-modal', shell.body);
       const inputs = modal.querySelectorAll<HTMLTextAreaElement>('.bm-input');
@@ -629,7 +692,10 @@ const sceneBookmarks: Scene = {
     // Group color via Cobalt's own color card — same drag-the-circle gesture
     // as the course color (Gabe, 8/17: the rgb card is integral everywhere).
     const groupColor = [...picker.querySelectorAll<HTMLElement>('.folder-pick-color')].pop()!; // the NEW-group well is last
-    await pickColor({ shell, cur }, groupColor);
+    // A red-ward drag (Gabe, 9/2/26): the Math group used to land in the same blue
+    // family as everything else on the page, so the colour picking had nothing to
+    // show for itself. Positive hue slide, deep into saturation.
+    await pickColor({ shell, cur }, groupColor, 46, -26, 74);
     const groupName = picker.querySelector<HTMLTextAreaElement>('.folder-pick-input')!;
     await cur.click(groupName); // this outside click also folds the color card away
     await cur.typeInto(groupName, 'Math');
@@ -772,24 +838,28 @@ const sceneFocusSetup: Scene = {
       }
       throw new Error(`[focus-setup] could not visibly import: ${label}`);
     };
-    await pressImportPlus(
-      () => [...shell.body.querySelectorAll<HTMLElement>('.focus-import-task')].find((r) => (r.textContent ?? '').includes('get cobalt premium')),
-      'get cobalt premium'
-    );
-    await cur.wait(500); // the row landed — let cause and effect read
-    // The research task lives in the Social Studies project folder now, so it sits
-    // under the panel's FOLDERS section: expand the folder row, then import
-    // the single member (the + on the folder row would import them all).
+    // FOLDER FIRST, then the loose task (Gabe, 9/2/26): the panel lists folders
+    // above loose tasks, so importing bottom-up made the hand jump back up the
+    // list for no reason. Take them in the order they are on screen.
+    //
+    // The research task lives in the Social-Studies-project folder now, so it sits
+    // under the panel's FOLDERS section: expand the folder row, then import the
+    // single member (the + on the folder row would import them all).
     const folderRow = await cur.waitForResult(
-      () => [...shell.body.querySelectorAll<HTMLElement>('.focus-import-bulk')].find((r) => /social studies project/i.test(r.textContent ?? '')),
+      () => [...shell.body.querySelectorAll<HTMLElement>('.focus-import-bulk')].find((r) => /social-studies-project/i.test(r.textContent ?? '')),
       4000,
-      'Social Studies project row in the import panel'
+      'Social-Studies-project row in the import panel'
     );
     await cur.click(folderRow, { ax: 0.35 });
     await cur.wait(350); // the folder unfolds
     await pressImportPlus(
       () => [...shell.body.querySelectorAll<HTMLElement>('.focus-import-task')].find((r) => (r.textContent ?? '').includes('Research your assigned figure')),
       'Research your assigned figure'
+    );
+    await cur.wait(500); // the row landed — let cause and effect read
+    await pressImportPlus(
+      () => [...shell.body.querySelectorAll<HTMLElement>('.focus-import-task')].find((r) => (r.textContent ?? '').includes('get cobalt premium')),
+      'get cobalt premium'
     );
     // Setup-screen todo rows are .focus-todo-row (the session's are .focus-todo-item).
     await cur.waitUntil(() => shell.body.querySelectorAll('.focus-todo-row').length >= 2, 4000, 'both imports landed in the session list');
@@ -819,7 +889,7 @@ const sceneFocusSetup: Scene = {
       'Romantic Piano selected'
     );
     await cur.scrollBy(musicList, 420, 800); // the customs scroll past
-    await cur.wait(500);
+    await cur.wait(250);
     const startBtn = shell.body.querySelector<HTMLElement>('.focus-start')!;
     await cur.ensureInView(scroller, startBtn, 40);
     await cur.click(startBtn);
@@ -892,7 +962,13 @@ const sceneFocusSession: Scene = {
     await cur.dblclick(premText);
     const editor = await cur.waitFor<HTMLTextAreaElement>('.inline-edit-block', ov);
     beat('premium-append-editor-open');
-    await cur.typeInto(editor, ' right after completing homework');
+    // THE DOUBLE-CLICK'S OWN SELECTION, ON SCREEN (Gabe, 9/2/26). The app opens
+    // every inline editor with its text selected, and the old beat appended
+    // straight onto the end — which no keyboard can do while a selection is live,
+    // and which hid the highlight the gesture is known by. retype() shows the
+    // selection, holds it, then replaces it, exactly as typing over one does.
+    await cur.wait(420); // the highlight reads before a key lands on it
+    await cur.retype(editor, 'get cobalt premium right after completing homework');
     cur.pressKey(editor, 'Enter');
     await cur.waitUntil(
       () => [...ov.querySelectorAll<HTMLElement>('.focus-todo-text')].some((t) => /right after completing homework/.test(t.textContent ?? '')),
@@ -921,12 +997,18 @@ const sceneFocusSession: Scene = {
     const todosPanel = ov.querySelector<HTMLElement>('.focus-overlay-todos');
     // Fresh at use: the auto-translate write-back can redraw the list between
     // capture and this moment, leaving speechRow a detached corpse.
-    const speechRowNow = await cur.fresh(
-      () => [...ov.querySelectorAll<HTMLElement>('.focus-todo-item')].find((r) => (r.textContent ?? '').includes('start working on speech')),
-      'speech todo row (fresh)'
-    );
+    const findSpeechRow = (): HTMLElement | undefined =>
+      [...ov.querySelectorAll<HTMLElement>('.focus-todo-item')].find((r) => (r.textContent ?? '').includes('start working on speech'));
+    // STABLE, not merely fresh (Gabe's audit, 9/3/26: the hand never reached this
+    // row, every loop). The list is redrawn a beat after the row first appears, in
+    // the gap between the staging scroll and the move — so the node found here was
+    // a corpse by the time the hand set off, and since a corpse has no box the hand
+    // did not set off at all: it stood on the add button through the whole 1s hold.
+    // Wait for the node to hold still, stage it, then move to it re-found, because
+    // the staging scroll can itself land in a redraw.
+    const speechRowNow = await cur.stable(findSpeechRow, 'speech todo row (settled)');
     if (todosPanel) await cur.ensureInView(todosPanel, speechRowNow, 20);
-    await cur.moveTo(speechRowNow);
+    await cur.moveTo(await cur.stable(findSpeechRow, 'speech todo row (after staging)'));
     await cur.wait(1000);
 
     // The auto-translate pass on a typed task writes back on ITS OWN schedule
@@ -977,7 +1059,12 @@ const sceneFocusSession: Scene = {
     // Scope EVERYTHING to the menu element: the setup screen's music list still
     // exists in the tab panel behind the overlay and matches similar text.
     const menu = await cur.waitFor<HTMLElement>('.focus-music-menu', shell.body);
-    await cur.click(await cur.waitFor('.focus-menu-switch', menu));
+    // Opening the menu draws it once, then refreshes the music library and draws it
+    // AGAIN when that resolves (openMenu, focus/view.ts). The Switch row found the
+    // instant the menu exists is replaced before the hand arrives, so the click fired
+    // from wherever the hand was standing (Gabe's audit, 9/3/26: every loop). Take
+    // the row that survives the second draw.
+    await cur.click(await cur.stable(() => menu.querySelector('.focus-menu-switch'), 'Switch row (settled)'));
     const mix = await cur.waitForResult(
       () => [...menu.querySelectorAll<HTMLElement>('.focus-menu-track')].find((r) => /deep work mix/i.test(r.textContent ?? '')),
       4000,
@@ -1081,21 +1168,72 @@ export interface HeroDemoOpts {
 
 /** scaleToFit, demo copy: same contract as landing/view.ts's (module-local
  *  there). Kept tiny and private — the stage is the only consumer here. */
-function fitInto(stage: HTMLElement, target: HTMLElement, designWidth: number): void {
+interface Fit {
+  /** Take over a screen that is ALREADY a child of the wrapper (the loop seam's
+   *  crossfaded-in world) and fit it where it stands. Never detaches anything. */
+  adopt(next: HTMLElement): void;
+}
+function fitInto(stage: HTMLElement, target: HTMLElement, designWidth: number): Fit {
   const wrap = el('div', { class: 'lp-fit' });
   wrap.append(target);
+  let cur = target;
   const apply = (): void => {
     const w = wrap.clientWidth;
     if (!w) return;
     const s = Math.min(1, w / designWidth);
-    target.style.transform = s < 1 ? `scale(${s})` : 'translateZ(0)';
-    wrap.style.height = s < 1 ? `${target.offsetHeight * s}px` : '';
+    cur.style.transform = s < 1 ? `scale(${s})` : 'translateZ(0)';
+    wrap.style.height = s < 1 ? `${cur.offsetHeight * s}px` : '';
   };
   const ro = new ResizeObserver(apply);
   ro.observe(wrap);
   ro.observe(target);
   stage.replaceChildren(wrap);
   apply();
+  return {
+    adopt(next) {
+      ro.unobserve(cur);
+      cur = next;
+      ro.observe(cur);
+      apply();
+    },
+  };
+}
+
+/**
+ * THE STAGES A DEMO IS CURRENTLY DRIVING, and the two prototype patches that read
+ * this set — installed ONCE for the life of the page, never per demo.
+ *
+ * Both patches exist to keep the app's own scrolling out of the frame: `focus` must
+ * not scroll a field into view (it can move the LANDING PAGE, which is what made the
+ * hero "spawn" the viewer back up to the headline), and `scrollIntoView` must do
+ * nothing at all inside the stage (several views reveal what they just opened that
+ * way — right in the app, wrong here, where the frame lurches with the cursor
+ * standing still). The scenes stage their own shots with visible wheel gestures.
+ *
+ * A SET AND A ONE-TIME INSTALL rather than wrap-and-restore per demo (found by the
+ * code auditor, 9/2/26): startHeroDemo's returned controller is never stopped by the
+ * landing, so wrapping on every call stacked a new layer of wrappers on the
+ * prototype each time a visitor came back to the landing page. Membership is what
+ * turns the patch on and off now, and a stage that goes away just leaves the set.
+ */
+const activeStages = new Set<HTMLElement>();
+let patchesInstalled = false;
+function installStagePatches(): void {
+  if (patchesInstalled) return;
+  patchesInstalled = true;
+  const inStage = (n: Node): boolean => {
+    for (const s of activeStages) if (s.contains(n)) return true;
+    return false;
+  };
+  const origFocus = HTMLElement.prototype.focus;
+  HTMLElement.prototype.focus = function (this: HTMLElement, options?: FocusOptions) {
+    origFocus.call(this, inStage(this) ? { ...options, preventScroll: true } : options);
+  };
+  const origSIV = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function (this: Element, arg?: boolean | ScrollIntoViewOptions) {
+    if (inStage(this)) return;
+    origSIV.call(this, arg as ScrollIntoViewOptions);
+  };
 }
 
 export function startHeroDemo(stage: HTMLElement, opts: HeroDemoOpts = {}): HeroDemo {
@@ -1107,6 +1245,15 @@ export function startHeroDemo(stage: HTMLElement, opts: HeroDemoOpts = {}): Hero
   let stopped = false;
   let shell: DemoShell | null = null;
   let cur: GhostCursor | null = null;
+
+  // NEVER SCROLL THE VISITOR'S PAGE (Gabe, 9/1/26: watching the demo kept
+  // "spawning" him back up to the hero text). The app's own code focuses fields
+  // it just opened (folder picker, modals, inline editors), and a plain .focus()
+  // lets the browser scroll the real window to reveal the field inside the
+  // scaled frame. For the demo's lifetime, any focus INSIDE the stage runs with
+  // preventScroll; everything outside the stage is untouched.
+  activeStages.add(stage);
+  installStagePatches();
 
   // Visibility gate — default OPEN so environments without IO still run.
   let visible = true;
@@ -1127,14 +1274,23 @@ export function startHeroDemo(stage: HTMLElement, opts: HeroDemoOpts = {}): Hero
 
   const loop = async (): Promise<void> => {
     let n = 0;
-    let pending: DemoShell | null = null; // a world the seam pre-built and crossfaded in
+    let pending: DemoShell | null = null; // a world the seam pre-built and faded in
+    let pendingMounted = false; // …and already put on the stage, so don't re-wrap it
+    let fit: Fit | null = null; // the stage's one wrapper, kept for the life of the demo
     while (!stopped && stage.isConnected && (opts.loops === undefined || n < opts.loops)) {
       shell = pending ?? (await buildDemoShell());
+      const alreadyMounted = pendingMounted;
       pending = null;
+      pendingMounted = false;
       // speed 1.25 = a quarter slower than scripted (Gabe, 8/17: the loop ran
       // too fast to process; every wait, glide, and keystroke stretches).
       cur = new GhostCursor(shell.body, { instant: opts.instant, speed: 1.25 });
-      fitInto(stage, shell.root, 1040);
+      // Re-wrapping a shell the seam already mounted would tear it out of the DOM
+      // and put it back, which is a visible flash at the exact moment the loop is
+      // trying to look seamless.
+      // 1280, up from 1040 (Gabe, 9/3/26): matches .lp-frame.lp-demoshell's design
+      // width in landing.css — the two must stay in sync.
+      if (!alreadyMounted) fit = fitInto(stage, shell.root, 1280);
       // Let first paint + the views' initial subscriptions settle.
       await new Promise((r) => setTimeout(r, opts.instant ? 30 : 350));
       // Audit telemetry (temporary): the hero's clock resets on this counter
@@ -1167,47 +1323,117 @@ export function startHeroDemo(stage: HTMLElement, opts: HeroDemoOpts = {}): Hero
       opts.onLoop?.(n);
       if (stopped || !stage.isConnected) break;
 
-      // THE SEAM (Gabe, 8/17): no fade-to-black cut. The cursor exits the
-      // frame (the ONE legal off-screen move), the mini session slides off
-      // with it, and the incoming world crossfades in OVER the outgoing one.
-      // Both frames share identical chrome (browser bar, header, sidebar), so
-      // the only pixels that change are the dashboard's content — the end
-      // melts into the start, YouTube-loop style.
+      // THE SEAM (Gabe, 8/17, rebuilt 9/2/26): Dan drags the mini player out through
+      // the frame's right edge (the ONE legal off-screen move), and the SCREEN
+      // dissolves and reforms inside a frame that never moves.
+      //
+      // ONE WINDOW, EVER. This used to append the incoming shell into the same
+      // wrapper as the outgoing one, absolutely positioned and centred by
+      // `margin: 0 auto`, and fade it in on top. The outgoing frame is a FLEX ITEM,
+      // so those two rules put it somewhere else entirely: a second window appeared
+      // offset to the right, and stripping the inline styles at the end snapped it
+      // into place — Gabe watched it duplicate and slide, every loop. Nothing
+      // overlays anything now; only the body's opacity moves, so there is no second
+      // box that can be a few pixels out.
       if (!opts.instant) {
-        const widget = shell.body.querySelector<HTMLElement>('.focus-widget');
-        if (widget) {
-          widget.style.transition = 'transform 0.55s ease, opacity 0.55s ease';
-          widget.style.transform = 'translateX(420px)';
-          widget.style.opacity = '0';
-        }
-        await cur.exit();
-        await new Promise((r) => setTimeout(r, 650));
-        const next = await buildDemoShell();
-        const wrap = shell.root.parentElement; // the .lp-fit wrapper (position: relative)
-        if (wrap) {
-          const incoming = next.root;
-          incoming.style.position = 'absolute';
-          incoming.style.top = '0';
-          incoming.style.left = '0';
-          incoming.style.right = '0';
-          incoming.style.margin = '0 auto';
-          incoming.style.opacity = '0';
-          incoming.style.transition = 'opacity 0.5s ease';
-          incoming.style.transform = shell.root.style.transform; // pixel-aligned overlay
-          wrap.append(incoming);
-          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
-          incoming.style.opacity = '1';
-          await new Promise((r) => setTimeout(r, 560));
-          // Hand the incoming frame back to normal flow before fitInto re-wraps it.
-          for (const p of ['position', 'top', 'left', 'right', 'margin', 'opacity', 'transition'] as const) {
-            incoming.style.removeProperty(p);
+        const widget = shell.body.querySelector<HTMLElement>('.lp-pip-window, .focus-widget');
+        try {
+          if (widget) {
+            // DAN TAKES THE MINI PLAYER WITH HIM (Gabe, 9/3/26: "Dan's cursor isn't on
+            // the pip when he brings it off screen"). The window used to slide off on
+            // its own 0.55s transition while the hand crossed from the hamburger to
+            // the right edge, far above it. Now the hand lands on the window's title
+            // bar — where a real PiP is grabbed — presses, and drags it out, the two
+            // moving as one. The distance clears the window's own width plus its
+            // 18px inset, so nothing of it is left inside the frame.
+            const grip = widget.querySelector<HTMLElement>('.lp-pip-titlebar') ?? widget;
+            await cur.carry(widget, grip, widget.offsetWidth + 40);
+          } else {
+            await cur.exit();
           }
+        } catch {
+          // The cursor was killed mid-scene (the scene-jump hook), so every primitive
+          // throws from here on, this glide included. Nothing catches a throw at this
+          // level, so without this the loop's promise died and the demo froze on
+          // whatever frame it was showing, for good (Gabe's audit, 9/3/26: every seek
+          // on the old chapter bar did exactly this).
         }
+        await new Promise((r) => setTimeout(r, 420));
+        // Built BEFORE the dissolve starts, so the swap lands on a frame that is
+        // already invisible and the viewer never waits on a blank screen.
+        const next = await buildDemoShell();
+        // The visitor can sign in mid-seam (~1.9s), which detaches the stage. Without
+        // this the freshly built world would be mounted into a dead tree and then
+        // orphaned, its view subscriptions never torn down (code auditor, 9/2/26).
+        if (stopped || !stage.isConnected) {
+          next.destroy();
+          cur.destroy();
+          shell.destroy();
+          shell = null;
+          cur = null;
+          break;
+        }
+        const FADE = 520;
+        const EASE = 'cubic-bezier(0.4, 0, 0.2, 1)';
+        // A TRUE CROSSFADE — the new world fades in ON TOP of the old one, which
+        // stays fully opaque underneath until it is covered (Gabe, 9/2/26: the end
+        // must not fade to an empty blue frame and back; one shot dissolves straight
+        // into the next). Fading the outgoing OUT first is what showed the frame's
+        // own background through the middle of the transition.
+        //
+        // Pinned by the outgoing frame's OWN offset and transform, which is the part
+        // that went wrong before: `left/right: 0` with `margin: 0 auto` centres an
+        // absolute box in the wrapper, while the outgoing box is placed by flex, and
+        // those two landed in different places — a second window, offset to the
+        // right, that snapped into position when the styles came off.
+        const wrap = shell.root.parentElement;
+        const incoming = next.root;
+        if (wrap) {
+          incoming.style.position = 'absolute';
+          incoming.style.left = `${shell.root.offsetLeft}px`;
+          incoming.style.top = `${shell.root.offsetTop}px`;
+          incoming.style.margin = '0';
+          incoming.style.transform = shell.root.style.transform;
+          incoming.style.transformOrigin = getComputedStyle(shell.root).transformOrigin;
+          incoming.style.opacity = '0';
+          wrap.append(incoming);
+          // The frame's ring gradient drifts on a 9s loop. A fresh frame starts that
+          // loop from zero, so the ring would visibly skip to a different phase the
+          // moment the new frame covered the old one. Start it where the old one is.
+          const drift = (n: HTMLElement): CSSAnimation | undefined =>
+            n.getAnimations().find((a): a is CSSAnimation => a instanceof CSSAnimation && a.animationName === 'lp-stage-drift');
+          const phase = drift(shell.root)?.currentTime;
+          const mine = drift(incoming);
+          if (phase != null && mine) mine.currentTime = phase;
+          // Two frames so the starting opacity is committed before the transition is
+          // armed, or the browser collapses both into one paint and nothing animates.
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
+          incoming.style.transition = `opacity ${FADE}ms ${EASE}`;
+          incoming.style.opacity = '1';
+          await new Promise((r) => setTimeout(r, FADE + 40));
+        }
+        // The old world leaves from UNDER a frame that already covers it, so nothing
+        // about this is visible.
         cur.destroy();
         shell.destroy();
+        for (const p of ['position', 'left', 'top', 'margin', 'opacity', 'transition', 'transformOrigin'] as const) {
+          incoming.style.removeProperty(p);
+        }
+        // IN PLACE (Gabe, 9/3/26: after the fade "the app sort of has a reload moment
+        // ... goes blank for like literally a millisecond ... refreshes all the
+        // content"). This used to call fitInto again, which built a NEW wrapper, moved
+        // the new world into it, and swapped the wrappers — all in one synchronous
+        // step, so no blank frame was ever painted, and the code auditor cleared it on
+        // those grounds. But a subtree taken out of the DOM and put back restarts
+        // every CSS animation inside it, and the active tab panel has a 0.3s fade-in
+        // of its own (components.css): the whole screen replayed its entrance the
+        // instant the crossfade finished. That is the "reload". adopt() re-measures
+        // the world where it already stands, and nothing restarts.
+        fit?.adopt(incoming);
         shell = null;
         cur = null;
-        pending = next; // the next iteration adopts the already-built world
+        pending = next; // the next iteration adopts the already-built, already-mounted world
+        pendingMounted = true;
       } else {
         cur.destroy();
         shell.destroy();
@@ -1225,6 +1451,7 @@ export function startHeroDemo(stage: HTMLElement, opts: HeroDemoOpts = {}): Hero
     stop() {
       stopped = true;
       setDemoSilent(false); // hand the app's sounds back
+      activeStages.delete(stage); // the patches go inert for this stage (see installStagePatches)
       cur?.destroy();
       shell?.destroy();
     },

@@ -4,7 +4,7 @@ import type { Data } from '../db';
 import type { Task, TaskMap, TaskFolder, Priority } from '../types';
 import { getTaskFolders, saveTaskFolders, makeFolder, normFolder, FOLDERS_EVENT } from '../tasks/folders';
 import { makeResizeGrip, restoreSavedHeight } from '../util/resize';
-import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToast } from '../util/dom';
+import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToast, fadeRemove } from '../util/dom';
 import { attachColorPicker } from '../ui/colorPicker';
 import { makeWheel } from './wheel';
 import { genId } from '../util/ids';
@@ -83,6 +83,7 @@ function fmtPlaylistLen(sec: number): string {
 }
 import { parseFocusInput, parseDateTime, isPastDate, PAST_DATE_MSG, isPastTime, PAST_TIME_MSG } from '../tasks/parser';
 import { shiftSelect } from '../util/select';
+import { selectionBar, type SelBar } from '../ui/selbar';
 import { languageName } from '../util/translate';
 import { attachFolderAutocomplete } from '../tasks/folderAutocomplete';
 import { acceptFolderName, cleanFolderName, guardFolderNameField, wireRename } from '../tasks/folderName';
@@ -231,6 +232,13 @@ const QUOTES = [
   'YOUR ONLY LIMIT IS THE ONE YOU ACCEPT',
   'GREATNESS IS EARNED, NEVER GIVEN',
 ];
+// THE DEMO'S ONE QUOTE (Gabe, 9/3/26): the landing demo picked from the list above
+// like a real session does, so every loop opened the mini player on a different
+// line, some of them two lines long in a 440px window. The first impression gets
+// one short line, always the same. Same rule as the dashboard's fixed greeting in
+// sample mode. Swap the text here; it must be in the list above to stay honest.
+const SAMPLE_QUOTE = 'START NOW. PERFECT LATER.';
+
 
 // Ring radius in the 280×280 viewBox. A touch larger than the timer numerals so
 // there's clear breathing room between the gold arc and the centered countdown.
@@ -289,6 +297,10 @@ export class FocusView {
   private refreshImportBody?: () => void;
   private redrawTodos?: () => void; // redraws the SETUP list
   private redrawSessionTodos: (() => void) | null = null; // redraws the active session's list
+  // The "N selected · Deselect all" strip, one handle per selection. See syncSelBars.
+  private impBar: SelBar | null = null;
+  private todoBar: SelBar | null = null;
+  private lastSel: 'imp' | 'todo' = 'todo'; // which selection was touched most recently
   private watchingTasks = false;
   private musicVolume = 50; // live session music volume (0–100), driven by the in-session slider
   private playlist: Track[] = [];
@@ -381,7 +393,22 @@ export class FocusView {
     // you see is correct, rather than a stale number that corrects itself a beat
     // later (Gabe, 8/11: that lag "can be deceiving").
     document.addEventListener('visibilitychange', this.onVisible);
+    // Esc clears whichever Focus selection is live, the same key that clears one in
+    // Tasks and Bookmarks (tasks/render.ts mount). Registered on the CONSTRUCTOR
+    // rather than mount(): mount() runs on every visit to the Focus tab and would
+    // stack a listener per visit, and a session running from the mini player never
+    // mounts the tab at all yet still has a selectable task list.
+    document.addEventListener('keydown', this.onEscClearSel);
   }
+
+  /** Esc gives the selection up, unless an inline editor owns the keyboard — Esc
+   *  there means "cancel this edit", and the row underneath keeps its selection. */
+  private onEscClearSel = (e: KeyboardEvent): void => {
+    if (e.key !== 'Escape') return;
+    if (document.querySelector('.inline-edit-block')) return;
+    if (this.importSel.size) this.clearImportSel();
+    else if (this.todoSel.size) this.clearTodoSel();
+  };
 
   private onVisible = (): void => {
     if (document.hidden) return;
@@ -797,7 +824,7 @@ export class FocusView {
 
     const back = el('div', { class: 'focus-songwin-backdrop' });
     const win = el('div', { class: 'focus-songwin' });
-    const close = (): void => back.remove();
+    const close = (): void => fadeRemove(back);
 
     const head = el('div', { class: 'focus-songwin-head' });
     const titles = el('div', { class: 'focus-songwin-titles' });
@@ -1020,8 +1047,7 @@ export class FocusView {
     const drawTodos = () => {
       todoList.replaceChildren();
       // Selection follows reality: drop ids whose todos left the session.
-      const live = new Set(this.todos.map((t) => t.id));
-      for (const id of [...this.todoSel]) if (!live.has(id)) this.todoSel.delete(id);
+      this.pruneSel('todo', this.todos.map((t) => t.id));
       // Visible row order (collapsed folder members are not rangeable), for
       // Shift+click ranges. Filled in as the rows are drawn below.
       const visIds: string[] = [];
@@ -1058,7 +1084,7 @@ export class FocusView {
             if (i >= 0) this.todos.splice(i, 1);
             this.todoSel.delete(m.id);
           }
-          drawTodos();
+          drawTodos(); // prunes + repaints the strip on the way through
           importUI?.refresh();
         });
         row.append(del);
@@ -1264,11 +1290,12 @@ export class FocusView {
           lenErr.textContent = 'Pick a session length.';
           return;
         }
-        if (!this.todos.length) {
-          todoInput.classList.add('invalid');
-          setTimeout(() => todoInput.classList.remove('invalid'), 900);
-          return;
-        }
+        // No task requirement (Gabe, 9/6/26): a focus session is a timer with
+        // optional music, and a student without a task to attach yet — or one
+        // who just wants a plain timed session — shouldn't be blocked from
+        // starting one. sessionTodos below is simply empty in that case, a
+        // state the session panel already renders (see the "No tasks left"
+        // empty state a running session reaches once everything is checked off).
         this.startSession();
       });
       wrap.append(start);
@@ -1419,6 +1446,7 @@ export class FocusView {
     const sel = kind === 'imp' ? this.importSel : this.todoSel;
     const multi = e.ctrlKey || e.metaKey || e.shiftKey;
     if (!multi && !sel.size) return false;
+    this.lastSel = kind; // the strip speaks for whichever list you touched last
     e.preventDefault();
     window.getSelection()?.removeAllRanges(); // sweep away shift-click text highlight
     if (e.shiftKey) {
@@ -1431,7 +1459,55 @@ export class FocusView {
     } else {
       sel.add(id);
     }
+    this.syncSelBars();
     return true;
+  }
+
+  /**
+   * THE SELECTION STRIP, FOR THE TWO FOCUS LISTS (Gabe, 8/27).
+   *
+   * The selection GESTURE has worked in all four Focus panels since 8/10 — click,
+   * Shift+click, act-on-the-selection — but the strip that names it never followed,
+   * so the Import panel and the in-session task list had a bulk mode with nothing on
+   * screen admitting it existed and no way out but clicking every row back off.
+   * Tasks and Bookmarks have had the strip the whole time; this is the same one.
+   *
+   * ONE STRIP, TWO SELECTIONS. ui/selbar.ts is a deliberate singleton (one node,
+   * re-pointed per caller), and the setup screen can hold an Import selection and a
+   * todo selection at the same time. So the strip reports the list you touched last
+   * while it still has something in it, and falls back to the other the moment it
+   * empties. Both empty and either call hides it.
+   */
+  private syncSelBars(): void {
+    this.impBar ??= selectionBar('task', () => this.clearImportSel(), this.sample?.host);
+    this.todoBar ??= selectionBar('task', () => this.clearTodoSel(), this.sample?.host);
+    const impSpeaks = this.lastSel === 'imp' ? this.importSel.size > 0 : this.todoSel.size === 0;
+    if (impSpeaks) this.impBar.update(this.importSel.size);
+    else this.todoBar.update(this.todoSel.size);
+  }
+
+  /** Drop ids that are no longer on screen, then repaint the strip. Called from
+   *  every draw, so the count can never disagree with the list under it. */
+  private pruneSel(kind: 'imp' | 'todo', liveIds: Iterable<string>): void {
+    const sel = kind === 'imp' ? this.importSel : this.todoSel;
+    const live = new Set(liveIds);
+    for (const id of [...sel]) if (!live.has(id)) sel.delete(id);
+    this.syncSelBars();
+  }
+
+  private clearImportSel(): void {
+    this.importSel.clear();
+    this.refreshImportBody?.();
+    this.syncSelBars();
+  }
+
+  /** Both todo lists share this.todoSel, so both get redrawn — only one of them is
+   *  ever on screen, and redrawing a detached one is free. */
+  private clearTodoSel(): void {
+    this.todoSel.clear();
+    this.redrawTodos?.();
+    this.redrawSessionTodos?.();
+    this.syncSelBars();
   }
 
   /** The todos a row action operates on: the whole selection when the acted-on
@@ -1621,7 +1697,7 @@ export class FocusView {
     if (batch.length > 1) {
       wrap.append(el('div', { class: 'popup-bulk-note', text: `Applies to all ${batch.length} selected tasks.` }));
     }
-    const close = () => back.remove();
+    const close = () => fadeRemove(back);
     for (const f of folders) {
       const b = el('button', { class: `folder-pick-row${todo.folderId === f.id ? ' on' : ''}` });
       b.innerHTML = FOCUS_FOLDER_SVG(f.color);
@@ -1659,10 +1735,15 @@ export class FocusView {
     });
     const input = textInput({ class: 'folder-pick-input', placeholder: '+ New folder…' });
     guardFolderNameField(input, this.host()); // one word: f: cannot reach a name with a space in it
-    input.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter') return;
+    // Same + button as the Tasks tab's picker (Gabe, 8/26) — these two menus are
+    // meant to be the same menu, so a create affordance in one belongs in both.
+    const create = (): void => {
       const name = cleanFolderName(input.value);
-      if (!name) return;
+      if (!name) {
+        input.classList.add('invalid');
+        input.focus();
+        return;
+      }
       const folder = makeFolder(name, newColor);
       this.taskFolders.push(folder);
       this.openFocusFolders.add(folder.id);
@@ -1670,9 +1751,19 @@ export class FocusView {
       void saveTaskFolders(this.data, this.taskFolders)
         .then(() => Promise.all(batch.map((b) => this.fileTodoInFolder(b, folder.id))))
         .then(redraw);
+    };
+    input.addEventListener('input', () => input.classList.remove('invalid'));
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      create();
     });
+    const addBtn = el('button', { type: 'button', class: 'folder-pick-add', text: '+', title: 'Create folder' });
+    // mousedown cancels the focus move only; click does the work, so Space/Enter on
+    // the focused button works too (see the longer note in tasks/render.ts).
+    addBtn.addEventListener('mousedown', (e) => e.preventDefault());
+    addBtn.addEventListener('click', () => create());
     const newRow = el('div', { class: 'folder-pick-new' });
-    newRow.append(colorIn, input);
+    newRow.append(colorIn, input, addBtn);
     wrap.append(newRow);
     // The f: tip that used to sit here moved to 💡 Task Pro Tips in the Tasks
     // header, along with every other one (Gabe, 8/22). The tip still SAYS that f:
@@ -1923,6 +2014,7 @@ export class FocusView {
           const imported = importedTaskIds();
           for (const x of targets) if (!imported.has(x.id)) addTaskToTodos(x);
           this.importSel.clear();
+          this.syncSelBars(); // the import that just consumed the selection also ends it
           redraw();
           drawImportBody();
         });
@@ -1948,6 +2040,14 @@ export class FocusView {
       }
 
       const imported = importedTaskIds();
+
+      // Selection housekeeping, ONE list for the whole panel, folders included.
+      // importVisIds is both the Shift-range order and the prune whitelist, so it
+      // must mirror DRAWN order: expanded folder members first, then the strays.
+      // It was built from the strays alone before, which silently deleted any
+      // selection on a foldered task on the very redraw its click triggered —
+      // the "Import has no bulk selection" bug (Gabe, 8/31).
+      const visIds: string[] = [];
 
       // FOLDERS — bring a whole folder's un-imported tasks into the session.
       {
@@ -2002,6 +2102,7 @@ export class FocusView {
                 const memberRow = buildTaskRow(t, imported.has(t.id));
                 memberRow.classList.add('focus-import-in-folder');
                 importBody.append(memberRow);
+                visIds.push(t.id); // members are selectable rows — they range and survive prunes
               }
             }
           }
@@ -2053,11 +2154,11 @@ export class FocusView {
       const stray = filtered.filter((t) => !t.folderId || !inShownFolder.has(t.folderId));
       importBody.append(el('div', { class: 'focus-import-section', text: 'Individual tasks' }));
       const sorted = sortTasks(stray);
-      // Selection housekeeping: range order = drawn order; imported/filtered-out
-      // ids fall out of the selection instead of lingering invisibly.
-      importVisIds = sorted.filter((t) => !imported.has(t.id)).map((t) => t.id);
-      const selectable = new Set(importVisIds);
-      for (const id of [...this.importSel]) if (!selectable.has(id)) this.importSel.delete(id);
+      // Imported/filtered-out ids fall out of the selection instead of lingering
+      // invisibly; everything drawn selectable this pass stays.
+      for (const t of sorted) if (!imported.has(t.id)) visIds.push(t.id);
+      importVisIds = visIds;
+      this.pruneSel('imp', importVisIds);
       for (const t of sorted) importBody.append(buildTaskRow(t, imported.has(t.id)));
     };
 
@@ -2094,10 +2195,16 @@ export class FocusView {
     this.endTimeMs = Date.now() + this.totalSeconds * 1000;
     this.paused = false;
     this.pausedRemainingSec = null;
-    this.quote = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+    this.quote = this.sample ? SAMPLE_QUOTE : QUOTES[Math.floor(Math.random() * QUOTES.length)];
     // Each session decides fresh: the latch belongs to the session, not the app.
     this.accountabilityLatch = getPrefs().focus.timeAccountability;
     this.buildOverlay();
+    // buildOverlay just pointed refreshImportBody at the SESSION Import panel —
+    // the visible one. renderSetup() below re-points it at the freshly reset
+    // (hidden) setup panel, which left "Deselect all"/Esc clearing the selection
+    // without repainting the rows the student was looking at (Gabe, 8/31). Keep
+    // the session panel's handle and restore it after the reset.
+    const sessionImportRefresh = this.refreshImportBody;
     this.startTicker();
     if (getPrefs().focus.autoStartMusic) this.startMusic();
     void this.acquireWakeLock();
@@ -2108,6 +2215,7 @@ export class FocusView {
     this.selectedSeconds = 60 * 60;
     this.selectedMusic = tracksForGenre(MUSIC_GENRES[0].id)[0]?.id ?? null;
     this.renderSetup();
+    this.refreshImportBody = sessionImportRefresh;
   }
 
   /** `keepRunning` = the mid-session-reload opt-in (focus.resumeAfterReload). */
@@ -2354,6 +2462,13 @@ export class FocusView {
     window.removeEventListener('storage', this.onStorage);
     window.removeEventListener(FOCUS_SOUND_EVENT, this.onSoundSettings);
     document.removeEventListener('visibilitychange', this.onVisible);
+    document.removeEventListener('keydown', this.onEscClearSel);
+    // The strip is a shared singleton: hand back both handles or it keeps answering
+    // for a view that no longer exists (see the 8/16 bug note in ui/selbar.ts).
+    this.impBar?.destroy();
+    this.todoBar?.destroy();
+    this.impBar = null;
+    this.todoBar = null;
     document.getElementById('focus-session-toast')?.remove();
   }
 
@@ -2478,7 +2593,14 @@ export class FocusView {
       // A completed session announces via the system notification (Settings ▸
       // Notifications ▸ Focus). The old "session complete" toast duplicated that, so
       // it's been removed — the sound + notification are the completion feedback now.
-      void this.notify('Focus session complete!', `${minutes} min focused • ${done}/${total} tasks done`);
+      // The task count is DROPPED when there were no tasks (Gabe, 9/6/26), the same
+      // guard the manual-end toast has always had. Now that a session can start with
+      // an empty list, an unguarded line announced "45 min focused • 0/0 tasks done"
+      // to someone who never asked for a task list.
+      void this.notify(
+        'Focus session complete!',
+        `${minutes} min focused` + (total > 0 ? ` • ${done}/${total} tasks done` : '')
+      );
     } else {
       // Manual / early ends get NO notification — so the toast stays for them, mainly
       // to carry the "Restore" undo (a mis-tapped End can be taken back for ~10s).
@@ -2905,7 +3027,7 @@ export class FocusView {
       class: `focus-ctrl ${sign > 0 ? 'gold' : 'danger'}`,
       text: sign > 0 ? 'Add' : 'Trim',
     });
-    const close = () => back.remove();
+    const close = () => fadeRemove(back);
     cancel.addEventListener('click', close);
     ok.addEventListener('click', () => {
       const a = amount();
@@ -2995,7 +3117,12 @@ export class FocusView {
     // Order: ⏮ ⏸/▶ 🎵 ⏭ — the menu button nests inside the transport cluster,
     // between play/pause and the next-arrow. No track label; the panel is right-
     // anchored, so the buttons sit where the label used to be.
-    bar.append(prev, play, musicBtn, next);
+    // ⏮ ▶ ⏭ then 🎵 — the transport is one unit, and the menu button comes after it
+    // (Gabe, 9/2/26: "they look a little weird"). 🎵 was appended BETWEEN play and
+    // next, which split Next off from the two controls it belongs with and put an
+    // unrelated button in the middle of a three-button transport. This is the order
+    // the block's own comment has always described.
+    bar.append(prev, play, next, musicBtn);
     panel.append(bar);
 
     // --- 🎵 menu: the whole music player (queue + inline playlist switcher) ------
@@ -3259,15 +3386,18 @@ export class FocusView {
     const scrolled = this.captureScroll(host);
     host.replaceChildren();
     if (!this.sessionTodos.length) {
-      host.append(el('div', { class: 'focus-todos-empty', text: 'No tasks left. Add one below.' }));
+      // "ABOVE", not below (Gabe, 9/6/26): in the session panel the add box and
+      // the Import Tasks button both sit on top of this list, so pointing down
+      // sent you to the bottom of an empty panel.
+      host.append(el('div', { class: 'focus-todos-empty', text: 'No tasks left. Add one above.' }));
+      this.pruneSel('todo', []); // no rows left to be selected — drop the strip too
       scrolled();
       return;
     }
     // Selection follows reality + visible order for Shift ranges (same scheme as
     // the setup list; the two lists share this.todoSel since they show the same
     // session todos).
-    const live = new Set(this.sessionTodos.map((t) => t.id));
-    for (const id of [...this.todoSel]) if (!live.has(id)) this.todoSel.delete(id);
+    this.pruneSel('todo', this.sessionTodos.map((t) => t.id));
     const visIds: string[] = [];
     const buildRow = (todo: FocusTodo, draggable: boolean): HTMLElement => {
       const i = this.sessionTodos.indexOf(todo);
@@ -3483,7 +3613,16 @@ export class FocusView {
     const finish = (apply: boolean) => {
       if (done) return;
       done = true;
-      if (apply) commit(input.value.trim());
+      // ONLY WHEN THE TEXT ACTUALLY CHANGED (Gabe, 8/27). This is the same guard
+      // tasks/render.ts inlineEdit carries, and it is here for the same reason: the
+      // course and date commits below are BULK-AWARE, so on a selected row they hit
+      // every selected todo. Without this, double-clicking a course and clicking
+      // away — no typing, no change — pushed the clicked row's course onto the whole
+      // selection. Opening an editor is not an edit.
+      //
+      // The empty affordances ("+ course", "+ due date") pass '' as `initial`, so
+      // opening and abandoning one is also correctly a no-op.
+      if (apply && input.value.trim() !== initial.trim()) commit(input.value.trim());
       redraw();
     };
     input.addEventListener('keydown', (e) => {

@@ -21,6 +21,10 @@ import { todayStr, addDays } from '../../util/dates';
 const DEMO_COURSES: CourseConfig[] = [
   { id: 'course_ela', name: 'English', color: '#e091a8', parseWords: ['ela', 'english', 'annotate'] },
   { id: 'course_ivrit', name: 'Ivrit', color: '#70c0e0', parseWords: ['ivrit', 'hebrew'] },
+  // Spanish exists for the SECOND translated row (Gabe, 9/1/26: "show multiple
+  // translations") — the seed carries a Spanish task translated alongside the
+  // Hebrew one. Extra course = still a superset of SAMPLE_COURSES, so fine.
+  { id: 'course_spanish', name: 'Spanish', color: '#5aa87f', parseWords: ['spanish', 'español'] },
   { id: 'course_math', name: 'Math', color: '#f0c040', parseWords: ['math', 'problem set', 'ma'] },
   { id: 'course_sci', name: 'Science', color: '#9b7ec8', parseWords: ['science', 'bio', 'lab', 'photosynthesis'] },
   { id: 'course_hist', name: 'Social Studies', color: '#e05050', parseWords: ['social studies', 'history', 'dbq'] },
@@ -90,10 +94,36 @@ function danTasks(): Record<string, Task> {
       dueDate: today,
       dueTime: '08:00',
       priority: 'normal',
-      details: 'Read chapter 5 and answer the comprehension questions at the end.',
+      // The DESCRIPTION is in Hebrew too, translated underneath (Gabe, 9/1/26:
+      // scene 6 opens it to show descriptions get the same translation pass).
+      // detailsChecked ships true so the live view never fires a network pass.
+      details: 'לקרוא את פרק ה׳ בספר ולענות על שאלות ההבנה בסוף הפרק. להכין שתי שאלות לדיון בכיתה.',
+      detailsTranslated: 'Read chapter 5 in the book and answer the comprehension questions at the end of the chapter. Prepare two questions for class discussion.',
+      detailsLang: 'iw',
+      detailsChecked: true,
       notes: [],
       translatedTitle: 'Read chapter 5 and answer the questions',
       translatedLang: 'iw',
+    },
+    // --- Variety #2: the SPANISH row (Gabe, 9/1/26 — "show multiple
+    // translations"): title AND description in Spanish, both translated. Scene 6
+    // opens this description first. Due tomorrow so today stays at three rows.
+    {
+      ...base,
+      ...imported,
+      id: 'dan_spanish',
+      title: 'Estudiar los verbos irregulares para la prueba',
+      course: 'Spanish',
+      dueDate: addDays(today, 1),
+      dueTime: '08:00',
+      priority: 'normal',
+      details: 'Estudiar la lista de verbos irregulares de la unidad 3. La prueba cubre el pretérito y el imperfecto.',
+      detailsTranslated: 'Study the list of irregular verbs from unit 3. The quiz covers the preterite and the imperfect.',
+      detailsLang: 'es',
+      detailsChecked: true,
+      notes: [],
+      translatedTitle: 'Study the irregular verbs for the quiz',
+      translatedLang: 'es',
     },
     // --- Scene 3: the History-project chain, a clear multi-day progression.
     // Trimmed twice on 8/16 (Gabe: "WAY too many tasks; they should chiefly

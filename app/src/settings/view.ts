@@ -9,11 +9,12 @@
 // #region Imports & types — dependencies, the draft model, the options object
 import type { Data } from '../db';
 import type { CourseConfig, SchoologySettings } from '../types';
-import { el, textInput, escapeHtml, enterConfirms } from '../util/dom';
+import { el, textInput, escapeHtml, enterConfirms, fadeRemove } from '../util/dom';
 import { attachColorPicker } from '../ui/colorPicker';
 import { openAtTop } from '../ui/tabs';
 import { confirmDanger } from '../ui/confirm';
 import { genId } from '../util/ids';
+import type { SettingsSection } from '../util/router';
 import { capitalizeName } from '../util/names';
 import { getCourses, replaceCourses } from '../courses/registry';
 import { recommendedSet } from '../courses/recommend';
@@ -35,7 +36,9 @@ import { armAudioContext } from '../focus/timer';
 import { LIBRARY_TRACKS, MUSIC_GENRES } from '../focus/library';
 import { loadPlaylists, playlistEmoji, playlistKey, type CustomPlaylist } from '../focus/playlists';
 import { focusSessionLive } from '../focus/persist';
-import { NOTIFY_GUIDES } from './notifyGuides';
+import { NOTIFY_GUIDES_MAC, NOTIFY_GUIDES_WINDOWS } from './notifyGuides';
+import { cobaltIconSvg, chromeIconSvg } from '../ui/appIcon';
+import { detectOS } from '../util/os';
 import {
   type NotifySettings,
   type NotifyAppearance,
@@ -81,6 +84,20 @@ interface SettingsOpts {
   displayName: string;
   email: string;
   onNameChange: (name: string) => void;
+  /** The address bar, when there is one to keep in step: `section` reads the slug
+   *  the current path is asking for, `onSection` reports the one now on screen.
+   *  Supplied by the real app only — the landing demo runs this same class inside
+   *  its device frame and must leave the browser's URL alone. */
+  route?: {
+    section: () => SettingsSection | null;
+    /** `replace` distinguishes the section this page OPENED on (which is a detail
+     *  of the /settings entry already in the history, so it rewrites it) from one
+     *  the student CLICKED (a place of its own, so it gets its own entry and Back
+     *  walks between sections). Without the split, opening Settings left two
+     *  entries — /settings and /settings/profile — and Back bounced off the first
+     *  straight into the second. */
+    onSection: (slug: SettingsSection, replace: boolean) => void;
+  };
   /** Popup host override (the landing demo passes its device-frame body so
    *  overlays like the color card mount INSIDE the frame). Real app: omit. */
   host?: () => HTMLElement | null | undefined;
@@ -211,22 +228,13 @@ export class SettingsView {
       ['Notifications', secNotify],
     ];
 
-    // Artifact-style page heads: each tab opens with its title + a one-line purpose.
-    const DESCS: Record<string, string> = {
-      Profile: 'Your account and how Cobalt behaves for you.',
-      Tasks: 'Where your assignments come from, what gets imported, and how the calendar looks.',
-      Courses: "Name, color, and auto-file each class's assignments with parse words.",
-      Focus: 'Defaults for your focus sessions: sound, timer, and music.',
-      Notifications: 'Assignment reminders and daily digests, with a live preview of each.',
-    };
-    for (const [label, sec] of tabs) {
-      const head = el('div', { class: 'settings-page-head' });
-      head.append(
-        el('div', { class: 'settings-page-title', text: label }),
-        el('div', { class: 'settings-page-desc', text: DESCS[label] ?? '' })
-      );
-      sec.prepend(head);
-    }
+    // NO PER-TAB PAGE HEAD (Gabe, 8/26). Each tab used to open with its own title
+    // and a one-line purpose ("Profile / Your account and how Cobalt behaves for
+    // you."). Both were already on screen: the side nav names the tab and shows it
+    // highlighted, so the title was the same word twice, and the description was a
+    // sentence nobody re-reads after the first visit. Between them they pushed ~60px
+    // of dead space above every tab, which is exactly where the first REAL setting
+    // now sits, level with the "Settings" title in the sidebar.
 
     const content = el('div', { class: 'settings-content' });
     for (const [, sec] of tabs) content.append(sec);
@@ -235,9 +243,14 @@ export class SettingsView {
     const side = el('aside', { class: 'settings-side' });
     side.append(el('h2', { class: 'settings-side-title', text: 'Settings' }));
     const navButtons: HTMLButtonElement[] = [];
-    const show = (idx: number) => {
+    // The side tabs ARE the second level of the app's path (/settings/courses), so
+    // each one needs a slug. Lowercasing the label is the whole rule; SLUGS keeps
+    // the two orders locked together, since both are indexed by position.
+    const SLUGS = tabs.map(([label]) => label.toLowerCase() as SettingsSection);
+    const show = (idx: number, opening = false) => {
       tabs.forEach(([, sec], i) => (sec.hidden = i !== idx));
       navButtons.forEach((b, i) => b.classList.toggle('active', i === idx));
+      this.opts.route?.onSection(SLUGS[idx], opening);
       // .settings-content is not the scroller — the shell's .app-below is — so
       // this line alone never moved anything, and the sections read as
       // scroll-linked (Gabe, 8/21). openAtTop walks up to the real one.
@@ -268,7 +281,12 @@ export class SettingsView {
     shell.append(side, content);
     page.append(shell);
     panel.replaceChildren(page); // swap in the finished page in one shot (no blank flash)
-    show(0); // Profile tab active by default
+    // Open the section the path names, Profile otherwise. This also covers Back and
+    // Forward between two settings sections: the tab re-mounts on every visit, so
+    // reading the path here is the only place that has to know about them.
+    const asked = this.opts.route?.section() ?? null;
+    const at = asked ? SLUGS.indexOf(asked) : -1;
+    show(at >= 0 ? at : 0, true);
   }
   // #endregion
 
@@ -1344,7 +1362,7 @@ export class SettingsView {
 
     const actions = el('div', { class: 'confirm-actions' });
     const cancel = el('button', { class: 'confirm-cancel', text: 'Cancel' });
-    cancel.addEventListener('click', () => back.remove());
+    cancel.addEventListener('click', () => fadeRemove(back));
     const save = el('button', { class: 'playlist-editor-save', text: 'Save' });
     save.addEventListener('click', () => {
       const name = nameIn.value.trim();
@@ -1357,7 +1375,7 @@ export class SettingsView {
       const emoji = chosenEmoji;
       const pl: CustomPlaylist = { id: existing?.id ?? 'pl_' + genId(), name, trackIds: [...kept, ...added], ...(emoji ? { emoji } : {}) };
       void this.data.putFocus(playlistKey(pl.id), pl).then(() => {
-        back.remove();
+        fadeRemove(back);
         void this.drawPlaylists(host);
       });
     });
@@ -1366,7 +1384,7 @@ export class SettingsView {
 
     back.append(box);
     back.addEventListener('click', (e) => {
-      if (e.target === back) back.remove();
+      if (e.target === back) fadeRemove(back);
     });
     enterConfirms(back, () => save); // Enter = Save (no-ops until name + a song exist)
     document.body.append(back);
@@ -1608,19 +1626,42 @@ export class SettingsView {
     const previewRefreshers: (() => void)[] = [];
     const refreshPreviews = (): void => previewRefreshers.forEach((f) => f());
 
+    // OS-FAITHFUL MOCK (Gabe, 8/31). The mock must look like the popup the student
+    // will ACTUALLY get, or the preview reads as broken: on Windows that's the
+    // Chrome toast (app icon left, source line at the bottom); on a Mac it's a
+    // compact translucent card with Chrome's roundel on the left, the origin under
+    // the title, and the site favicon on the right. util/os.ts decides once per
+    // build; unknown OSes read as Mac (the userbase mostly is).
+    const macMock = detectOS() === 'mac';
     const buildToast = (): { el: HTMLElement; set: (t: string, m: string) => void; get: () => { title: string; body: string } } => {
       const frame = el('div', { class: 'nprev' });
       frame.append(el('div', { class: 'nprev-tag', text: 'What the popup looks like' }));
       const stage = el('div', { class: 'nprev-stage' });
-      const toast = el('div', { class: 'ntoast' });
-      const icon = el('div', { class: 'ntoast-icon' });
-      icon.innerHTML = WS_ICON_SVG;
-      const body = el('div', { class: 'ntoast-body' });
-      const title = el('div', { class: 'ntoast-title' });
-      const msg = el('div', { class: 'ntoast-msg' });
-      body.append(title, msg, el('div', { class: 'ntoast-src', text: 'cobalt.app' }));
-      toast.append(icon, body);
-      stage.append(toast);
+      let title: HTMLElement;
+      let msg: HTMLElement;
+      if (macMock) {
+        const toast = el('div', { class: 'ntoast-mac' });
+        const icon = el('div', { class: 'ntoast-mac-icon' });
+        icon.innerHTML = CHROME_ICON_SVG;
+        const body = el('div', { class: 'ntoast-mac-body' });
+        title = el('div', { class: 'ntoast-mac-title' });
+        msg = el('div', { class: 'ntoast-mac-msg' });
+        body.append(title, el('div', { class: 'ntoast-mac-src', text: 'cobaltstudy.com' }), msg);
+        const fav = el('div', { class: 'ntoast-mac-fav' });
+        fav.innerHTML = wsIconSvg();
+        toast.append(icon, body, fav);
+        stage.append(toast);
+      } else {
+        const toast = el('div', { class: 'ntoast' });
+        const icon = el('div', { class: 'ntoast-icon' });
+        icon.innerHTML = wsIconSvg();
+        const body = el('div', { class: 'ntoast-body' });
+        title = el('div', { class: 'ntoast-title' });
+        msg = el('div', { class: 'ntoast-msg' });
+        body.append(title, msg, el('div', { class: 'ntoast-src', text: 'cobaltstudy.com' }));
+        toast.append(icon, body);
+        stage.append(toast);
+      }
       frame.append(stage);
       return {
         el: frame,
@@ -1674,7 +1715,7 @@ export class SettingsView {
       const card = el('div', { class: 'nmail' });
       const top = el('div', { class: 'nmail-top' });
       const av = el('div', { class: 'nmail-av' });
-      av.innerHTML = WS_ICON_SVG; // the computer logo — the app's real avatar, not a letter
+      av.innerHTML = wsIconSvg(); // the computer logo — the app's real avatar, not a letter
       const meta = el('div', { class: 'nmail-meta' });
       const fromRow = el('div', { class: 'nmail-fromrow' });
       fromRow.append(el('span', { class: 'nmail-from', text: 'Cobalt' }), el('span', { class: 'nmail-time', text: 'now' }));
@@ -1993,6 +2034,13 @@ export class SettingsView {
   private openNotifyGuides(): void {
     const overlay = el('div', { class: 'ngd' });
     const card = el('div', { class: 'ngd-card' });
+    // Which OS's guide list is showing (8/31). Defaults to the DETECTED OS
+    // (util/os.ts — unknown reads as Mac); the Mac/Windows switcher on the index
+    // covers school machines and wrong guesses. Switching resets to the index,
+    // which is the only place the switcher renders — mid-guide the two lists'
+    // steps don't correspond, so there's nothing sensible to switch to.
+    let os = detectOS();
+    const guides = () => (os === 'mac' ? NOTIFY_GUIDES_MAC : NOTIFY_GUIDES_WINDOWS);
     let gi = -1; // -1 = the index list; otherwise the open guide
     let si = 0; // step within the open guide
 
@@ -2007,7 +2055,7 @@ export class SettingsView {
     };
     document.addEventListener('keydown', onKey);
     const go = (delta: number): void => {
-      const g = NOTIFY_GUIDES[gi];
+      const g = guides()[gi];
       if (!g) return;
       si = Math.max(0, Math.min(g.steps.length - 1, si + delta));
       render();
@@ -2025,8 +2073,23 @@ export class SettingsView {
           el('div', { class: 'ngd-title', text: 'Notifications not allowed?' }), // plural, matching the button that opens this (Gabe, 8/22)
           el('div', { class: 'ngd-sub', text: 'Work down this list. It’s ordered by how often each cause is the culprit. Every guide plays the fix step by step.' })
         );
+        // Mac/Windows switcher — the fixes live in different settings apps.
+        const osSeg = el('div', { class: 'ngd-os', role: 'group', 'aria-label': 'Which computer' });
+        ([
+          ['mac', 'Mac'],
+          ['windows', 'Windows'],
+        ] as const).forEach(([val, label]) => {
+          const b = el('button', { class: `ngd-os-btn${os === val ? ' active' : ''}`, text: label }) as HTMLButtonElement;
+          b.addEventListener('click', () => {
+            if (os === val) return;
+            os = val;
+            render();
+          });
+          osSeg.append(b);
+        });
+        card.append(osSeg);
         const list = el('div', { class: 'ngd-list' });
-        NOTIFY_GUIDES.forEach((g, i) => {
+        guides().forEach((g, i) => {
           const item = el('button', { class: 'ngd-item' }) as HTMLButtonElement;
           item.style.setProperty('--gda', g.color); // likelihood heat color (red → purple)
           const num = el('div', { class: 'ngd-num', text: String(i + 1) });
@@ -2046,7 +2109,7 @@ export class SettingsView {
       }
 
       // ---- player: one guide, one animated step at a time ----
-      const g = NOTIFY_GUIDES[gi];
+      const g = guides()[gi];
       card.style.setProperty('--gda', g.color); // guide accent colors the tag + dots
       const head = el('div', { class: 'ngd-head' });
       const back = el('button', { class: 'ngd-back', text: '‹ All causes' });
@@ -2294,11 +2357,13 @@ export class SettingsView {
     drawRecs();
 
     const err = el('div', { class: 'parse-error' });
-    const wordInput = textInput({ class: 'parse-add', placeholder: '+ parse word' });
-    wordInput.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter') return;
+    const wordInput = textInput({ class: 'parse-add', placeholder: 'parse word' });
+    const addWord = (): void => {
       const w = wordInput.value.trim().toLowerCase();
-      if (!w) return;
+      if (!w) {
+        wordInput.focus();
+        return;
+      }
       const conflict = this.draft.courses.find((x) => x.id !== c.id && x.parseWords.includes(w));
       if (conflict) {
         err.textContent = `Already used in "${conflict.name}".`;
@@ -2308,11 +2373,27 @@ export class SettingsView {
       this.refocusParseId = c.id; // keep the cursor here for the next word
       void this.saveCourses();
       redraw();
+    };
+    wordInput.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      addWord();
     });
+    // The commit button (Gabe, 8/26 — "rather than it just being enter"). It sits
+    // flush against the box as one pill so the pair reads as a single control and
+    // not as a fourth chip type in a row that already has three. The + on the
+    // placeholder and the + on the button are never on screen together: typing the
+    // first character replaces one with the other.
+    const addWordBtn = el('button', { type: 'button', class: 'parse-add-go', text: '+', title: 'Add parse word' });
+    // mousedown cancels the focus move only; click does the work, so Space/Enter on
+    // the focused button works too (see the note in tasks/render.ts).
+    addWordBtn.addEventListener('mousedown', (e) => e.preventDefault());
+    addWordBtn.addEventListener('click', () => addWord());
+    const addWrap = el('div', { class: 'parse-add-wrap' });
+    addWrap.append(wordInput, addWordBtn);
 
     // One chip row (artifact style): saved words, then gold "+ word" suggestions,
-    // then the "+ parse word" input — all flowing inline.
-    chips.append(recsHost, wordInput);
+    // then the "+ parse word" input and its commit button — all flowing inline.
+    chips.append(recsHost, addWrap);
     // After adding a word the whole list re-renders, wiping focus. If THIS course
     // is the one just edited, drop the cursor back into its "+ parse word" input so
     // several words can be typed in a row (Enter, type, Enter, type…) with no clicks.
@@ -2350,11 +2431,11 @@ export class SettingsView {
     const box = el('div', { class: 'help-box' });
     box.append(el('h3', { text: h.title }), el('p', { class: 'help-text', text: h.text }));
     const ok = el('button', { class: 'btn-primary', text: 'Got it' });
-    ok.addEventListener('click', () => back.remove());
+    ok.addEventListener('click', () => fadeRemove(back));
     box.append(ok);
     back.append(box);
     back.addEventListener('click', (e) => {
-      if (e.target === back) back.remove();
+      if (e.target === back) fadeRemove(back);
     });
     enterConfirms(back, () => null); // stacked-popup guard (see util/dom.ts)
     document.body.append(back);
@@ -2370,26 +2451,16 @@ function joinList(items: string[]): string {
   return `${items.slice(0, -1).join(', ')} & ${items[items.length - 1]}`;
 }
 
-// The REAL Cobalt app icon (navy square + the cobalt gem; the monitor retired
-// 8/10), matching public/icons/icon.svg so the notification preview shows the
-// true icon. Ids are si-* so they never collide with the header wordmark's cb-*.
-const WS_ICON_SVG =
-  '<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="120" height="120" rx="26" fill="#0e1e42"/>' +
-  '<defs><clipPath id="si-clip"><rect x="9" y="9" width="82" height="82" rx="31" ry="31"/></clipPath>' +
-  '<radialGradient id="si-body" cx="36%" cy="30%" r="88%"><stop offset="0%" stop-color="#8cc0ff"/><stop offset="38%" stop-color="#3d7fe8"/><stop offset="68%" stop-color="#0b46b0"/><stop offset="100%" stop-color="#032154"/></radialGradient>' +
-  '<radialGradient id="si-glow" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#7db4ff" stop-opacity="0.55"/><stop offset="100%" stop-color="#7db4ff" stop-opacity="0"/></radialGradient>' +
-  '<linearGradient id="si-sheen" x1="0%" y1="0%" x2="70%" y2="70%"><stop offset="0%" stop-color="#ffffff" stop-opacity="0.48"/><stop offset="42%" stop-color="#ffffff" stop-opacity="0"/></linearGradient></defs>' +
-  '<g transform="translate(10 10)"><g clip-path="url(#si-clip)">' +
-  '<rect x="9" y="9" width="82" height="82" fill="url(#si-body)"/>' +
-  '<polygon points="38,34 62,34 74,6 26,6" fill="#ffffff" opacity="0.14"/><polygon points="62,34 70,44 96,30 74,6" fill="#02174a" opacity="0.24"/>' +
-  '<polygon points="70,44 70,58 96,72 96,30" fill="#ffffff" opacity="0.10"/><polygon points="70,58 62,66 74,96 96,72" fill="#02174a" opacity="0.38"/>' +
-  '<polygon points="62,66 38,66 26,96 74,96" fill="#02174a" opacity="0.20"/><polygon points="38,66 30,58 4,72 26,96" fill="#02174a" opacity="0.32"/>' +
-  '<polygon points="30,58 30,44 4,30 4,72" fill="#ffffff" opacity="0.13"/><polygon points="30,44 38,34 26,6 4,30" fill="#ffffff" opacity="0.22"/>' +
-  '<polygon points="38,34 62,34 70,44 70,58 62,66 38,66 30,44" fill="#4a8cf0" opacity="0.50"/>' +
-  '<ellipse cx="41" cy="58" rx="16" ry="12" fill="url(#si-glow)"/><path d="M9,9 h52 q-32,13 -42,46 z" fill="url(#si-sheen)"/>' +
-  '<path d="M36 19 l2.6 4.6 4.6 2.6 -4.6 2.6 -2.6 4.6 -2.6 -4.6 -4.6 -2.6 4.6 -2.6 Z" fill="#ffffff" opacity="0.95"/>' +
-  '<circle cx="64" cy="61" r="1.8" fill="#ffffff" opacity="0.6"/><circle cx="57" cy="20" r="1.3" fill="#ffffff" opacity="0.5"/>' +
-  '</g></g></svg>';
+// The REAL Cobalt app icon and the official Chrome roundel now live in
+// ui/appIcon.ts, shared with the guide slides so the preview toast and the
+// slide toasts stay pixel-identical (Gabe, 8/31). On a Mac popup, Chrome sits
+// on the LEFT and the site's identity (Cobalt) rides on the RIGHT as the large
+// favicon; on Windows the Cobalt icon leads.
+// Fresh id suffix per mount — five toast previews sit in the DOM at once, and
+// duplicate gradient ids, while visually harmless, are invalid markup.
+let wsIconN = 0;
+const wsIconSvg = (): string => cobaltIconSvg(`set${wsIconN++}`);
+const CHROME_ICON_SVG = chromeIconSvg();
 
 // Small line-icons for the notification type rows.
 const NICONS = {

@@ -28,7 +28,19 @@ export function buildQuickAdd(
     autocomplete: 'off',
     spellcheck: false,
   });
-  wrap.append(input);
+  // A VISIBLE + BESIDE THE BOX (Gabe, 8/26). Enter still submits and always will,
+  // but Enter was the ONLY way in, and an empty box with a placeholder does not tell
+  // you that. The Focus tab's two add boxes have carried this exact button since
+  // 8/15 (.focus-add-btn) and nobody has to be told how those work; the same
+  // affordance belongs on the bar that adds most of the tasks in the app.
+  const addBtn = el('button', { class: 'quick-add-btn', type: 'button', text: '+', title: 'Add task' });
+  // The input and the button share a flex row, and the row is a CHILD of .quick-add
+  // rather than .quick-add itself: attachFolderAutocomplete hangs the "f:" menu off
+  // the wrap and positions it at top:100%, so the wrap has to stay the full-width
+  // positioned box the menu measures against.
+  const row = el('div', { class: 'quick-add-row' });
+  row.append(input, addBtn);
+  wrap.append(row);
 
   // The "f:" folder menu, shared verbatim with the Focus add boxes.
   const folderAC = attachFolderAutocomplete(input, wrap, () => getFolders?.() ?? []);
@@ -38,11 +50,9 @@ export function buildQuickAdd(
     setTimeout(() => input.classList.remove('invalid'), 900);
   };
 
-  input.addEventListener('keydown', (e) => {
-    // The open dropdown owns ↑ / ↓ / Tab / Enter / Esc.
-    if (folderAC.handleKeydown(e)) return;
-    if (e.key !== 'Enter' || e.shiftKey) return;
-    e.preventDefault();
+  /** Everything Enter used to do inline. The button and the key call the same
+   *  function, so the two paths cannot drift. */
+  const submit = (): void => {
     // "f:NAME" peels off BEFORE the normal parse, so the parser never sees it and
     // titles/dates/courses parse exactly as usual. The name is ONE WORD and the
     // token can sit anywhere: everything around it — including everything after
@@ -81,6 +91,22 @@ export function buildQuickAdd(
     onSubmit(parsed);
     input.value = '';
     folderAC.close();
+  };
+
+  input.addEventListener('keydown', (e) => {
+    // The open dropdown owns ↑ / ↓ / Tab / Enter / Esc.
+    if (folderAC.handleKeydown(e)) return;
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    e.preventDefault();
+    submit();
+  });
+  // Same split as every other create button in the app (see tasks/render.ts):
+  // mousedown cancels only the focus move, so the caret never leaves the box, and
+  // `click` does the work, which is the event Space/Enter on a focused button fires.
+  addBtn.addEventListener('mousedown', (e) => e.preventDefault());
+  addBtn.addEventListener('click', () => {
+    submit();
+    input.focus(); // keyboard activation DOES move focus to the button — put it back
   });
 
   return wrap;

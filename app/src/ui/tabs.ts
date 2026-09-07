@@ -38,7 +38,13 @@ export interface TabController {
  * would reach across into it.
  */
 export function openAtTop(node: Element): void {
-  for (let n: Element | null = node; n; n = n.parentElement) {
+  // The walk stops BEFORE <body>/<html> (Gabe, 9/1/26). In the signed-in shell the
+  // window never scrolls, so zeroing it was a silent no-op — but the landing page's
+  // hero demo runs these same tabs inside a frame on a page the VISITOR scrolls,
+  // and every scene's tab switch was yanking their viewport back up to the hero
+  // text. The app's own scrollers all live below <body>, so nothing app-side loses
+  // its reset.
+  for (let n: Element | null = node; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
     if (n.scrollTop) n.scrollTop = 0;
   }
 }

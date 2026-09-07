@@ -8,8 +8,10 @@
 //      (minutes before its due time), on any day, within a 1h catch-up window.
 //   2. DAILY AGENDA — once per day at a chosen morning time, "N tasks due today".
 //   3. TOMORROW PREVIEW — once per day at a chosen evening time, "N due tomorrow".
-//   4. NEW ASSIGNMENTS — tasks that appear after startup fire either one per task
-//      ('each') or a batched "N imported in the last X" digest every intervalMins.
+//   4. NEW ASSIGNMENTS — IMPORTED tasks that appear after startup fire either one
+//      per task ('each') or a batched "N imported in the last X" digest every
+//      intervalMins. Tasks the student writes themselves are not imports and are
+//      never announced by this rule (see the `fresh` filter).
 //
 // Every send is recorded in the notify ledger FIRST, so reloads/re-renders can
 // never duplicate a reminder. Settings changes arrive via the NOTIFY_SETTINGS_EVENT
@@ -276,7 +278,19 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
     for (const [id, t] of Object.entries(tasks)) {
       const due = `${t.dueDate || ''}|${t.dueTime || ''}`;
       const was = lastDue.get(id);
-      if (was !== undefined && was !== due) forgetSent(`rem|${id}|`);
+      // Scoped to the OLD date/time only (Gabe, 9/1 — was `rem|${id}|`, forgetting
+      // EVERY lead for this task regardless of date). That over-wide prefix is what
+      // produced a genuine duplicate with two tabs open on one account: tab A fires
+      // the reminder and writes it to the shared local ledger; tab B's `storage`
+      // listener merges that key in within the same tick (same-machine event, no
+      // network); THEN tab B's own (slower — a real Firestore round trip) watchTasks
+      // callback arrives for the very same edit, sees its due date changed, and
+      // wiped the key tab A had JUST written for the NEW date along with the stale
+      // one — immediately re-firing it in the same pass. Scoping to `was` still
+      // clears exactly what re-dating is supposed to unlock (the OLD date's key, so
+      // dragging a task back to a date it already reminded for fires again) without
+      // ever touching a key for the date the task is now on.
+      if (was !== undefined && was !== due) forgetSent(`rem|${id}|${was}|`);
       lastDue.set(id, due);
     }
     for (const id of lastDue.keys()) if (!ids.has(id)) lastDue.delete(id);
@@ -291,10 +305,25 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
       // a duplicate gets a brand-new id, so without it the copy is announced as
       // "New assignment: <title>" the instant you press ⎘. `seen` is still updated
       // below either way, so a suppressed duplicate can never fire later.
+      // SCHOOLOGY IMPORTS ONLY (Gabe, 9/4/26, tightened 9/5/26). The card in Settings
+      // reads "When Cobalt imports new work from Schoology", the batched digest says
+      // "Imported in the last X", and the note in `fire` above excuses this rule from
+      // "Your creations and edits" on the grounds that "a new assignment arrives from
+      // Schoology rather than from the student". All three were describing an intent
+      // the trigger never enforced: it announced ANY task that appeared after
+      // startup, so every task the student typed into Cobalt themselves came back at
+      // them as an import. Gabe caught it the honest way — Schoology was down,
+      // nothing could possibly have been imported, and the digests kept arriving.
+      //
+      // Named allowlist rather than "not manual": a future non-Schoology import
+      // source (e.g. Canvas) should NOT silently start firing this rule just because
+      // it isn't 'manual' — a new feed needs its own deliberate decision here.
+      const SCHOOLOGY_SOURCES: ReadonlySet<string> = new Set(['schoology', 'schoology-ical']);
       const fresh = [...ids].filter(
         (id) =>
           !seen!.has(id) &&
           tasks[id] &&
+          SCHOOLOGY_SOURCES.has(tasks[id].source) &&
           !tasks[id].completed &&
           (settings.notifyDuplicates || !tasks[id]._isDuplicate)
       );

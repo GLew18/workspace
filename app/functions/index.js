@@ -261,12 +261,21 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
 
     // Record a reminder once and queue it on the channels it resolves to (its own
     // channel × what can physically deliver).
+    //
+    // The ledger value carries title/body/popup/gmail now, not just `at` (Gabe,
+    // 9/1) — this is the ONLY record that a send while the app was closed ever
+    // existed. The client mirrors this same node (attachLedger in
+    // src/notify/notify.ts) and, on the next open, logs any key here it doesn't
+    // already know locally into the 🔔 screen. Before this, a reminder sent while
+    // Cobalt was fully closed had no client-side trace at all — the notification
+    // log only ever recorded sends THIS function's counterpart (the open-tab
+    // scheduler) made itself.
     const fire = (key, title, body, ch) => {
       const popup = canPopup && !!(ch && ch.popup);
       const gmail = canGmail && !!(ch && ch.gmail);
       if (!popup && !gmail) return;
       if (ledger[key] || updates[key]) return;
-      updates[key] = { at: Date.now() };
+      updates[key] = { at: Date.now(), title, body, popup, gmail };
       sends.push({ title, body, popup, gmail });
     };
 
@@ -832,6 +841,10 @@ let translator = null;
 const TX_MAX_TITLES = 50;
 const TX_MAX_CHARS = 500; // a task title, not an essay
 const TX_DAILY_CAP = 4000; // titles per person per day; a heavy import is ~100
+// How long a cached translation stands. Long, because assignment text does not
+// change and the whole point is that a class shares one translation — but not
+// forever, or an improved upstream translation could never replace a worse one.
+const TX_CACHE_TTL_MS = 180 * 24 * 60 * 60 * 1000; // 180 days
 
 exports.translateTitles = onCall({ region: 'us-central1' }, async (req) => {
   if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
@@ -847,18 +860,65 @@ exports.translateTitles = onCall({ region: 'us-central1' }, async (req) => {
   // auto-detect lands on a language the student did not enable. Omitted = detect.
   const from = typeof (req.data && req.data.from) === 'string' ? req.data.from : '';
 
+  // --- The shared cache ------------------------------------------------------
+  // Schoology assignment text is IDENTICAL for every student in a course and largely
+  // identical from year to year, so without this a class of thirty pays thirty times
+  // for one Ivrit assignment. This is what keeps the bill flat as students are added
+  // rather than growing with them.
+  //
+  // THE KEY INCLUDES `from`, and that is not a detail. A student who presses a
+  // language button is naming a source language outright, which makes the engine
+  // translate rather than decline — a fundamentally different answer from what
+  // auto-detect returns for the same text. Keyed on text alone, one student's forced
+  // "read this as Spanish" would become the auto-detect answer served to everyone
+  // else who ever imports that assignment.
+  //
+  // Only the hash is stored as the key, so entries cannot be enumerated or fished
+  // out: retrieving one requires already possessing its exact source text. No uid is
+  // recorded. The VALUES are plaintext in our own database, which is worth knowing
+  // when a teacher's description happens to name a student.
+  const cacheKey = (text) => suggestHash(`${from}\n${text}`);
+  const cacheRef = (text) => admin.database().ref(`txCache/${cacheKey(text)}`);
+
+  // Deduped: the same string twice in one batch is one lookup and one translation.
+  const unique = [...new Set(texts)];
+  const hits = new Map();
+  try {
+    const snaps = await Promise.all(unique.map((t) => cacheRef(t).get()));
+    snaps.forEach((s, i) => {
+      const v = s.val();
+      // A stale entry is worse than no entry: it would mask an improved upstream
+      // translation forever. Anything older than the TTL is simply re-fetched.
+      if (v && typeof v.tr === 'string' && Date.now() - (v.at || 0) < TX_CACHE_TTL_MS) {
+        hits.set(unique[i], { tr: v.tr, src: v.src || '', conf: typeof v.conf === 'number' ? v.conf : null });
+      }
+    });
+  } catch (e) {
+    // A cache that is down must never take translation down with it.
+    console.error('txCache read failed', e && e.message);
+  }
+  const misses = unique.filter((t) => !hits.has(t));
+
   // Per-person daily cap, keyed on a hash of the uid like the suggestion throttle,
   // so the counter node cannot be read backwards into a person.
+  //
+  // COUNTED ON MISSES ONLY (and on unique texts, not the raw batch). The cap exists
+  // to bound what one person can spend; work that was already paid for by someone
+  // else costs nothing, so charging a student's daily allowance for a cache hit would
+  // ration them out of free work.
   const key = suggestHash(req.auth.uid).slice(0, 32);
   const ref = admin.database().ref(`translateUse/${key}`);
   const dayKey = new Date().toISOString().slice(0, 10);
   const snap = await ref.get();
   const cur = snap.val() || {};
   const used = cur.day === dayKey ? cur.count || 0 : 0;
-  if (used + texts.length > TX_DAILY_CAP) {
+  if (used + misses.length > TX_DAILY_CAP) {
     throw new HttpsError('resource-exhausted', 'Translation limit reached for today.');
   }
-  await ref.set({ day: dayKey, count: used + texts.length });
+  if (misses.length) await ref.set({ day: dayKey, count: used + misses.length });
+
+  // Everything was already known — answer without touching Google at all.
+  if (!misses.length) return { results: texts.map((t) => hits.get(t)) };
 
   try {
     translator = translator || new Translate();
@@ -870,7 +930,8 @@ exports.translateTitles = onCall({ region: 'us-central1' }, async (req) => {
     // report it, so it is asked alongside — one extra upstream call per batch, and
     // only when we are detecting at all: naming `from` means there is nothing to be
     // unsure about.
-    const [out, meta] = await translator.translate(texts, opts);
+    // ONLY THE MISSES GO UPSTREAM. Everything else was answered from the cache above.
+    const [out, meta] = await translator.translate(misses, opts);
     const list = Array.isArray(out) ? out : [out];
     // The detected language comes back alongside the text, one per input. With an
     // explicit `from` there is nothing to detect, so the answer IS `from`.
@@ -878,25 +939,53 @@ exports.translateTitles = onCall({ region: 'us-central1' }, async (req) => {
     let conf = [];
     if (!from) {
       try {
-        const [d] = await translator.detect(texts);
+        const [d] = await translator.detect(misses);
         conf = Array.isArray(d) ? d : [d];
       } catch (e) {
         conf = []; // detection unavailable → the client sees no number and declines
       }
     }
-    return {
-      results: list.map((tr, i) => ({
-        tr,
+
+    const fresh = new Map();
+    misses.forEach((text, i) => {
+      fresh.set(text, {
+        tr: list[i],
         src: from || (det[i] && det[i].detectedSourceLanguage) || '',
         // A number 0-1, or null when we did not ask / could not tell. NEVER
         // defaulted to 1: "no answer" must read as "not sure", or the gate inverts.
         conf: from ? null : typeof (conf[i] && conf[i].confidence) === 'number' ? conf[i].confidence : null,
-      })),
-    };
+      });
+    });
+
+    // Write back, but never make the caller wait on it and never let it fail the
+    // request: a cache that cannot be written is slower next time, not broken now.
+    // NEVER CACHE AN ANSWER WE ARE NOT SURE OF, and this guard matters far more here
+    // than it would in a per-person cache. When detect() fails, `conf` comes back
+    // null, the client reads a missing number as "not sure" and declines — correctly.
+    // Storing that would freeze one transient upstream hiccup into a 180-day GLOBAL
+    // verdict of "this text does not translate", for every student who ever imports
+    // it. An uncached miss costs one more call; a cached one costs a translation
+    // nobody can get back. (`from` is exempt: naming a language means there was
+    // nothing to detect, so a null there is expected rather than a failure.)
+    Promise.all(
+      [...fresh.entries()]
+        .filter(([, v]) => typeof v.tr === 'string' && v.tr)
+        .filter(([, v]) => (from ? true : typeof v.conf === 'number'))
+        .map(([text, v]) => cacheRef(text).set({ tr: v.tr, src: v.src, conf: v.conf, at: Date.now() }))
+    ).catch((e) => console.error('txCache write failed', e && e.message));
+
+    // Back into the ORDER THE CALLER ASKED IN, hits and misses together — the client
+    // matches answers to inputs by position, and duplicates in the batch share one.
+    return { results: texts.map((t) => hits.get(t) || fresh.get(t) || null) };
   } catch (err) {
     console.error('translateTitles failed', err && err.message);
     // A null per item is the client's "ask again later", never "this is English".
-    return { results: texts.map(() => null), error: String((err && err.message) || 'translate failed') };
+    // Cache hits still stand: they were already answered before Google was reached,
+    // and throwing them away would spend money re-fetching them next time.
+    return {
+      results: texts.map((t) => hits.get(t) || null),
+      error: String((err && err.message) || 'translate failed'),
+    };
   }
 });
 // #endregion

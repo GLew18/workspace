@@ -10,6 +10,7 @@
   min-height: 100vh;
   overflow-x: clip;
   color: var(--text);
+  margin-top: -70px; /* the fixed nav's height */
 }
 
 /* ---------------- Nav bar ---------------- */
@@ -29,7 +30,12 @@
      doing the pushing) disappears with them (Gabe, 8/13). */
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 24px;
+  /* THE PAGE COLUMN, NOT THE WINDOW EDGE (Gabe, 9/3/26, "like Linear's"): the brand
+     and the two buttons sat 24px from the window's edges however wide the window
+     was, while every section below kept to a 1360px column with a 22px gutter. Now
+     the bar's ends start where the page's content starts, so it lines up with what
+     is under it. The centred links are placed absolutely and do not move. */
+  padding: 10px max(22px, calc((100% - 1360px) / 2 + 22px));
   background: rgba(9, 19, 46, 0.78);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -97,9 +103,17 @@
   .lp-nav-links { display: none; } /* wordmark + both CTAs stay */
 }
 
-/* Soft blue glow drifting behind the hero — pure decoration. */
+/* Soft blue glow drifting behind the hero — pure decoration.
+   ABSOLUTE, NOT FIXED (Gabe, 9/6/26: "make sure it still has position absolute,
+   it should be position absolute to stay in the same place"). Fixed meant this
+   drifting radial rode the viewport down the WHOLE page, so it was still
+   sliding around behind "See it in action" and every section after it — which
+   is what read as "this new background, it's sort of moving". Anchored to the
+   top of .landing it does what its own comment says: it sits behind the hero
+   and scrolls away with it. Everything below is then the flat page gradient,
+   which is also what lets the stack heading pin without showing a band. */
 .lp-glow {
-  position: fixed;
+  position: absolute;
   top: -22vh;
   left: 50%;
   width: 70vw;
@@ -130,6 +144,58 @@
   transform: none;
 }
 
+/* LOAD CASCADE — the hero materializes top-down on first paint (Gabe, 9/4/26:
+   "Linear has this cool landing effect where the elements appear to fade in
+   top-down"). Distinct from the scroll reveal above: that one waits for an
+   observer, this one runs once, on arrival, in a fixed order.
+
+   Every participant carries its own `--rise` index and shares one timing, so
+   re-ordering the hero is a matter of re-numbering rather than re-tuning. The
+   nav uses the flat variant because it carries a backdrop-filter, and stacking
+   a blur() on top of that makes the bar's translucency render wrong.
+
+   The demo stage is the LAST beat (6), added 9/6/26 — see heroSection. It uses
+   the `plain` variant: same rise, same easing, same 90ms step as the text above
+   it, but no blur, and it lands on `transform: none` / `filter: none` so the
+   live mini-app inside is left with no lingering containing block of its own.
+   Nothing BELOW the hero is in the cascade; the sections down there keep their
+   ordinary scroll reveal. */
+.landing.rise-on .lp-rise {
+  opacity: 0;
+  animation: lp-rise-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--rise, 0) * 90ms);
+}
+.landing.rise-on .lp-rise-flat {
+  animation-name: lp-rise-in-flat;
+}
+/* BACKWARDS, not both, and opacity 1 in the base. The text beats can hold their
+   final keyframe forever — an animated `transform`/`filter` that never stops
+   applying is harmless on a paragraph. The stage holds a LIVE app, and a
+   lingering identity transform is still a transform: it would go on acting as a
+   containing block for anything inside the demo that positions itself against
+   the viewport. Ending the fill instead hands the element back to its own
+   styles: opacity 1, transform genuinely none. */
+.landing.rise-on .lp-rise-plain {
+  opacity: 1;
+  animation-name: lp-rise-in-plain;
+  animation-fill-mode: backwards;
+}
+@keyframes lp-rise-in {
+  from { opacity: 0; transform: translateY(22px); filter: blur(7px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+@keyframes lp-rise-in-flat {
+  from { opacity: 0; transform: translateY(-14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes lp-rise-in-plain {
+  from { opacity: 0; transform: translateY(26px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing.rise-on .lp-rise { animation: none; opacity: 1; }
+}
+
 /* ---------------- Hero ---------------- */
 .lp-hero {
   position: relative;
@@ -138,7 +204,7 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 0 24px 90px;
+  padding: 0 24px 0;
 }
 /* The Raycast shape (Gabe, 8/17): the motto owns the FIRST FULL SCREEN,
    centered; the bridge line and the demo live a long quiet scroll below. */
@@ -162,8 +228,10 @@
   max-width: 780px;
   /* GABE'S PLACEMENT KNOB: nudges the whole hero text block (title, tagline,
      buttons, byline, chips) as one unit. Adjust the px to taste; negative
-     moves it up. Horizontal too if wanted: translate(Xpx, Ypx). */
-  transform: translateY(3px);
+     moves it up. Horizontal too if wanted: translate(Xpx, Ypx).
+     -47px (9/1/26): the block rides ~50px higher so more of the demo clears
+     the fold — pairs with the deeper peek on .lp-stage-glow below. */
+  transform: translateY(-47px);
 }
 /* (Bridge line and scroll hint removed 8/17 — the peeking demo is the lure.) */
 /* The demo's frame-of-honor. The RING is drawn on the frame itself (gradient
@@ -173,16 +241,46 @@
    read as a box beneath, fat on the sides.) */
 .lp-stage-glow {
   width: 100%;
-  max-width: 1120px;
-  /* THE PEEK: pull the demo up into the hero's empty bottom half, so its
-     glowing top edge shows above the fold while the motto stays dead-center.
-     More negative = more peek. Short viewports get a gentler pull so the
-     frame never rides up into the chips. */
-  margin-top: -140px;
+  /* 1360, up from 1120 (Gabe, 9/3/26): the demo read narrower than the rest of
+     the page, whose sections all run to the same 1360px column (.lp-section).
+     80px of ring padding kept, same as before (1360 - 1280 frame below). */
+  max-width: 1360px;
+  /* THE PEEK, AS A FORMULA RATHER THAN A LADDER (Gabe, 9/6/26: "there's really
+     no margin between the badges and the demo on my PC, more on the Mac, most on
+     the phone… when the viewport increases it sort of eats at the margin").
+     He was right, and here is the arithmetic.
+
+     The motto is centred inside a 100vh block, so the empty space beneath it is
+     (100vh - contentHeight) / 2 — it GROWS with the window. The peek used to be
+     a fixed pull re-tuned by hand at three height breakpoints (-250 / -170 / -90
+     / 0), and a constant fighting a variable cannot come out even: measured, the
+     gap between the chips and the demo was 70px at 1920x1000, 45px at 1440x790
+     and 90px at 1280x720. Same page, three different spacings, no rhythm to
+     them — which is exactly the skew between his PC, his Mac and his phone.
+
+     The hero copy is a fixed 384px tall everywhere the desktop rules apply (the
+     title's clamp caps at 60px and the tagline wraps identically at any width
+     over 780px), so the gap is:
+
+         gap = (100vh - 384) / 2 + 12 + margin-top
+
+     Solve that for a constant gap of 72px and the margin falls out as
+     252px - 50vh. One line, no breakpoints, and the spacing is now the SAME on
+     every desktop window instead of landing wherever the leftovers put it. The
+     peek still happens; it is just no longer what decides the gap. */
+  margin-top: calc(252px - 50vh);
+  /* THE GAP TO THE FUNCTIONS STRIP, and the only knob for it (Gabe, 9/3/26).
+     It lives here rather than on .lp-hero's padding because #video IS this
+     element: the nav's observer tracks it, so stretching it down to the strip
+     means there is no untracked band between the two for "Video demo" to blink
+     off in. That is the job the temporary player used to do by accident. */
+  padding-bottom: 96px;
 }
-@media (max-height: 820px) {
-  .lp-stage-glow { margin-top: -60px; }
-}
+/* (The three height breakpoints that used to step this pull down — -170px under
+   900, -90px under 780, 0 under 660 — came out on 9/6/26. They existed to stop a
+   fixed pull from driving the frame through the chips on a short window, and the
+   formula above cannot do that: it holds a 72px gap at every height by
+   construction, so there is nothing left to step down.) */
 .lp-stage-glow .lp-frame.lp-demoshell {
   border: 5px solid transparent;
   border-radius: 24px;
@@ -210,77 +308,6 @@
 @media (prefers-reduced-motion: reduce) {
   .lp-stage-glow .lp-frame.lp-demoshell { animation: none; }
 }
-
-/* TEMPORARY audit controls under the demo (chapter bar + pause + speed) —
-   bare on purpose, gone after Gabe's review pass. */
-.lp-demo-ctl {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  margin-top: 14px;
-  width: 100%;
-  max-width: 1120px;
-  color: var(--text-dim);
-  font-size: 12.5px;
-}
-.lp-demo-ctl-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-/* The YouTube-style chapter bar: one segment per scene, click/drag = seek,
-   fill = the playhead in video-time, knob = the grip. */
-.lp-demo-bar {
-  position: relative;
-  display: flex;
-  gap: 3px;
-  height: 12px;
-  cursor: pointer;
-}
-.lp-demo-knob {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--accent);
-  border: 2px solid #fff;
-  transform: translate(-50%, -50%);
-  cursor: grab;
-  z-index: 2;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
-}
-.lp-demo-knob:active { cursor: grabbing; }
-.lp-demo-seg {
-  flex: 1;
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.lp-demo-seg:hover { background: rgba(255, 255, 255, 0.22); }
-.lp-demo-seg-fill {
-  height: 100%;
-  width: 0;
-  background: var(--accent);
-}
-.lp-demo-ctl-btn {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font: inherit;
-  font-weight: 700;
-  padding: 6px 14px;
-  cursor: pointer;
-}
-.lp-demo-ctl input[type='range'] { width: 180px; }
-.lp-demo-clock {
-  font-variant-numeric: tabular-nums;
-  margin-left: auto;
-  text-align: right;
-}
 /* The headline IS the motto (Gabe, 8/13): no "WELCOME TO Cobalt" — the nav
    already carries the wordmark, so the hero leads with what Cobalt does. */
 .lp-hero-title {
@@ -288,18 +315,20 @@
   /* Back to the big centered headline (8/17, stacked hero): the text owns the
      full width again, so the 54px ceiling returns. */
   font-size: clamp(40px, 5.4vw, 60px);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.1;
   margin-bottom: -1px;
-  position:
 }
 /* The one word the visitor is scanning for. */
 .lp-hero-accent {
   color: var(--accent);
 }
 .lp-tagline {
-  margin: 18px 0px 60px;
+  /* 22px under, not 60 (Gabe, 9/2/26): with the actions' own 20px on top, the
+     tagline and the buttons were 80px apart and the hero read as two separate
+     blocks with a hole between them. */
+  margin: 18px 0px 22px;
   font-size: clamp(15px, 2vw, 18px);
   font-weight: 500;
   color: rgba(255, 255, 255, 0.82);
@@ -343,7 +372,7 @@
   color: var(--on-accent);
   border: none;
   border-radius: 999px;
-  font-weight: 800;
+  font-weight: 700;
   font-size: 17px;
   padding: 15px 42px;
   cursor: pointer;
@@ -389,8 +418,14 @@
 }
 
 /* Keyboard parity with the mouse styling: every landing control shows where
-   focus is (the page animates hovers; it must not be blind to Tab). */
-.landing :is(button, a):focus-visible {
+   focus is (the page animates hovers; it must not be blind to Tab).
+   GATED ON html[data-kbd] (Gabe, 8/26), same as the app-wide ring in
+   components.css. Ungated it fired on plain CLICKS too — Chrome grants
+   :focus-visible to a clicked <a>, and the landing page is nothing but anchors and
+   buttons, so every "Get started" press left a solid accent box behind. Without the
+   attribute this rule also outranked the app-wide clear, since it lands at (0,2,1)
+   in a stylesheet imported after components.css. */
+html[data-kbd] .landing :is(button, a):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -420,15 +455,28 @@
   width: 100%; /* the stacked hero's full band — the demo is the whole row */
   /* Reserve the screen's aspect before the shell mounts, so the hero never
      reflows when the demo pops in a beat after first paint. */
-  aspect-ratio: 1040 / 780;
+  aspect-ratio: 1280 / 780;
+  /* …BUT NEVER WIDER THAN THE SCREEN IT RESERVES FOR (Gabe, 9/3/26). scaleToFit
+     caps the frame at scale 1, so past 1280px the frame stops growing while a
+     100%-wide aspect box keeps going: at the glow's full width the box would
+     stand taller than the 780px frame and leave dead air under the demo, which
+     read as a wrong margin above the functions strip. Capping the box at the
+     design width makes reservation and content the same size at every size. */
+  max-width: 1280px;
+  margin-inline: auto;
 }
-/* The miniature app shell: a real 1040x702 Cobalt "screen" (browser bar + app),
-   scaled into its column by scaleToFit. Sizes here are the DESIGN size; the
-   transform does all responsive work, so the app inside stays pixel-true. */
+/* The miniature app shell: a real Cobalt "screen" (browser bar + app), scaled
+   into its column by scaleToFit. Sizes here are the DESIGN size; the transform
+   does all responsive work, so the app inside stays pixel-true.
+   1280, up from 1040 (Gabe, 9/3/26): widened to match the page's 1360px column
+   (see .lp-stage-glow) — height held at 780px on purpose, so the frame gets
+   wider without getting taller. Must also match the design width passed to
+   fitInto(stage, shell.root, …) in demo/script.ts, which scales the live
+   shell to this same size at runtime. */
 /* Double class: .lp-frame declares width/height 620/560 LATER in this file, and
-   at equal specificity the later rule was winning — the shell must stay 1040. */
+   at equal specificity the later rule was winning — the shell must stay wide. */
 .lp-frame.lp-demoshell {
-  width: 1040px;
+  width: 1280px;
   /* 780, up from 702 (8/17): the stacked hero freed the height budget, and
      the extra 78px is what lets the dashboard (incl. schedule), the focus
      import beat, and the session overlay all play inside one un-scrolled view. */
@@ -478,7 +526,13 @@
   bottom: 0;
   width: 200px;
 }
-.lp-demoshell-body .app-below.nav-open { padding-left: 200px; }
+/* The drawer OVERLAYS here too (main.ts, 9/1 — the padding shove is gone from
+   the real app). Re-anchor its fixed scrim to the shell: it dims the tab host
+   under the open drawer, and the sidebar (z-index 400) paints over it. */
+.lp-demoshell-body .ws-scrim {
+  position: absolute;
+  inset: 0;
+}
 .lp-demoshell-body .app {
   max-width: none;
   height: 100%;
@@ -488,7 +542,16 @@
      styling — the REAL Cobalt scrollbar — applies here untouched, so every
      wheel scroll has the same visible cause it has in the app. (Setting
      scrollbar-width would disable that richer styling in Chrome.) */
-  padding: 18px 26px 28px; /* slim bottom pad: more rows fit the one view (8/16) */
+  /* NO TOP PADDING ON THE SCROLLER (Gabe, 9/2/26). The add-task bar is sticky at
+     `top: 0` of whatever scrolls, so 18px of padding here pinned it 18px DOWN and
+     left a strip of moving rows visible above it — a gap the real app does not
+     have, because there the scroller is .app-below (no padding) and this 18px
+     lives on .app, which scrolls away. Moving it onto the panel reproduces that
+     exactly: same total spacing, same scrollHeight, bar flush at the top. */
+  padding: 0 26px 28px; /* slim bottom pad: more rows fit the one view (8/16) */
+}
+.lp-demoshell-body .tab-panel {
+  padding-top: 18px; /* the 18px the scroller gave up — now it scrolls away */
 }
 /* The ghost cursor's hover shim: synthetic pointers can't trip CSS :hover, so
    the element under the hand carries .lp-hover instead. One generic lift reads
@@ -516,6 +579,83 @@
    music area on top of the buttons" bug). Restore the flow. */
 .lp-demoshell-body .focus-widget .focus-music-panel { position: static; }
 
+/* ---------------- The mini player's window (Gabe, 9/3/26) ---------------- */
+/* Sample mode never opens a real Document-PiP window, so shell.ts dresses the in-tab
+   float as one: Chrome's title bar on top, the widget filling the window under it,
+   at the proportions of the real thing on Gabe's screen (his second reference, the
+   wider window: roughly 0.7 wide to tall). The widget itself is the real component
+   in its own pip styling (.focus-widget-pip); only the window around it is drawn. */
+.lp-demoshell-body .lp-pip-window {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2000;
+  width: 440px;
+  max-height: calc(100% - 36px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(165deg, #0e2457 0%, #091a43 55%, #07132e 100%);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+/* Chrome's bar: ⓘ, the origin, then back-to-tab and ✕ at the right. */
+.lp-pip-titlebar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 12px;
+  background: #0b1633;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  font-weight: 500;
+  user-select: none;
+}
+.lp-pip-info,
+.lp-pip-back,
+.lp-pip-x { display: inline-flex; color: rgba(255, 255, 255, 0.82); }
+.lp-pip-info svg,
+.lp-pip-back svg,
+.lp-pip-x svg { display: block; }
+.lp-pip-spacer { flex: 1; }
+.lp-pip-x { margin-left: 2px; } /* 10px gap + 2 = the reference's ~12px from the back-to-tab glyph */
+/* The widget fills the window and, like the real one, scrolls by wheel with no bar.
+   Beats the frame's own float sizing (.lp-demoshell-body .focus-widget, below) and
+   the absolute re-anchor above on specificity. */
+.lp-demoshell-body .lp-pip-window .focus-widget {
+  position: static;
+  width: 100%;
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  /* TOP-ANCHORED, not centred: the app's pip styling centres the column, and a
+     centred column taller than its box overflows at BOTH ends — the top 27px were
+     cut off above the scroll origin, which put the expand/✕ pair up inside the
+     title bar (measured 9/3/26). Anchor at the top so only the bottom can overflow. */
+  justify-content: flex-start;
+  /* The app pulls its expand/✕ pair 16px up into the top padding, to sit close under
+     Chrome's buttons. Chrome's bar is real here, so 30 - 16 = 14px under it, which is
+     where the pair sits in Gabe's reference. */
+  padding-top: 30px;
+}
+.lp-demoshell-body .lp-pip-window .focus-widget::-webkit-scrollbar { display: none; }
+/* THE CARD KEEPS THE APP'S OWN SIZE (Gabe, 9/3/26: "music is sort of overlapping with
+   the import panel ... is that a real thing within the app?"). It was not: a 140px cap
+   was put on the task card here so the MUSIC row would fit the frame, and the app's
+   own 150px floor on the todo list pushed the list straight through that cap, under
+   the transport. The real mini player lets the card grow (420px, 560 with the import
+   menu open) and scrolls the whole window, with music further down — so that is what
+   this one does now. Four classes deep so it beats the frame's general float cap
+   (180px, further down this file), which is three deep and later. */
+.lp-demoshell-body .lp-pip-window .focus-widget .focus-task-panel { max-height: 420px; }
+.lp-demoshell-body .lp-pip-window .focus-widget .focus-task-panel:has(> .focus-import-panel.open) { max-height: 560px; }
+
 /* vh-CORRECTIONS (8/17 visibility audit): several Focus surfaces size
    themselves with vh/100vh — the VISITOR'S window — while living inside this
    fixed 702px screen. On tall monitors they overflow or clip nondeterministically.
@@ -540,7 +680,7 @@
 .lp-demoshell-body .popup { max-height: 560px; }
 .lp-demoshell-body .task-details-text { max-height: 380px; }
 /* MEDIA-QUERY CORRECTION: focus.css gates the session's two-column stage on
-   the WINDOW being ≥900px — but this screen is ALWAYS 1040 design px wide,
+   the WINDOW being ≥900px — but this screen is ALWAYS 1280 design px wide,
    whatever device the visitor holds. Without this, a narrow window stacks the
    columns into a ~970px tower inside a 734px screen. */
 .lp-demoshell-body .focus-stage {
@@ -565,14 +705,16 @@
 .lp-demoshell-soon { min-height: 200px; }
 
 /* The try-it frames hide app chrome that can't work in a static preview
-   (.lp-frame .tasks-header/.quick-add/.bm-add-wrap, landing.css below). The
+   (.lp-frame .tasks-header/.quick-add/.bm-add-btn, landing.css below). The
    demo shell is the opposite: Dan USES the quick-add, the calendar toggle and
-   "+ Add link" on camera — restore them inside this frame only. */
+   "Add link" on camera — restore them inside this frame only. */
 /* Double-class selectors: the hide rules live LATER in this file at equal
    specificity, so these need the extra class to win the cascade. */
 .lp-frame.lp-demoshell .tasks-header { display: flex; }
 .lp-frame.lp-demoshell .quick-add { display: block; }
-.lp-frame.lp-demoshell .bm-add-wrap { display: block; }
+/* inline-flex, not block: the button is a flex item in the search row now
+   (bookmarks.css .bm-search-wrap), and its own children are laid out by flex. */
+.lp-frame.lp-demoshell .bm-add-btn { display: inline-flex; }
 
 /* Visitors watch; they can't grab. Synthetic events dispatched by the ghost
    cursor bypass hit-testing entirely, so the script is unaffected. */
@@ -601,7 +743,6 @@
 
 /* The loop seam: the whole screen fades, the world rebuilds, the next pass
    fades back in on the same Dashboard the story returned to. */
-.lp-demoshell.leaving { opacity: 0; transition: opacity 0.6s ease; }
 
 
 /* ---------------- Generic section ---------------- */
@@ -618,7 +759,7 @@
 }
 .lp-h2 {
   font-size: clamp(26px, 4vw, 38px);
-  font-weight: 800;
+  font-weight: 700;
   margin: 0 0 8px;
   letter-spacing: -0.01em;
 }
@@ -651,16 +792,10 @@
 .lp-split-text {
   min-width: 0;
 }
-/* "See it in action" only: anchor the copy to a FIXED offset (not centered) so
-   the title sits at the same y on all three tabs instead of drifting with each
-   blurb's length. The offset is tuned to visually center the average text block
-   against the 520px frame — best of both: looks centered, never jumps. */
-.lp-features .lp-split {
-  align-items: start;
-}
-.lp-features .lp-split-text {
-  padding-top: 166px; /* measured: centers the text block on the 560px frame */
-}
+/* ("See it in action" used to pin its copy at a fixed 166px offset so the title
+   sat at the same y across the three click-tabs. The tabs are gone (9/5/26):
+   each feature is its own stacked card, and the card's own rules below the
+   Feature stack block lay the copy column out. Nothing here is special-cased.) */
 .lp-split-title {
   font-size: 22px;
   font-weight: 700;
@@ -681,6 +816,12 @@
      centered, so scaling around top-center lands it exactly inside the wrapper. */
   display: flex;
   justify-content: center;
+  /* NEVER STRETCH THE CHILD (9/6/26). The wrapper sets its own height from the
+     child's measured height; a stretched child takes the wrapper's height back,
+     so a child with no fixed height of its own (the functions marquee) read 0,
+     wrote 0, and vanished at every width under 1360px. The frames have fixed
+     heights and never noticed. */
+  align-items: flex-start;
 }
 .lp-fit > * {
   flex: none; /* never squish — scaling is the only shrink mechanism */
@@ -702,32 +843,8 @@
   overflow: hidden;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
 }
-.lp-frame-bar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border-bottom: 1px solid var(--border);
-}
-.lp-dot { width: 11px; height: 11px; border-radius: 50%; }
-.lp-dot.r { background: #ff5f57; }
-.lp-dot.y { background: #febc2e; }
-.lp-dot.g { background: #28c840; }
-.lp-frame-url {
-  flex: 1;
-  text-align: center;
-  font-size: 12px;
-  color: var(--text-dim);
-  background: rgba(0, 0, 0, 0.25);
-  border-radius: 6px;
-  padding: 3px 10px;
-  margin-left: 8px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+/* (The faux browser bar — traffic lights + fabricated URL — was removed from
+   every frame on 9/1/26: it read Mac-only and spent height on nothing.) */
 .lp-frame-body {
   flex: 1;
   min-height: 0;
@@ -766,7 +883,6 @@
   pointer-events: none;
 }
 
-.lp-frame-body.loading .lp-tabpanel { visibility: hidden; }
 .lp-frame-loading {
   display: none;
   position: absolute;
@@ -778,10 +894,6 @@
 }
 .lp-frame-body.loading .lp-frame-loading { display: flex; }
 .lp-frame-err { padding: 28px; text-align: center; color: var(--text-dim); }
-/* Panels size to their content — no min-height stretch. (Stretching to 100%
-   made the panel + body padding always measure ~10px past the client box, which
-   kept a phantom scrollbar alive at ANY frame height.) */
-.lp-tabpanel { min-height: 0; }
 
 /* The Dashboard preview is the ONE frame with its own height (Gabe, 8/13). It used to
    share the tabbed demos' 560px, but once Today's Tasks gained its second task the
@@ -804,8 +916,10 @@
 /* No quick-add bar in the demo: the freed height makes room for a fourth sample
    task (the TEST-badged one) without the frame growing a scrollbar. */
 .lp-frame .quick-add { display: none; }
-/* …and the "+ Add link" button in the Bookmarks demo, for continuity. */
-.lp-frame .bm-add-wrap { display: none; }
+/* …and the "Add link" button in the Bookmarks demo, for continuity. It sits at
+   the right end of the search row since 9/6/26; hiding it just gives the search
+   box the whole row back. */
+.lp-frame .bm-add-btn { display: none; }
 /* Two bookmark columns inside the frame. The real grid's 260px column minimum
    collapses to one column at the frame's width, but the actual desktop tab shows
    3–4 columns — two columns is the closer likeness AND fills the frame's height
@@ -844,7 +958,7 @@
    code change (video 'loadedmetadata' fires → placeholder removed). */
 .lp-demo-frame {
   width: 100%;
-  max-width: 1040px; /* matches the hero screen's design width (8/15) */
+  max-width: 1280px; /* matches the hero screen's design width (8/15, widened 9/3/26) */
   margin: 0 auto;
   background: #0c1b43;
   border: 1px solid var(--border);
@@ -889,33 +1003,119 @@
 .lp-demo-ph-title { font-size: 16px; font-weight: 700; color: var(--text); }
 .lp-demo-ph-sub { font-size: 13px; color: var(--text-dim); max-width: 38ch; line-height: 1.5; }
 
-/* ---------------- Feature tabs ---------------- */
-.lp-tabs {
-  display: inline-flex;
-  gap: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 2px solid var(--border);
-  border-radius: 999px;
-  padding: 6px;
-  margin-bottom: 34px;
+.lp-tab-emoji { font-size: 15px; }
+
+/* ---------------- Feature stack (See it in action, scroll-revealed) ----------------
+   Each feature is a full-height cell holding a STICKY card. As you scroll past
+   a cell, its card pins under the site nav while the next cell's card rises up
+   and covers it COMPLETELY (higher z-index, identical pin offset) — the "cards
+   stack on top of each other" effect (Gabe, 9/5/26, after Nate Herk's AI
+   Automation Society demo at ~0:30). Pure sticky positioning, no
+   scroll-jacking: native scroll does the work, and with JS off it degrades to
+   three ordinary cards in a column. */
+/* ONE PARENT FOR ALL THE CARDS. A sticky box is caged by its parent, so each
+   card in its own wrapper got pushed out the instant the next arrived and the
+   two never overlapped (measured: 0px at every scroll sample, 9/5/26). With
+   the track as the shared parent, card 1 stays pinned at the top while card 2
+   scrolls up and lands on it, then both stay put under card 3, and the whole
+   deck only leaves when the track's bottom edge does. */
+/* THE HEADING HOLDS ITS PLACE WHILE THE DECK RUNS (Gabe, 9/6/26): "the screen
+   should stop scrolling as soon as See it in action is in view, it stays in
+   view as the cards go up, and when you keep scrolling it goes off naturally."
+   That is sticky — but the first attempt at it earned three complaints, and all
+   three came from HOW it was built rather than from the pinning:
+
+   · "This new background behind it, it looks weird, it's sort of moving." The
+     band was painted a flat navy over a page whose glow was position:fixed and
+     drifting, so the rectangle was visible AND the thing behind it moved. The
+     glow is absolute now (see .lp-glow), and this band is painted with the page's
+     own gradient, which carries `fixed` in the variable — so it lands on exactly
+     the pixels it covers and the band cannot be seen at all. It exists only so a
+     card passing underneath disappears instead of showing through the words.
+   · "Some twitches, going up and down, especially when the cards start." The
+     cards' pin offset was a JS-measured custom property, so every re-measure of
+     this heading nudged them. The height is DECLARED here now, the cards' offset
+     is a constant, and no script touches either.
+   · "After you scroll past the cards it scrolls with you and then it stops."
+     Its containing block is the section, so it releases with the section. */
+.lp-features .lp-stack-head {
+  position: sticky;
+  top: 70px; /* the fixed nav's height */
+  z-index: 5; /* above the cards, which top out at 4 */
+  /* DECLARED height, not content height: the h2 is clamp()ed against viewport
+     width, and letting the band resize itself is what made the cards twitch. */
+  height: 104px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: var(--page-bg); /* the page's own gradient, `fixed` — an invisible band */
 }
-.lp-tab {
+.lp-features .lp-stack-head .lp-h2 { margin-bottom: 4px; }
+.lp-features .lp-stack-head .lp-sub { margin-bottom: 0; }
+
+.lp-stack-track {
+  position: relative;
+  /* Dwell on the finished deck before the next section: the last card is
+     pinned until this padding has scrolled past. */
+  padding-bottom: 28vh;
+}
+.lp-stack-card {
+  position: sticky;
+  /* Straight under the pinned heading: 70 nav + its declared 104 + 10 of air.
+     A CONSTANT on purpose — see the twitch note on .lp-stack-head. */
+  top: 184px;
+  width: 100%;
+  background: #0b1730;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  padding: 40px 40px 40px 48px;
+}
+/* The scroll distance between one card landing and the next one arriving. It is
+   the whole transition, so it is generous: too little and the cards feel like
+   they are shuffled rather than stacked. */
+.lp-stack-card + .lp-stack-card {
+  margin-top: 46vh;
+}
+/* Short windows: the pinned heading and the pinned card share one screen, and a
+   104px band above a 560px frame in 40px of padding does not fit in 800px. Both
+   give a little. AFTER the base rules on purpose — equal specificity, so written
+   above them it would silently lose (which is exactly what happened first try). */
+@media (max-height: 860px) {
+  .lp-features .lp-stack-head { height: 78px; }
+  .lp-features .lp-stack-head .lp-h2 { font-size: clamp(19px, 2.2vw, 24px); }
+  .lp-features .lp-stack-head .lp-sub { font-size: 12.5px; }
+  .lp-stack-card { top: 158px; padding: 24px 40px 24px 48px; }
+}
+/* Stacking order: later features sit ON TOP as they scroll up over earlier ones. */
+.lp-stack-card:nth-child(1) { z-index: 1; }
+.lp-stack-card:nth-child(2) { z-index: 2; }
+.lp-stack-card:nth-child(3) { z-index: 3; }
+.lp-stack-card:nth-child(4) { z-index: 4; }
+/* (The reduced-motion fallback for the stack is at the END of the file, after
+   the 980px block that re-spaces the cards, so it wins at every width.) */
+/* The copy column runs the full height of the frame beside it so the tab name
+   can sit at its BOTTOM-LEFT corner (Gabe, 9/5/26: "put the names of the tabs
+   in this big empty space"), where it replaces the tab row that used to sit
+   above the section. */
+.lp-features .lp-stack-card .lp-split { align-items: stretch; }
+.lp-features .lp-stack-card .lp-split-text {
+  padding-top: 0;
+  display: flex;
+  flex-direction: column;
+}
+.lp-stack-label {
+  margin-top: auto;
+  padding-top: 24px;
+  align-self: flex-start;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  font-weight: 600;
+  gap: 8px;
   font-size: 14px;
-  padding: 9px 18px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  font-weight: 600;
+  color: var(--text-dim);
 }
-.lp-tab:hover { color: var(--text); }
-.lp-tab.active { background: var(--accent); color: var(--on-accent); }
-.lp-tab-emoji { font-size: 15px; }
+
 
 /* ---------------- Feature bullets ---------------- */
 .lp-bullets {
@@ -944,26 +1144,18 @@
   color: var(--accent);
   border-radius: 50%;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 /* ---------------- Focus demo (live ticking session) ----------------
    Mirrors the REAL session overlay's layout (focus/view.ts buildOverlay):
    timer cluster left (quote → ring → ends-at → controls → ± rows), the
-   "This session" task panel right. The flex chain below makes the demo FILL
-   the frame's full height (frame body → panel → .lpf → stage). */
+   "This session" task panel right. Each preview (Tasks/Focus/Bookmarks) now
+   mounts directly into its own .lp-frame-body — no wrapping panel div since
+   the feature stack gave every card its own frame — so .lpf's own `flex: 1`
+   below is what fills the frame's height; Tasks/Bookmarks mount at their
+   natural height by the flex-item default (flex: 0 1 auto). */
 .lp-frame-body {
-  display: flex;
-  flex-direction: column;
-}
-/* Tab panels keep their natural content height (no flex squeeze/stretch)… */
-.lp-frame-body .lp-tabpanel {
-  flex: none;
-}
-/* …except the Focus panel, which grows to FILL the frame's height. */
-.lp-frame-body .lp-tabpanel:has(.lpf) {
-  flex: 1 1 0;
-  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -1299,7 +1491,7 @@
   line-height: 1.05;
 }
 .lp-cloud-word {
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.01em;
   padding: 0 4px;
   white-space: nowrap;
@@ -1538,15 +1730,262 @@
   /* Always read copy first, then the frame, regardless of DOM order. The
      fixed-anchor padding is desktop-only (stacked copy needs no offset). */
   .lp-split-text { order: -1; text-align: center; }
-  .lp-features .lp-split-text { padding-top: 0; }
   .lp-split-text .lp-bullets li { justify-content: center; }
   .lp-h2-left { text-align: center; }
   /* No frame height override: the scale-to-fit wrapper shrinks the whole frame
      proportionally, so its inner layout stays identical at every width. */
+
+  /* Stacked copy-then-frame is taller than the side-by-side desktop card, so
+     each cell needs more scroll room for the sticky hand-off to read cleanly. */
+  .lp-stack-card + .lp-stack-card { margin-top: 36vh; }
+  .lp-stack-card { padding: 28px 22px; }
+  .lp-stack-label { align-self: center; padding-top: 18px; }
 }
 @media (max-width: 700px) {
   .lp-footer-top { flex-direction: column; text-align: center; }
 }
+/* ---------------- Phones (Gabe, 9/5/26, against Linear's landing) ----------------
+   Everything gets proportionally SMALLER as the viewport shrinks, instead of
+   the desktop sizes being poured into a narrow column. The two things he saw
+   first: the hero title jammed under the fixed nav with no margin above it,
+   and the functions marquee running at its full 18px desktop size. */
+@media (max-width: 640px) {
+  /* Real air above the headline. The -47px desktop lift is what put the title
+     under the nav bar on a phone, and the 100vh centring is no longer the
+     right frame when the block is taller than the screen's middle third. */
+  .lp-hero-inner { transform: none; }
+  .lp-hero-top {
+    min-height: 0;
+    justify-content: flex-start;
+    /* .landing pulls the page up 70px under the fixed nav (top of file), so
+       the first 70px here are spent getting back to the document's real top
+       edge, and the nav itself covers the next ~53px on a phone. What is
+       left, ~58px, is the actual air above the headline. */
+    padding-top: 180px;
+    padding-bottom: 44px;
+  }
+  .lp-hero-title { font-size: clamp(30px, 9.4vw, 40px); }
+  .lp-tagline { font-size: 14.5px; margin: 14px 0 18px; }
+  .lp-hero-actions { flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .lp-cta { font-size: 15px; padding: 12px 26px; }
+  .lp-cta-ghost { font-size: 14.5px; padding: 12px 22px; }
+  .lp-cta-sub { font-size: 12px; margin-top: 12px; }
+  .lp-hero-chips { margin-top: 18px; gap: 6px; }
+  .lp-hero-chip { font-size: 11.5px; padding: 6px 11px; }
+  /* No peek on a phone: the hero text is already the height of the screen, so
+     the pull-up only ever drove the demo into the chips. */
+  .lp-stage-glow { margin-top: 0; padding-bottom: 56px; }
+
+  .lp-sub { font-size: 14px; margin-bottom: 22px; }
+  .lp-lead { font-size: 14px; }
+  .lp-split-title { font-size: 19px; }
+  .lp-bullets li { font-size: 13px; }
+  /* The phone nav is ~53px, so the band and the cards under it both come up. */
+  .lp-features .lp-stack-head { top: 54px; height: 64px; }
+  .lp-stack-card { top: 126px; padding: 20px 16px 22px; border-radius: 18px; }
+  /* THE DWELL AFTER THE LAST CARD (Gabe, 9/6/26: "the gap between the bottom
+     card and Endless personalization is way too great"). 28vh of it is fine on a
+     desktop window; on a phone it lands on top of the next section's own 78px of
+     padding and reads as a dead screen. 2vh leaves a beat and lets the two
+     sections' own 60px paddings set the distance, so this boundary reads like
+     every other section boundary on the page: ~137px from the last card to the
+     next heading, against the page's standard 120px, and 314px before. */
+  .lp-stack-track { padding-bottom: 2vh; }
+  .lp-vs-cell { padding: 10px 12px; font-size: 12.5px; gap: 8px; }
+  /* The marquee's and the closing card's phone sizes are at the END of this
+     file, after their base rules: written here they lose the cascade to those
+     later, equal-specificity rules and never apply (found by the visual
+     auditor, 9/5/26). */
+}
 @media (max-width: 560px) {
   .lp-section { padding: 60px 16px; }
+}
+
+/* ---------------- Functions marquee (Gabe, 9/2/26) ----------------
+   The "companies that use our software" logo wall, with Cobalt's own features in
+   place of the logos. It sits directly under the demo because the hero promises
+   "helpful functions" and this is the list of them, moving. */
+/* ITS OWN BAND (Gabe, 9/2/26): rules top and bottom and a slightly lifted fill, so
+   the strip reads as a separate shelf rather than as loose pills floating on the
+   same navy as everything above and below it. */
+.lp-fn {
+  /* BACK IN THE COLUMN (Gabe, 9/3/26, "for uniformity"): the strip keeps the same
+     1360px column and 22px gutters as every other section — it inherits them from
+     .lp-section now — and the band it sat in (the lifted fill and the two rules) is
+     gone, so it is pills moving on the same navy as the page. The full-bleed
+     version, tried on 9/2, is what this replaces. */
+  padding-top: 52px;
+  padding-bottom: 52px;
+  margin-top: -20px;
+}
+/* One quiet line, at the size the label was before the h2 experiment (Gabe,
+   9/2/26: "same size as what it was before, I was just asking for a font revamp").
+   The page's normal small-text treatment, so nothing about it is bespoke: no
+   uppercase, no letter-spacing, no second line under it. It keeps the page column
+   even though the strip beneath it does not. */
+.lp-fn-title {
+  margin: 0 0 20px; /* the section supplies the column now */
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+/* Fades at both ends, so items enter and leave instead of being chopped off by a
+   hard edge. A mask rather than gradient overlays: the page behind this strip is a
+   moving gradient, and any opaque stand-in would show as two vertical bands. */
+.lp-fn-viewport {
+  overflow: hidden;
+  /* A FIXED design width, scaled to fit (view.ts scaleToFit, FN_DESIGN_W): the
+     page column at full size. Narrower windows shrink the whole strip as one
+     picture, so the number of pills on screen never changes (Gabe, 9/5/26). */
+  width: 1316px;
+  /* A LONG fade, not a lip at the very edge (Gabe, 9/2/26: it should start sooner
+     and end later, gradually). 18% of the strip on each side is spent arriving and
+     leaving, so a pill is already dimming well before it reaches the edge instead
+     of winking out at it. */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+}
+.lp-fn-track {
+  display: flex;
+  gap: 18px; /* = FN_GAP in view.ts */
+  width: max-content;
+  /* Distance and duration are MEASURED and published by functionsSection() — one
+     set plus one gap, at a constant 42px/s however many copies it took to cover the
+     window. The fallbacks only ever apply for the frame before that runs. */
+  animation: lp-fn-scroll var(--lp-fn-dur, 34s) linear infinite;
+}
+/* (Pause-on-hover removed 9/6/26, Gabe: the strip should keep moving under the
+   cursor like Linear's, not stop.) */
+.lp-fn-set {
+  display: flex;
+  gap: 18px; /* = FN_GAP in view.ts */
+}
+/* One set plus one gap — see the note in functionsSection(). NOT a percentage of
+   the track: the number of copies varies with the window width, so -50% would mean
+   a different distance on every screen and the strip would jump at the loop point
+   (Gabe, 9/2/26: on a widescreen it read as not moving at all). */
+@keyframes lp-fn-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-1 * var(--lp-fn-shift, 50%))); }
+}
+.lp-fn-item {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* BIGGER (Gabe, 9/3/26): sized so five or six pills fill the column at a time,
+     up from eight or nine at 14px. */
+  padding: 15px 26px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.86);
+  white-space: nowrap;
+}
+/* One box for both kinds of mark: an emoji glyph and a 1em SVG lifted from a real
+   button. Fixed size and centred so a stroked outline and a colour emoji sit on the
+   same line and take the same room. */
+.lp-fn-ico {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 21px;
+  line-height: 1;
+}
+.lp-fn-ico svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+/* No motion: the strip becomes a static, centred, wrapping list. The duplicate set
+   is dropped rather than left running off the edge, because with the animation off
+   nothing would ever bring it back into view. */
+@media (prefers-reduced-motion: reduce) {
+  .lp-fn-track {
+    animation: none;
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .lp-fn-set {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .lp-fn-set[aria-hidden='true'] { display: none; }
+}
+
+/* ---------------- Closing call to action (Gabe, 9/2/26) ---------------- */
+.lp-final {
+  padding-top: 20px;
+}
+.lp-final-card {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 54px 32px 58px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background:
+    radial-gradient(120% 140% at 50% 0%, rgba(61, 127, 232, 0.18), transparent 62%),
+    rgba(255, 255, 255, 0.03);
+}
+.lp-final-title {
+  margin: 0;
+  font-size: clamp(28px, 3.6vw, 40px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.lp-final-sub {
+  margin: 14px auto 0;
+  max-width: 46ch;
+  font-size: clamp(14px, 1.8vw, 16.5px);
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.76);
+}
+.lp-final-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 30px;
+  flex-wrap: wrap;
+}
+.lp-final-actions .lp-cta { margin-top: 0; }
+
+/* ---------------- Phones, part two (Gabe, 9/5/26) ----------------
+   Kept at the very END on purpose: the functions marquee and the closing card
+   declare their base rules above this line, later in the file than the main
+   phone block, and an equal-specificity rule loses to whichever comes last.
+   Move these up and they silently stop applying. */
+@media (max-width: 640px) {
+  /* The marquee's pills are NOT resized here: the strip scales as a whole
+     (see .lp-fn-viewport), so per-pill phone sizes would change the count. */
+  .lp-fn { padding-top: 32px; padding-bottom: 32px; }
+  .lp-final-card { padding: 38px 20px 42px; border-radius: 18px; }
+}
+
+/* Reduced motion for the feature stack. Cards pinning and sliding over one
+   another is exactly the viewport motion the preference asks us not to do, so
+   they become three plain cards in a column, and the spacing that only existed
+   to pace the stacking goes with it. LAST in the file on purpose: the 980px
+   block above re-spaces the cards and would otherwise win on phones. */
+@media (prefers-reduced-motion: reduce) {
+  .lp-stack-card { position: static; }
+  .lp-stack-card + .lp-stack-card { margin-top: 32px; }
+  .lp-stack-track { padding-bottom: 0; }
+  /* With nothing pinning underneath it, the band has nothing to stay in front of
+     — back to an ordinary heading at the top of the section. */
+  .lp-features .lp-stack-head {
+    position: static;
+    height: auto;
+    display: block;
+    background: none;
+  }
+  .lp-features .lp-stack-head .lp-sub { margin-bottom: 30px; }
 }

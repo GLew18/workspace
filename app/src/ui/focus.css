@@ -804,8 +804,8 @@
   position: fixed;
   inset: 0;
   z-index: 1200;
-  background: rgba(4, 10, 24, 0.72);
-  backdrop-filter: blur(4px);
+  background: var(--scrim-dim); /* the drawer's dim (components.css :root); no blur, the drawer has none */
+  animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1440,7 +1440,8 @@
   position: fixed;
   inset: 0;
   z-index: 2100;
-  background: rgba(3, 8, 21, 0.6);
+  background: var(--scrim-dim); /* the drawer's dim (components.css :root) */
+  animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2073,7 +2074,7 @@
 }
 .focus-end-toast-title {
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--accent);
   letter-spacing: 0.5px;
 }

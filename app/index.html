@@ -19,6 +19,17 @@
     <meta name="apple-mobile-web-app-title" content="Cobalt" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- FOUR WEIGHTS, AND THE CSS MAY ONLY ASK FOR THESE FOUR (Gabe, 8/27).
+         An @font-face family shadows any same-named system font entirely, so a rule
+         asking for a weight that is not in this URL does not fall back to a heavier
+         local Inter and does not get synthesised - Chrome silently serves the nearest
+         face it has. Fourteen rules across seven stylesheets asked for 800 and had
+         been rendering as 700 since the day they were written; measured, "Ready when
+         you are" at 40px comes out at exactly 394.136px for 700, 800 and 900 alike,
+         against 391.123px for 600. All fourteen now say 700, which is what they were
+         always drawing, so the stylesheets finally describe what is on screen.
+         To genuinely use 800: add ";800" below AND change the rules that want it,
+         and expect the look to change in fourteen places. -->
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"

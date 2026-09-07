@@ -9,7 +9,10 @@
   "externally_connectable": {
     "matches": [
       "http://localhost:5173/*",
-      "http://127.0.0.1:5173/*"
+      "http://127.0.0.1:5173/*",
+      "https://cobaltstudy.com/*",
+      "https://www.cobaltstudy.com/*",
+      "https://workspace-67029.web.app/*"
     ]
   },
   "background": {
@@ -26,7 +29,10 @@
     {
       "matches": [
         "http://localhost:5173/*",
-        "http://127.0.0.1:5173/*"
+        "http://127.0.0.1:5173/*",
+        "https://cobaltstudy.com/*",
+        "https://www.cobaltstudy.com/*",
+        "https://workspace-67029.web.app/*"
       ],
       "js": ["bridge.js"],
       "run_at": "document_start",

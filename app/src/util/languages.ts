@@ -75,9 +75,98 @@ const RANGES: Array<[Script, RegExp]> = [
  * 8/16: 26 of 200 live trials translated a title whose language was switched OFF,
  * every one of them through exactly that route. Characters settle it for free.
  */
+/* NO CALLERS AS OF 8/29, and kept deliberately rather than deleted. Both of its
+   users — scriptAgrees and plausible, in util/translate.ts — moved to
+   substantiveScripts() below after this function's first-match behaviour was found
+   to be reading a single π as "this text is Greek". It stays because the comment
+   above is the record of WHY the script test exists at all, and because
+   substantiveScripts is built on the same RANGES table it documents. Delete it only
+   together with that history. */
 export function scriptOf(text: string): Script {
   for (const [name, re] of RANGES) if (re.test(text)) return name;
   return 'latin';
+}
+
+/**
+ * HOW MANY LETTERS OF EACH SCRIPT THE TEXT CONTAINS.
+ *
+ * scriptOf() answers "what is this written in" by returning the FIRST range that
+ * matches anywhere in the string. That is the right answer for a title wholly in one
+ * alphabet and the wrong answer the moment a single foreign character appears — and
+ * one foreign character is completely ordinary. π, θ, Δ, α, λ and Ω are Greek as far
+ * as Unicode is concerned, and they are simply how geometry, physics and chemistry
+ * homework is written; a pasted citation drops a Cyrillic name into a Spanish
+ * paragraph; Word and PDF exports leave homoglyphs behind.
+ *
+ * Counting is what separates a SYMBOL from a WRITING SYSTEM, and no single-answer
+ * function can make that distinction: one π in sixty Latin letters is notation, while
+ * five Hebrew letters beside nine Latin ones is a bilingual title. The caller decides
+ * where the line falls; this only reports the evidence.
+ *
+ * LETTERS ONLY. Digits and punctuation belong to no language, so counting them would
+ * let "12" and "..." vote on what a sentence is written in.
+ *
+ * scriptOf() is deliberately LEFT ALONE. Its callers in translate.ts have their own
+ * tested behaviour — and, as it happens, their own version of this bug: a Spanish
+ * description containing π is refused by the scriptAgrees gate today, which predates
+ * any of this and is worth fixing separately rather than folding in here.
+ */
+/**
+ * THE SCRIPTS THE TEXT IS ACTUALLY WRITTEN IN, symbols discarded.
+ *
+ * A script earns a place here by contributing more than `noiseMax` letters. Below
+ * that, alongside a script carrying the rest, it is notation rather than language:
+ * π in a geometry description, θ in trigonometry, Δ in chemistry, α and β in
+ * physics, or a stray homoglyph left behind by a Word or PDF export.
+ *
+ * MEASURED, on the two Gabe hit live on 8/29: a Georgian description containing one
+ * π counts 47 Georgian letters against 1 Greek, and a Vietnamese one counts 32 Latin
+ * against 1 Greek. scriptOf() called both of them Greek, because it returns the
+ * first range that matches and Greek is tested before Georgian. Downstream, the
+ * Georgian task offered "Translate from Greek" and the Vietnamese one offered
+ * nothing at all — both translated perfectly the moment the π was removed.
+ *
+ * Three is enough for the shortest real word in any alphabet, so a genuine phrase in
+ * another language always clears the bar while a symbol never does. The bar applies
+ * to Latin too, deliberately: a Thai description containing "p. 45" is still Thai.
+ *
+ * Never empty for text containing any letter — if nothing clears the bar the text is
+ * tiny, so whatever there is most of IS the text.
+ */
+export function substantiveScripts(text: string, noiseMax = 2): Script[] {
+  const counts = scriptCounts(text);
+  if (!counts.size) return [];
+  const kept = [...counts.keys()].filter((s) => (counts.get(s) as number) > noiseMax);
+  if (kept.length) return kept;
+  return [[...counts.keys()].reduce((a, b) => ((counts.get(a) as number) >= (counts.get(b) as number) ? a : b))];
+}
+
+export function scriptCounts(text: string): Map<Script, number> {
+  const counts = new Map<Script, number>();
+  for (const ch of text) {
+    if (!/\p{L}/u.test(ch)) continue;
+    let hit: Script | null = null;
+    for (const [name, re] of RANGES) {
+      if (re.test(ch)) {
+        hit = name;
+        break;
+      }
+    }
+    // A LETTER IN A SCRIPT THIS TABLE DOES NOT KNOW COUNTS AS LATIN, which is
+    // exactly what scriptOf() does with its fallback and for the same stated reason:
+    // an unfamiliar alphabet should pass rather than be refused for being
+    // unfamiliar. RANGES has no entry for Thaana or Meetei Mayek, so Divehi and
+    // Meiteilon are written in letters nothing here recognises.
+    //
+    // DROPPING THEM INSTEAD WAS A REAL BUG, caught by the 185-language sweep: with
+    // uncounted letters, "ދިވެހި" produced an EMPTY count and "ދިވެހި π" produced
+    // {greek: 1} — so a single symbol became the only script in the text, Greek is
+    // nobody's enabled language, and Divehi was thrown away as unreadable. Counting
+    // unknown letters as Latin puts both back on the path they were always on.
+    if (!hit) hit = 'latin';
+    counts.set(hit, (counts.get(hit) ?? 0) + 1);
+  }
+  return counts;
 }
 
 // THE SIBLING TABLE IS GONE (Gabe, 8/20).
@@ -101,10 +190,26 @@ export function writesScript(def: LanguageDef | undefined, script: Script): bool
   return primary === script || !!def?.altScripts?.includes(script);
 }
 
-/** The four Cobalt turns on for a new student (Gabe, 8/15). Hebrew is why the
- *  feature exists — Ivrit titles come straight from Schoology — and Spanish, Arabic
- *  and French are the school's other taught languages. */
-export const DEFAULT_TRANSLATE_FROM = ['he', 'es', 'ar', 'fr'];
+/** What Cobalt turns on for a new student (Gabe, 8/15). Hebrew is why the feature
+ *  exists — Ivrit titles come straight from Schoology — and Spanish, Arabic and
+ *  French are the school's other taught languages.
+ *
+ *  YIDDISH JOINED ON 9/1/26 (Gabe). It is Hebrew script, so it always cleared the
+ *  local gate, and then died at the gate that matters: gateDecision refuses any
+ *  language the student has not enabled, and isAmbiguous returns false when
+ *  detection was SURE of an unenabled language — so a confidently-detected Yiddish
+ *  title produced no translation AND no language chips, with nothing on screen to
+ *  say a translation had been available. Defaulting it on is the whole fix; a
+ *  Judaic-studies school generates this text and no student would think to go add
+ *  Yiddish by name.
+ *
+ *  ARAMAIC IS DELIBERATELY ABSENT, and it is not an oversight. Google Translate has
+ *  no Aramaic model, so it is not in the catalog below (see the provenance note),
+ *  and since Cobalt only ever READS the code detection returns, an entry for it
+ *  could never match. Talmud text is covered anyway: it is Hebrew script with no
+ *  Aramaic model to claim it, so Google reports it as Hebrew and the Hebrew default
+ *  carries it. Add 'arc' only alongside a provider that actually supports it. */
+export const DEFAULT_TRANSLATE_FROM = ['he', 'es', 'ar', 'fr', 'yi'];
 
 /** Every language Cobalt can translate from: the four defaults first, then the rest
  *  alphabetically by English name.
@@ -130,12 +235,13 @@ export const DEFAULT_TRANSLATE_FROM = ['he', 'es', 'ar', 'fr'];
  *  written in it is ever translated. No other language is affected. The failure mode
  *  of this file is silence, which is the one Gabe asked for. */
 export const LANGUAGES: LanguageDef[] = [
-  // --- the four defaults, first ---
+  // --- the defaults, first, in the same order as DEFAULT_TRANSLATE_FROM ---
   // Google still reports Hebrew with the retired ISO code 'iw', so both must match.
   { code: 'he', label: 'Hebrew', native: 'עברית', also: ['iw'], script: 'hebrew' },
   { code: 'es', label: 'Spanish', native: 'Español' },
   { code: 'ar', label: 'Arabic', native: 'العربية', script: 'arabic' },
   { code: 'fr', label: 'French', native: 'Français' },
+  { code: 'yi', label: 'Yiddish', native: 'ייִדיש', script: 'hebrew' },
   // --- the rest, alphabetical, so an unfiltered list is navigable ---
   { code: 'ace', label: 'Acehnese', native: 'Bahsa Acêh' },
   { code: 'ach', label: 'Acholi', native: 'Leb Acoli' },
@@ -314,7 +420,7 @@ export const LANGUAGES: LanguageDef[] = [
   { code: 'vi', label: 'Vietnamese', native: 'Tiếng Việt' },
   { code: 'cy', label: 'Welsh', native: 'Cymraeg' },
   { code: 'xh', label: 'Xhosa', native: 'isiXhosa' },
-  { code: 'yi', label: 'Yiddish', native: 'ייִדיש', script: 'hebrew' },
+  // Yiddish is not missing from the alphabetical run — it moved up into the defaults.
   { code: 'yo', label: 'Yoruba', native: 'Yorùbá' },
   { code: 'yua', label: 'Yucatec Maya', native: 'Maya t’aan' },
   { code: 'zu', label: 'Zulu', native: 'isiZulu' },

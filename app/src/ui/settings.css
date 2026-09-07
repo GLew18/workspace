@@ -206,7 +206,7 @@
 }
 .settings-side-subhead {
   font-size: 10.5px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -217,22 +217,13 @@
   background: rgba(139, 92, 246, 0.18);
 }
 
-/* Per-tab page head: title + one-line purpose (artifact parity). */
-.settings-page-head {
-  margin-bottom: 20px;
-}
-.settings-page-title {
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--text);
-}
-.settings-page-desc {
-  font-size: 13px;
-  color: var(--text-dim);
-  margin-top: 5px;
-  line-height: 1.5;
-}
+/* The per-tab page head (.settings-page-head / -title / -desc) is GONE, and its
+   rules with it (Gabe, 8/26). It printed the tab's name a second time directly
+   opposite the highlighted nav button that already says it, plus a one-line
+   description, and the pair cost ~60px at the top of all five tabs. The first
+   real setting takes that space now; see settings/view.ts where the head was
+   built. The sidebar's own "Settings" heading is what the column now lines up
+   against, which is why .settings-content gets no top offset of its own. */
 .settings-content {
   flex: 1;
   min-width: 0;
@@ -441,16 +432,42 @@
 .parse-chip-x:hover {
   color: var(--red);
 }
-/* "+ parse word" flows inline as a dashed chip at the end of the row. */
-.parse-add {
-  width: 108px;
-  background: none;
+/* THE ADD PILL IS A PARSE CHIP (Gabe, 8/27).
+   It is the same object as the saved chips beside it, in the same row, doing the
+   inverse job — so it is built from .parse-chip's own box and .parse-chip-x's own
+   button, changed in exactly two ways: the border is DASHED rather than solid,
+   which is the whole of "this one isn't real yet", and the glyph is a + rather than
+   an ×. Everything else (padding, gap, radius, type size, weight, the button's
+   13px/line-height 1/0 2px) is copied from those two rules deliberately. If you
+   change .parse-chip or .parse-chip-x, change these to match.
+
+   THE BORDER MOVED OUT TO THE WRAPPER. It used to sit on the input, with the button
+   carrying a second border alongside and a seam between them, which is what made
+   this read as two controls bolted together and left the pill far wider than a chip.
+   One border around the pair is what a chip actually is. */
+.parse-add-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px; /* .parse-chip's gap — the + sits off the word exactly as the × does */
   border: 1px dashed var(--border-strong);
   border-radius: 999px;
+  padding: 5px 7px 5px 11px; /* .parse-chip's padding, to the pixel */
+}
+.parse-add {
+  /* Wide enough for the "parse word" placeholder and no wider. The leading "+" came
+     off that placeholder when the button arrived: the pill would otherwise carry two
+     plus signs four pixels apart, one of them decorative. */
+  width: 66px;
+  background: none;
+  border: none;
+  padding: 0;
   color: var(--text);
-  padding: 5px 11px;
   font-size: 12px;
   font-weight: 600;
+  /* An <input> does not inherit line-height, it defaults to `normal` (~1.4 here),
+     which left this pill 0.6px shorter than the solid chips beside it. 1.45 is the
+     document's own value, and it is what the chips are already measuring at. */
+  line-height: 1.45;
 }
 .parse-add::placeholder {
   color: var(--text-dim);
@@ -458,9 +475,26 @@
 }
 .parse-add:focus {
   outline: none;
-  border-color: var(--border-strong);
+}
+/* Solid, and filled, once you are typing in it: the same "this is becoming real"
+   move the dashed border makes, on the whole pill rather than half of it. */
+.parse-add-wrap:focus-within {
   border-style: solid;
   background: var(--surface);
+}
+/* Character for character .parse-chip-x, with a different glyph and a different
+   hover colour: the × removes and goes red, the + creates and goes accent. */
+.parse-add-go {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.parse-add-go:hover {
+  color: var(--accent);
 }
 .parse-error {
   color: var(--red);
@@ -593,8 +627,8 @@
 .editor-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(3, 8, 17, 0.66);
-  backdrop-filter: blur(2px);
+  background: var(--scrim-dim); /* the drawer's dim (components.css :root); no blur, the drawer has none */
+  animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -861,7 +895,8 @@
 .help-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--scrim-dim); /* the drawer's dim (components.css :root) */
+  animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -896,8 +931,8 @@
 .confirm-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(3, 8, 17, 0.66);
-  backdrop-filter: blur(2px);
+  background: var(--scrim-dim); /* the drawer's dim (components.css :root); no blur, the drawer has none */
+  animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1377,7 +1412,7 @@
 .ngd-num {
   flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
   background: color-mix(in srgb, var(--gda, var(--accent)) 16%, transparent);
-  color: var(--gda, var(--accent)); font-size: 12.5px; font-weight: 800;
+  color: var(--gda, var(--accent)); font-size: 12.5px; font-weight: 700;
 }
 .ngd-item-main { flex: 1; min-width: 0; }
 .ngd-item-title { font-size: 13.5px; font-weight: 650; }
@@ -1414,6 +1449,13 @@
 .ngd-next { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .ngd-next:hover { filter: brightness(1.05); background: var(--accent); }
 
+/* Mac/Windows switcher on the guide index (8/31) — same segmented look as .nseg,
+   sized to sit under the subtitle. Defaults to the detected OS (util/os.ts). */
+.ngd-os { display: inline-grid; grid-template-columns: repeat(2, minmax(96px, 1fr)); gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; margin-bottom: 14px; }
+.ngd-os-btn { background: none; border: none; color: var(--text-dim); font-family: inherit; font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 7px; cursor: pointer; transition: background 0.18s ease, color 0.18s ease; }
+.ngd-os-btn:hover { color: var(--text); }
+.ngd-os-btn.active { background: var(--accent); color: var(--on-accent); }
+
 /* lead-time grid — identical to the Focus presets (.focus-preset) */
 .nlead-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .nlead { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 10px; padding: 11px 0; font-size: 14px; font-weight: 600; cursor: pointer; transition: border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease; }
@@ -1445,6 +1487,23 @@
 .ntoast-msg { font-size: 12px; color: var(--text-dim); margin-top: 3px; line-height: 1.35; }
 .ntoast-src { font-size: 10.5px; color: var(--text-faint, rgba(255,255,255,0.32)); margin-top: 5px; }
 
+/* macOS-style popup mock (8/31, drawn from Gabe's real Sequoia + Chrome
+   notification): compact translucent card, Chrome roundel left, bold title over
+   the origin line, body under, site favicon right. buildToast() in
+   settings/view.ts picks this or .ntoast above by detected OS. Colors are
+   hardcoded like .ntoast's: the real notification is dark regardless of theme. */
+.ntoast-mac { width: 320px; background: rgba(44, 44, 48, 0.9); backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; display: flex; gap: 11px; align-items: center; padding: 10px 14px; box-shadow: 0 14px 34px rgba(0,0,0,0.45); }
+.ntoast-mac-icon { flex: none; width: 32px; height: 32px; }
+.ntoast-mac-icon svg { width: 100%; height: 100%; display: block; }
+.ntoast-mac-body { flex: 1; min-width: 0; }
+.ntoast-mac-title { font-size: 12.5px; font-weight: 680; line-height: 1.25; color: #f2f2f4; }
+.ntoast-mac-src { font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 1px; }
+.ntoast-mac-msg { font-size: 11.5px; color: rgba(255,255,255,0.78); margin-top: 1px; line-height: 1.3; }
+/* The site favicon on the right is LARGER than the Chrome roundel in the real
+   macOS popup (Gabe's screenshot, 8/31) — it's the notification's content image. */
+.ntoast-mac-fav { flex: none; width: 36px; height: 36px; border-radius: 8px; overflow: hidden; }
+.ntoast-mac-fav svg { width: 100%; height: 100%; display: block; }
+
 /* new-assignment: delivery-mode segmented control + revealed interval block */
 .nseg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; }
 .nseg-btn { background: none; border: none; color: var(--text-dim); font-family: inherit; font-size: 12.5px; font-weight: 600; padding: 8px 0; border-radius: 7px; cursor: pointer; transition: background 0.18s ease, color 0.18s ease;
@@ -1456,6 +1515,23 @@
 
 /* ===== Preference rows (Profile / Schoology / Focus groups) =====
    Artifact-style rows: [title + sub] ........ [control]. */
+/* NOTHING AT THE TOP OF A TAB CARRIES A TOP MARGIN (Gabe, 8/27).
+   .settings-group-label's 22px is separation from the block ABOVE it, which is
+   right everywhere except where there is nothing above it. The Focus tab opens on
+   a group label ("🔊 End Sound") where Profile and Tasks open on a plain field
+   label at 0, so Focus alone started 22px further down and read as misaligned
+   against its neighbours. Written against the section's first child rather than
+   against the label, so the rule holds whatever a future tab happens to open with.
+   Courses is untouched: its first child was already at 0.
+
+   The second selector is not belt-and-braces. Notifications opens on the browser-
+   permission banner, and `#sec-notify .settings-status` gives that an 8px top at
+   ID specificity (1,1,0), which outranks the (0,2,1) above and left that one tab
+   sitting 8px lower than the rest. Matching the id here takes it to (1,2,0). */
+.settings-section > *:first-child,
+#sec-notify > .settings-status:first-child {
+  margin-top: 0;
+}
 .settings-group-label {
   font-size: 11px;
   font-weight: 700;

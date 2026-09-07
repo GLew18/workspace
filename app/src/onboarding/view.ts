@@ -545,8 +545,15 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
               chipRow.append(rec);
             }
           }
-          const wordIn = el('input', { class: 'parse-add', placeholder: '+ parse word' }) as HTMLInputElement;
-          chipRow.append(wordIn);
+          const wordIn = el('input', { class: 'parse-add', placeholder: 'parse word' }) as HTMLInputElement;
+          // Box + commit button as one pill, same as Settings ▸ Courses (Gabe,
+          // 8/26). Onboarding is the FIRST place anyone meets a parse word, so if
+          // either of the two is going to say out loud that Enter is not the only
+          // way in, it is this one.
+          const wordGo = el('button', { type: 'button', class: 'parse-add-go', text: '+', title: 'Add parse word' });
+          const wordWrap = el('div', { class: 'parse-add-wrap' });
+          wordWrap.append(wordIn, wordGo);
+          chipRow.append(wordWrap);
           const perr = el('div', { class: 'parse-error' });
 
           nameIn.addEventListener('input', () => (c.name = nameIn.value));
@@ -559,10 +566,12 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
             newIds.delete(c.id);
             draw();
           });
-          wordIn.addEventListener('keydown', (e) => {
-            if (e.key !== 'Enter') return;
+          const addWord = (): void => {
             const w = wordIn.value.trim().toLowerCase();
-            if (!w) return;
+            if (!w) {
+              wordIn.focus();
+              return;
+            }
             const conflict = draft.courses.find((x) => x !== c && x.parseWords.includes(w));
             if (conflict) {
               perr.textContent = `Already used in "${conflict.name}".`;
@@ -571,7 +580,15 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
             if (!c.parseWords.includes(w)) c.parseWords.push(w);
             refocusIdx = idx;
             draw();
+          };
+          wordIn.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            addWord();
           });
+          // mousedown cancels the focus move only; click does the work, so
+          // Space/Enter on the focused button works too (tasks/render.ts note).
+          wordGo.addEventListener('mousedown', (e) => e.preventDefault());
+          wordGo.addEventListener('click', () => addWord());
 
           row.append(top, chipRow, perr);
           rows.append(row);

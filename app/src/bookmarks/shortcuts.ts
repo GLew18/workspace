@@ -17,7 +17,7 @@
 // known EXTENSION_ID exist; otherwise fall back to a window.postMessage handshake
 // with the extension's bridge content script (dev/localhost + Firefox/Safari).
 
-import { el, enterConfirms, showToast } from '../util/dom';
+import { el, enterConfirms, showToast, fadeRemove } from '../util/dom';
 import { normalizeUrl } from './url';
 
 // #region Minimal chrome typings (no @types/chrome in this project)
@@ -704,7 +704,7 @@ export function openShortcutModal(bm: ShortcutBookmark, opts: OpenShortcutModalO
   };
   const close = () => {
     cleanup();
-    back.remove();
+    fadeRemove(back);
   };
 
   box.append(el('h3', { class: 'bm-modal-title', text: 'Open this website with a key combination' }));

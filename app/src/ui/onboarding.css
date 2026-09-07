@@ -216,7 +216,7 @@
 .onb-sc h1 {
   margin: 0 0 12px;
   font-size: clamp(26px, 4.5vw, 36px);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.02em;
   text-wrap: balance;
   line-height: 1.15;
@@ -343,7 +343,7 @@
 }
 .onb-wordmark {
   font-size: clamp(34px, 6vw, 46px);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.02em;
   margin: 6px 0 0;
   color: #fff;
@@ -611,7 +611,7 @@
 }
 .onb-sso-title {
   font-size: 15px;
-  font-weight: 800;
+  font-weight: 700;
   margin: 0 26px 2px 0;
 }
 .onb-sso-sub {

@@ -13,7 +13,7 @@ import { el, textInput, copyTextMetrics, autoWidthToText, showToast } from '../u
 import { extensionActive } from '../bookmarks/shortcuts';
 import { popupGuideButton } from '../ui/popupGuide';
 import { attachColorPicker } from '../ui/colorPicker';
-import { openPopup } from '../ui/popup';
+import { openPopup, tabScopedOverlay } from '../ui/popup';
 import { buildFeedDiff, hasFeedDiff } from './feedDiff';
 import {
   TITLE_SLOT, DETAILS_SLOT, TX_SLOTS, verifySample,
@@ -25,9 +25,13 @@ import { formatMetaDate, formatShortDate, formatTimeOfDay, formatDate, todayStr 
 import { getPrefs, setPrefsCache, PREFS_EVENT, type AppPrefs, type PinnedAction } from '../prefs';
 import { genId } from '../util/ids';
 import { buildQuickAdd } from './quickadd';
-import { makeTask, duplicateTask, clearTranslation, groupTasks, dueBadge, sortTasks, type TaskGroup } from './store';
+import {
+  makeTask, duplicateTask, clearTranslation, groupTasks, dueBadge, sortTasks, compareForCalendar, type TaskGroup,
+} from './store';
 import { PRIORITIES, priorityDef } from './priorities';
-import { getCourseColor, onRegistryChange, matchCourseStrict } from '../courses/registry';
+import {
+  getCourseColor, onRegistryChange, matchCourseStrict, findParseWordPhrase, stripParseWord,
+} from '../courses/registry';
 import { classifyByRules, learnCorrection } from '../schoology/classify';
 import { recordManualLabelForTask } from '../schoology/extension';
 import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
@@ -41,6 +45,8 @@ import {
   saveTaskFolders,
   makeFolder,
   folderMembers,
+  autoFileCourseOf,
+  patchTaskFolder,
   mutateTaskFolders,
   reorderTaskFolders,
   normFolder,
@@ -49,9 +55,10 @@ import {
 import { acceptFolderName, cleanFolderName, guardFolderNameField, wireRename } from './folderName';
 import { runSync } from '../schoology/sync';
 import {
-  analyzeTitle, languageName, rankCandidates, translateAs, translateBatchAs,
+  analyzeBatch, languageName, rankCandidates, translateAs, translateBatchAs,
   MAX_CHIPS, TRANSLATE_LANGS_EVENT,
 } from '../util/translate';
+import { DETECTOR_VERSION } from '../util/localDetect';
 
 /**
  * The language list a stored translation verdict was reached under. See
@@ -354,7 +361,17 @@ export class TasksView {
     // matching on the title so typed tasks get tagged like imported ones do.
     if (!parsed.course) {
       const hit = classifyByRules(parsed.title);
-      if (hit) parsed = { ...parsed, course: hit };
+      if (hit) {
+        // AND TAKE THE WORD OUT OF THE TITLE (Gabe, 9/1/26). The quick-add parser
+        // already removes a course word it reads; this fallback used to read one and
+        // leave it behind, so the same typed word did or did not survive depending on
+        // which of the two found it. Only when the match came from a literal parse
+        // word: the learned model has no phrase to remove, and guessing at one would
+        // edit a title on the strength of a statistical hunch.
+        const m = findParseWordPhrase(parsed.title);
+        const title = m.course === hit ? stripParseWord(parsed.title, m.phrase) : parsed.title;
+        parsed = { ...parsed, course: hit, title };
+      }
     }
     const task = makeTask(parsed);
     // "f:NAME": join the folder with that name, or create it — color = the
@@ -365,7 +382,7 @@ export class TasksView {
       const want = normFolder(parsed.folderName);
       let folder = this.folders.find((f) => normFolder(f.name) === want);
       if (!folder) {
-        folder = makeFolder(parsed.folderName, parsed.course ? getCourseColor(parsed.course) : '#8b97a8');
+        folder = makeFolder(parsed.folderName, parsed.course ? getCourseColor(parsed.course) : '#8b97a8', parsed.course);
         this.folderBornAt.set(folder.id, Date.now()); // shield from the empty sweep while the task saves
         this.folders.push(folder);
         await saveTaskFolders(this.data, this.folders);
@@ -632,10 +649,10 @@ export class TasksView {
       if (filter && !filter(t)) continue;
       (by.get(t.dueDate) ?? by.set(t.dueDate, []).get(t.dueDate)!).push(t);
     }
-    for (const list of by.values())
-      list.sort(
-        (a, b) => (a.dueTime || '99:99').localeCompare(b.dueTime || '99:99') || a.title.localeCompare(b.title)
-      );
+    // Time first, then the list's hierarchy (see compareForCalendar in store.ts).
+    // This was time-then-title, which meant a cell's "+N more" hid whatever happened
+    // to be latest in the day rather than whatever mattered least (Gabe, 9/2/26).
+    for (const list of by.values()) list.sort(compareForCalendar);
     return by;
   }
 
@@ -911,15 +928,58 @@ export class TasksView {
         },
         host: () => this.sample?.host, // landing preview: the card stays inside the device frame
       });
+      // "N NEW" (Gabe, 9/1/26) — the sync dropped assignments in here and the student
+      // has not opened it since.
+      //
+      // IT SAYS "NEW", it does not just glow. A bare red dot is unmissable but its
+      // meaning has to be learned, and Cobalt's whole promise is that you do not miss
+      // work — a cue you have to be taught is a cue that fails the first student who
+      // was not watching the day it first appeared. The word costs one glance and
+      // needs no teaching.
+      //
+      // NOTHING BUT THE RED (Gabe, 9/1/26, having seen it loud and rejected it). It
+      // was a filled red pill fused to the count, and it looked like an ad. This is
+      // the other extreme on purpose: same size and weight as the count it follows,
+      // reading on as one phrase — "2 tasks · 1 new" — with the colour doing all of
+      // the work and no background, no border, no bolding helping it. It is the
+      // quietest thing that still cannot be mistaken for anything else on the row,
+      // because red appears nowhere else here.
+      //
+      // Only while COLLAPSED. Open, the assignments are already on screen, and a
+      // flag pointing at what you are looking at is noise.
+      //
+      // Counted against the LIVE tasks, not the stored list alone: an assignment
+      // deleted before the student ever opened the folder would otherwise leave its
+      // id behind forever, and the count would sit there counting nothing.
+      const unseen = (f.newAutoFiled ?? []).filter((id) => !!this.map[id]).length;
+      const countText = `${openMembers.length} task${openMembers.length === 1 ? '' : 's'}`;
+      let countNode: HTMLElement;
+      if (unseen && !open) {
+        // One tight group, not three children of the head: the head's own 10px gap
+        // either side of the separator would space this out into three separate
+        // things instead of one phrase.
+        countNode = el('span', {
+          class: 'task-folder-meta',
+          title: unseen === 1
+            ? 'A new assignment was filed here'
+            : `${unseen} new assignments were filed here`,
+        });
+        countNode.append(
+          el('span', { class: 'task-folder-count', text: countText }),
+          el('span', { class: 'task-folder-sep', text: '·' }),
+          el('span', { class: 'task-folder-new', text: `${unseen} new` })
+        );
+      } else {
+        countNode = el('span', { class: 'task-folder-count', text: countText });
+      }
       head.append(
         nameEl,
         // Total only, never done/total (Gabe, 8/7/26): a folder is a container
         // you keep adding to, so "2/5" read like progress toward a fixed goal
-        // that does not exist. "5 tasks" just states what is inside.
-        el('span', {
-          class: 'task-folder-count',
-          text: `${openMembers.length} task${openMembers.length === 1 ? '' : 's'}`,
-        }),
+        // that does not exist. "5 tasks" just states what is inside. When something
+        // is unseen this same slot gains "· N new" in red, built above — the count
+        // itself never moves.
+        countNode,
         el('span', { class: 'task-folder-arrow', text: '▶' }),
         colorIn
       );
@@ -935,12 +995,25 @@ export class TasksView {
           return;
         }
         if (open) this.openFolders.delete(f.id);
-        else this.openFolders.add(f.id);
+        else {
+          this.openFolders.add(f.id);
+          // OPENING IT IS SEEING IT. Clear the unseen list on the way in, so the dot
+          // is gone for good rather than coming back the next time this collapses.
+          if ((f.newAutoFiled ?? []).length) {
+            f.newAutoFiled = [];
+            void patchTaskFolder(this.data, f.id, { newAutoFiled: [] });
+          }
+        }
         this.render();
       });
       row.append(head);
       if (open) {
         const body = el('div', { class: `task-folder-body${bodyMode === 'cal' ? ' cal-scope' : ''}` });
+        // The auto-file caption sits at the top of the body, above the tasks: it is
+        // a setting FOR this folder, so it belongs inside it, and keeping it out of
+        // the collapsed head leaves the folder row as clean as it has always been.
+        const caption = this.autoFileCaption(f);
+        if (caption) body.append(caption);
         if (bodyMode === 'cal') {
           // A whole calendar, scoped to this folder's members — same view and
           // cursor as the main grid (the one toolbar drives every calendar).
@@ -967,6 +1040,82 @@ export class TasksView {
       }
       this.listEl.append(row);
     }
+  }
+
+  /**
+   * AUTO-FILE THE COURSE'S SCHOOLOGY ASSIGNMENTS INTO THIS FOLDER (Gabe, 9/1/26).
+   *
+   * One line at the top of an open folder: a checkmark, then "automatically file
+   * <Course> assignments from Schoology into this folder", with the course drawn in
+   * its own color exactly as it reads on a task row. Double-click the course to
+   * retype it — same parse-word resolver as the quick-add bar, so a word the student
+   * set is the only thing that lands.
+   *
+   * INVISIBLE UNTIL A COURSE EXISTS. A folder full of course-less tasks has nothing
+   * to file, so offering the switch would be offering a no-op. Any member's course
+   * counts, not just the creator's — the folder earns the caption the moment
+   * anything in it is tagged.
+   *
+   * SCHOOLOGY ONLY, and the caption says so in its own words. A task the student
+   * typed themselves is a task they already placed; re-filing it would move work out
+   * from under them. This only ever catches assignments that arrive on their own.
+   *
+   * Returns null when there is no course anywhere in the folder.
+   */
+  private autoFileCaption(f: TaskFolder): HTMLElement | null {
+    const course = autoFileCourseOf(f, this.map);
+    if (!course) return null;
+
+    const wrap = el('div', { class: `task-folder-autofile${f.autoFile ? ' on' : ''}` });
+
+    // Same 22px box as a task's completion checkbox, at caption scale — this is a
+    // checkmark in the sense the rest of the app already means one.
+    const box = el('button', {
+      type: 'button',
+      class: `task-cb autofile-cb${f.autoFile ? ' checked' : ''}`,
+      'aria-pressed': f.autoFile ? 'true' : 'false',
+      title: f.autoFile
+        ? `New ${course} assignments from Schoology land in this folder`
+        : `File new ${course} assignments from Schoology here`,
+    });
+    box.innerHTML = CHECK_SVG;
+    box.addEventListener('click', (e) => {
+      e.stopPropagation();
+      f.autoFile = !f.autoFile;
+      // Write the resolved course too, so an inherited-from-a-member course becomes
+      // the folder's own the moment the student commits to it. Otherwise deleting
+      // that member would silently retarget the folder at whatever was next.
+      f.autoFileCourse = course;
+      // Mutated in place first so the repaint below is instant, then persisted as a
+      // PATCH against the stored list — never as this view's whole array, which
+      // would erase a folder Focus created since this copy was last refreshed.
+      void patchTaskFolder(this.data, f.id, { autoFile: f.autoFile, autoFileCourse: course });
+      this.render();
+    });
+
+    const label = el('span', { class: 'task-folder-autofile-text' });
+    label.append(document.createTextNode('automatically file '));
+    const chip = el('span', { class: 'course-chip', text: course, title: 'Double-click to change the course' });
+    chip.style.color = getCourseColor(course);
+    chip.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      this.inlineEdit(chip, course, (v) => {
+        const next = matchCourseStrict(v);
+        if (!next) return; // not a course the student has set — leave it alone
+        f.autoFileCourse = next;
+        void patchTaskFolder(this.data, f.id, { autoFileCourse: next });
+      });
+    });
+    label.append(chip, document.createTextNode(' assignments from Schoology into this folder '));
+    // SAYS WHERE IT STOPS (Gabe, 9/1/26). A folder dissolves once everything in it is
+    // checked off, and the rule dies with it — after that the course's assignments
+    // arrive loose again. That is the intended behaviour, but nothing on screen said
+    // so, and a rule that quietly stops is worse than one that never started. One
+    // step dimmer than the sentence: it is a footnote to the instruction, not part of it.
+    label.append(el('span', { class: 'task-folder-autofile-note', text: '(ends when folder dissolves)' }));
+
+    wrap.append(box, label);
+    return wrap;
   }
 
   /** The 🗀 picker: join an existing folder, leave the current one, or create a
@@ -1021,11 +1170,17 @@ export class TasksView {
       });
       const input = textInput({ class: 'folder-pick-input', placeholder: '+ New folder…' });
       guardFolderNameField(input, this.sample?.host); // one word: f: cannot reach a name with a space in it
-      input.addEventListener('keydown', (e) => {
-        if (e.key !== 'Enter') return;
+      // Enter creates, and so does the button (Gabe, 8/26): a name box whose only
+      // commit key is Enter reads as a filter, not a create. One function, two ways
+      // to reach it.
+      const create = (): void => {
         const name = cleanFolderName(input.value);
-        if (!name) return;
-        const folder = makeFolder(name, newColor);
+        if (!name) {
+          input.classList.add('invalid');
+          input.focus();
+          return;
+        }
+        const folder = makeFolder(name, newColor, task.course);
         this.folderBornAt.set(folder.id, Date.now()); // shields it from the empty-folder sweep while its first member saves
         this.folders.push(folder);
         void saveTaskFolders(this.data, this.folders).then(() => {
@@ -1033,9 +1188,24 @@ export class TasksView {
           applyAll((t) => ({ ...t, folderId: folder.id })); // triggers the re-render
           close();
         });
+      };
+      input.addEventListener('input', () => input.classList.remove('invalid'));
+      input.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        create();
       });
+      const addBtn = el('button', { type: 'button', class: 'folder-pick-add', text: '+', title: 'Create folder' });
+      // TWO listeners, and the split is the point. `mousedown` only cancels its own
+      // default, which is what moves focus OUT of the name box; the box keeps the
+      // caret, so a press that turns out to be invalid can be corrected in place.
+      // The actual creating hangs off `click`, because click is the event a KEYBOARD
+      // fires too: Space or Enter on a focused button dispatches click and never
+      // dispatches mousedown, so doing the work in the mousedown handler would have
+      // made this a mouse-only control.
+      addBtn.addEventListener('mousedown', (e) => e.preventDefault());
+      addBtn.addEventListener('click', () => create());
       const newRow = el('div', { class: 'folder-pick-new' });
-      newRow.append(colorIn, input);
+      newRow.append(colorIn, input, addBtn);
       wrap.append(newRow);
       // The f: shortcut used to be written here. It moved to the 💡 Task Pro Tips
       // popup in the Tasks header with the rest of them (Gabe, 8/22): a tip inside
@@ -1078,20 +1248,33 @@ export class TasksView {
   private watchQuickAdd(bar: HTMLElement): void {
     this.quickAddOff?.();
     this.quickAddOff = undefined;
-    const root = bar.closest('.app-below') as HTMLElement | null;
-    if (!root || this.sample) return; // no scroller (landing demo, tests) = nothing to pin against
+    // In the app the scroller is .app-below; the landing's hero demo scrolls its
+    // .app instead (landing.css re-anchors the chrome). The demo used to skip
+    // pinning entirely, so the bar stuck without its opaque blue surface and the
+    // rows showed straight through it (Gabe, 9/1/26: "in the app there's blue
+    // around it and in the demo there's no blue"). Same watcher, either scroller.
+    const root = (bar.closest('.app-below, .lp-demoshell-body .app') ??
+      (this.sample ? bar.closest('.app') : null)) as HTMLElement | null;
+    if (!root) return; // no scroller (tests, static previews) = nothing to pin against
+    // A SENTINEL, NOT ARITHMETIC (Gabe, 9/2/26). Working out where sticky WILL park
+    // the bar means accounting for the scroller's padding, the frame's transform
+    // scale and the element's own margins, and a measured 4px still went unexplained
+    // — so the bar in the hero demo never earned its opaque background. This asks a
+    // question with no arithmetic in it: a zero-height marker sits in normal flow
+    // immediately above the bar, so it scrolls away while the bar stays put, and the
+    // bar is stuck exactly when the marker has passed the top of the scroller. Both
+    // rects come from the same coordinate space, so a scaled frame cancels out.
+    const sentinel = el('div', { class: 'quick-add-sentinel' });
+    bar.before(sentinel);
     const sync = (): void => {
-      if (!bar.isConnected) return;
-      const rect = bar.getBoundingClientRect();
+      if (!bar.isConnected || !sentinel.isConnected) return;
       // HIDDEN MEANS UNANSWERABLE, NOT "PINNED" (Gabe, 8/21). The scroller is shared
       // by every tab, so this fires while the Tasks panel is display:none — and a
       // hidden element measures as an all-zero rect, whose "top" of 0 sits above the
       // scroller's top and reads as stuck. Refusing to answer leaves the last real
       // answer standing until onShow() asks again with the bar actually on screen.
-      if (!rect.height) return;
-      // Stuck means its top has caught the scroller's top, which is where `top: 0`
-      // parks it. One pixel of slack for sub-pixel layout.
-      const pinned = rect.top - root.getBoundingClientRect().top < 1;
+      if (!bar.getBoundingClientRect().height) return;
+      const pinned = sentinel.getBoundingClientRect().top < root.getBoundingClientRect().top + 0.5;
       // Class only. It changes nothing about the box, so this cannot move the list
       // however often it fires.
       bar.classList.toggle('pinned', pinned);
@@ -2156,12 +2339,7 @@ export class TasksView {
   private inlineEdit(
     host: HTMLElement,
     initial: string,
-    commit: (value: string) => void,
-    // Commit even when the text came back unchanged. Only ever set for a BULK
-    // edit: `initial` is the acted-on row's value, so when the row you clicked
-    // already reads "8/15", typing "8/15" to push that date onto the other four
-    // selected tasks looked like a no-op and wrote nothing at all.
-    commitUnchanged = false
+    commit: (value: string) => void
   ): void {
     this.data.setRenderLocked(true);
     // Every inline editor (title, course, date) hugs its text at the text's own
@@ -2190,9 +2368,23 @@ export class TasksView {
       done = true;
       this.data.setRenderLocked(false);
       const value = input.value.trim();
-      // Only commit when the value actually changed — pressing away (blur) with no
-      // edit must preserve the existing value, never re-parse/clear it.
-      if (apply && (commitUnchanged || value !== initial.trim())) commit(value);
+      // ONLY WHEN THE TEXT ACTUALLY CHANGED, WITH NO EXCEPTIONS (Gabe, 8/27).
+      //
+      // There used to be a `commitUnchanged` escape hatch, set by the course and
+      // date editors whenever a multi-selection was live. Its argument was that on a
+      // bulk edit `initial` is the CLICKED row's value, so retyping "8/15" on a row
+      // that already says 8/15 in order to push that date onto the other four
+      // selected tasks would otherwise write nothing.
+      //
+      // The cost was far worse than the thing it bought, and Gabe hit it: double-
+      // clicking a course on a selected row and simply clicking away — no typing, no
+      // change, nothing — committed the clicked row's course to every task in the
+      // selection. Five tasks with five different courses became five of the same one
+      // for the crime of being looked at. Merely OPENING an editor is not an edit,
+      // and an accidental bulk overwrite with nothing to undo it is not worth a
+      // shortcut for a case you can reach anyway by typing something else and typing
+      // it back.
+      if (apply && value !== initial.trim()) commit(value);
       this.render();
     };
     input.addEventListener('keydown', (e) => {
@@ -2230,10 +2422,17 @@ export class TasksView {
     this.inlineEdit(host, task.title, (v) => {
       if (!v) return;
       // New title → drop the old translation and re-check it on the next pass.
-      // Retyping the title of a selected row renames the WHOLE selection, which
-      // is the one bulk edit worth pausing on: it is how you fix a batch of
-      // badly-named imports in one move, and undo is a re-edit away.
-      this.applyToSelection(task, (t) => clearTranslation({ ...t, title: v, _manualTitle: true }));
+      //
+      // THE ONE ACTION THAT NEVER GOES BULK (Gabe, 8/26). Every other task edit
+      // routes through applyToSelection and hits the whole selection, and the title
+      // used to as well — retyping one row's title renamed all twelve. Reverted,
+      // because a title is the one field that is unique to the task by definition:
+      // "Chapter 4 questions" is true of exactly one of the selected rows, so
+      // applying it to the rest destroys twelve distinct names and leaves twelve
+      // identical ones, with no undo but retyping each by hand. Course, priority,
+      // folder and due date are all values a batch can legitimately SHARE, which is
+      // why they stay on applyToSelection. This.save deliberately, not selTargets.
+      this.save(clearTranslation({ ...task, title: v, _manualTitle: true }));
     });
   }
 
@@ -2275,8 +2474,7 @@ export class TasksView {
           if (t.dueDate !== date) delete next.manualOrder;
           return next;
         });
-      },
-      this.selCount(task) > 1 // bulk: retyping the same date still pushes it to the rest
+      }
     );
   }
 
@@ -2300,8 +2498,7 @@ export class TasksView {
           // of this assignment so the same kind auto-tags (confidently) next time.
           if (course) void learnCorrection(t.title, t.details || '', course);
         }
-      },
-      this.selCount(task) > 1 // bulk: retyping the same course still pushes it to the rest
+      }
     );
   }
 
@@ -2363,7 +2560,16 @@ export class TasksView {
     // the Settings event alone — is what makes this hold even when the change was
     // made on another device, or while this view had never been mounted. Without it
     // the picker silently did nothing to tasks that already existed.
-    const sig = getPrefs().tasks.translateFrom.join(',');
+    // THE DETECTOR'S VERSION IS PART OF THE SIGNATURE, not just the language list.
+    //
+    // Since util/localDetect.ts landed, a verdict can be reached WITHOUT asking the
+    // provider — and a local skip writes `translationChecked` onto the task, which
+    // outlives the page. So a text the detector judged wrongly would keep that
+    // verdict forever and a fix to the detector could never reach the tasks it got
+    // wrong. Folding DETECTOR_VERSION in here means bumping that number re-examines
+    // everything the previous version decided, through machinery that already exists
+    // and is already tested for the language-list case.
+    const sig = `${getPrefs().tasks.translateFrom.join(',')}|d${DETECTOR_VERSION}`;
     // The two guards on the left of `&&` are not decoration. Recording the new
     // signature before the tasks were actually re-checked is a one-way door: the
     // rescan is skipped forever after, and the picker goes back to doing nothing.
@@ -2413,20 +2619,32 @@ export class TasksView {
       ambiguous: boolean; detected: string;
     }> = [];
     try {
-      for (const { task: t, slot } of pending) {
-        const text = txText(t, slot);
-        const r = await analyzeTitle(text);
-        if (r.status === 'error') break; // offline / rate-limited → stop; retry next update
+      // ONE CALL FOR THE WHOLE PASS (8/28). This was a round-trip per text with a
+      // 150ms pause between them, which on a fifty-task import meant a hundred
+      // invocations and the better part of fifteen seconds spent waiting on purpose.
+      // analyzeBatch answers positionally and resolves everything it can without the
+      // network first — the session cache, and the local detector that keeps English
+      // text from being sent at all.
+      const texts = pending.map(({ task: t, slot }) => txText(t, slot));
+      const analyses = await analyzeBatch(texts);
+      for (let i = 0; i < pending.length; i++) {
+        const { task: t, slot } = pending[i];
+        const r = analyses[i];
+        // SKIPPED, NOT RECORDED. An error is offline / rate-limited, and it must
+        // never be written down as "this text is English" — leaving it unchecked is
+        // what brings it back on the next update. The loop no longer stops at the
+        // first one: the answers that DID arrive are still good, and dropping them
+        // would only mean paying for them again.
+        if (r.status === 'error') continue;
         results.push({
           id: t.id,
           slot,
-          text,
+          text: texts[i],
           translated: r.status === 'foreign' ? r.text : '',
           lang: r.status === 'foreign' ? r.sourceLang : '',
           ambiguous: r.status === 'english' && !!r.ambiguous,
           detected: r.status === 'english' ? r.detected || '' : '',
         });
-        await new Promise((res) => setTimeout(res, 150)); // gentle throttle
       }
     } finally {
       this.autoTx = false;
@@ -2490,8 +2708,18 @@ export class TasksView {
     // exists. readings() is what both of them now agree on, which also covers the
     // emptied-language-picker case the old length check was here for.
     const askable = !task.translatedTitle && !!task.translationAmbiguous && this.readings(task).length > 0;
-    if (task.translatedTitle || askable) {
-      const shown = !task.translationHidden;
+    // ONE GLOBE FOR THE WHOLE TASK (Gabe, 9/1/26). The description's translation
+    // used to carry its own show/hide button inside the description popup, which
+    // meant two controls for one idea ("do I want this task in English") sitting on
+    // two different surfaces. The row's globe now governs BOTH slots, and the popup
+    // carries no buttons at all. It follows that the globe has to appear for a task
+    // whose DESCRIPTION is translated even when its title is plain English — that is
+    // the whole case the popup's button used to serve.
+    const hasDetailsTx = !!task.detailsTranslated;
+    if (task.translatedTitle || askable || hasDetailsTx) {
+      // What the button reports is what is on screen: the title's line when there is
+      // one (that is what the row shows), otherwise the description's.
+      const shown = task.translatedTitle || askable ? !task.translationHidden : !task.detailsHidden;
       const run = () => {
         // Target state computed ONCE from the clicked row, then written to all of
         // them. Flipping each task's own flag would leave a mixed selection mixed,
@@ -2500,10 +2728,18 @@ export class TasksView {
         // Hiding the line ends a change-language in progress too. Otherwise the
         // question would be waiting, invisible, and reappear on the next unhide over
         // a translation the student never asked to revisit again.
-        if (hidden) for (const t of this.selTargets(task)) this.askingIds.delete(this.vkey(TITLE_SLOT, t.id));
-        this.applyToSelection(task, (t) => ({ ...t, translationHidden: hidden }));
+        if (hidden) {
+          for (const t of this.selTargets(task)) {
+            this.askingIds.delete(this.vkey(TITLE_SLOT, t.id));
+            this.askingIds.delete(this.vkey(DETAILS_SLOT, t.id));
+          }
+        }
+        // BOTH flags, always the same value: one switch, one meaning. Writing
+        // detailsHidden onto a task with no description translation is harmless —
+        // nothing reads it until there is a line for it to govern.
+        this.applyToSelection(task, (t) => ({ ...t, translationHidden: hidden, detailsHidden: hidden }));
       };
-      const label = task.translatedTitle
+      const label = task.translatedTitle || hasDetailsTx
         ? shown ? 'Hide translation' : 'Show translation'
         : shown ? 'Hide language options' : 'Choose a language';
       out.push({
@@ -2536,14 +2772,30 @@ export class TasksView {
     // costing a press. readings() is the same test the 🌐 row uses, which is what
     // stops the menu opening a question the row then refuses to draw — and it is what
     // keeps the entry off ordinary English tasks entirely.
-    if (task.title && this.readings(task).length) {
+    // BOTH SLOTS, from this one entry (Gabe, 9/1/26). When the description's popup
+    // lost its own "Change language…" button, this became the only way back to the
+    // language question — and it only ever asked about the TITLE, so a description
+    // translated into the wrong language had nothing anywhere that could re-ask it.
+    // Same principle as the globe above: one control, both pieces of text.
+    const titleReadings = this.readings(task).length;
+    // A DESCRIPTION EARNS THIS ONLY ONCE IT HAS A READING TO CHANGE (Gabe, 9/2/26).
+    // Asking readings() outright was too wide: it answers "could some language read
+    // this text", which is true of ordinary English prose, so "Translate from…"
+    // turned up in the ⋯ menu of every plain task — a control for a state those
+    // tasks are not in. Gated on an existing translation, this stays what it was
+    // built for: a way back to the question after an answer is already showing.
+    const detailReadings = task.detailsTranslated ? this.readings(task, DETAILS_SLOT).length : 0;
+    if (task.title && (titleReadings || detailReadings)) {
       out.push({
         id: 'readings',
-        label: task.translatedTitle ? 'Change language…' : 'Translate from…',
+        label: task.translatedTitle || task.detailsTranslated ? 'Change language…' : 'Translate from…',
         iconHtml: '🌐',
         auto: false,
         run: () => {
-          this.askingIds.add(this.vkey(TITLE_SLOT, task.id));
+          // Each slot is asked only if it HAS candidates, or the surface that draws
+          // the question would open one it cannot answer.
+          if (titleReadings) this.askingIds.add(this.vkey(TITLE_SLOT, task.id));
+          if (detailReadings) this.askingIds.add(this.vkey(DETAILS_SLOT, task.id));
           this.render();
         },
       });
@@ -2631,10 +2883,16 @@ export class TasksView {
     back.append(menu);
     host.append(back);
 
-    const close = () => {
+    // THE "…" MENU BELONGS TO ITS TAB (Gabe, 8/27). It mounts on <body> so it can
+    // float clear of the scrolling list, which also meant nothing removed it when the
+    // tab underneath changed: open it in Tasks, switch to Focus, and it was still
+    // sitting there over the timer. tabScopedOverlay hands back the same close, wired
+    // so main.ts's tab-change hook can call it. Dismissing it the ordinary way
+    // (backdrop, Esc, picking a row) deregisters it, so nothing goes stale.
+    const close = tabScopedOverlay(() => {
       back.remove();
       document.removeEventListener('keydown', onKey, true);
-    };
+    });
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
@@ -2669,8 +2927,16 @@ export class TasksView {
     // is worth more than never being clipped. The list scrolls, so a menu that runs
     // past the bottom edge can still be reached; a menu that moves cannot be aimed at.
     const top = (a.bottom - b.top + GAP) / s;
+    // …BUT NEVER OFF THE BOTTOM EDGE (Gabe, 9/2/26). "Always below" was paid for
+    // with trailing space under the list, and that only ever covered the LAST row:
+    // any row sitting at the bottom of the window when it is clicked has nothing
+    // below it, and its menu was simply cut off. This is not the flip that was
+    // rejected — the menu still hangs downward from its button — it is the minimum
+    // upward nudge that keeps the whole card on screen, and it does nothing at all
+    // in the ordinary case, where the menu already fits.
+    const maxTop = back.offsetHeight - m.height / s - 8;
     menu.style.left = `${left}px`;
-    menu.style.top = `${Math.max(8, top)}px`;
+    menu.style.top = `${Math.max(8, Math.min(top, maxTop))}px`;
   }
 
   /** The row's "…" menu: the optional controls that are NOT already on the row,
@@ -2853,7 +3119,13 @@ export class TasksView {
           body.append(this.buildAskRow(t, slot));
           return;
         }
-        if (!txTranslated(t, slot) || txHidden(t, slot)) return;
+        if (!txTranslated(t, slot)) return;
+
+        // HIDDEN IS THE ROW'S CALL, NOT THIS POPUP'S (Gabe, 9/1/26). `detailsHidden`
+        // briefly had its own show/hide button down here; the row's globe writes it
+        // now, for the whole task and the whole selection, so this surface only ever
+        // READS the flag. Hidden means the original description and nothing under it.
+        if (txHidden(t, slot)) return;
 
         const tr = el('div', {
           class: `task-translation${txChosen(t, slot) ? ' chosen' : ''}`,
@@ -2864,21 +3136,11 @@ export class TasksView {
         tr.append(el('span', { class: 'task-translation-badge', text: '🌐' }));
         tr.append(linkifyText(txTranslated(t, slot), 'task-details-text'));
         body.append(tr);
-
-        // CHANGE LANGUAGE, the same offer the title's ⋯ menu carries. Only shown when
-        // there is another reading to change TO, so it can never be a press that
-        // leads nowhere.
-        if (this.readings(t, slot).length) {
-          const change = el('button', {
-            class: 'task-details-relang',
-            text: '🌐 Change language…',
-          });
-          change.addEventListener('click', () => {
-            this.askingIds.add(this.vkey(slot, t.id));
-            draw();
-          });
-          body.append(change);
-        }
+        // NO BUTTONS UNDER IT (Gabe, 9/1/26). "Change language…" and "Hide
+        // translation" sat here as two pill buttons and read as a control panel
+        // bolted to the bottom of a description. Hiding is the row's globe, which
+        // now governs both slots; changing the language is the row's ⋯ menu, where
+        // the title's has always lived. The popup shows the reading and nothing else.
       };
       const sig = (): string => {
         const t = this.map[task.id] || task;
@@ -2893,7 +3155,7 @@ export class TasksView {
           Object.keys(txOptions(t, slot)).join(','),
           txRuledOut(t, slot).join(','),
           this.askingIds.has(this.vkey(slot, t.id)) ? '1' : '0',
-        ].join(' ');
+        ].join('\0');
       };
       draw();
       // The press handler writes to the task; the redraw is how the popup shows it.

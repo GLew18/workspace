@@ -22,6 +22,7 @@ import { classifyBatch } from './classify';
 import { loadLabels, labelFor } from './extension';
 import { extractLinks } from '../tasks/attachments';
 import { clearTranslation, clearDetailsTranslation } from '../tasks/store';
+import { getTaskFolders, patchTaskFolder } from '../tasks/folders';
 import { genId } from '../util/ids';
 import { todayStr, addDays } from '../util/dates';
 import { getPrefs } from '../prefs';
@@ -230,6 +231,55 @@ export async function runSync(data: Data): Promise<SyncResult> {
   const toWrite: Task[] = fresh.map(({ key, e }) =>
     newTask(key, e, trueCourse(e) || guesses[key]?.course || '')
   );
+
+  // --- AUTO-FILE INTO FOLDERS (Gabe, 9/1/26) ---------------------------------
+  // A folder can claim a course: everything that course sends from Schoology from
+  // now on lands inside it instead of loose in the day groups. Only NEW arrivals
+  // are filed, and only here — a task the student typed themselves is one they
+  // already placed, and re-filing it would move their work out from under them.
+  //
+  // First folder wins if two claim the same course. That is the folder highest in
+  // the student's own hand-ordered list, which is the only ranking that means
+  // anything here, and it keeps an assignment in exactly one place.
+  //
+  // Matched on CASE ALONE, deliberately. Both sides already hold a course name the
+  // registry produced, so anything fuzzier would only ever invent a match the
+  // student never asked for — the same discipline the parse-word engine keeps.
+  const folders = await getTaskFolders(data);
+  const claimed = new Map<string, string>(); // course (lowercased) → folder id
+  for (const f of folders) {
+    if (!f.autoFile || !f.autoFileCourse) continue;
+    const k = f.autoFileCourse.trim().toLowerCase();
+    if (k && !claimed.has(k)) claimed.set(k, f.id);
+  }
+  if (claimed.size) {
+    // Everything filed here is also recorded as UNSEEN on its folder — that list is
+    // what the folder's red dot counts, and expanding the folder clears it. Without
+    // this the assignment lands silently: a collapsed folder's only visible change
+    // is its task count ticking up by one, which is not something anyone notices.
+    const filed = new Map<string, string[]>(); // folder id → newly filed task ids
+    for (const t of toWrite) {
+      const fid = t.course ? claimed.get(t.course.trim().toLowerCase()) : undefined;
+      if (!fid) continue;
+      t.folderId = fid;
+      const list = filed.get(fid) ?? [];
+      list.push(t.id);
+      filed.set(fid, list);
+    }
+    // Patched one folder at a time rather than writing the whole array back: the
+    // Tasks tab and Focus each hold their own copy of the folder list, so a whole-
+    // array write from here can erase a folder one of them created since this
+    // function read its copy. Union with whatever is already unseen, so two syncs
+    // before the student looks leave both assignments counted once, not twice.
+    for (const f of folders) {
+      const add = filed.get(f.id);
+      if (!add) continue;
+      await patchTaskFolder(data, f.id, {
+        newAutoFiled: [...new Set([...(f.newAutoFiled ?? []), ...add])],
+      });
+    }
+  }
+
   await data.putTasksBulk(toWrite);
 
   // --- carry feed ALTERATIONS onto ALREADY-imported tasks ---

@@ -4,6 +4,25 @@ import type { ParsedTask, Task, TaskMap } from '../types';
 import { genId } from '../util/ids';
 import { todayStr, dayDiff, formatGroupHeader } from '../util/dates';
 import { PRIORITY_WEIGHT } from './priorities';
+import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
+
+/**
+ * IS THIS TASK AN ASSESSMENT — a test/quiz/exam EVENT rather than work to hand in
+ * (Gabe, 9/1/26: "tests should never be overdue, because they are events").
+ *
+ * The SAME condition the row's QUIZ/TEST/EXAM pill uses (tasks/render.ts), on
+ * purpose: imported source only (a typed "test your hypothesis" is not a test),
+ * matched on the title or a translation the student hasn't rejected, and silenced
+ * for good by the pill's own dismiss ✕. The pill and the overdue exemption are two
+ * faces of one claim, so they must always agree about which tasks make it.
+ */
+export function isAssessmentTask(t: Task): boolean {
+  if (t.source === 'manual' || t.assessmentDismissed) return false;
+  return (
+    BADGE_ASSESSMENT_RE.test(t.title) ||
+    !!(t.translatedTitle && !t.translationHidden && BADGE_ASSESSMENT_RE.test(t.translatedTitle))
+  );
+}
 
 /** Build a fresh manual task from parser output. */
 export function makeTask(parsed: ParsedTask): Task {
@@ -158,6 +177,29 @@ function autoCompare(a: Task, b: Task): number {
  * task in the group — those stamps mostly agree with the automatic order, so they
  * evaporate here instead of freezing the group forever.
  */
+/**
+ * THE ORDER INSIDE ONE CALENDAR CELL (Gabe, 9/2/26): the clock leads, and the list's
+ * own hierarchy decides everything under it.
+ *
+ * A calendar is read as a schedule — what happens when — so time has to come first,
+ * which is the one place this deliberately departs from the list. Below that it is
+ * `autoCompare` verbatim: priority, then a task with a course ahead of one without,
+ * then insertion order. Reaching for the list's comparator rather than restating a
+ * couple of its steps is the point — the two views cannot drift into disagreeing
+ * about which of two 8am tasks outranks the other, and a change to the hierarchy
+ * lands in both at once.
+ *
+ * This also decides WHICH tasks a full day hides behind its "+N more": with time
+ * alone, the ones that fell off were simply the latest, so a Very High task due at
+ * 11:59pm could sit out of sight under three ordinary 8am ones.
+ */
+export function compareForCalendar(a: Task, b: Task): number {
+  const ta = timeKey(a);
+  const tb = timeKey(b);
+  if (ta !== tb) return ta < tb ? -1 : 1;
+  return autoCompare(a, b);
+}
+
 function seatGroup(group: Task[]): Task[] {
   const n = group.length;
   // AT MOST ONE PIN PER GROUP is an invariant of the writer: a drop pins the dragged
@@ -238,8 +280,12 @@ export function groupTasks(map: TaskMap): TaskGroup[] {
       header = `Today · ${formatGroupHeader(date)}`;
       tone = 'red';
     } else if (date < today) {
-      header = `${formatGroupHeader(date)} (overdue)`;
-      tone = 'red';
+      // A past day is only OVERDUE if it still holds undone WORK. Assessments are
+      // events — a test whose day has passed happened, it isn't late (Gabe, 9/1/26)
+      // — so a past day holding nothing but tests keeps a plain date header.
+      const owesWork = byDate.get(date)!.some((t) => !isAssessmentTask(t));
+      header = owesWork ? `${formatGroupHeader(date)} (overdue)` : formatGroupHeader(date);
+      tone = owesWork ? 'red' : 'none';
     } else if (dayDiff(today, date) === 1) {
       header = `Tomorrow · ${formatGroupHeader(date)}`;
       tone = 'orange';
@@ -285,7 +331,9 @@ export interface DueBadge {
 export function dueBadge(task: Task): DueBadge | null {
   if (!task.dueDate) return null;
   const today = todayStr();
-  if (task.dueDate < today) return { state: 'OVR', label: 'OVR' };
+  // An assessment is an event: past its day it HAPPENED, it isn't overdue
+  // (Gabe, 9/1/26). No badge at all — the date line already says when it was.
+  if (task.dueDate < today) return isAssessmentTask(task) ? null : { state: 'OVR', label: 'OVR' };
   if (task.dueDate === today) return { state: 'TOD', label: 'TOD' };
   const diff = dayDiff(today, task.dueDate);
   if (diff === 1) return { state: 'TOM', label: 'TOM' };

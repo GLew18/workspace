@@ -9,6 +9,7 @@ import { todayStr, addDays, scheduleMonday } from '../util/dates';
 import { getPrefs, PREFS_EVENT } from '../prefs';
 import { quoteOfDay, type Quote } from '../quotes';
 import { openAttachment } from '../tasks/attachments';
+import { isAssessmentTask } from '../tasks/store';
 import { runSync } from '../schoology/sync';
 import { TasksView } from '../tasks/render';
 
@@ -211,7 +212,9 @@ export class DashboardView {
       new TasksView(this.data, this.sample ? { host: this.overdueBody } : undefined, {
         // Dated, in the past, still open. todayStr() is read per render so the
         // card rolls over correctly on a session left open past midnight.
-        filter: (t) => !!t.dueDate && t.dueDate < todayStr(),
+        // Assessments are exempt: a test whose day passed happened, it isn't
+        // late (Gabe, 9/1/26) — same rule the Tasks list applies.
+        filter: (t) => !!t.dueDate && t.dueDate < todayStr() && !isAssessmentTask(t),
         empty: '', // never seen: the card hides itself at zero
         onCount: (n) => this.overdueBox.classList.toggle('on', n > 0),
       }).mount(this.overdueBody);

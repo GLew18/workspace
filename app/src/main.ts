@@ -21,6 +21,7 @@ addEventListener('keydown', (e) => { if (KEYS.has(e.key)) document.documentEleme
 addEventListener('pointerdown', () => { delete document.documentElement.dataset.kbd; }, true);
 addEventListener('mousedown', () => { delete document.documentElement.dataset.kbd; }, true);
 import { dropSelections } from './ui/selbar';
+import { closeAllPopups } from './ui/popup';
 import './ui/components.css';
 import './ui/colorPicker.css';
 import './ui/focus.css';
@@ -74,6 +75,7 @@ import {
 import { openAuthScreen } from './ui/authScreen';
 import { Data } from './db';
 import { mountTabs, type TabController } from './ui/tabs';
+import { parsePath, setRoute, resetRoute, onNavigate, type Route } from './util/router';
 import { DashboardView } from './dashboard/view';
 import { TasksView } from './tasks/render';
 import { TaskArchiveView } from './tasks/archiveView';
@@ -135,6 +137,18 @@ function dismissBodyToasts(): void {
 // #region renderSignIn() — the signed-out welcome / sign-in screen
 function renderSignIn(): void {
   root.replaceChildren();
+  // A path only means something to the signed-in shell, so remember where a cold
+  // visitor was pointed (a shared /tasks link) and hand "/" back to the landing —
+  // which must never sit at an address naming a tab it isn't showing. Boot only;
+  // see the note on pendingRoute.
+  if (!capturedBootRoute) {
+    capturedBootRoute = true;
+    pendingRoute = parsePath();
+  }
+  stopRouteListener?.();
+  stopRouteListener = null;
+  routeReady = false;
+  resetRoute();
   // Landing/sign-in scroll the WINDOW normally (full-bleed page, no header bar).
   document.body.classList.remove('app-mode');
 
@@ -249,7 +263,16 @@ async function renderApp(user: AuthUser): Promise<void> {
   // The area below the header (sidebar + content). Declared up here so the
   // header's menu button can toggle the sidebar.
   const below = el('div', { class: 'app-below' });
-  const toggleNav = () => below.classList.toggle('nav-open');
+  const setNav = (open: boolean) => below.classList.toggle('nav-open', open);
+  const toggleNav = () => setNav(!below.classList.contains('nav-open'));
+  // The drawer overlays the page now rather than pushing it (components.css), so it
+  // covers content instead of displacing it — which means it needs the two ways out
+  // every overlay is expected to have: click the dimmed area, or press Escape.
+  const scrim = el('div', { class: 'ws-scrim' });
+  scrim.addEventListener('click', () => setNav(false));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && below.classList.contains('nav-open')) setNav(false);
+  });
 
   // Header left: a menu (hamburger) button that reveals the sidebar, then the
   // wordmark. Clicking the wordmark is "take me home", and home is whatever the
@@ -278,11 +301,34 @@ async function renderApp(user: AuthUser): Promise<void> {
       nameSpan.textContent = n;
       dashboardView.setName(n); // keep the greeting in sync
     },
+    // Settings' side tabs are the app's second path level (/settings/courses).
+    // Passed ONLY here: the same class runs inside the landing demo's frame, and
+    // without these two it behaves exactly as it always did and leaves the URL be.
+    route: {
+      section: () => parsePath()?.section ?? null,
+      onSection: (slug, replace) => setRoute({ tab: 'settings', section: slug }, replace),
+    },
   });
   // Settings sits back in the top-right (gear next to the name), not the sidebar.
+  //
+  // 18px BOX AND A 2.22 STROKE, where its three neighbours are 20 and 2 (Gabe,
+  // 8/26 — "toolbar icons"). Every icon up here is drawn in a 24 box at width=20,
+  // which is normally exactly how you keep a set the same size. The gear is the one
+  // that doesn't obey: its path fills 22 of the 24 units, where the bell and archive
+  // fill 18 and the bulb 14 (measured with getBBox). With the 2px stroke added that
+  // put the gear at 20.0 rendered pixels across against the bell's 16.7 — a fifth
+  // larger than everything beside it, which is what made it read as the heavy one.
+  //
+  // BOTH NUMBERS MOVE, AND THAT IS THE POINT. Shrinking the box alone was tried
+  // first and the visual pass caught it straight away: stroke-width is in USER
+  // units, so an 18px box renders the same `2` as 2 × 18/24 = 1.50 CSS px against
+  // its neighbours' 1.67, and the gear stopped being too big by becoming too thin.
+  // Scaling the stroke by the same 24/18 puts it back: 2.22 × 18/24 = 1.67 CSS px,
+  // identical line weight to the bell, with the drawing 18.2px across against the
+  // bell's 18.3. Change one of these two numbers and you have to change the other.
   const settingsBtn = el('button', { class: 'icon-btn', 'aria-label': 'Settings', title: 'Settings' });
   settingsBtn.innerHTML =
-    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.22" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
   settingsBtn.addEventListener('click', () => controller.goToTab('settings'));
 
   // 🔔 Notifications — opens the log screen (a tab, like Settings). The dot on the
@@ -316,8 +362,12 @@ async function renderApp(user: AuthUser): Promise<void> {
   // (8/21). No count badge: unlike the bell, a number here would only ever say how
   // much work you have finished, which is not something to be nagged about.
   const archiveBtn = el('button', { class: 'icon-btn', 'aria-label': 'Task Archives', title: 'Task Archives' });
+  // The <g> is a half-unit drop, not decoration: the box spans y 3→20 inside a 24
+  // square, so its own centre is at 11.5 and it hung half a unit above every icon
+  // beside it. Half of 24 units at 20px is 0.42 CSS px, which is nothing on a
+  // 1x display and a visible device pixel on the Mac's 2x one.
   archiveBtn.innerHTML =
-    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="4" rx="1"/><path d="M5 7v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7"/><path d="M10 12h4"/></svg>';
+    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(0 .5)"><rect x="3" y="3" width="18" height="4" rx="1"/><path d="M5 7v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7"/><path d="M10 12h4"/></g></svg>';
   archiveBtn.addEventListener('click', () => controller.goToTab('archive'));
 
   // No sign-out pill up here on purpose (per Gabe): the only way to sign out is
@@ -368,7 +418,8 @@ async function renderApp(user: AuthUser): Promise<void> {
   navBtns.set('archive', archiveBtn);
 
   const tabsHost = el('div', { class: 'app' }); // centered content column
-  below.append(sidebar, tabsHost);
+  // Scrim BEFORE the sidebar so the sidebar paints over it even at equal stacking.
+  below.append(scrim, sidebar, tabsHost);
   root.append(header, below);
 
   // Verify-your-email nudge. Mounted in .app-below, NOT inside .app: the .app
@@ -422,7 +473,16 @@ async function renderApp(user: AuthUser): Promise<void> {
     // the name "on change".
     (id) => {
       dropSelections();
+      // …and every open popup, for the same reason and on the same hook (Gabe,
+      // 8/27). A popup mounts on <body> rather than inside its tab's panel, so
+      // nothing about switching tabs removed it: a task's "…" menu opened in Tasks
+      // was still sitting over Focus or Bookmarks afterwards. See ui/popup.ts.
+      closeAllPopups();
       navBtns.forEach((b, k) => b.classList.toggle('active', k === id));
+      // …and the address bar, which is just another thing that has to agree with
+      // the tab on screen. Settings refines this to /settings/<section> as soon as
+      // it mounts, so writing the bare tab here is only ever momentary.
+      if (routeReady && !applyingRoute) setRoute({ tab: id });
     }
   );
 
@@ -500,14 +560,47 @@ async function renderApp(user: AuthUser): Promise<void> {
   // the app runs a production build (dev has no service worker).
   void enablePush(data);
 
-  // Open the tab the user chose in Settings ▸ Preferences ("Open Cobalt to").
-  if (getPrefs().openTo !== 'dashboard') controller.goToTab(getPrefs().openTo);
-
-  // Deep link from a service-worker notification click ("/#tasks"): land on Tasks.
-  if (location.hash === '#tasks') {
+  // WHERE TO OPEN, in order of who asked most explicitly (see util/router.ts).
+  //
+  // A path in the bar wins: it is either a link someone followed, a bookmark, or a
+  // reload of the tab they were already on, and all three are a specific request.
+  // Only when the bar says nothing does the "Open Cobalt to" preference decide.
+  const wanted = pendingRoute ?? parsePath();
+  pendingRoute = null;
+  applyingRoute = true;
+  if (wanted) {
+    controller.goToTab(wanted.tab);
+  } else if (location.hash === '#tasks') {
+    // Old service-worker notifications (before their click target became "/tasks")
+    // still arrive as a hash. Honour it, then let the route below rewrite the bar.
     controller.goToTab('tasks');
-    history.replaceState(null, '', location.pathname + location.search);
+  } else if (getPrefs().openTo !== 'dashboard') {
+    controller.goToTab(getPrefs().openTo);
   }
+  applyingRoute = false;
+  // Straighten the bar to match whatever the above landed on, without leaving the
+  // entry it replaced in the history — arriving at /tasks should not put a phantom
+  // /dashboard behind the Back button.
+  //
+  // THE SECTION HAS TO SURVIVE THIS. Settings loads its page asynchronously, so it
+  // is still reading the profile when this line runs; writing a bare /settings here
+  // would erase the /settings/courses that was asked for, and the section it then
+  // read back would be the wrong one.
+  const landed = controller.current();
+  setRoute(wanted && wanted.tab === landed ? wanted : { tab: landed }, true);
+  routeReady = true;
+
+  // Back/forward. Settings re-mounts on every visit and reads its section from the
+  // path as it does, so one goToTab covers both levels.
+  stopRouteListener?.();
+  stopRouteListener = onNavigate((r) => {
+    applyingRoute = true;
+    controller.goToTab(r?.tab ?? getPrefs().openTo);
+    applyingRoute = false;
+    // An entry from before sign-in can still be behind us; it says "/" while a tab
+    // is plainly on screen. Name what is showing rather than leave the bar lying.
+    if (!r) setRoute({ tab: controller.current() }, true);
+  });
 }
 // #endregion
 
@@ -665,6 +758,24 @@ async function mountPasswordDroppedNotice(
 }
 
 // #region Auth wiring — render the app on sign-in, the sign-in screen on sign-out
+
+// ROUTING STATE (see util/router.ts).
+//
+// `pendingRoute` holds a path that arrived while nobody was signed in — someone
+// opened a shared /tasks link cold — so the sign-in that follows lands where the
+// link pointed instead of on their default tab. Captured once, at boot only: a
+// deliberate sign-out later should not silently reopen the last tab of the account
+// that just left.
+//
+// `routeReady` keeps mountTabs' own opening call (it shows the first tab the moment
+// the panels exist) from writing a history entry before the real route is decided,
+// and `applyingRoute` does the same for a Back/Forward, where the browser has
+// already moved and writing again would fight it.
+let pendingRoute: Route | null = null;
+let capturedBootRoute = false;
+let routeReady = false;
+let applyingRoute = false;
+let stopRouteListener: (() => void) | null = null;
 
 let currentUid: string | null = null;
 onAuth((user) => {

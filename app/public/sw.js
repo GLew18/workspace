@@ -46,7 +46,7 @@ self.addEventListener('push', (event) => {
       body,
       icon: NOTIF_ICON,
       badge: NOTIF_ICON,
-      data: { url: '/#tasks' },
+      data: { url: '/tasks' },
     })
   );
 });
@@ -54,7 +54,7 @@ self.addEventListener('push', (event) => {
 // Clicking the notification focuses an open Cobalt window (Tasks tab), or opens one.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || '/#tasks';
+  const url = (event.notification.data && event.notification.data.url) || '/tasks';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       for (const client of list) {

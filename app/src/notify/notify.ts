@@ -571,6 +571,18 @@ export function attachLedger(
   // The Function writes {at: <ms>} per key; we write 'YYYY-MM-DD'. Only the KEY
   // matters for dedupe, but the value drives pruning, so normalize on the way in
   // or a cloud-shaped entry would never expire.
+  //
+  // CLOSED-APP SENDS THIS DEVICE NEVER SAW (Gabe, 9/1). The Cloud Function's
+  // ledger entries now carry the title/body/channels it actually sent, not just
+  // `at` — see functions/index.js's `fire()`. A key that's in the cloud seed but
+  // wasn't already in THIS device's own ledger (checked BEFORE the merge below)
+  // can only mean the server delivered it while nothing on this device was open
+  // to log it: a locally-fired reminder always marks its OWN ledger entry before
+  // the popup ever shows, so it's already in `ledger` by the time attachLedger
+  // runs. Surface those into the 🔔 log now, the first moment this device can —
+  // otherwise a reminder sent while Cobalt was fully closed left no trace at all
+  // once the app was reopened.
+  const before = ledger;
   const norm: Ledger = {};
   for (const [k, v] of Object.entries(seed)) {
     const ms = typeof v === 'object' && v && 'at' in v ? Number((v as { at: unknown }).at) : NaN;
@@ -579,6 +591,16 @@ export function attachLedger(
       : typeof v === 'string'
         ? v
         : new Date().toISOString().slice(0, 10);
+    if (!(k in before) && typeof v === 'object' && v && typeof (v as { title?: unknown }).title === 'string') {
+      const cloud = v as { at?: unknown; title: string; body?: unknown; popup?: unknown; gmail?: unknown };
+      logNotification({
+        title: cloud.title,
+        body: typeof cloud.body === 'string' ? cloud.body : '',
+        popup: !!cloud.popup,
+        gmail: !!cloud.gmail,
+        at: Number.isFinite(ms) ? ms : Date.now(),
+      });
+    }
   }
   ledger = { ...ledger, ...norm };
   ledgerWrite = write;
@@ -603,8 +625,20 @@ export function alreadySent(key: string): boolean {
  *
  * Local only, deliberately: the cloud copy is the Cloud Function's business and it
  * re-reads the task's real date anyway.
+ *
+ * REFRESHES FIRST (Gabe, 9/1). This used to delete straight out of whatever
+ * in-memory `ledger` this tab happened to be holding, then `saveLocal` it back —
+ * an unconditional full-object overwrite. With two tabs open, tab B could pick up
+ * a key tab A had JUST written (via the `storage` listener below, which fires
+ * near-instantly — same machine, no network) moments before tab B's own,
+ * network-round-trip-slower watchTasks callback ran forgetSent for that very
+ * edit; tab B's stale `ledger` didn't know about the fresh key yet, so its
+ * `saveLocal` blew it away and the reminder fired a second time. Folding in
+ * `loadLocal()` right before mutating means a forget can only ever remove keys
+ * that genuinely still exist on disk at the moment it runs.
  */
 export function forgetSent(prefix: string): void {
+  refreshLedger();
   let hit = false;
   for (const k of Object.keys(ledger)) {
     if (k.startsWith(prefix)) {

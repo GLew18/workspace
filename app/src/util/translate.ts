@@ -1,11 +1,16 @@
 // Cobalt: keyless task-title translation.
 //
-// One request per title both DETECTS the language and translates it to English, so
-// English titles are left alone and anything else comes back readable. The provider
-// is Google Cloud Translation, reached through Cobalt's own Cloud Function (see the
-// block above translateOnce for the two providers before it and why each was left).
+// One request DETECTS the language of a batch of texts and translates them to
+// English, so English titles are left alone and anything else comes back readable.
+// The provider is Google Cloud Translation, reached through Cobalt's own Cloud
+// Function (see the block above translateOnce for the two providers before it and
+// why each was left).
 //
-// analyzeTitle() returns a discriminated result so the caller can tell apart:
+// MOST TEXT NEVER GETS THAT FAR. util/localDetect.ts decides locally, for nothing,
+// whether text is even worth sending, and the Cloud Function keeps a shared cache
+// so an assignment a classmate already imported is not paid for twice.
+//
+// analyzeBatch() returns a discriminated result per text so the caller can tell apart:
 //   • 'foreign' → translate it (we have the English text + detected language)
 //   • 'english' → leave it (it was already English / undetectable)
 //   • 'error'   → network / rate-limit; DON'T cache, so it's retried later.
@@ -13,8 +18,9 @@
 import { getPrefs } from '../prefs';
 import { firebaseConfig } from '../firebase';
 import {
-  expandCodes, languageLabel, findLanguage, scriptOf, writesScript, type LanguageDef,
+  expandCodes, languageLabel, findLanguage, substantiveScripts, writesScript, type LanguageDef,
 } from './languages';
+import { localVerdict } from './localDetect';
 
 export type TitleAnalysis =
   | { status: 'foreign'; text: string; sourceLang: string }
@@ -45,38 +51,132 @@ function remember(key: string, value: TitleAnalysis): void {
   cache.set(key, value);
 }
 
+/** Matches TX_MAX_TITLES in functions/index.js. The function SILENTLY DROPS anything
+ *  past its own limit, and the client matches answers to inputs by position, so
+ *  sending 51 would not merely lose one — it would shift every answer after it onto
+ *  the wrong text. Chunked here so that can never happen. */
+const BATCH_MAX = 50;
+
 /**
- * Ask the translator to read `text`: detect its language and, if it isn't
- * entirely English, translate everything to English (keeping any English parts).
+ * The whole analysis, for many texts at once.
+ *
+ * WHY BATCHED (8/28). The auto pass walks every unchecked title AND description on
+ * every task, and this used to be one Cloud Function invocation per text with a
+ * 150ms pause between them — fifty round-trips and seven and a half seconds of
+ * deliberate waiting for a fifty-task import, against Google's own API taking an
+ * array all along.
+ *
+ * Answers come back positionally, and duplicates within a batch share one answer.
  */
-export async function analyzeTitle(text: string): Promise<TitleAnalysis> {
-  const key = text.trim();
-  if (!key) return { status: 'english' };
+export async function analyzeBatch(texts: string[]): Promise<TitleAnalysis[]> {
+  const keys = texts.map((t) => t.trim());
+  const out = new Array<TitleAnalysis | undefined>(keys.length);
   // No languages picked = translation off. Answer without a round-trip: this is the
   // one path that must stay free, since it runs over every task on every import.
-  if (!getPrefs().tasks.translateFrom.length) return { status: 'english' };
-  const cached = cache.get(key);
-  if (cached) return cached;
+  const off = !getPrefs().tasks.translateFrom.length;
 
+  // --- Everything answerable without the network, first ----------------------
+  const needed: string[] = [];
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (!key || off) {
+      out[i] = { status: 'english' };
+      continue;
+    }
+    const cached = cache.get(key);
+    if (cached) {
+      out[i] = cached;
+      continue;
+    }
+    // NOTHING LEAVES THE BROWSER UNTIL THIS SAYS IT IS WORTH SENDING (see
+    // util/localDetect.ts). Google bills per character, and every unchecked title AND
+    // description used to be sent — the great majority of them plain English, paid
+    // for in order to be told they were English.
+    //
+    // A skip records what the provider would have recorded anyway: checked, no
+    // translation, not ambiguous. That is the same state an English verdict produces
+    // today, so readings() still returns nothing and no language buttons appear or
+    // disappear. The gate only ever skips when it is CONFIDENT; everything doubtful
+    // goes down the same path it always did.
+    const local = localVerdict(key);
+    if (local.skip) {
+      const v: TitleAnalysis = { status: 'english' };
+      lastCheck = { title: key, localSkip: local.why, accepted: false };
+      remember(key, v);
+      out[i] = v;
+      continue;
+    }
+    if (!needed.includes(key)) needed.push(key);
+  }
+  if (!needed.length) return out as TitleAnalysis[];
+
+  // --- The wire, in passes ---------------------------------------------------
   // Translate, then re-translate the result until it stops changing. Auto-detect
   // only translates ONE detected source language per call, so a title mixing two
   // non-English languages ("שלום hola clase") needs another pass to finish; a pass
   // that changes nothing means we've reached all-English. English parts pass through
   // untouched, so "hola clase, do page 15" keeps "do page 15".
-  let current = key;
-  let sourceLang = '';
-  let confidence: number | null = null;
-  for (let pass = 0; pass < 3; pass++) {
-    const r = await translateOnce(current);
-    if (r === null) return { status: 'error' }; // network fail → uncached, retried later
-    if (pass === 0) {
-      sourceLang = r.src;
-      confidence = r.conf ?? null; // the FIRST pass is the one that read the title
+  //
+  // Batched, only the texts that ACTUALLY CHANGED go into the next pass, so a batch
+  // of ordinary titles costs exactly one round-trip and the rare mixed-language one
+  // still gets its second look.
+  const current = new Map<string, string>(needed.map((k) => [k, k]));
+  const srcOf = new Map<string, string>();
+  const confOf = new Map<string, number | null>();
+  const failed = new Set<string>();
+  let live = [...needed];
+
+  for (let pass = 0; pass < 3 && live.length; pass++) {
+    const raw: (Raw | null)[] = [];
+    let broke = false;
+    for (let at = 0; at < live.length; at += BATCH_MAX) {
+      const slice = live.slice(at, at + BATCH_MAX);
+      try {
+        raw.push(...(await callTranslate(slice.map((k) => current.get(k) as string))));
+      } catch {
+        // Transport refusal (offline, not signed in, over quota). Everything still
+        // in flight becomes an error, which is UNCACHED and retried later — it must
+        // never be mistaken for "these are all English".
+        for (const k of live) failed.add(k);
+        broke = true;
+        break;
+      }
     }
-    if (!r.tr || normKey(r.tr) === normKey(current)) break; // stable → all-English reached
-    current = r.tr;
+    if (broke) break;
+
+    const next: string[] = [];
+    live.forEach((k, i) => {
+      const r = raw[i];
+      if (!r || !r.tr) {
+        failed.add(k); // network fail → uncached, retried later
+        return;
+      }
+      if (pass === 0) {
+        srcOf.set(k, r.src);
+        confOf.set(k, r.conf ?? null); // the FIRST pass is the one that read the title
+      }
+      if (normKey(r.tr) === normKey(current.get(k) as string)) return; // stable → all-English reached
+      current.set(k, r.tr);
+      next.push(k);
+    });
+    live = next;
   }
 
+  // --- The gates, once per text ----------------------------------------------
+  for (let i = 0; i < keys.length; i++) {
+    if (out[i]) continue;
+    const key = keys[i];
+    if (failed.has(key)) {
+      out[i] = { status: 'error' };
+      continue;
+    }
+    out[i] = judge(key, current.get(key) as string, srcOf.get(key) ?? '', confOf.get(key) ?? null);
+  }
+  return out as TitleAnalysis[];
+}
+
+/** One text's verdict, given what came back for it. */
+function judge(key: string, current: string, sourceLang: string, confidence: number | null): TitleAnalysis {
   // FIVE GATES, AND THE SECOND ONE IS A NUMBER AGAIN (Gabe, 8/20). All are in
   // gateDecision, which is where to read them; this is what each is FOR.
   //
@@ -312,11 +412,18 @@ export function gateDecision(input: {
  * only ever fire on a script we know, against a language we know does not use it.
  */
 function scriptAgrees(source: string, lang: string): boolean {
-  const script = scriptOf(source);
-  if (script === 'latin') return true; // never judge Latin text: too many languages share it
   const def = findLanguage(lang);
   if (!def) return true; // a language we have no entry for gets the benefit of the doubt
-  return writesScript(def, script);
+  // EVERY script the text is written in, not the first one matched (Gabe, 8/29).
+  // This used to ask scriptOf() for THE script, and a single π — ordinary notation in
+  // any maths or science description — made it answer "Greek" for text that was 47
+  // letters of Georgian or 32 of Vietnamese. Greek is not written in either, so this
+  // gate refused both, and removing the π translated them perfectly. Symbols do not
+  // get to overrule the alphabet the sentence is actually in.
+  const scripts = substantiveScripts(source);
+  if (!scripts.length) return true;
+  if (scripts.every((s) => s === 'latin')) return true; // never judge Latin text: too many languages share it
+  return scripts.some((s) => writesScript(def, s));
 }
 
 /**
@@ -481,13 +588,17 @@ function shapeAllows(code: string, flat: string): boolean {
  *                  for that language, which is it saying it cannot read it.
  */
 function plausible(text: string, ruledOut: readonly string[] = []): LanguageDef[] {
-  const script = scriptOf(text);
+  // Same fix as scriptAgrees, and the visible half of it: with scriptOf() a Georgian
+  // task containing one π offered "Translate from Greek" — the only enabled language
+  // that writes the alphabet of a single symbol — while the language it was actually
+  // in was filtered out of its own chip row.
+  const scripts = substantiveScripts(text);
   const flat = bare(text);
   const marked = markedLanguages(text);
   return getPrefs()
     .tasks.translateFrom.map((c) => findLanguage(c))
     .filter((d): d is LanguageDef => !!d)
-    .filter((d) => writesScript(d, script))
+    .filter((d) => scripts.some((s) => writesScript(d, s)))
     .filter((d) => !marked || marked.indexOf(d.code) >= 0)
     .filter((d) => shapeAllows(d.code, flat))
     .filter((d) => ruledOut.indexOf(d.code) < 0);
@@ -526,7 +637,7 @@ const MIN_CHIPS = 2;
  * and never rules it out.
  *
  * This is a RANKING aid, never a verdict. Nothing here decides whether to translate:
- * that is the five gates in analyzeTitle, and they are untouched. All this decides is
+ * that is the five gates in judge(), and they are untouched. All this decides is
  * which two-to-five names to put under the student's thumb first.
  */
 /**
@@ -912,7 +1023,7 @@ interface Raw {
   /** The detected source language code, '' if the provider would not say. */
   src: string;
   /** The English text. Equal to the input when the provider had nothing to change,
-   *  which is the single most useful signal this file has — see analyzeTitle. */
+   *  which is the single most useful signal this file has — see analyzeBatch. */
   tr: string;
   /** HOW SURE THE DETECTOR IS, 0–1, or null when it did not say (and when a source
    *  language was named outright, where there is nothing to detect). Never read a

@@ -102,7 +102,7 @@ async function callAuthEmail(email: string, kind: 'reset' | 'verify' | 'set'): P
  * broken, just sends me right back to the landing page").
  *
  * That symptom is not a bug in this code — it is Chrome. `signInWithRedirect`
- * needs the auth handler's origin (workspace-67029.firebaseapp.com) to read its own
+ * needs the auth handler's origin (historically workspace-67029.firebaseapp.com) to read its own
  * storage while the app is on a DIFFERENT origin (localhost, or the deployed site).
  * Chrome now partitions third-party storage, so the round trip completes, the
  * handler cannot hand the session back, getRedirectResult returns null, and the app
@@ -135,10 +135,11 @@ export async function signInWithGoogle(): Promise<boolean> {
   // storage is third-party and Chrome partitions it away. Same origin, no third
   // party, no partitioning, and the full-page trip Gabe preferred works again.
   //
-  // So the moment `VITE_FIREBASE_AUTH_DOMAIN` points at the site's own domain —
-  // which is the custom-domain step already on the deploy list — this flips itself.
-  // Until then (localhost, or a deploy still using workspace-67029.firebaseapp.com)
-  // it stays on the popup, because a redirect there would silently fail again.
+  // So the moment `VITE_FIREBASE_AUTH_DOMAIN` points at the site's own domain, this
+  // flips itself. THAT HAPPENED 9/4/26: authDomain is now `cobaltstudy.com`, whose
+  // /__/auth/handler Firebase Hosting serves from the same origin as the app, so the
+  // deployed site takes the full-page redirect Gabe preferred. Localhost still uses
+  // the popup (different origin from the authDomain), which is correct and expected.
   const sameOrigin = (() => {
     try {
       return new URL('https://' + String(firebaseConfig.authDomain)).host === location.host;

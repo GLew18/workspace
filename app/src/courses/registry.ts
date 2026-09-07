@@ -108,23 +108,106 @@ export function matchCourseStrict(input: string): string {
  * Returns the course name, or '' if nothing matched.
  */
 export function matchByParseWords(text: string): string {
-  const hay = ' ' + text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ') + ' ';
-  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-  let best = '';
+  return findParseWordPhrase(text).course;
+}
+
+/**
+ * One whitespace-separated token, in the form the matcher compares against.
+ *
+ * CASE ONLY. No punctuation is stripped and none is turned into a space, because a
+ * parse word has to match a word the student actually typed (Gabe, 9/1/26): "hebrew:"
+ * is not "hebrew" and "english-language-arts" is not "english language arts". Any
+ * normalisation beyond case invents a match out of a string the student did not type,
+ * which is how a typo ended up filed under Ivrit in the first place.
+ *
+ * Punctuation the student puts INSIDE a parse word still works, because it survives
+ * on both sides of the comparison: the course "Torah She'b'al Peh" matches the typed
+ * words "Torah She'b'al Peh" apostrophes and all.
+ */
+function normToken(t: string): string {
+  return t.toLowerCase().trim();
+}
+
+/**
+ * A COURSE IS ONLY A COURSE IF THE STUDENT TYPED A PARSE WORD THEY SET (Gabe, 9/1/26).
+ *
+ * The bug this replaces: the haystack was built by turning every non-alphanumeric
+ * character into a SPACE, which invents word boundaries the typed text does not have.
+ * "thellor:hebrew" — a typo, one unbroken word — became "thellor hebrew", so "hebrew"
+ * matched and the task was filed under Ivrit on the strength of a boundary the student
+ * never typed.
+ *
+ * SPLIT ON WHITESPACE, MATCH EXACTLY. A parse word has to fill a whole run of typed
+ * words, character for character apart from case. That is the same discipline
+ * extractCourseTokens has always used, which is why the quick-add parser never had
+ * this bug and only this fallback did.
+ *
+ * NOTHING IS NORMALISED AWAY, and that is the point rather than a limitation. Not
+ * attached punctuation ("hebrew:" is not "hebrew"), not hyphens
+ * ("english-language-arts" is not "english language arts"). Every one of those is a
+ * string the student did not type being treated as one they did. If they want a form
+ * recognised, it goes in their parse words, where they can see it.
+ *
+ * Returns the course AND the phrase that matched it, because the caller has to be
+ * able to take that phrase back out of the title — see stripParseWord.
+ */
+export function findParseWordPhrase(text: string): { course: string; phrase: string } {
+  const tokens = text.split(/\s+/).map(normToken).filter(Boolean);
+  let course = '';
+  let phrase = '';
+  let bestSize = 0;
   let bestLen = 0;
   for (const c of courses) {
     // The course NAME is an implicit parse word (so it matches here just like it
     // already does in the quick-add parser), alongside its explicit parse words.
-    const words = [norm(c.name), ...c.parseWords.map(norm)];
+    const words = [normToken(c.name), ...c.parseWords.map(normToken)].filter(Boolean);
     for (const word of words) {
-      if (!word) continue;
-      if (hay.includes(' ' + word + ' ') && word.length > bestLen) {
-        best = c.name;
-        bestLen = word.length;
+      for (let i = 0; i < tokens.length; i++) {
+        let acc = '';
+        // Four tokens is the same ceiling extractCourseTokens uses for a phrase.
+        for (let size = 1; size <= 4 && i + size <= tokens.length; size++) {
+          acc = size === 1 ? tokens[i] : `${acc} ${tokens[i + size - 1]}`;
+          if (acc !== word) continue;
+          // Longer phrases win, then longer text: "graphic organizer" beats
+          // "organizer", exactly as before.
+          if (size > bestSize || (size === bestSize && word.length > bestLen)) {
+            course = c.name;
+            phrase = acc;
+            bestSize = size;
+            bestLen = word.length;
+          }
+        }
       }
     }
   }
-  return best;
+  return { course, phrase };
+}
+
+/**
+ * THE TITLE WITH THE MATCHED PARSE WORD TAKEN OUT (Gabe, 9/1/26).
+ *
+ * A parse word is a routing instruction, not part of the task's name, so once it has
+ * been read it should not also be left on screen — which is what the quick-add parser
+ * has always done via extractCourseTokens, and what this fallback never did.
+ *
+ * ONE EXCEPTION, and it is the only one: if removing it would leave nothing, the
+ * title stays as typed. A task cannot be nameless, so "hebrew" on its own files under
+ * Ivrit AND keeps its name.
+ */
+export function stripParseWord(title: string, phrase: string): string {
+  if (!phrase) return title;
+  const raw = title.split(/\s+/).filter(Boolean);
+  const norms = raw.map(normToken);
+  for (let i = 0; i < raw.length; i++) {
+    let acc = '';
+    for (let size = 1; size <= 4 && i + size <= raw.length; size++) {
+      acc = size === 1 ? norms[i] : `${acc} ${norms[i + size - 1]}`;
+      if (acc !== phrase) continue;
+      const kept = [...raw.slice(0, i), ...raw.slice(i + size)].join(' ').trim();
+      return kept || title; // nothing left → the phrase WAS the title; keep it
+    }
+  }
+  return title;
 }
 
 /** Does this phrase name a course outright (ci) or is it one of its parse words? */
