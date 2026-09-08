@@ -25,6 +25,11 @@ export interface AppPrefs {
   /** Which tab the app opens to (and where the wordmark returns you). Listed in
    *  the app's own nav order: Focus outranks Bookmarks. */
   openTo: 'dashboard' | 'tasks' | 'focus' | 'bookmarks';
+  /** Open task attachments and bookmark links in a new browser WINDOW instead of a
+   *  new tab (9/7/26). One switch, obeyed by both: attachments live on the Tasks
+   *  tab, bookmarks on the Links tab, but a "how do links open" preference is a
+   *  single decision, not two. Off by default — today's new-tab behavior. */
+  openLinksInNewWindow: boolean;
   dash: {
     /** Use the display name inside the rotating greeting. */
     greetName: boolean;
@@ -155,6 +160,7 @@ export interface AppPrefs {
 export const DEFAULT_PREFS: AppPrefs = {
   timeFormat: '12h',
   openTo: 'dashboard',
+  openLinksInNewWindow: false,
   dash: { greetName: true, quote: true, quoteStyle: 'modern', tasksCard: true, scheduleCard: true },
   sync: { auto: true, intervalMins: 30, onOpen: true },
   importPrefs: { assignments: true, assessments: true, quizzes: true, windowDays: 30 },
@@ -182,6 +188,7 @@ export function normalizePrefs(raw: unknown): AppPrefs {
   return {
     timeFormat: pick(r.timeFormat, ['12h', '24h'] as const, d.timeFormat),
     openTo: pick(r.openTo, ['dashboard', 'tasks', 'focus', 'bookmarks'] as const, d.openTo),
+    openLinksInNewWindow: bool(r.openLinksInNewWindow, d.openLinksInNewWindow),
     dash: {
       greetName: bool(r.dash?.greetName, d.dash.greetName),
       quote: bool(r.dash?.quote, d.dash.quote),

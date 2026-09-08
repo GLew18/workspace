@@ -1409,10 +1409,32 @@
   border-color: var(--gda, var(--accent));
   background: color-mix(in srgb, var(--gda, var(--accent)) 6%, var(--surface2));
 }
-.ngd-num {
-  flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+/* THE 4TH CIRCLE THE 8/26+9/7 SWEEP MISSED (Gabe, 9/7/26 — "definitely not
+   centered... that one looks really bad"). This step-number circle predates the
+   count-badge recipe in components.css and was built with its own `display: grid;
+   place-items: center`, which has the EXACT SAME defect .count-badge had before
+   its 9/7 fix: it centers the digit's line box, not its ink, and Inter's digits
+   sit well above their own line box center (see the recipe's own comment). Every
+   sweep that went looking for "circle with a number" checked .nav-count, .bell-dot
+   and .focus-finished-count and stopped, because those three all already wear
+   .count-badge — this one never did, so the shared fix never reached it.
+   Measured the same way as the recipe (SVG-rendered ink, tabular-nums honored, a
+   20x-scale offscreen canvas, pixel-scanned): before this change every digit 1-9
+   sat ~0.6-0.7px above the circle's true center. Now it wears .count-badge itself
+   (settings/view.ts) instead of duplicating the geometry, and only what genuinely
+   differs here gets overridden below. */
+.count-badge.ngd-num {
+  --badge-size: 26px;
+  /* This circle's font is 12.5px, not the recipe's 10.5px, so the recipe's own
+     2.25px padding-top (measured FOR 10.5px ink) does not carry over — font metrics
+     scale with size, so the same constant would under-correct here. Binary-searched
+     the same way, at THIS font-size, until the ink center landed within 0.15px of
+     the circle's center for every digit 1-9 (this list is never two digits or
+     "9+" — six guides at most, per notifyGuides.ts). */
+  padding: 1.53px 4px 0;
+  font-size: 12.5px;
   background: color-mix(in srgb, var(--gda, var(--accent)) 16%, transparent);
-  color: var(--gda, var(--accent)); font-size: 12.5px; font-weight: 700;
+  color: var(--gda, var(--accent));
 }
 .ngd-item-main { flex: 1; min-width: 0; }
 .ngd-item-title { font-size: 13.5px; font-weight: 650; }

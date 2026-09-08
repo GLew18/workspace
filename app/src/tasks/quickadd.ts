@@ -96,7 +96,10 @@ export function buildQuickAdd(
   input.addEventListener('keydown', (e) => {
     // The open dropdown owns ↑ / ↓ / Tab / Enter / Esc.
     if (folderAC.handleKeydown(e)) return;
-    if (e.key !== 'Enter' || e.shiftKey) return;
+    // e.isComposing: the Enter that closes an IME (or a dictation tool that commits
+    // through one) belongs to the composition, not to the form — submitting on it
+    // files a half-finished title. See the matching guard in util/dom.ts.
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
     e.preventDefault();
     submit();
   });

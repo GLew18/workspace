@@ -156,7 +156,7 @@ const FEATURES: Feature[] = [
     kind: 'tasks',
     urlPath: 'tasks',
     title: 'Your assignments, finally organized',
-    blurb: 'Every Schoology assignment, test, and quiz, auto-imported, translated and grouped by when it’s due. Check off, add, or edit tasks, view descriptions, set priorities, and attach links, with instant navigation to Schoology.',
+    blurb: 'Every Schoology assignment, test, and quiz, auto-imported, translated and grouped by due date. Check off, add, or edit tasks, view descriptions, set priorities, and attach links, with instant navigation to Schoology.',
     bullets: ['Quizzes, tests & exams auto-detected', 'Double-click to edit anything', 'Priorities, attachments, description & Schoology navigation'],
   },
   {
@@ -175,9 +175,12 @@ const FEATURES: Feature[] = [
     emoji: '🔖',
     kind: 'bookmarks',
     urlPath: 'links',
-    title: 'Your websites, one click away',
-    blurb: 'Keep your most-used sites in tidy, intelligent cards that fetch each site’s icon automatically. Add as many links as you want, color-code them into groups, and pull any of them up with live search. Every card launches its site instantly with a single click.',
-    bullets: ['Unlimited links with live search', 'Rich, colorful cards', 'Add, edit & group with ease'],
+    title: 'Your websites, finally accessible',
+    // Shortcuts lead the copy (Gabe, 9/7/26): a bookmark on its own is something
+    // the browser already gives you, so the sentence that used to sell live search
+    // (visible in the frame anyway) now sells the key combo instead.
+    blurb: 'Keep your most-used sites in tidy, intelligent cards that fetch each site’s icon automatically. Add as many links as you want, color-code them into groups, and open any of them with a keyboard shortcut. Every card launches its site instantly with a single click.',
+    bullets: ['Unlimited links with live search', 'Open any site with a keyboard shortcut', 'Add, edit & group with ease'],
   },
 ];
 
@@ -761,7 +764,12 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
     el('h2', { class: 'lp-h2', text: 'See it in action' }),
     el('p', { class: 'lp-sub', text: 'Real, playable samples. Just keep scrolling.' })
   );
-  sec.append(head);
+  // The rail is the heading's leash: it decides WHERE ON THE PAGE the heading
+  // lets go. See .lp-stack-head-rail in landing.css for why it exists; its one
+  // number is measured below.
+  const rail = el('div', { class: 'lp-stack-head-rail' });
+  rail.append(head);
+  sec.append(rail);
 
   const track = el('div', { class: 'lp-stack-track' });
 
@@ -818,7 +826,58 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
   });
 
   sec.append(track);
+  pinHeadingToDeck(sec, head, track);
   return sec;
+}
+
+/** Make the heading let go of the screen at the EXACT scroll position the deck
+ *  does, so the two leave together as one object sitting at one place on the page
+ *  (Gabe, 9/7/26: "it should stick in one place... like a 3D element in After
+ *  Effects — the camera moves, it stays on its own locus").
+ *
+ *  Before this, the heading outlasted the cards by roughly 700px of scroll: every
+ *  card shares one pin offset and one container, so all three unpin together, and
+ *  the heading, leashed to the whole section instead, stayed behind alone while
+ *  the deck slid up underneath it. That lone stretch is what read as "it has its
+ *  own background" and "at the end it scrolls too".
+ *
+ *  A sticky element lets go when its bottom edge reaches the bottom of its
+ *  containing block, so moving that bottom edge up is the whole fix. The rail is
+ *  an inert, invisible box that gives the heading a SHORTER containing block than
+ *  the section; this sets where the rail ends. Everything it reads is a settled
+ *  layout value, and it never touches the cards' own pin offset, which is a
+ *  declared constant precisely because a measured one made them twitch (9/6/26).
+ */
+function pinHeadingToDeck(sec: HTMLElement, head: HTMLElement, track: HTMLElement): void {
+  const apply = () => {
+    const last = track.lastElementChild as HTMLElement | null;
+    if (!last) return;
+    // Below 980px, and under prefers-reduced-motion, nothing is pinned — the CSS
+    // takes the rail out of the equation there, so there is nothing to solve for.
+    if (getComputedStyle(last).position !== 'sticky') return;
+    const cardTop = parseFloat(getComputedStyle(last).top) || 0;
+    const headTop = parseFloat(getComputedStyle(head).top) || 0;
+    // Everything below the point the deck lets go of: the track's own dwell
+    // padding plus the section's bottom padding. A sticky box is held inside its
+    // containing block's CONTENT box, not its padding box, so the track's
+    // padding-bottom counts here — measured, not assumed, because that dwell is
+    // 28vh on a desktop and 2vh on a phone.
+    const dwell = parseFloat(getComputedStyle(track).paddingBottom) || 0;
+    const tail = sec.offsetHeight - (track.offsetTop + track.offsetHeight) + dwell;
+    const bottom = tail + cardTop + last.offsetHeight - headTop - head.offsetHeight;
+    sec.style.setProperty('--stack-head-rail-bottom', `${Math.max(0, Math.round(bottom))}px`);
+  };
+  // Called before the section is in the document, so the first pass is a no-op and
+  // the CSS fallback holds until one of these lands.
+  apply();
+  requestAnimationFrame(apply);
+  setTimeout(apply, 0);
+  setTimeout(apply, 400); // webfont swap / preview mount can change the card's height
+  window.addEventListener('load', apply);
+  // Re-solve when the card's height changes (window resize, a font landing, the
+  // previews finishing their mount). Scrolling never re-runs this.
+  new ResizeObserver(apply).observe(track);
+  window.addEventListener('resize', apply);
 }
 
 function bulletList(items: string[]): HTMLElement {
@@ -1122,7 +1181,10 @@ function footerSection(opts: LandingOpts, scrollTo: (id: string) => void): HTMLE
   f.append(
     top,
     el('div', { class: 'lp-footer-rule' }),
-    el('div', { class: 'lp-footer-base', text: '© 2026 Cobalt · All rights reserved' })
+    el('div', { class: 'lp-footer-base' }, [
+      '© 2026 Cobalt · All rights reserved · ',
+      el('a', { href: '/privacy', text: 'Privacy' }),
+    ])
   );
   return f;
 }

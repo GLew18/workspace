@@ -103,6 +103,7 @@ import { getPrefs, setPrefsCache, normalizePrefs, DEFAULT_PREFS, PREFS_EVENT } f
 import { openSuggestionBox } from './suggest';
 import type { SchoologySettings, TaskMap } from './types';
 import { todayStr } from './util/dates';
+import { renderPrivacyPage } from './legal/privacy';
 // #endregion
 
 // #region Top-level state — the root element + background-sync timer handle
@@ -777,7 +778,20 @@ let routeReady = false;
 let applyingRoute = false;
 let stopRouteListener: (() => void) | null = null;
 
+// PRIVACY POLICY: a standalone route, reachable signed in OR signed out, that
+// needs no account at all (see legal/privacy.ts). Checked ONCE, here, before
+// the auth listener below is even registered, so a Google reviewer — or a
+// signed-in student who lands here cold — gets the policy with no Firebase
+// call in the way and no risk of renderSignIn()'s resetRoute() rewriting the
+// address back to "/" out from under it.
+const isPrivacyPath = (): boolean => location.pathname.replace(/\/+$/, '').toLowerCase() === '/privacy';
+
 let currentUid: string | null = null;
+if (isPrivacyPath()) {
+  document.body.classList.remove('app-mode');
+  root.replaceChildren();
+  root.append(renderPrivacyPage());
+} else {
 onAuth((user) => {
   if (user) {
     // A SIGNED-IN USER MAKES THE SIGN-IN SCREEN OBSOLETE, however they got there.
@@ -817,6 +831,7 @@ onAuth((user) => {
     renderSignIn();
   }
 });
+}
 // #endregion
 
 // #region Service worker — production only; dev tears down any stale worker + caches

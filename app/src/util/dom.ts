@@ -113,8 +113,11 @@ export function textInput(attrs: Attrs = {}): HTMLTextAreaElement & { rewrap: ()
     resizeObserverCleanup?.register(ta, ro);
   }
   // Never insert a newline — this is a one-line field that merely wraps visually.
+  // `isComposing` is the exception: an IME, and the dictation tools that commit
+  // through one, end a phrase with Enter, and swallowing THAT Enter throws the
+  // phrase away instead of accepting it (Gabe, 9/7/26, dictating with Glaido).
   ta.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') e.preventDefault();
+    if (e.key === 'Enter' && !e.isComposing) e.preventDefault();
   });
   requestAnimationFrame(grow); // size any pre-filled value once it's in the DOM
   // Expose the height re-fit. Callers that ALSO drive the WIDTH on each keystroke

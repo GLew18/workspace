@@ -620,8 +620,29 @@ export class FocusView {
     const total = (saved.todos ?? []).length;
     const minutes = Math.max(0, Math.round((saved.totalSeconds ?? 0) / 60));
     if (this.endSoundEnabled) this.endCue = playEndSound(this.endSoundKey, this.endSoundVolume);
-    void this.notify('Focus session complete!', `${minutes} min focused • ${done}/${total} tasks done`);
-    this.showEndToast(true, minutes, done, total);
+    // Same string as the live-completion path below, including dropping the task
+    // count when there were no tasks (Gabe, 9/6/26). These are two doors into the
+    // same event, so they must not word it differently: this one said "0/0 tasks
+    // done" on an empty list while the other one correctly said nothing (9/7/26).
+    void this.notify(
+      'Focus session complete!',
+      `${minutes} min focused` + (total > 0 ? ` • ${done}/${total} tasks done` : '')
+    );
+    this.showEndToast(true, minutes, done, total, {
+      label: 'Start Another',
+      onClick: () => this.startAnother(saved.totalSeconds ?? 0, saved.todos ?? [], saved.selectedMusic ?? null),
+    });
+  }
+
+  /** The end-toast's "Start Another" button (both the live-completion and the
+   *  came-back-after-it-elapsed paths): repeat the block that just finished —
+   *  same length, same task list, same music — rather than dropping the student
+   *  back at a blank setup screen after every single Pomodoro. */
+  private startAnother(seconds: number, todos: FocusTodo[], music: string | null): void {
+    this.selectedSeconds = Math.max(60, seconds);
+    this.todos = todos.map((t) => ({ ...t }));
+    this.selectedMusic = music;
+    this.startSession();
   }
 
   // --- playlist -----------------------------------------------------------
@@ -2533,6 +2554,10 @@ export class FocusView {
     // Minutes actually focused (elapsed), not the planned length — so a session
     // ended early reports honestly.
     const minutes = Math.max(0, Math.floor((this.totalSeconds - this.currentRemaining()) / 60));
+    // Snapshot for the toast's "Start Another" button — taken NOW, because the
+    // teardown a few lines down wipes sessionTodos/sessionMusic/totalSeconds, and
+    // the button only runs later, on a click.
+    const justFinished = { seconds: this.totalSeconds, todos: [...this.sessionTodos], music: this.sessionMusic };
 
     // Manual ends get an undo window: snapshot the session BEFORE teardown so the
     // toast's Restore button can bring it back. A naturally completed session has
@@ -2590,21 +2615,34 @@ export class FocusView {
     this.releaseWakeLock();
     if (this.endSoundEnabled) this.endCue = playEndSound(this.endSoundKey, this.endSoundVolume);
     if (completed) {
-      // A completed session announces via the system notification (Settings ▸
-      // Notifications ▸ Focus). The old "session complete" toast duplicated that, so
-      // it's been removed — the sound + notification are the completion feedback now.
-      // The task count is DROPPED when there were no tasks (Gabe, 9/6/26), the same
-      // guard the manual-end toast has always had. Now that a session can start with
-      // an empty list, an unguarded line announced "45 min focused • 0/0 tasks done"
-      // to someone who never asked for a task list.
+      // A completed session ALSO announces via the system notification (Settings ▸
+      // Notifications ▸ Focus) — but that requires the browser permission AND the
+      // Focus channel to be turned on, and Gabe ran several sessions and never saw
+      // either (9/7/26: "maybe I'm wrong" — he wasn't). The toast used to be the one
+      // thing that could never depend on a permission prompt, and dropping it here
+      // (see git blame: this predates this repo's tracked history) silently made the
+      // notification the ONLY completion feedback for a normally-elapsed session.
+      // Restoring it: minutes, task count (dropped when there were no tasks — Gabe,
+      // 9/6/26, so an empty list doesn't announce "0/0 tasks done"), and a one-tap
+      // "Start Another" so finishing a block doesn't dead-end at the setup screen.
       void this.notify(
         'Focus session complete!',
         `${minutes} min focused` + (total > 0 ? ` • ${done}/${total} tasks done` : '')
       );
+      this.showEndToast(true, minutes, done, total, {
+        label: 'Start Another',
+        onClick: () => this.startAnother(justFinished.seconds, justFinished.todos, justFinished.music),
+      });
     } else {
       // Manual / early ends get NO notification — so the toast stays for them, mainly
       // to carry the "Restore" undo (a mis-tapped End can be taken back for ~10s).
-      this.showEndToast(false, minutes, done, total, retrieveState ? () => this.retrieveSession(retrieveState, true) : undefined);
+      this.showEndToast(
+        false,
+        minutes,
+        done,
+        total,
+        retrieveState ? { label: 'Restore', onClick: () => this.retrieveSession(retrieveState, true) } : undefined
+      );
     }
     this.sessionTodos = [];
     this.redrawSessionTodos = null;
@@ -4599,13 +4637,18 @@ export class FocusView {
   }
 
   /** Slide-up "session complete" pill (bottom-center). Trophy + label + stats +
-   *  dismiss; auto-hides after 10s. Honest label for a session ended early. */
+   *  dismiss; auto-hides after 10s. Honest label for a session ended early.
+   *
+   *  `action` is the toast's one response button — Restore for a manual end,
+   *  Start Another for a natural completion (Gabe, 9/7/26: the toast needs
+   *  "an option to respond to the session", and a completed one used to get
+   *  none at all — see endSession()). */
   private showEndToast(
     completed: boolean,
     minutes: number,
     done: number,
     total: number,
-    onRetrieve?: () => void
+    action?: { label: string; onClick: () => void }
   ): void {
     document.getElementById('focus-end-toast')?.remove();
     const toast = el('div', { class: 'focus-end-toast' });
@@ -4624,11 +4667,12 @@ export class FocusView {
     body.append(sub);
     toast.append(body);
 
-    // Manual ends carry a short-lived undo: Restore lives (and dies) with the toast.
-    const retrieve = onRetrieve
-      ? el('button', { class: 'focus-end-toast-retrieve', text: 'Restore' })
+    // The one response button lives (and dies) with the toast — Restore's undo
+    // window and Start Another's "go again" both only make sense while it's up.
+    const actionBtn = action
+      ? el('button', { class: 'focus-end-toast-retrieve', text: action.label })
       : null;
-    if (retrieve) toast.append(retrieve);
+    if (actionBtn) toast.append(actionBtn);
 
     const close = el('button', { class: 'focus-end-toast-close', text: '✕', title: 'Dismiss' });
     toast.append(close);
@@ -4643,9 +4687,9 @@ export class FocusView {
       setTimeout(() => toast.remove(), 400); // matches the slide-out transition
     };
     close.addEventListener('click', dismiss);
-    retrieve?.addEventListener('click', () => {
+    actionBtn?.addEventListener('click', () => {
       dismiss();
-      onRetrieve!();
+      action!.onClick();
     });
     // rAF so the off-screen start transform commits before we animate to 0.
     requestAnimationFrame(() => toast.classList.add('show'));

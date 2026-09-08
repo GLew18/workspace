@@ -19,6 +19,7 @@
 
 import { el, enterConfirms, showToast, fadeRemove } from '../util/dom';
 import { normalizeUrl } from './url';
+import { getPrefs } from '../prefs';
 
 // #region Minimal chrome typings (no @types/chrome in this project)
 interface ChromeRuntimeLike {
@@ -248,6 +249,34 @@ function reasonMessage(reason: ComboRejectReason): string {
 }
 // #endregion
 
+// #region Open a link: tab or window (Gabe, 9/7/26)
+//
+// One prefs switch (openLinksInNewWindow, off by default) decides how every
+// single-link open behaves — attachment click, bookmark card click, and an
+// in-app keyboard shortcut all funnel through here. Bulk "Open all" (openTabs
+// below) also reads it for its own per-link window.open calls; the extension
+// paths (chrome.tabs.create, the Chrome tab group) are untouched, since a real
+// browser window can only come from window.open, not from the extension API.
+
+/** A real separate browser window (full chrome, not a stripped popup), sized to
+ *  4/5 of the screen and centered, so it reads as "your own window" rather than
+ *  a cramped dialog. */
+function newWindowFeatures(): string {
+  const w = Math.round(screen.availWidth * 0.8);
+  const h = Math.round(screen.availHeight * 0.8);
+  const left = Math.round((screen.availWidth - w) / 2);
+  const top = Math.round((screen.availHeight - h) / 2);
+  return `noopener,width=${w},height=${h},left=${left},top=${top}`;
+}
+
+/** Open one link, honoring the new-window preference. THE single-open counterpart
+ *  to openTabs below (which handles bulk opens). */
+export function openLink(url: string): void {
+  if (getPrefs().openLinksInNewWindow) window.open(url, '_blank', newWindowFeatures());
+  else window.open(url, '_blank', 'noopener');
+}
+// #endregion
+
 // #region In-app dispatcher (focused-tab fallback) + recording guard
 let _recording = false;
 let _dispatcherInstalled = false;
@@ -276,7 +305,7 @@ export function installInAppDispatcher(getList: () => ShortcutBookmark[]): void 
     const bm = getList().find((b) => b.shortcut && normalizeCombo(b.shortcut) === norm);
     if (bm) {
       e.preventDefault();
-      window.open(normalizeUrl(bm.url), '_blank', 'noopener');
+      openLink(normalizeUrl(bm.url));
     }
   });
   // Re-probe the extension when the user returns to the tab (e.g. they just
@@ -543,23 +572,36 @@ export function openUrlsPlain(urls: string[]): Promise<boolean> {
  * first, because it dodges the popup blocker; otherwise window.open per link,
  * counting what the blocker ate and saying so in a toast instead of silently
  * opening one tab and looking broken.
+ *
+ * `forceWindows` (Gabe, 9/7/26) is the explicit "open all as windows" button:
+ * it always opens separate browser windows, regardless of the openLinksInNewWindow
+ * setting (which only governs a single-link click). A real window can only come
+ * from window.open, never chrome.tabs.create, so this always skips the extension.
  */
-export function openTabs(urls: string[]): void {
+export function openTabs(urls: string[], opts?: { forceWindows?: boolean }): void {
   const clean = urls.filter(Boolean);
   if (!clean.length) return;
+  const wantsWindows = opts?.forceWindows || getPrefs().openLinksInNewWindow;
   const plainLoop = (): void => {
     let blocked = 0;
+    const features = wantsWindows ? newWindowFeatures() : 'noopener';
     for (const u of clean) {
-      const w = window.open(u, '_blank', 'noopener');
+      const w = window.open(u, '_blank', features);
       if (!w) blocked++;
     }
     if (blocked > 0) {
+      const noun = wantsWindows ? 'windows' : 'tabs';
       showToast(
-        `Chrome blocked ${blocked} of ${clean.length} tabs. Allow pop-ups for Cobalt to open them all.`
+        `Chrome blocked ${blocked} of ${clean.length} ${noun}. Allow pop-ups for Cobalt to open them all.`
       );
     }
   };
-  if (!extensionActive()) {
+  // The extension's OPEN_TABS opens TABS, which is the one thing the setting says
+  // not to do — so when "open links in a new window" is on, the extension shortcut
+  // is skipped and every link goes through window.open. That reintroduces the popup
+  // blocker this path exists to dodge, which is the honest trade: the toast below
+  // says what got eaten, and one window per click is a browser limit, not ours.
+  if (wantsWindows || !extensionActive()) {
     plainLoop();
     return;
   }

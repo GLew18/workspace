@@ -272,10 +272,11 @@ body.app-mode .app-below {
    What actually makes it read right:
    · min-width == height, so ONE digit is a true circle and TWO stay the same box
      (measured: both 18x18) instead of the pill widening under the second digit.
-   · Flex centering, NOT line-height. A digit's glyph box is taller than its ink, so
-     line-height centers the box and leaves the ink riding high; align-items centers
-     the ink. `line-height: 1` stops the box re-introducing the offset.
-   · NO PADDING. There is nothing left to nudge with — see below.
+   · Flex centering handles the LINE BOX, not the ink. `align-items: center` with
+     `line-height: 1` centers the box a digit's glyph sits in — it does not center
+     the glyph's actual ink, because a digit's ink is not symmetric around its own
+     line box (see the 9/7 note below). Getting the ink itself centered needs one
+     more step: the padding-top below.
 
    THE 2px THAT MADE THE NUMBER SIT LOW (Gabe, 8/26 — "number too far down").
    An earlier revision of this rule declared `padding: 2 5px`. `2` carries no unit,
@@ -283,36 +284,44 @@ body.app-mode .app-below {
    the badge shipped with zero padding. A later pass rewrote it longhand as
    `padding: 2px 0 0`, described it as an optical nudge, and claimed the result was
    byte-identical to what shipped. It was not: that rewrite TURNED ON a 2px top
-   padding that had never rendered a day in its life.
-
-   Measured in Chrome with Inter 800 at 10.5px inside the 18px circle, as the gap
-   between the circle's edge and the digit's line box:
-     with `padding: 2px 0 0` → 3.75px above, 1.75px below. The digit's INK centers
-     1.1px below the circle's center.
-     with no padding         → 2.75px above, 2.75px below. Ink center lands 0.1px
-     from the circle's center, which is nothing.
-   So the fix is to delete the padding, not to add a compensating nudge.
-
-   THIS WAS NEVER A MAC BUG, and the first version of this note said it was. It
-   blamed DirectWrite's vertical grid-fitting against CoreText's lack of it. That is
-   a real difference between the two platforms and it is not what happened here.
+   padding that had never rendered a day in its life. The fix at the time was to
+   delete the padding and go back to zero — see the 9/7 note for why that was only
+   half the fix.
 
    CSS LAYOUT IS DETERMINISTIC AND IDENTICAL ON EVERY PLATFORM. Padding, box height
    and flex centring resolve to the same numbers in Chrome on Windows as on macOS;
-   only RASTERISATION (antialiasing, hinting, subpixel coverage) differs. So the 2px
-   pushed the digit exactly as far down on the PC as it did here, and the badge has
-   been off-centre on both for as long as the longhand rewrite has existed.
+   only RASTERISATION (antialiasing, hinting, subpixel coverage) differs. That claim
+   from the 8/26 pass still holds and is WHY the 9/7 fix below is not a Windows-only
+   nudge — see next.
 
-   What the Mac changed is whether anyone could SEE it. At 2x, an 18px circle is 36
-   device pixels of crisp edge and a 1px error is two full pixels of visibly uneven
-   whitespace. At 1x the same circle is 18 soft pixels and the error is one, inside
-   grey antialiasing, which reads as "slightly odd" rather than "wrong". Retina did
-   not create the defect; it made it legible.
-
-   The consequence that matters for the PC: this fix DELETES an error rather than
-   compensating for one, so there is nothing here that can over-correct on a 1x
-   display. Windows gets the same centred digit, or at worst the same digit it always
-   had. Nothing in this rule is, or should ever be, platform-conditional. */
+   WHY IT WAS STILL OFF ON WINDOWS (Gabe, 9/7 — "it's clearly off"). The 8/26 pass
+   measured the GAP TO THE LINE BOX ("2.75px above, 2.75px below the circle's edge")
+   and called that "ink center 0.1px from center, which is nothing." That was
+   measuring the box flex centers, not the ink inside it — the exact mistake this
+   file's own top comment warns about. Measured properly on 9/7 (Chrome, this
+   machine, Inter 700 at 10.5px): draw each digit 0-9 into an offscreen canvas at
+   20x scale and scan pixel rows for real ink, then read the live badge's actual
+   rendered baseline via a zero-size inline marker. Every digit's ink sits ~7.74px
+   above its own baseline and only ~0.04px below it — a digit is flat-bottomed and
+   tall, so its ink is NOT symmetric around the line box the way a lowercase letter's
+   is. With zero vertical padding this puts the ink's true center about 1.1px above
+   the circle's center, for one digit or two ("99" measures identically, since
+   tabular-nums keeps every digit's metrics the same).
+   That 1.1px comes from Inter's own font metrics table — the same file, same
+   numbers, on Windows or Mac — so it was never actually centered on either platform.
+   It read as fixed on the Mac only because the 8/26 check was checking the box, not
+   the ink; a 1.1px error is also easier to miss at 2x than at 1x, which is why it
+   took a 1x screen to make it "clearly off."
+   THE FIX: `padding-top: 2.25px`, found by the same measurement (binary-searched
+   against the live DOM until the marker-derived ink center landed within 0.03px of
+   the circle's center) and re-verified for "1", "5", "9" and "99". Box-sizing is
+   border-box (theme.css) so this does not change the 18px circle at all — it only
+   moves where flex centers the line box inside it. This is not the 8/26 padding
+   bug repeating: that one was an accidental, unmeasured value from invalid
+   shorthand; this one is a deliberate, ink-measured constant, derived from the
+   font file itself rather than eyeballed in DevTools, so it holds on any platform
+   that renders the same Inter 700 — nothing here is, or should be, platform-
+   conditional. */
 .count-badge {
   --badge-size: 18px;
   display: inline-flex;
@@ -320,15 +329,18 @@ body.app-mode .app-below {
   justify-content: center;
   min-width: var(--badge-size);
   height: var(--badge-size);
-  /* SIDES ONLY, AND ONLY WHEN THE CONTENT NEEDS THEM. Vertical padding is what put
-     the digit off-centre and stays at zero forever. The 4px sides cost a one-digit
-     badge nothing — "3" is 6.8px wide, so 6.8 + 8 is still under the 18px min-width
-     and the circle keeps its exact shape — and they are what stops the two-character
-     cases ("9+" on the bell, a two-digit due count on the Tasks nav) from touching
-     the rim. Those grow to ~21px and read as a short pill, which is what a badge
-     with two glyphs in it should look like. The visual pass on 8/26 called "9+"
-     cramped; this is that, fixed, without moving any single-digit badge a pixel. */
-  padding: 0 4px;
+  /* Sides: 4px, and only because the content needs them. The 4px sides cost a
+     one-digit badge nothing — "3" is 6.8px wide, so 6.8 + 8 is still under the 18px
+     min-width and the circle keeps its exact shape — and they are what stops the
+     two-character cases ("9+" on the bell, a two-digit due count on the Tasks nav)
+     from touching the rim. Those grow to ~21px and read as a short pill, which is
+     what a badge with two glyphs in it should look like. The visual pass on 8/26
+     called "9+" cramped; this is that, fixed, without moving any single-digit
+     badge a pixel.
+     Top: 2.25px, and it is NOT a copy of the 8/26 bug — see the 9/7 note above.
+     It centers the digit's INK, not its line box; bottom stays 0 on purpose, since
+     the correction only needs to move one way. */
+  padding: 2.25px 4px 0;
   border-radius: 999px;
   line-height: 1;
   font-weight: 700;
@@ -347,10 +359,8 @@ body.app-mode .app-below {
   position: relative;
   top: 1px;
 }
-/* Centered by FLEX, not line-height (Gabe, 8/10: the number sat high). A digit's
-   glyph box is taller than its ink, so line-height centers the box and leaves the
-   ink riding above center; align-items centers the ink itself. `line-height: 1`
-   keeps the box from re-introducing the offset. */
+/* Centering (box AND ink) is all in .count-badge above — see the 9/7 note there
+   for why the ink needs its own padding-top on top of flex centering. */
 .nav-count.on {
   display: inline-flex;
 }
@@ -450,9 +460,11 @@ body.app-mode .app-below {
    "0" chip), so the bell is quiet until something has actually arrived. */
 .bell-dot {
   /* Wears .count-badge for its geometry, so the digit centers the same way the
-     sidebar's red circle does. It previously centered with `line-height: 15px` +
-     text-align, which is exactly the approach that left the number riding high and
-     was already fixed once on .nav-count (8/10). Same bug, second instance. */
+     sidebar's red circle does — including the 9/7 ink-centering padding-top, since
+     Gabe called this circle the worst-offset one. It previously centered with
+     `line-height: 15px` + text-align, which is exactly the approach that left the
+     number riding high and was already fixed once on .nav-count (8/10). Same bug,
+     second instance. */
   /* 18px, matching .nav-count and .focus-finished-count — all three circles are
      now one size (Gabe, 8/15). It was 15px, which read as a different component
      sitting next to them rather than the same one. */
@@ -966,13 +978,26 @@ body.app-mode .app-below {
 .task-priority {
   position: absolute;
   left: 0;
-  top: 0;
-  bottom: 0;
+  top: 13px;
+  bottom: 13px;
   width: 4px;
+  border-radius: 2px;
 }
 /* The strip is DORMANT (Gabe, 8/13): a color band you read, not a control. It was
    briefly a <button> with a widened hit area; the arrow in the action cluster is
    the only way to set priority now. */
+/* 9/7/26 (Gabe: "looks a little ai generated"): the strip ran flush edge to edge
+   (top/bottom: 0) inside .task-item, which is overflow:hidden with a 14px radius,
+   so its ends were sheared off by the card's corner curve. That cut corner is what
+   read as accidental. It is now a deliberate rounded capsule floating in the
+   middle of the row instead.
+   THE INSET IS 13, AND THE NUMBER IS NOT A TASTE CALL. The card's inner radius is
+   13 (14 minus its 1px border), so at the strip's left edge the corner clips
+   everything above y=13 anyway. A first attempt used 3, which trimmed only pixels
+   the clip had already eaten and rendered pixel-identical to no change at all.
+   Anything under 13 is cosmetic-looking and does nothing. Same color values, same
+   width, and nothing moves: the strip is absolutely positioned, so row height and
+   text are untouched. */
 .task-priority.highest {
   background: #ef4444;
 }
@@ -1944,15 +1969,21 @@ html[data-kbd] :focus-visible {
   color: var(--text-dim);
   padding: 0 2px 1px;
 }
-.cal-cell.today .cal-daynum {
+/* Wears .count-badge for its geometry (9/7/26) instead of display:grid +
+   place-items:center, which is the exact ink-vs-line-box defect the recipe's
+   own comment describes above — this was the 5th circle found off, by
+   ~0.6-0.7px. Measured the same way (Inter 700, 20x-scale offscreen canvas,
+   pixel-scanned): this circle's font is 12px, not the recipe's 10.5px, so its
+   2.25px padding-top does not carry over. Width is fixed instead of the
+   recipe's min-width, so a two-digit date (10-31) stays a circle instead of
+   stretching into a pill. Binary-searched at THIS font-size/badge-size until
+   every digit 0-9, one or two digits, landed within 0.1px of true center. */
+.count-badge.cal-daynum {
+  --badge-size: 21px;
+  width: var(--badge-size);
+  padding: 0.8px 0 0;
   color: var(--on-accent);
   background: var(--gold);
-  border-radius: 999px;
-  width: 21px;
-  height: 21px;
-  display: grid;
-  place-items: center;
-  padding: 0;
 }
 
 /* Chips: color strip via --chip (priority or course per the pref), title only
@@ -2016,10 +2047,16 @@ html[data-kbd] :focus-visible {
 
 /* Course dot: always course-colored, so the course reads at a glance even when
    chips color by priority. Inline with the first line of the title. */
+/* 9/7/26 (Gabe: "looks a little ai generated"): was a flat 7px circle next to
+   an 11.5px chip title — bigger than the text it sits beside, the kind of
+   round default that wasn't checked against the type next to it. Sized down
+   to 6px (~0.52em of .cal-chip-txt's font-size) so it reads as a mark next to
+   the word instead of a shape competing with it. Same color, same gap,
+   same position — data/palette untouched. */
 .cal-chip-dot {
   display: inline-block;
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   margin-right: 5px;
   vertical-align: baseline;
@@ -2748,10 +2785,19 @@ body:has(.selbar:not([hidden])) .toast {
 }
 .attach-footer {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
+/* THREE buttons share this row now (Gabe, 9/7/26, adding "Open as windows"); the
+   base .btn-primary size (15px font, 13px padding) was sized for one full-width
+   button and only ever fit two here before wrapping. Shrunk so all three sit on
+   one line at the popup's default width (~330px inner, .popup max-width: 360px):
+   font 15px→11.5px, padding 13px→7px 3px. min-width: 0 lets a flex child actually
+   shrink below its text's natural width instead of forcing the row to wrap. */
 .attach-footer .btn-primary {
   flex: 1;
+  min-width: 0;
+  padding: 7px 3px;
+  font-size: 11.5px;
 }
 /* The premium launcher: VIOLET on purpose, a color no free control wears, so
    the tier difference is visible before reading. The MAIN "Open all" line stays

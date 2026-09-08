@@ -705,7 +705,14 @@ export class TasksView {
       const cell = el('div', {
         class: `cal-cell${d.getMonth() !== m ? ' out' : ''}${dISO === todayISO ? ' today' : ''}`,
       });
-      cell.append(el('div', { class: 'cal-daynum', text: String(d.getDate()) }));
+      // Today wears .count-badge for its circle geometry (9/7/26) — see
+      // .count-badge.cal-daynum in components.css for why.
+      cell.append(
+        el('div', {
+          class: dISO === todayISO ? 'cal-daynum count-badge' : 'cal-daynum',
+          text: String(d.getDate()),
+        }),
+      );
       const tasks = by.get(dISO) ?? [];
       for (const t of tasks.slice(0, maxChips)) cell.append(this.calChip(t));
       if (tasks.length > maxChips) {
@@ -3342,12 +3349,18 @@ export class TasksView {
         draw();
       });
 
-      // Two DELIBERATELY separate launchers (Gabe, 8/7/26), so the user picks:
+      // THREE launchers (2 became 3 on 9/7/26), so the user picks:
       //   Open all       = free, plain tabs, always.
-      //   Open as group  = the PREMIUM one (gem cobalt blue): one named Chrome tab
-      //                    group wearing the task's course color, via the
-      //                    extension. Falls back to plain tabs if the extension
-      //                    isn't there, so the button is never a dead end.
+      //   Open as group  = PREMIUM (violet): one named Chrome tab group wearing
+      //                    the task's course color, via the extension. Falls back
+      //                    to plain tabs if the extension isn't there, so the
+      //                    button is never a dead end.
+      //   Open as windows = the new one Gabe asked for: every link in its own
+      //                    SEPARATE BROWSER WINDOW (window.open, never the
+      //                    extension — a real window can't come from chrome.tabs.
+      //                    create). Same violet as "Open as group" on purpose:
+      //                    reusing attach-open-group's class rather than a new
+      //                    shade is what keeps the color literally identical.
       // No Save button anymore: attachments auto-save (see persist above).
       const footer = el('div', { class: 'attach-footer' });
       const openAllBtn = el('button', {
@@ -3376,7 +3389,18 @@ export class TasksView {
         }
         openAll(notes, { name: task.title, color: getCourseColor(task.course) });
       });
-      footer.append(openAllBtn, openGroupBtn);
+      const openWindowsBtn = el('button', {
+        class: 'btn-primary attach-open-group',
+        title: 'Open every link in its own browser window',
+      });
+      openWindowsBtn.append(
+        el('span', { text: 'Open all' }),
+        el('span', { class: 'attach-open-group-sub', text: '(in windows)' })
+      );
+      openWindowsBtn.addEventListener('click', () => {
+        if (!this.sample) openAll(notes, undefined, { forceWindows: true });
+      });
+      footer.append(openAllBtn, openGroupBtn, openWindowsBtn);
 
       // The pop-up blocker makes "Open all" look broken (one tab, silence), so
       // the fix-it guide lives right where the confusion happens.

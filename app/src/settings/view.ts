@@ -551,6 +551,16 @@ export class SettingsView {
         )
       )
     );
+    sec.append(
+      this.prefRow(
+        'Open links in a new window',
+        'Attachments and bookmarks open in their own window instead of a new tab.',
+        this.prefSwitch(p.openLinksInNewWindow, (on) => {
+          p.openLinksInNewWindow = on;
+          save();
+        })
+      )
+    );
 
     // --- Dashboard toggles + a live preview that mirrors the real greeting/quote ---
     sec.append(el('div', { class: 'settings-group-label', text: '📊 Dashboard' }));
@@ -2092,7 +2102,9 @@ export class SettingsView {
         guides().forEach((g, i) => {
           const item = el('button', { class: 'ngd-item' }) as HTMLButtonElement;
           item.style.setProperty('--gda', g.color); // likelihood heat color (red → purple)
-          const num = el('div', { class: 'ngd-num', text: String(i + 1) });
+          // Wears the shared .count-badge recipe (9/7/26 — see .ngd-num in
+          // settings.css for why this circle needed it too).
+          const num = el('div', { class: 'count-badge ngd-num', text: String(i + 1) });
           const main = el('div', { class: 'ngd-item-main' });
           main.append(el('div', { class: 'ngd-item-title', text: `${g.emoji} ${g.title}` }), el('div', { class: 'ngd-item-blurb', text: g.blurb }));
           const tag = el('div', { class: 'ngd-tag', text: g.tag });

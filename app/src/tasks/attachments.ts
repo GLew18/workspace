@@ -1,7 +1,7 @@
 // Cobalt: link attachments (spec §6.5). URLs only.
 
 import type { Note } from '../types';
-import { extensionActive, openUrlsInGroup, openTabs } from '../bookmarks/shortcuts';
+import { extensionActive, openUrlsInGroup, openTabs, openLink } from '../bookmarks/shortcuts';
 
 export interface AttachmentType {
   label: string;
@@ -49,11 +49,11 @@ export function openAttachment(rawUrl: string): void {
     a.rel = 'noopener';
     a.click();
     // Fallback to the plain URL shortly after, in case no app handled the scheme.
-    setTimeout(() => window.open(url, '_blank', 'noopener'), 400);
+    setTimeout(() => openLink(url), 400);
     return;
   }
 
-  window.open(url, '_blank', 'noopener');
+  openLink(url);
 }
 
 /** Open the links as plain tabs (the no-extension path). */
@@ -74,16 +74,20 @@ export function openAttachment(rawUrl: string): void {
  * detect would spend the click's user-gesture, and the browser would then block the
  * window.open fallback. Cold cache simply means plain tabs this once.
  */
-export function openAll(notes: Note[], group?: { name: string; color: string }): void {
+export function openAll(
+  notes: Note[],
+  group?: { name: string; color: string },
+  opts?: { forceWindows?: boolean }
+): void {
   const valid = notes.map((n) => normalizeUrl(n.url)).filter(Boolean);
   if (!valid.length) return;
   if (group && extensionActive()) {
     void openUrlsInGroup(group.name, group.color, valid).then((ok) => {
-      if (!ok) openTabs(valid); // grouping failed (old Chrome, revoked permission)
+      if (!ok) openTabs(valid, opts); // grouping failed (old Chrome, revoked permission)
     });
     return;
   }
-  openTabs(valid);
+  openTabs(valid, opts);
 }
 
 // #region Auto-extract links from a task's title + description ------------------

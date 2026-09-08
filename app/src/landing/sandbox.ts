@@ -174,16 +174,19 @@ function sampleSchedule() {
  *  560px frame with NO scrollbar (Gabe, 8/13: the preview must not scroll; it
  *  had 8 cards and grew one). Two share a "Test Study" group to show off
  *  grouping (colored accent + named chip); the rest stay ungrouped so the
- *  "+ Group" affordance is visible too. The "+ Shortcut" chip is hidden in the
- *  frame (landing.css) — that's what keeps rows at standard height. */
+ *  "+ Group" affordance is visible too. The "+ Shortcut" chip shows on every card
+ *  (Gabe, 9/7/26: it is the feature a browser's own bookmark bar does not have),
+ *  and TWO of the six ship with a combo already bound so both states of that chip
+ *  are on screen at once: a live key combo, and the empty "+ Shortcut" invitation.
+ *  Neither combo is one a browser reserves (see reservedCombos in shortcuts.ts). */
 function sampleBookmarks() {
   return {
     list: [
       { id: 'bm1', name: 'AoPS', url: 'https://artofproblemsolving.com', groupId: 'grp_test-study' },
-      { id: 'bm2', name: 'Schoology', url: 'https://heschel.schoology.com' },
+      { id: 'bm2', name: 'Schoology', url: 'https://heschel.schoology.com', shortcut: 'Alt+S' },
       { id: 'bm3', name: 'Google Drive', url: 'https://drive.google.com', },
       { id: 'bm4', name: 'Google Docs', url: 'https://docs.google.com' },
-      { id: 'bm5', name: 'Gmail', url: 'https://gmail.com' },
+      { id: 'bm5', name: 'Gmail', url: 'https://gmail.com', shortcut: 'Alt+G' },
       { id: 'bm7', name: 'Quizlet', url: 'https://quizlet.com', groupId: 'grp_test-study' },
     ],
     groups: [{ id: 'grp_test-study', name: 'Test Study', color: '#ff00dd' }],

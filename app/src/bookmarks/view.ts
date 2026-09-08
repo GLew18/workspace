@@ -21,6 +21,7 @@ import { attachColorPicker } from '../ui/colorPicker';
 import { genId } from '../util/ids';
 import { normalizeUrl } from './url';
 import { shiftSelect } from '../util/select';
+import { getPrefs } from '../prefs';
 import {
   installInAppDispatcher,
   syncShortcutsToExtension,
@@ -31,6 +32,7 @@ import {
   extensionActive,
   openUrlsInGroup,
   openTabs,
+  openLink,
   type ShortcutBookmark,
 } from './shortcuts';
 
@@ -321,7 +323,20 @@ export class BookmarksView {
     // holds Shift to press a delete button, so the modifier settles it.
     if (!multi && t.closest('button, input, textarea, .bm-card-handle')) return; // the card's own controls
 
-    if (!multi && !this.selectedIds.size) return; // a plain click with nothing selected = open the link
+    if (!multi && !this.selectedIds.size) {
+      // A plain click with nothing selected = open the link. The card is a real
+      // anchor (target="_blank"), so the browser already does this on its own —
+      // unless the new-window pref is on, in which case a plain href/target
+      // can't produce a window, so this steps in and opens it ourselves
+      // (Gabe, 9/7/26). Middle-click and ctrl/cmd-click never reach here (they
+      // either fire outside 'click' or get caught by the modifier branch above),
+      // so they're untouched either way.
+      if (getPrefs().openLinksInNewWindow) {
+        e.preventDefault();
+        openLink(normalizeUrl(bm.url));
+      }
+      return;
+    }
     e.preventDefault(); // otherwise the browser would navigate away mid-selection
     e.stopPropagation();
     window.getSelection()?.removeAllRanges();
@@ -466,12 +481,17 @@ export class BookmarksView {
     this.syncSelectionUI();
   }
 
-  /** The strip above a group's cards: its dot, its name, and TWO launchers
-   *  (Gabe, 8/7/26), so the user picks:
-   *    Open all  = free, every link in its own tab, always.
-   *    ⭐ group  = the PREMIUM one (gem cobalt blue): the whole group opens as ONE named,
-   *                colored Chrome tab group via the extension. Falls back to
-   *                plain tabs if the extension isn't there, never a dead end. */
+  /** The strip above a group's cards: its dot, its name, and THREE launchers
+   *  (2 became 3 on 9/7/26), so the user picks:
+   *    Open all             = free, every link in its own tab, always.
+   *    Open all as group    = PREMIUM (violet): the whole group opens as ONE named,
+   *                           colored Chrome tab group via the extension. Falls
+   *                           back to plain tabs if the extension isn't there,
+   *                           never a dead end.
+   *    Open all as windows  = the new one Gabe asked for: every link opens in its
+   *                           own separate browser window. Reuses bm-group-head-
+   *                           gopen's exact violet (same class), not a new shade,
+   *                           because both read as premium bulk actions. */
   private groupHeader(group: BookmarkGroup, members: Bookmark[]): HTMLElement {
     const row = el('div', { class: 'bm-group-head' });
     const dot = el('span', { class: 'bm-group-head-dot' });
@@ -517,7 +537,19 @@ export class BookmarksView {
       });
     });
 
-    row.append(dot, name, count, openAll, openGroup);
+    const openWindows = el('button', {
+      class: 'bm-group-head-open bm-group-head-gopen',
+      text: 'Open all as windows',
+      title: `Open all ${members.length} links, each in its own browser window`,
+    });
+    openWindows.addEventListener('click', () => {
+      if (this.sample) return;
+      const urls = urlsOf();
+      if (!urls.length) return;
+      openTabs(urls, { forceWindows: true });
+    });
+
+    row.append(dot, name, count, openAll, openGroup, openWindows);
     return row;
   }
 

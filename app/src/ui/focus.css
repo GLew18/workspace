@@ -2241,8 +2241,8 @@
   filter: brightness(1.15);
 }
 /* Wears .count-badge (components.css) for its geometry — same circle, same
-   centering, same optical nudge as the Tasks sidebar badge (Gabe, 8/15). Only the
-   color is its own. */
+   centering (box AND ink, see the 9/7 note on .count-badge), same nudge as the
+   Tasks sidebar badge (Gabe, 8/15). Only the color is its own. */
 .focus-finished-count {
   background: rgba(39, 174, 96, 0.22);
   color: var(--green);

@@ -920,15 +920,27 @@ html[data-kbd] .landing :is(button, a):focus-visible {
    the right end of the search row since 9/6/26; hiding it just gives the search
    box the whole row back. */
 .lp-frame .bm-add-btn { display: none; }
+/* …and the popup-blocker fix-it link above the search row. It troubleshoots
+   "Open all", which a visitor cannot reach in the preview (there is no group
+   selection to open), and it is 39px of the frame's 558 — which is what pays for
+   the taller cards now that every one of them carries a shortcut chip. */
+.lp-frame-body .bm-page > .notify-howto { display: none; }
+/* The grid's own trailing margin, on top of the frame body's 14px padding, is
+   double spacing the demo cannot afford: with it the six taller cards land at
+   exactly 0px of slack, and a font that renders a pixel differently on another
+   OS would put a scrollbar in the frame. */
+.lp-frame-body .bm-grid { margin-bottom: 0; }
 /* Two bookmark columns inside the frame. The real grid's 260px column minimum
    collapses to one column at the frame's width, but the actual desktop tab shows
    3–4 columns — two columns is the closer likeness AND fills the frame's height
    with the 8-card sample. */
 .lp-frame-body .bm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-/* No "+ Shortcut" chip in the demo — dropping it keeps two-column cards at
-   standard height, which is what lets all 8 sample cards fit scrollbar-free.
-   Chips are [group, shortcut]. */
-.lp-frame-body .bm-card-btns .bm-chip-btn:nth-child(2) { display: none; }
+/* The "+ Shortcut" chip STAYS in the demo (Gabe, 9/7/26: "shortcuts is really
+   the main attraction of bookmarks, because a bookmark is already a Google
+   feature"). It was hidden here to keep two-column cards short; the six-card
+   sample has room for the taller rows, and the chip is the one thing on the card
+   a visitor cannot get from their browser's own bookmark bar. Chips are
+   [group, shortcut]. */
 .lp-frame-body .task-list { margin-top: 4px; }
 /* …and NONE of the real list's trailing runway (components.css gives it 150px so the
    last row's ⋯ menu has somewhere to open). That runway is a third of this frame's
@@ -1037,24 +1049,65 @@ html[data-kbd] .landing :is(button, a):focus-visible {
      this heading nudged them. The height is DECLARED here now, the cards' offset
      is a constant, and no script touches either.
    · "After you scroll past the cards it scrolls with you and then it stops."
-     Its containing block is the section, so it releases with the section. */
+     Its containing block is the section, so it releases with the section — and
+     the section runs ~700px further than the deck does. That last complaint came
+     back on 9/7/26, phrased as the real problem underneath all three: the heading
+     should live at ONE PLACE ON THE PAGE, not ride the camera ("in After Effects
+     the camera moves and the element stays on its own locus"). It cannot be
+     position: absolute and still be on screen while the deck runs, but it can let
+     go at the exact moment the deck does, which is the same thing to the eye: the
+     heading and the three cards leave together, as one object.
+     THE RAIL is how. A sticky box lets go when its bottom edge meets the bottom
+     of its CONTAINING BLOCK, so the heading gets a containing block that is
+     shorter than the section by exactly one card's worth of scroll. The rail is
+     that box: absolutely positioned (it is out of flow, paints nothing, and
+     catches no clicks), reproducing the section's own padding so the heading
+     lands on the same pixels it always did. Its one number, --stack-head-rail-bottom,
+     is solved in view.ts (pinHeadingToDeck) because a card's height is not a
+     constant across breakpoints. That measurement is safe in a way the old one
+     was not: it moves the release point only, never the cards' pin offset. */
+.lp-stack-head-rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* Solved by pinHeadingToDeck. The fallback is the desktop answer, so a rail
+     that somehow never gets measured still beats leashing the heading to the
+     whole section. */
+  bottom: var(--stack-head-rail-bottom, calc(730px + 28vh));
+  /* Mirrors .lp-section's own padding: the rail is anchored to the section's
+     PADDING box, so without this the heading would start 78px too high and run
+     22px too wide on each side. */
+  padding: 78px 22px 0;
+  z-index: 5; /* above the cards, which top out at 4 */
+  pointer-events: none; /* it covers the deck; clicks must reach the previews */
+}
 .lp-features .lp-stack-head {
   position: sticky;
   top: 70px; /* the fixed nav's height */
-  z-index: 5; /* above the cards, which top out at 4 */
+  pointer-events: auto; /* the rail turned them off for everything else */
   /* DECLARED height, not content height: the h2 is clamp()ed against viewport
      width, and letting the band resize itself is what made the cards twitch. */
   height: 104px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  background: var(--page-bg); /* the page's own gradient, `fixed` — an invisible band */
+  /* NO BACKGROUND (Gabe, 9/7/26: "it's really weird, it has its own background").
+     The band existed so a card sliding underneath would vanish instead of showing
+     through the words. Nothing slides underneath any more: the cards pin 10px
+     below this box and leave at the same instant it does, so the overlap is zero
+     at every scroll position on the page (measured 9/7/26). A painted band with
+     nothing to hide is just a rectangle the eye can catch. */
 }
 .lp-features .lp-stack-head .lp-h2 { margin-bottom: 4px; }
 .lp-features .lp-stack-head .lp-sub { margin-bottom: 0; }
 
 .lp-stack-track {
   position: relative;
+  /* The heading is out of flow now (see .lp-stack-head-rail), so the track pays
+     back the space it used to take. Same declared number as the heading's own
+     height, and it is re-declared beside that height at every breakpoint below. */
+  margin-top: 104px;
   /* Dwell on the finished deck before the next section: the last card is
      pinned until this padding has scrolled past. */
   padding-bottom: 28vh;
@@ -1083,6 +1136,7 @@ html[data-kbd] .landing :is(button, a):focus-visible {
    above them it would silently lose (which is exactly what happened first try). */
 @media (max-height: 860px) {
   .lp-features .lp-stack-head { height: 78px; }
+  .lp-stack-track { margin-top: 78px; }
   .lp-features .lp-stack-head .lp-h2 { font-size: clamp(19px, 2.2vw, 24px); }
   .lp-features .lp-stack-head .lp-sub { font-size: 12.5px; }
   .lp-stack-card { top: 158px; padding: 24px 40px 24px 48px; }
@@ -1718,6 +1772,58 @@ html[data-kbd] .landing :is(button, a):focus-visible {
   font-size: 12.5px;
   color: var(--text-dim);
 }
+.lp-footer-base a {
+  color: var(--text-dim);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.lp-footer-base a:hover { color: var(--text); }
+
+/* ---------------- Privacy policy page ---------------- */
+/* A plain legal document, reusing the landing page's nav/footer chrome and
+   color tokens rather than inventing a second visual language. Left-aligned
+   and narrower than .lp-section's 1360px column: nobody reads a privacy
+   policy comfortably at full page width. */
+.lp-legal {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 130px 22px 90px;
+  text-align: left;
+}
+.lp-legal h1 {
+  font-size: clamp(28px, 5vw, 38px);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+}
+.lp-legal-updated {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: 0 0 36px;
+}
+.lp-legal h2 {
+  font-size: 19px;
+  font-weight: 700;
+  margin: 36px 0 10px;
+}
+.lp-legal p {
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 15px;
+  line-height: 1.65;
+  margin: 0 0 14px;
+}
+.lp-legal ul {
+  margin: 0 0 14px;
+  padding-left: 20px;
+}
+.lp-legal li {
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 15px;
+  line-height: 1.65;
+  margin: 0 0 8px;
+}
+.lp-legal a { color: var(--accent); }
+.lp-legal strong { color: var(--text); }
 
 /* ---------------- Responsive ---------------- */
 @media (max-width: 980px) {
@@ -1782,6 +1888,7 @@ html[data-kbd] .landing :is(button, a):focus-visible {
   .lp-bullets li { font-size: 13px; }
   /* The phone nav is ~53px, so the band and the cards under it both come up. */
   .lp-features .lp-stack-head { top: 54px; height: 64px; }
+  .lp-stack-track { margin-top: 64px; }
   .lp-stack-card { top: 126px; padding: 20px 16px 22px; border-radius: 18px; }
   /* THE DWELL AFTER THE LAST CARD (Gabe, 9/6/26: "the gap between the bottom
      card and Endless personalization is way too great"). 28vh of it is fine on a
@@ -1799,6 +1906,7 @@ html[data-kbd] .landing :is(button, a):focus-visible {
 }
 @media (max-width: 560px) {
   .lp-section { padding: 60px 16px; }
+  .lp-stack-head-rail { padding: 60px 16px 0; } /* keeps mirroring .lp-section */
 }
 
 /* ---------------- Functions marquee (Gabe, 9/2/26) ----------------
@@ -1979,13 +2087,19 @@ html[data-kbd] .landing :is(button, a):focus-visible {
   .lp-stack-card { position: static; }
   .lp-stack-card + .lp-stack-card { margin-top: 32px; }
   .lp-stack-track { padding-bottom: 0; }
-  /* With nothing pinning underneath it, the band has nothing to stay in front of
-     — back to an ordinary heading at the top of the section. */
+  /* With nothing pinning, there is nothing to pin the heading above either —
+     back to an ordinary heading at the top of the section. The rail goes back
+     into the flow with it, so the heading occupies its own space again and the
+     track owes it nothing. */
+  .lp-stack-head-rail {
+    position: static;
+    padding: 0;
+  }
+  .lp-stack-track { margin-top: 0; }
   .lp-features .lp-stack-head {
     position: static;
     height: auto;
     display: block;
-    background: none;
   }
   .lp-features .lp-stack-head .lp-sub { margin-bottom: 30px; }
 }

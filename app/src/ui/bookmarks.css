@@ -97,7 +97,13 @@
 .bm-group-head {
   display: flex;
   align-items: center;
+  /* wrap (Gabe, 9/7/26): a third launcher (Open all as windows) joined the row,
+     and a narrow panel or phone width no longer has room for the name, count,
+     and all three buttons on one line. Wrapping degrades to a second line
+     instead of clipping the last button off the edge. */
+  flex-wrap: wrap;
   gap: 9px;
+  row-gap: 6px;
   padding: 0 2px;
   margin-bottom: 9px;
 }
