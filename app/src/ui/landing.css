@@ -1847,9 +1847,6 @@ html[data-kbd] .landing :is(button, a):focus-visible {
   .lp-stack-card { padding: 28px 22px; }
   .lp-stack-label { align-self: center; padding-top: 18px; }
 }
-@media (max-width: 700px) {
-  .lp-footer-top { flex-direction: column; text-align: center; }
-}
 /* ---------------- Phones (Gabe, 9/5/26, against Linear's landing) ----------------
    Everything gets proportionally SMALLER as the viewport shrinks, instead of
    the desktop sizes being poured into a narrow column. The two things he saw
@@ -1870,26 +1867,56 @@ html[data-kbd] .landing :is(button, a):focus-visible {
     padding-top: 180px;
     padding-bottom: 44px;
   }
+  /* LEFT-ALIGNED, like Linear's mobile hero (Gabe's reference screenshots):
+     nothing on the page is centred on a phone except the nav row itself. */
+  .lp-hero, .lp-hero-top, .lp-hero-inner { align-items: flex-start; text-align: left; }
   .lp-hero-title { font-size: clamp(30px, 9.4vw, 40px); }
   .lp-tagline { font-size: 14.5px; margin: 14px 0 18px; }
-  .lp-hero-actions { flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .lp-hero-actions { flex-wrap: wrap; justify-content: flex-start; gap: 10px; }
   .lp-cta { font-size: 15px; padding: 12px 26px; }
   .lp-cta-ghost { font-size: 14.5px; padding: 12px 22px; }
   .lp-cta-sub { font-size: 12px; margin-top: 12px; }
-  .lp-hero-chips { margin-top: 18px; gap: 6px; }
+  .lp-hero-chips { margin-top: 18px; gap: 6px; justify-content: flex-start; }
   .lp-hero-chip { font-size: 11.5px; padding: 6px 11px; }
+  /* 40px-minimum tap targets for the two nav buttons (Gabe's spec). Gated to
+     mobile only: desktop keeps its exact padding/height. */
+  .lp-nav-cta, .lp-nav-login { min-height: 40px; display: inline-flex; align-items: center; }
   /* No peek on a phone: the hero text is already the height of the screen, so
      the pull-up only ever drove the demo into the chips. */
   .lp-stage-glow { margin-top: 0; padding-bottom: 56px; }
 
   .lp-sub { font-size: 14px; margin-bottom: 22px; }
-  .lp-lead { font-size: 14px; }
-  .lp-split-title { font-size: 19px; }
+  .lp-lead { font-size: 14px; line-height: 1.45; }
+  .lp-split-text .lp-lead { margin-bottom: 10px; } /* beats .lp-split-text .lp-lead's 16px (same specificity, later) */
+  .lp-split-title { font-size: 17px; margin-bottom: 6px; }
+  .lp-bullets { gap: 6px; }
   .lp-bullets li { font-size: 13px; }
   /* The phone nav is ~53px, so the band and the cards under it both come up. */
   .lp-features .lp-stack-head { top: 54px; height: 64px; }
   .lp-stack-track { margin-top: 64px; }
-  .lp-stack-card { top: 126px; padding: 20px 16px 22px; border-radius: 18px; }
+  /* CARD CAP (Gabe, 9/8/26: cards were reading as near-full-screen — 687-690px
+     measured on a 390x844 phone). Three things shrink together: the split's
+     copy-then-frame gap, a shorter design height on the frame itself (a real
+     crop, like Linear's screenshots — the app inside still scrolls, it just
+     shows less before it does), and tighter card padding. Net effect measured
+     ~480-520px on a 390x844 phone, i.e. the 55-65vh band Gabe asked for. */
+  .lp-features .lp-stack-card .lp-split { gap: 14px; }
+  .lp-features .lp-stack-card .lp-frame { height: 420px; }
+  /* CSS SAFETY NET (Gabe, 9/8/26 fix pass): the 55-65vh card height above is
+     measured with scaleToFit's transform applied. If that ResizeObserver is
+     ever late or fails to fire, the frame renders at its full 620px design
+     width unscaled inside this narrow column and the card blows past 90vh.
+     This caps the card itself so that failure mode can't happen, regardless
+     of whether the JS has run yet. */
+  .lp-stack-card { top: 126px; padding: 16px 14px 16px; border-radius: 18px; max-height: 65vh; overflow: hidden; }
+  /* Left-aligned copy, not centred (overrides the 980px tablet rule above,
+     which still centres a stacked split at that width). */
+  .lp-features .lp-stack-card .lp-split-text { text-align: left; }
+  .lp-features .lp-stack-card .lp-bullets li { justify-content: flex-start; }
+  .lp-stack-label { align-self: flex-start; padding-top: 10px; font-size: 12.5px; }
+  /* Shorter cards need less scroll between one landing and the next arriving
+     (36vh at 980px was tuned for the taller pre-cap card). */
+  .lp-stack-card + .lp-stack-card { margin-top: 28vh; }
   /* THE DWELL AFTER THE LAST CARD (Gabe, 9/6/26: "the gap between the bottom
      card and Endless personalization is way too great"). 28vh of it is fine on a
      desktop window; on a phone it lands on top of the next section's own 78px of
@@ -1903,10 +1930,18 @@ html[data-kbd] .landing :is(button, a):focus-visible {
      file, after their base rules: written here they lose the cascade to those
      later, equal-specificity rules and never apply (found by the visual
      auditor, 9/5/26). */
+  /* ONE MOBILE GUTTER (Gabe, 9/8/26 fix pass): .lp-hero was 24px, .lp-section
+     was 22px, .lp-footer was 22px with no phone override at all — three
+     different left edges on the same page. 20px matches the 20-24px floor
+     this file already wants, set against Linear's own mobile column. */
+  .lp-hero, .lp-section, .lp-footer, .lp-stack-head-rail { padding-left: 20px; padding-right: 20px; }
 }
-@media (max-width: 560px) {
-  .lp-section { padding: 60px 16px; }
-  .lp-stack-head-rail { padding: 60px 16px 0; } /* keeps mirroring .lp-section */
+/* 420, down from 560 (Gabe, 9/8/26: consolidate to the 980/640/420 set).
+   Vertical padding only now — the 20px gutter above already covers every
+   width down to here, so this block no longer needs to repeat it. */
+@media (max-width: 420px) {
+  .lp-section { padding-top: 60px; padding-bottom: 60px; }
+  .lp-stack-head-rail { padding-top: 60px; }
 }
 
 /* ---------------- Functions marquee (Gabe, 9/2/26) ----------------
@@ -2072,10 +2107,26 @@ html[data-kbd] .landing :is(button, a):focus-visible {
    phone block, and an equal-specificity rule loses to whichever comes last.
    Move these up and they silently stop applying. */
 @media (max-width: 640px) {
-  /* The marquee's pills are NOT resized here: the strip scales as a whole
-     (see .lp-fn-viewport), so per-pill phone sizes would change the count. */
+  /* REVERTED (Gabe, 9/8/26): the strip used to scale as one picture (see
+     .lp-fn-viewport), which is what produced the "confetti" — 6 tiny,
+     barely-legible pills on screen at once, scaled down to ~0.27x. Turning
+     scaling OFF here (scaleToFit checks --fit-off on the target itself, in
+     view.ts) and sizing the pills for real means the strip goes back to
+     being an ordinary marquee: real font size, and however many pills of
+     that real size fit the screen is how many show — which the min-width
+     below pins at two or three, never more. */
   .lp-fn { padding-top: 32px; padding-bottom: 32px; }
+  .lp-fn-viewport { width: 100%; --fit-off: 1; }
+  .lp-fn-item {
+    min-width: clamp(190px, 42vw, 280px);
+    justify-content: center;
+    padding: 11px 16px;
+    font-size: clamp(13.5px, 3.6vw, 16px);
+  }
   .lp-final-card { padding: 38px 20px 42px; border-radius: 18px; }
+  /* Consolidated from the old 700px footer breakpoint (Gabe: "consolidate
+     duplicates"). Nothing between 640 and 700px needed it on its own. */
+  .lp-footer-top { flex-direction: column; text-align: center; }
 }
 
 /* Reduced motion for the feature stack. Cards pinning and sliding over one

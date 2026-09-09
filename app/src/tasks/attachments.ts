@@ -1,7 +1,7 @@
 // Cobalt: link attachments (spec §6.5). URLs only.
 
 import type { Note } from '../types';
-import { extensionActive, openUrlsInGroup, openTabs, openLink } from '../bookmarks/shortcuts';
+import { extensionActive, openUrlsInGroup, openUrlsInWindow, openTabs, openLink } from '../bookmarks/shortcuts';
 
 export interface AttachmentType {
   label: string;
@@ -74,20 +74,38 @@ export function openAttachment(rawUrl: string): void {
  * detect would spend the click's user-gesture, and the browser would then block the
  * window.open fallback. Cold cache simply means plain tabs this once.
  */
-export function openAll(
-  notes: Note[],
-  group?: { name: string; color: string },
-  opts?: { forceWindows?: boolean }
-): void {
+export function openAll(notes: Note[], group?: { name: string; color: string }): void {
   const valid = notes.map((n) => normalizeUrl(n.url)).filter(Boolean);
   if (!valid.length) return;
   if (group && extensionActive()) {
     void openUrlsInGroup(group.name, group.color, valid).then((ok) => {
-      if (!ok) openTabs(valid, opts); // grouping failed (old Chrome, revoked permission)
+      if (!ok) openTabs(valid); // grouping failed (old Chrome, revoked permission)
     });
     return;
   }
-  openTabs(valid, opts);
+  openTabs(valid);
+}
+
+/**
+ * PREMIUM (needs the companion extension): open every attachment as a TAB inside
+ * ONE new browser window. Gabe, 9/8/26: the earlier "windows" button opened one
+ * browser window PER link — the opposite of what he wanted — so this is the
+ * corrected version, riding the same chrome.windows.create path the extension
+ * exposes as OPEN_WINDOW.
+ *
+ * Resolves the same true/false openUrlsInWindow does; it does NOT fall back to
+ * plain tabs on false. That fallback used to live here, and it was the bug Gabe
+ * reported the same day: with no extension, pressing this opened the links as
+ * tabs in his current window instead of saying it couldn't be done. Callers
+ * must check for the extension before calling this, and must show the user a
+ * message instead of opening anything when this resolves false — there is no
+ * plain-tabs substitute that honors what the button promises, since
+ * window.open cannot put more than one tab in a window it creates.
+ */
+export function openAllInWindow(notes: Note[]): Promise<boolean> {
+  const valid = notes.map((n) => normalizeUrl(n.url)).filter(Boolean);
+  if (!valid.length) return Promise.resolve(true); // nothing to open isn't a failure
+  return openUrlsInWindow(valid);
 }
 
 // #region Auto-extract links from a task's title + description ------------------

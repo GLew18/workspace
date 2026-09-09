@@ -89,7 +89,9 @@ export interface AppPrefs {
   };
   sound: {
     /** The app's incidental sounds: today that means the two-note chime when a task
-     *  is checked off. ON by default. Deliberately does NOT cover the sounds the
+     *  is checked off. OFF by default since 9/8/26 (Gabe: "it's pretty annoying,
+     *  especially kids are going to be using this in school"), and it stays a
+     *  switch in Settings ▸ Tasks for anyone who wants it. Deliberately does NOT cover the sounds the
      *  student asked for on purpose (the focus end cue, which has its own switch,
      *  and music), because those are the point rather than background feedback
      *  (Gabe, 8/15). Any future incidental sound belongs behind this same flag. */
@@ -165,7 +167,7 @@ export const DEFAULT_PREFS: AppPrefs = {
   sync: { auto: true, intervalMins: 30, onOpen: true },
   importPrefs: { assignments: true, assessments: true, quizzes: true, windowDays: 30 },
   tasks: { allowEdit: true, pinnedActions: [], translateFrom: [...DEFAULT_TRANSLATE_FROM] },
-  sound: { system: true },
+  sound: { system: false }, // check-off chime OFF by default, see the note on the type
   focus: { showSeconds: true, keepAwake: true, autoStartMusic: true, resumeAfterReload: false, timeAccountability: false, groupFinished: true, linkTasks: true },
   calendar: {
     defaultScreen: 'list',

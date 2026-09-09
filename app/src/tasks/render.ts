@@ -10,7 +10,7 @@
 import type { Task, TaskMap, Priority, ParsedTask, TaskFolder } from '../types';
 import type { Data, TasksUpdate } from '../db';
 import { el, textInput, copyTextMetrics, autoWidthToText, showToast } from '../util/dom';
-import { extensionActive } from '../bookmarks/shortcuts';
+import { extensionActive, detectExtension, OPEN_WINDOW_NEEDS_EXTENSION_MSG } from '../bookmarks/shortcuts';
 import { popupGuideButton } from '../ui/popupGuide';
 import { attachColorPicker } from '../ui/colorPicker';
 import { openPopup, tabScopedOverlay } from '../ui/popup';
@@ -37,7 +37,7 @@ import { recordManualLabelForTask } from '../schoology/extension';
 import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
 import { parseDateTime, isPastDate, PAST_DATE_MSG, isPastTime, PAST_TIME_MSG } from './parser';
 import { shiftSelect } from '../util/select';
-import { detectAttachmentType, normalizeUrl, openAttachment, openAll } from './attachments';
+import { detectAttachmentType, normalizeUrl, openAttachment, openAll, openAllInWindow } from './attachments';
 import { playCompleteChime, showUndoToast } from './complete';
 import { selectionBar, type SelBar } from '../ui/selbar';
 import {
@@ -3082,7 +3082,7 @@ export class TasksView {
           el('div', { class: 'fd-note', text: 'This task changed, but the earlier version was not recorded.' })
       );
       const row = el('div', { class: 'fd-actions' });
-      const ok = el('button', { class: 'fd-dismiss', text: 'Got it' });
+      const ok = el('button', { class: 'bm-btn', text: 'Got it' });
       ok.addEventListener('click', () => {
         const next = { ...task };
         delete next.feedUpdated; // delete, not undefined — Firebase rejects undefined
@@ -3350,17 +3350,23 @@ export class TasksView {
       });
 
       // THREE launchers (2 became 3 on 9/7/26), so the user picks:
-      //   Open all       = free, plain tabs, always.
-      //   Open as group  = PREMIUM (violet): one named Chrome tab group wearing
-      //                    the task's course color, via the extension. Falls back
-      //                    to plain tabs if the extension isn't there, so the
-      //                    button is never a dead end.
-      //   Open as windows = the new one Gabe asked for: every link in its own
-      //                    SEPARATE BROWSER WINDOW (window.open, never the
-      //                    extension — a real window can't come from chrome.tabs.
-      //                    create). Same violet as "Open as group" on purpose:
-      //                    reusing attach-open-group's class rather than a new
-      //                    shade is what keeps the color literally identical.
+      //   Open all             = free, plain tabs, always.
+      //   Open as group        = PREMIUM (violet): one named Chrome tab group
+      //                          wearing the task's course color, via the
+      //                          extension. Falls back to plain tabs if the
+      //                          extension isn't there, so the button is never
+      //                          a dead end.
+      //   Open in a new window = PREMIUM (violet): every link opens as a TAB
+      //                          inside ONE new browser window, via the
+      //                          extension's chrome.windows.create. Rebuilt
+      //                          9/8/26 — the first version opened a separate
+      //                          window PER link, which Gabe explicitly rejected
+      //                          ("It's not that the links or attachments are
+      //                          windows themselves, that they compose one
+      //                          Chrome window"). Same violet as "Open as group"
+      //                          on purpose: reusing attach-open-group's class
+      //                          rather than a new shade keeps the color
+      //                          literally identical.
       // No Save button anymore: attachments auto-save (see persist above).
       const footer = el('div', { class: 'attach-footer' });
       const openAllBtn = el('button', {
@@ -3374,31 +3380,50 @@ export class TasksView {
       // Stacked label (Gabe, 8/7/26): main line + a small qualifier, no star.
       const openGroupBtn = el('button', {
         class: 'btn-primary attach-open-group',
-        title: 'Premium: opens every link as one named, colored Chrome tab group (needs the Cobalt extension)',
+        title: 'Premium: opens every link as one named, colored tab group (needs the Cobalt extension)',
       });
       openGroupBtn.append(
         el('span', { text: 'Open all' }),
-        el('span', { class: 'attach-open-group-sub', text: '(in a Chrome group)' })
+        el('span', { class: 'attach-open-group-sub', text: '(in a group)' })
       );
       openGroupBtn.addEventListener('click', () => {
         if (this.sample) return;
         // No silent fallback to plain tabs: a missing extension gets told WHY.
         if (!extensionActive()) {
-          this.notice('Install the Cobalt extension to open links as one Chrome tab group.');
+          this.notice('Install the Cobalt extension to open links as one tab group.');
           return;
         }
         openAll(notes, { name: task.title, color: getCourseColor(task.course) });
       });
       const openWindowsBtn = el('button', {
         class: 'btn-primary attach-open-group',
-        title: 'Open every link in its own browser window',
+        title: 'Premium: opens every link as a tab inside one new browser window (needs the Cobalt extension)',
       });
       openWindowsBtn.append(
         el('span', { text: 'Open all' }),
-        el('span', { class: 'attach-open-group-sub', text: '(in windows)' })
+        el('span', { class: 'attach-open-group-sub', text: '(in a new window)' })
       );
       openWindowsBtn.addEventListener('click', () => {
-        if (!this.sample) openAll(notes, undefined, { forceWindows: true });
+        if (this.sample) return;
+        if (!notes.length) return;
+        // LIVE detection, not the cached extensionActive() flag (Gabe, 9/8/26 bug
+        // fix): a cold page load hasn't heard a PONG yet, so the cache can wrongly
+        // say "not installed" when the extension is right there. No user-gesture
+        // cost to paying for a real detect here either — this path only ever
+        // messages the extension, it never calls window.open.
+        void detectExtension().then((r) => {
+          if (!r.installed) {
+            this.notice(OPEN_WINDOW_NEEDS_EXTENSION_MSG);
+            return;
+          }
+          void openAllInWindow(notes).then((ok) => {
+            // NEVER fall back to plain tabs here (Gabe, 9/8/26): a new WINDOW
+            // quietly becoming tabs in the CURRENT one is the exact misleading
+            // behavior he reported. Missing, timed out, or answered no — every
+            // failure gets the same message and opens nothing.
+            if (!ok) this.notice(OPEN_WINDOW_NEEDS_EXTENSION_MSG);
+          });
+        });
       });
       footer.append(openAllBtn, openGroupBtn, openWindowsBtn);
 

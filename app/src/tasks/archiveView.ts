@@ -82,7 +82,7 @@ export class TaskArchiveView {
       // to act on standing (both handlers are on document, so both would fire).
       document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape' || !this.selectedIds.size) return;
-        if (!this.host?.isConnected || document.querySelector('.confirm-backdrop')) return;
+        if (!this.host?.isConnected || document.querySelector('.bm-backdrop.confirm-danger')) return;
         this.clearSelection();
       });
     }

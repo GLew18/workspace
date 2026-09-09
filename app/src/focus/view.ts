@@ -628,21 +628,9 @@ export class FocusView {
       'Focus session complete!',
       `${minutes} min focused` + (total > 0 ? ` • ${done}/${total} tasks done` : '')
     );
-    this.showEndToast(true, minutes, done, total, {
-      label: 'Start Another',
-      onClick: () => this.startAnother(saved.totalSeconds ?? 0, saved.todos ?? [], saved.selectedMusic ?? null),
-    });
-  }
-
-  /** The end-toast's "Start Another" button (both the live-completion and the
-   *  came-back-after-it-elapsed paths): repeat the block that just finished —
-   *  same length, same task list, same music — rather than dropping the student
-   *  back at a blank setup screen after every single Pomodoro. */
-  private startAnother(seconds: number, todos: FocusTodo[], music: string | null): void {
-    this.selectedSeconds = Math.max(60, seconds);
-    this.todos = todos.map((t) => ({ ...t }));
-    this.selectedMusic = music;
-    this.startSession();
+    // No action button on a completed session's toast (Gabe, 9/8/26: "there
+    // shouldn't be a button saying start another on the toast"). See showEndToast.
+    this.showEndToast(true, minutes, done, total);
   }
 
   // --- playlist -----------------------------------------------------------
@@ -1712,7 +1700,7 @@ export class FocusView {
     const fileAll = (folderId: string | null) =>
       Promise.all(batch.map((b) => this.fileTodoInFolder(b, folderId))).then(redraw);
     const back = el('div', { class: 'focus-modal-back' });
-    const card = el('div', { class: 'focus-modal' });
+    const card = el('div', { class: 'focus-modal focus-modal-wide' });
     card.append(el('div', { class: 'focus-modal-title', text: 'Add to folder' }));
     const wrap = el('div', { class: 'folder-pick' });
     if (batch.length > 1) {
@@ -2554,10 +2542,6 @@ export class FocusView {
     // Minutes actually focused (elapsed), not the planned length — so a session
     // ended early reports honestly.
     const minutes = Math.max(0, Math.floor((this.totalSeconds - this.currentRemaining()) / 60));
-    // Snapshot for the toast's "Start Another" button — taken NOW, because the
-    // teardown a few lines down wipes sessionTodos/sessionMusic/totalSeconds, and
-    // the button only runs later, on a click.
-    const justFinished = { seconds: this.totalSeconds, todos: [...this.sessionTodos], music: this.sessionMusic };
 
     // Manual ends get an undo window: snapshot the session BEFORE teardown so the
     // toast's Restore button can bring it back. A naturally completed session has
@@ -2622,17 +2606,15 @@ export class FocusView {
       // thing that could never depend on a permission prompt, and dropping it here
       // (see git blame: this predates this repo's tracked history) silently made the
       // notification the ONLY completion feedback for a normally-elapsed session.
-      // Restoring it: minutes, task count (dropped when there were no tasks — Gabe,
-      // 9/6/26, so an empty list doesn't announce "0/0 tasks done"), and a one-tap
-      // "Start Another" so finishing a block doesn't dead-end at the setup screen.
+      // Restoring it: minutes, and task count (dropped when there were no tasks —
+      // Gabe, 9/6/26, so an empty list doesn't announce "0/0 tasks done"). No action
+      // button here (Gabe, 9/8/26: "there shouldn't be a button saying start another
+      // on the toast") — see showEndToast.
       void this.notify(
         'Focus session complete!',
         `${minutes} min focused` + (total > 0 ? ` • ${done}/${total} tasks done` : '')
       );
-      this.showEndToast(true, minutes, done, total, {
-        label: 'Start Another',
-        onClick: () => this.startAnother(justFinished.seconds, justFinished.todos, justFinished.music),
-      });
+      this.showEndToast(true, minutes, done, total);
     } else {
       // Manual / early ends get NO notification — so the toast stays for them, mainly
       // to carry the "Restore" undo (a mis-tapped End can be taken back for ~10s).
@@ -4639,10 +4621,10 @@ export class FocusView {
   /** Slide-up "session complete" pill (bottom-center). Trophy + label + stats +
    *  dismiss; auto-hides after 10s. Honest label for a session ended early.
    *
-   *  `action` is the toast's one response button — Restore for a manual end,
-   *  Start Another for a natural completion (Gabe, 9/7/26: the toast needs
-   *  "an option to respond to the session", and a completed one used to get
-   *  none at all — see endSession()). */
+   *  `action` is the toast's one response button. A manual end gets Restore
+   *  (the ~10s undo window). A completed session gets none (Gabe, 9/8/26:
+   *  "there shouldn't be a button saying start another on the toast" — the
+   *  9/7/26 "Start Another" button on that path was removed the next day). */
   private showEndToast(
     completed: boolean,
     minutes: number,

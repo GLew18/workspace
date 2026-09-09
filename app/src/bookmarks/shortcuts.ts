@@ -6,9 +6,12 @@
 //     BYTE-FOR-BYTE in the companion extension's content script; any divergence
 //     silently breaks matching, so edit them in lock-step.
 //   • classifyCombo — the single gatekeeper (no-modifier → reserved → in-use).
-//   • openShortcutModal — the "Select Keys" capture modal + premium/install UX.
-//   • detectExtension / syncShortcutsToExtension / renderInstallPrompt — the
-//     bridge to the companion extension (ping/pong + full-replace config sync).
+//   • openShortcutModal — the "Select Keys" capture modal (extension-gated by its
+//     CALLER in view.ts, which toasts SHORTCUT_NEEDS_EXTENSION_MSG and skips
+//     opening this modal at all when the extension is missing, same pattern as
+//     OPEN_WINDOW_NEEDS_EXTENSION_MSG — Gabe, 9/8/26).
+//   • detectExtension / syncShortcutsToExtension — the bridge to the companion
+//     extension (ping/pong + full-replace config sync).
 //   • installInAppDispatcher / setRecording — the focused-tab fallback that fires
 //     shortcuts while Cobalt is the active tab (and yields to the extension
 //     once it is detected, so exactly one tab opens per press).
@@ -66,7 +69,6 @@ export interface OpenShortcutModalOptions {
   existingCombos: Set<string>;
   onSaved: (combo: string) => void;
   onCleared?: () => void;
-  detect?: () => Promise<DetectResult>;
   /** Sample-mode container (the landing previews): the modal mounts here instead
    *  of document.body, so it stays inside the demo "screen". */
   host?: HTMLElement;
@@ -92,13 +94,6 @@ function resolveExtensionId(): string {
   const fromEnv = env?.VITE_WS_EXT_ID;
   if (fromEnv && fromEnv.trim()) return fromEnv.trim();
   return '';
-}
-
-/** Web Store listing URL for the install CTA. */
-function webStoreUrl(extId: string): string {
-  return extId
-    ? 'https://chromewebstore.google.com/detail/' + extId
-    : 'https://chromewebstore.google.com/';
 }
 
 /** Canonical-form blocklist of browser/OS-reserved combos. MIRRORED BYTE-FOR-BYTE
@@ -254,9 +249,12 @@ function reasonMessage(reason: ComboRejectReason): string {
 // One prefs switch (openLinksInNewWindow, off by default) decides how every
 // single-link open behaves — attachment click, bookmark card click, and an
 // in-app keyboard shortcut all funnel through here. Bulk "Open all" (openTabs
-// below) also reads it for its own per-link window.open calls; the extension
-// paths (chrome.tabs.create, the Chrome tab group) are untouched, since a real
-// browser window can only come from window.open, not from the extension API.
+// below) also reads it for its own per-link window.open calls. The dedicated
+// "Open all in a new window" premium button is a separate feature (Gabe,
+// 9/8/26): it always asks the extension for ONE new window holding every link
+// as a tab (openUrlsInWindow, further down), regardless of this setting,
+// because chrome.windows.create is the only thing that can put more than one
+// tab in a window it creates — window.open never can.
 
 /** A real separate browser window (full chrome, not a stripped popup), sized to
  *  4/5 of the screen and centered, so it reads as "your own window" rather than
@@ -567,41 +565,76 @@ export function openUrlsPlain(urls: string[]): Promise<boolean> {
 }
 
 /**
- * THE one entry point for "open these links in tabs" (bookmarks Open all,
- * attachments Open all, and both premium buttons' failure fallbacks). Extension
- * first, because it dodges the popup blocker; otherwise window.open per link,
- * counting what the blocker ate and saying so in a toast instead of silently
- * opening one tab and looking broken.
- *
- * `forceWindows` (Gabe, 9/7/26) is the explicit "open all as windows" button:
- * it always opens separate browser windows, regardless of the openLinksInNewWindow
- * setting (which only governs a single-link click). A real window can only come
- * from window.open, never chrome.tabs.create, so this always skips the extension.
+ * Open `urls` as ONE new browser window, with every link as a TAB inside it
+ * (premium; needs the extension). This is the corrected "Open all in a new
+ * window" button (Gabe, 9/8/26): "That button should create a new Chrome
+ * window that has all of the attachments or links as separate tabs. It's not
+ * that the links or attachments are windows themselves, that they compose one
+ * Chrome window." Plain window.open cannot do this — a page gets one popup per
+ * click and can never add further tabs to a window it opened — so only the
+ * extension can, via chrome.windows.create with an array of urls. Resolves
+ * false when the extension is absent or the call fails. Callers must NOT fall
+ * back to opening tabs (or one window per link) on a false result: Gabe
+ * reported that exact fallback as misleading (9/8/26) — pressing this button
+ * with no extension installed silently opened the links as tabs in his
+ * CURRENT window, which looks like the button did something when it refused.
+ * The only correct response to false here is telling the user the extension
+ * is required and opening nothing — see OPEN_WINDOW_NEEDS_EXTENSION_MSG.
  */
-export function openTabs(urls: string[], opts?: { forceWindows?: boolean }): void {
+export function openUrlsInWindow(urls: string[]): Promise<boolean> {
+  return sendTabRequest('OPEN_WINDOW', 'OPEN_WINDOW_ACK', { urls });
+}
+
+/** Shared copy for the "open all in a new window" premium feature (Gabe,
+ *  9/8/26 bug fix), used by both call sites — the bookmarks group row and the
+ *  attachments popup — so the two never drift into saying different things.
+ *  Shown whenever the window can't be opened, whether the extension is
+ *  missing, didn't answer in time, or answered "no": in every case the fix is
+ *  the same (install/reload the extension), and there is no lesser substitute
+ *  to fall back to. */
+export const OPEN_WINDOW_NEEDS_EXTENSION_MSG =
+  'Install the Cobalt extension to open all links in one new window.';
+
+/** Shared copy for the "+ Shortcut" chip's extension gate (Gabe, 9/8/26: make it a
+ *  toast "just like this current one", meaning OPEN_WINDOW_NEEDS_EXTENSION_MSG
+ *  above, for continuity — one consistent way the app says "this needs the
+ *  extension" instead of a pop-up banner). */
+export const SHORTCUT_NEEDS_EXTENSION_MSG =
+  'Install the Cobalt extension to set a keyboard shortcut for this link.';
+
+/**
+ * THE one entry point for "open these links as separate tabs" (bookmarks Open
+ * all, attachments Open all, and every premium button's failure fallback when
+ * the extension answers "no"). Extension first, because it dodges the popup
+ * blocker; otherwise window.open per link, counting what the blocker ate and
+ * saying so in a toast instead of silently opening one tab and looking broken.
+ */
+export function openTabs(urls: string[]): void {
   const clean = urls.filter(Boolean);
   if (!clean.length) return;
-  const wantsWindows = opts?.forceWindows || getPrefs().openLinksInNewWindow;
+  // TABS, ALWAYS. This function never opens windows, not even when the
+  // "open links in a new window" setting is on (Gabe, 9/8/26). That setting
+  // governs a SINGLE link click; a bulk open honoring it would open one window
+  // per link, which is precisely the behavior he rejected: "it's not that the
+  // links or attachments are windows themselves, that they compose one Chrome
+  // window." One window holding every link as a tab is a different feature with
+  // its own button, and it goes through openUrlsInWindow and the extension,
+  // because window.open cannot put a second tab into a window it just made.
+  // This also matters as a FALLBACK: when that button's extension call fails it
+  // lands here, and here must not quietly do the rejected thing.
   const plainLoop = (): void => {
     let blocked = 0;
-    const features = wantsWindows ? newWindowFeatures() : 'noopener';
     for (const u of clean) {
-      const w = window.open(u, '_blank', features);
+      const w = window.open(u, '_blank', 'noopener');
       if (!w) blocked++;
     }
     if (blocked > 0) {
-      const noun = wantsWindows ? 'windows' : 'tabs';
       showToast(
-        `Chrome blocked ${blocked} of ${clean.length} ${noun}. Allow pop-ups for Cobalt to open them all.`
+        `Chrome blocked ${blocked} of ${clean.length} tabs. Allow pop-ups for Cobalt to open them all.`
       );
     }
   };
-  // The extension's OPEN_TABS opens TABS, which is the one thing the setting says
-  // not to do — so when "open links in a new window" is on, the extension shortcut
-  // is skipped and every link goes through window.open. That reintroduces the popup
-  // blocker this path exists to dodge, which is the honest trade: the toast below
-  // says what got eaten, and one window per click is a browser limit, not ours.
-  if (wantsWindows || !extensionActive()) {
+  if (!extensionActive()) {
     plainLoop();
     return;
   }
@@ -613,8 +646,8 @@ export function openTabs(urls: string[], opts?: { forceWindows?: boolean }): voi
 /** The shared request/ack plumbing both tab openers ride: direct channel when the
  *  origin is in externally_connectable, the postMessage bridge everywhere else. */
 function sendTabRequest(
-  type: 'OPEN_GROUP' | 'OPEN_TABS',
-  ackType: 'OPEN_GROUP_ACK' | 'OPEN_TABS_ACK',
+  type: 'OPEN_GROUP' | 'OPEN_TABS' | 'OPEN_WINDOW',
+  ackType: 'OPEN_GROUP_ACK' | 'OPEN_TABS_ACK' | 'OPEN_WINDOW_ACK',
   payload: Record<string, unknown>
 ): Promise<boolean> {
   ensureBridgeListener();
@@ -693,43 +726,19 @@ function sendTabRequest(
 }
 // #endregion
 
-// #region Install prompt (reusable banner)
-/** Render the premium/install CTA into `container`. Shown ONLY when the extension
- *  isn't detected. 'Install extension' opens the Web Store listing. */
-export function renderInstallPrompt(container: HTMLElement): HTMLElement {
-  const banner = el('div', { class: 'bm-install-banner' });
-  banner.append(
-    el('div', {
-      class: 'bm-install-title',
-      text: 'Keyboard shortcuts are a Cobalt premium feature.',
-    })
-  );
-  banner.append(
-    el('div', {
-      class: 'bm-install-body',
-      text: 'Install the free companion extension to set keyboard shortcuts for your links.',
-    })
-  );
-  const row = el('div', { class: 'bm-install-actions' });
-  const install = el('button', { class: 'bm-btn bm-btn-primary', text: 'Install extension' });
-  install.addEventListener('click', () => {
-    window.open(webStoreUrl(knownExtId()), '_blank', 'noopener');
-  });
-  row.append(install);
-  banner.append(row);
-  container.append(banner);
-  return banner;
-}
-// #endregion
-
 // #region openShortcutModal — the "Select Keys" capture modal
-/** Open the "Open this website with a key combination." modal. Shortcuts are
- *  extension-gated: detect the extension FIRST, then show EITHER the Select-Keys
- *  capture UI (installed) OR the install prompt (not installed) — never both. The
- *  recording guard stays set for the whole modal lifetime and is always cleared. */
+/** Open the "Open this website with a key combination." modal. The chip's click
+ *  handler in view.ts is the extension gate now (Gabe, 9/8/26): it checks
+ *  detectExtension() BEFORE calling this, and shows SHORTCUT_NEEDS_EXTENSION_MSG
+ *  as a toast instead of opening this modal when the extension is missing. So by
+ *  the time this runs, the extension is known to be present (or it's sample mode,
+ *  which never gates at all) and the capture UI is the only thing there is to
+ *  show. This used to detect internally and branch to an install banner
+ *  (renderInstallPrompt, removed the same day) — that was the pop-up Gabe wanted
+ *  gone in favor of the toast.
+ *  The recording guard stays set for the whole modal lifetime and is always
+ *  cleared. */
 export function openShortcutModal(bm: ShortcutBookmark, opts: OpenShortcutModalOptions): void {
-  const detect = opts.detect ?? (() => detectExtension());
-
   // Guard the own-tab dispatcher for the entire modal lifetime.
   setRecording(true);
 
@@ -752,7 +761,6 @@ export function openShortcutModal(bm: ShortcutBookmark, opts: OpenShortcutModalO
   box.append(el('h3', { class: 'bm-modal-title', text: 'Open this website with a key combination' }));
 
   const content = el('div', { class: 'bm-modal-content' });
-  content.append(el('div', { class: 'bm-modal-hint', text: 'Checking for the Cobalt extension…' }));
   box.append(content);
 
   back.append(box);
@@ -907,22 +915,7 @@ export function openShortcutModal(bm: ShortcutBookmark, opts: OpenShortcutModalO
     keysBox.focus();
   };
 
-  // --- Not installed → the premium install prompt ONLY (no keys field) ---
-  const buildNotInstalled = (): void => {
-    content.replaceChildren();
-    renderInstallPrompt(content);
-    const footer = el('div', { class: 'bm-modal-footer' });
-    const closeBtn = el('button', { class: 'bm-btn', text: 'Close' });
-    closeBtn.addEventListener('click', close);
-    footer.append(el('div', { class: 'bm-modal-spacer' }), closeBtn);
-    content.append(footer);
-  };
-
-  void detect().then((r) => {
-    if (cleanedUp) return; // modal already closed before detection resolved
-    if (r.installed) buildInstalled();
-    else buildNotInstalled();
-  });
+  buildInstalled();
 }
 
 /** Best-effort label while the user is still holding modifiers (combo not final). */

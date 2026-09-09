@@ -63,9 +63,17 @@ export const DEFAULT_END_SOUND = 'fanfare';
  *  passes through GAIN_SCALE below. */
 export const DEFAULT_END_VOLUME = 0.8;
 
-/** Maps the 0..1 Volume slider to an actual gain. >1 so the default is punchier
- *  than the raw note peaks; the limiter in playEndSound tames the peaks. */
-const GAIN_SCALE = 1.6;
+/** Maps the 0..1 Volume slider to an actual gain — the one number every end
+ *  cue's loudness is scaled by, so lowering it here lowers all ten together and
+ *  keeps their balance against each other.
+ *
+ *  LOWERED 9/8/26 (Gabe: "the volume bar, 100%, should be lower... too loud").
+ *  Was 1.6. The ear doesn't hear gain linearly — a straight halving of this
+ *  number (0.8) would only read as a mild dip, since perceived loudness roughly
+ *  follows a -10dB-per-halving curve, not a -6dB one. 0.5 is a ~10dB cut from
+ *  1.6, which is the ballpark that actually sounds half as loud at every slider
+ *  position, not just at 100%. */
+const GAIN_SCALE = 0.5;
 
 // #region Audio primitives
 interface NoteOpts {

@@ -575,24 +575,23 @@
    on purpose (see the fidelity note at the top of icalGuide.ts). Sits above
    the deck (z 200). */
 .onb-sso {
+  /* Backdrop dim + fade-in come from the shared .guide-scrim (components.css),
+     matching the bm-modal family (no blur, same scrim). z-index stays 300 on
+     purpose: this guide sits above the onboarding deck, which runs at 200. */
   position: fixed;
   inset: 0;
   z-index: 300;
   display: flex;
-  background: rgba(3, 8, 21, 0.78);
-  backdrop-filter: blur(4px);
   align-items: center;
   justify-content: center;
   padding: 18px;
 }
 .onb-sso-card {
+  /* Box skin (surface/border-strong/16px/padding/shadow) comes from the
+     shared .guide-sheet (components.css). Width stays here: this guide runs
+     wider than a bm-modal to fit its screenshots. */
   width: min(560px, 100%);
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 16px;
-  padding: 18px;
   position: relative;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
 }
 .onb-sso-close {
   position: absolute;
@@ -610,7 +609,7 @@
   background: rgba(255, 255, 255, 0.06);
 }
 .onb-sso-title {
-  font-size: 15px;
+  font-size: 16px; /* matches bm-modal-title */
   font-weight: 700;
   margin: 0 26px 2px 0;
 }
@@ -687,13 +686,9 @@
   text-align: right;
 }
 .onb-sso-done {
-  background: var(--gold);
-  color: var(--on-accent);
-  border: none;
-  border-radius: 11px;
-  font-weight: 700;
-  font-size: 13px;
-  padding: 11px 16px;
+  /* Color/border/radius/padding/weight come from the added .bm-btn-primary
+     class (ui/bookmarks.css) so this final action button matches every
+     other guide's "Next"/"Got it" button. */
   white-space: nowrap;
 }
 .onb-err {

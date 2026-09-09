@@ -55,17 +55,13 @@ async function submit(text: string, screen: string): Promise<void> {
 /** Open the box. `screen` is the tab the student was looking at, which rides along
  *  so a report about "the timer thing" arrives already knowing it was Focus. */
 export function openSuggestionBox(screen = ''): void {
-  const back = el('div', { class: 'popup-backdrop' });
-  const box = el('div', { class: 'popup sg-popup' });
+  // Shell: the shared bm-backdrop/bm-modal skin (ui/bookmarks.css), the same look
+  // every other Cobalt form dialog uses (Gabe, 9/8: no dialog should look
+  // one-off). Only the inside (sg-*) stays bespoke.
+  const back = el('div', { class: 'bm-backdrop' });
+  const box = el('div', { class: 'bm-modal sg-popup' });
 
-  // Centered title with an ✕ parked top-right, rather than the app's usual
-  // left-aligned popup heading: this is a wide single-purpose dialog, and the
-  // reference layout Gabe picked centers it (8/13).
-  const head = el('div', { class: 'sg-head' });
-  head.append(el('h3', { class: 'sg-title', text: 'Suggestions and bug reports' }));
-  const x = el('button', { class: 'sg-x', text: '✕', 'aria-label': 'Close' });
-  head.append(x);
-  box.append(head);
+  box.append(el('h3', { class: 'bm-modal-title', text: 'Suggestions and bug reports' }));
 
   const body = el('div', { class: 'popup-body' });
 
@@ -116,14 +112,17 @@ export function openSuggestionBox(screen = ''): void {
     })
   );
 
-  const foot = el('div', { class: 'sg-foot' });
   // Only appears near the ceiling. A permanent counter is noise on a box nobody is
   // going to fill, but hitting an invisible wall at 2000 characters is worse.
   const count = el('span', { class: 'sg-count' });
-  const send = el('button', { class: 'btn-primary sg-send', text: 'Send' }) as HTMLButtonElement;
+  const cancel = el('button', { class: 'bm-btn', text: 'Cancel' });
+  const send = el('button', { class: 'bm-btn bm-btn-primary sg-send', text: 'Send' }) as HTMLButtonElement;
   send.disabled = true;
-  foot.append(count, send);
-  body.append(foot);
+  const close = () => fadeRemove(back);
+  cancel.addEventListener('click', close);
+  // Canon footer order (bm-modal-footer): left content, spacer, Cancel, primary.
+  const footer = el('div', { class: 'bm-modal-footer' });
+  footer.append(count, el('div', { class: 'bm-modal-spacer' }), cancel, send);
 
   ta.addEventListener('input', () => {
     const n = ta.value.trim().length;
@@ -131,8 +130,6 @@ export function openSuggestionBox(screen = ''): void {
     send.disabled = n === 0;
   });
 
-  const close = () => fadeRemove(back);
-  x.addEventListener('click', close);
   back.addEventListener('click', (e) => {
     if (e.target === back) close();
   });
@@ -155,7 +152,7 @@ export function openSuggestionBox(screen = ''): void {
       });
   });
 
-  box.append(body);
+  box.append(body, footer);
   back.append(box);
   document.body.append(back);
   ta.focus();

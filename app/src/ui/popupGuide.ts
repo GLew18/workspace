@@ -163,8 +163,8 @@ export function popupGuideButton(): HTMLButtonElement {
 /** The three-step player, in the fix-it guides' clothes (.ngd* classes). */
 export function openPopupBlockerGuide(): void {
   if (document.querySelector('.ngd')) return; // one guide overlay at a time
-  const overlay = el('div', { class: 'ngd' });
-  const card = el('div', { class: 'ngd-card' });
+  const overlay = el('div', { class: 'ngd guide-scrim' });
+  const card = el('div', { class: 'ngd-card guide-sheet' });
   let si = 0;
 
   const close = (): void => {
@@ -193,19 +193,20 @@ export function openPopupBlockerGuide(): void {
     const caption = el('div', { class: 'ngd-caption', text: STEPS[si].caption });
     const dots = el('div', { class: 'ngd-dots' });
     STEPS.forEach((_, k) => dots.append(el('span', { class: `ngd-dot${k === si ? ' on' : ''}` })));
-    const nav = el('div', { class: 'ngd-nav' });
-    const prev = el('button', { class: 'ngd-btn', text: 'Back' }) as HTMLButtonElement;
+    const nav = el('div', { class: 'bm-modal-footer' });
+    const prev = el('button', { class: 'bm-btn', text: 'Back' }) as HTMLButtonElement;
     prev.style.visibility = si === 0 ? 'hidden' : 'visible';
     prev.addEventListener('click', () => go(-1));
+    const spacer = el('div', { class: 'bm-modal-spacer' });
     const next = el('button', {
-      class: 'ngd-btn ngd-next',
+      class: 'bm-btn bm-btn-primary',
       text: si === STEPS.length - 1 ? 'Got it' : 'Next',
     }) as HTMLButtonElement;
     next.addEventListener('click', () => {
       if (si < STEPS.length - 1) go(1);
       else close();
     });
-    nav.append(prev, next);
+    nav.append(prev, spacer, next);
     card.append(closeBtn, head, stage, caption, dots, nav);
   };
 

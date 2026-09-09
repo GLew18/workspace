@@ -621,32 +621,16 @@
   border-color: var(--red);
 }
 
-/* editor modal: the same neutral dim as every other backdrop in the app.
-   (This used to be called out as "not the red one", back when .confirm-backdrop
-   tinted the whole screen red. It no longer does, so they now match.) */
-.editor-backdrop {
-  position: fixed;
-  inset: 0;
-  background: var(--scrim-dim); /* the drawer's dim (components.css :root); no blur, the drawer has none */
-  animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  z-index: 1600;
-}
+/* Playlist editor: renders the shared bm-backdrop/bm-modal skin (ui/bookmarks.css,
+   see settings/view.ts openPlaylistEditor) so it looks identical to every other
+   Cobalt form dialog. Only the layout below is bespoke: the song list is the one
+   part of the box that scrolls, so the modal grows into a column and caps its
+   height instead of bm-modal's plain padded box. */
 .playlist-editor {
-  width: 100%;
-  max-width: 460px;
   max-height: 82vh;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
 }
 /* The song list is the ONLY part that flexes and scrolls; the title, the two
    inputs, the count and the action row must keep their natural height. Without
@@ -656,11 +640,6 @@
    the top edge. flex:none pins everything except the list. */
 .playlist-editor > :not(.playlist-editor-list) {
   flex: none;
-}
-.playlist-editor-title {
-  margin: 0;
-  font-size: 17px;
-  color: var(--text);
 }
 /* Emoji + name side by side; the tiny emoji box stays square, the name flexes. */
 .playlist-editor-namerow {
@@ -742,19 +721,6 @@
 }
 .emoji-picker-clear:hover {
   color: var(--text);
-}
-.playlist-editor-save {
-  background: var(--accent);
-  border: none;
-  border-radius: 8px;
-  color: #1a1205;
-  font-weight: 700;
-  font-size: 13px;
-  padding: 8px 18px;
-  cursor: pointer;
-}
-.playlist-editor-save:hover {
-  filter: brightness(1.06);
 }
 .playlist-editor-count {
   font-size: 12px;
@@ -904,16 +870,15 @@
   z-index: 1500;
 }
 .help-box {
+  /* Matches bm-modal (ui/bookmarks.css): border-strong, literal 16px radius,
+     20px padding, same shadow. Title is .bm-modal-title on the <h3> itself;
+     this selector no longer sets margin/size so it doesn't out-specificity it. */
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
   max-width: 380px;
-  padding: 22px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
-}
-.help-box h3 {
-  margin: 0 0 10px;
-  font-size: 16px;
+  padding: 20px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
 }
 .help-text {
   margin: 0 0 16px;
@@ -923,71 +888,10 @@
   white-space: pre-wrap;
 }
 
-/* Can't-miss confirmation (e.g. changing the Schoology link, signing out).
-   The RED lives on the box itself: red border, red glow, red title. The backdrop
-   is the same neutral dim every other modal uses, on purpose. Tinting the whole
-   screen red read as an error state rather than a question, and it made the
-   dialog harder to read, not easier to notice. */
-.confirm-backdrop {
-  position: fixed;
-  inset: 0;
-  background: var(--scrim-dim); /* the drawer's dim (components.css :root); no blur, the drawer has none */
-  animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  z-index: 1600;
-}
-.confirm-box {
-  background: #1a0d0d;
-  border: 1.5px solid var(--red);
-  border-radius: var(--radius);
-  max-width: 380px;
-  padding: 22px;
-  box-shadow: 0 0 40px rgba(239, 68, 68, 0.35);
-}
-.confirm-title {
-  margin: 0 0 10px;
-  font-size: 17px;
-  color: #ff6b6b;
-}
-.confirm-text {
-  margin: 0 0 18px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.8);
-  line-height: 1.55;
-}
-.confirm-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-}
-.confirm-cancel {
-  background: none;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  color: var(--text);
-  font-size: 13px;
-  padding: 8px 16px;
-  cursor: pointer;
-}
-.confirm-cancel:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-.confirm-yes {
-  background: var(--red);
-  border: none;
-  border-radius: 8px;
-  color: #fff;
-  font-weight: 700;
-  font-size: 13px;
-  padding: 8px 18px;
-  cursor: pointer;
-}
-.confirm-yes:hover {
-  background: #dc2626;
-}
+/* The "are you sure?" confirmation (e.g. changing the Schoology link, signing
+   out) now renders the shared bm-backdrop/bm-modal skin from ui/bookmarks.css
+   (see ui/confirm.ts) instead of its own classes, so it looks identical to
+   the Bookmarks delete confirmation everywhere in the app. */
 .settings-inline {
   display: flex;
   align-items: center;
@@ -1376,15 +1280,18 @@
    behind the very popup that spawned it. Guides are always the topmost thing on
    screen, because they are what you read while doing something else. */
 .ngd {
+  /* Backdrop dim + fade-in come from the shared .guide-scrim (components.css),
+     matching the bm-modal family. z-index stays 1200 on purpose: this guide is
+     launched from other popups (e.g. the attachments popup) and must always
+     land on top of them, not behind at the bm-modal tier (1000). */
   position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center;
-  background: rgba(5, 10, 21, 0.62); backdrop-filter: blur(3px); padding: 20px;
-  animation: ngd-fade 0.18s ease;
+  padding: 20px;
 }
-@keyframes ngd-fade { from { opacity: 0; } to { opacity: 1; } }
 .ngd-card {
+  /* Box skin (surface/border-strong/16px/padding/shadow) comes from the
+     shared .guide-sheet (components.css). Width/max-height/overflow stay
+     here: this guide runs wider than a bm-modal to fit its screenshots. */
   position: relative; width: min(560px, 100%); max-height: 92vh; overflow-y: auto;
-  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 18px;
-  padding: 24px 24px 20px; box-shadow: 0 24px 70px rgba(0,0,0,0.55);
 }
 .ngd-close {
   position: absolute; top: 12px; right: 14px; background: none; border: none;
@@ -1392,7 +1299,7 @@
 }
 .ngd-close:hover { color: var(--text); }
 /* index */
-.ngd-title { font-size: 18px; font-weight: 750; }
+.ngd-title { font-size: 16px; font-weight: 700; } /* matches bm-modal-title */
 .ngd-sub { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; margin: 6px 24px 16px 0; }
 .ngd-list { display: flex; flex-direction: column; gap: 8px; }
 /* Each guide carries a likelihood heat color in --gda (red = most common → purple =
@@ -1454,22 +1361,15 @@
   padding: 5px 10px; cursor: pointer;
 }
 .ngd-back:hover { color: var(--text); border-color: var(--text-dim); }
-.ngd-head-title { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 700; }
+.ngd-head-title { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; } /* matches bm-modal-title */
 .ngd-stage { border-radius: 12px; overflow: hidden; }
 .ngd-stage svg { display: block; width: 100%; height: auto; }
 .ngd-caption { font-size: 12.5px; color: var(--text); line-height: 1.55; margin-top: 12px; min-height: 56px; }
 .ngd-dots { display: flex; justify-content: center; gap: 7px; margin: 12px 0 14px; }
 .ngd-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); transition: background 0.2s ease, transform 0.2s ease; }
 .ngd-dot.on { background: var(--gda, var(--accent)); transform: scale(1.25); }
-.ngd-nav { display: flex; gap: 10px; }
-.ngd-btn {
-  flex: 1; padding: 10px 14px; border-radius: 10px; cursor: pointer;
-  font-family: inherit; font-size: 13px; font-weight: 650; border: 1px solid var(--border-strong);
-  background: var(--surface2); color: var(--text); transition: background 0.16s ease, border-color 0.16s ease;
-}
-.ngd-btn:hover { background: var(--surface); }
-.ngd-next { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.ngd-next:hover { filter: brightness(1.05); background: var(--accent); }
+/* Nav buttons now render bm-modal-footer/bm-btn/bm-btn-primary (ui/bookmarks.css)
+   instead of their own .ngd-nav/.ngd-btn/.ngd-next recipe. */
 
 /* Mac/Windows switcher on the guide index (8/31) — same segmented look as .nseg,
    sized to sit under the subtitle. Defaults to the detected OS (util/os.ts). */

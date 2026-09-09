@@ -31,8 +31,11 @@ import {
   normalizeCombo,
   extensionActive,
   openUrlsInGroup,
+  openUrlsInWindow,
   openTabs,
   openLink,
+  OPEN_WINDOW_NEEDS_EXTENSION_MSG,
+  SHORTCUT_NEEDS_EXTENSION_MSG,
   type ShortcutBookmark,
 } from './shortcuts';
 
@@ -483,15 +486,20 @@ export class BookmarksView {
 
   /** The strip above a group's cards: its dot, its name, and THREE launchers
    *  (2 became 3 on 9/7/26), so the user picks:
-   *    Open all             = free, every link in its own tab, always.
-   *    Open all as group    = PREMIUM (violet): the whole group opens as ONE named,
-   *                           colored Chrome tab group via the extension. Falls
-   *                           back to plain tabs if the extension isn't there,
-   *                           never a dead end.
-   *    Open all as windows  = the new one Gabe asked for: every link opens in its
-   *                           own separate browser window. Reuses bm-group-head-
-   *                           gopen's exact violet (same class), not a new shade,
-   *                           because both read as premium bulk actions. */
+   *    Open all               = free, every link in its own tab, always.
+   *    Open all as group      = PREMIUM (violet): the whole group opens as ONE
+   *                            named, colored Chrome tab group via the extension.
+   *                            Falls back to plain tabs if the extension isn't
+   *                            there, never a dead end.
+   *    Open all in a new window = PREMIUM (violet): every link opens as a TAB
+   *                            inside ONE new browser window via the extension.
+   *                            Rebuilt 9/8/26 — the first version opened a
+   *                            separate window PER link, which Gabe explicitly
+   *                            rejected ("It's not that the links or attachments
+   *                            are windows themselves, that they compose one
+   *                            Chrome window"). Reuses bm-group-head-gopen's exact
+   *                            violet (same class), not a new shade, because both
+   *                            read as premium bulk actions. */
   private groupHeader(group: BookmarkGroup, members: Bookmark[]): HTMLElement {
     const row = el('div', { class: 'bm-group-head' });
     const dot = el('span', { class: 'bm-group-head-dot' });
@@ -516,7 +524,7 @@ export class BookmarksView {
     const openGroup = el('button', {
       class: 'bm-group-head-open bm-group-head-gopen',
       text: 'Open all as group',
-      title: `Premium: open all ${members.length} links as one “${group.name}” Chrome tab group (needs the Cobalt extension)`,
+      title: `Premium: open all ${members.length} links as one “${group.name}” tab group (needs the Cobalt extension)`,
     });
     openGroup.addEventListener('click', () => {
       if (this.sample) return;
@@ -528,7 +536,7 @@ export class BookmarksView {
       console.info('[Cobalt] Open as group:', { group: group.name, links: urls.length, extensionDetected: active });
       if (!active) {
         // No silent fallback to plain tabs: a missing extension gets told WHY.
-        showToast('Install the Cobalt extension to open links as one Chrome tab group.');
+        showToast('Install the Cobalt extension to open links as one tab group.');
         return;
       }
       void openUrlsInGroup(group.name, group.color, urls).then((ok) => {
@@ -539,14 +547,35 @@ export class BookmarksView {
 
     const openWindows = el('button', {
       class: 'bm-group-head-open bm-group-head-gopen',
-      text: 'Open all as windows',
-      title: `Open all ${members.length} links, each in its own browser window`,
+      text: 'Open all in a new window',
+      title: `Premium: open all ${members.length} links as tabs in one new browser window (needs the Cobalt extension)`,
     });
     openWindows.addEventListener('click', () => {
       if (this.sample) return;
       const urls = urlsOf();
       if (!urls.length) return;
-      openTabs(urls, { forceWindows: true });
+      // LIVE detection, not the cached extensionActive() flag (Gabe, 9/8/26 bug
+      // fix): a cold page load hasn't heard a PONG yet, so the cache can say
+      // "not installed" when the extension is right there, and telling someone
+      // who has it that they need it is its own kind of wrong answer. There's no
+      // user-gesture cost to paying for a real detect here either — this path
+      // only ever messages the extension, it never calls window.open.
+      void detectExtension().then((r) => {
+        if (!r.installed) {
+          showToast(OPEN_WINDOW_NEEDS_EXTENSION_MSG);
+          return;
+        }
+        void openUrlsInWindow(urls).then((ok) => {
+          // NEVER fall back to opening tabs here. Gabe, 9/8/26: "it's deploying
+          // the new tabs within the current window... it should just be: okay,
+          // you can't do this because you don't have the extension." A new
+          // WINDOW quietly becoming tabs in the CURRENT one is exactly that
+          // misleading behavior, whether the extension is missing, timed out,
+          // or answered no — every one of those cases gets the same message
+          // and opens nothing.
+          if (!ok) showToast(OPEN_WINDOW_NEEDS_EXTENSION_MSG);
+        });
+      });
     });
 
     row.append(dot, name, count, openAll, openGroup, openWindows);
@@ -692,23 +721,42 @@ export class BookmarksView {
         const n = normalizeCombo(other.shortcut); // canonicalize so dup-check is reliable
         if (n) existingCombos.add(n);
       }
-      openShortcutModal(bm as ShortcutBookmark, {
-        existingCombos,
-        // Sample mode (landing demos): contain the modal in the demo screen and
-        // skip the extension gate — the capture UI itself is the showcase, and
-        // a "install the extension" prompt inside an animation would be noise.
-        host: this.sample?.host,
-        detect: this.sample ? async () => ({ installed: true }) : undefined,
-        onSaved: (combo) => {
-          bm.shortcut = combo;
-          void this.save().then(() => syncShortcutsToExtension(this.state.list as ShortcutBookmark[]));
-          paintShortcut();
-        },
-        onCleared: () => {
-          delete bm.shortcut;
-          void this.save().then(() => syncShortcutsToExtension(this.state.list as ShortcutBookmark[]));
-          paintShortcut();
-        },
+      const openModal = () => {
+        openShortcutModal(bm as ShortcutBookmark, {
+          existingCombos,
+          // Sample mode (landing demos): contain the modal in the demo screen.
+          host: this.sample?.host,
+          onSaved: (combo) => {
+            bm.shortcut = combo;
+            void this.save().then(() => syncShortcutsToExtension(this.state.list as ShortcutBookmark[]));
+            paintShortcut();
+          },
+          onCleared: () => {
+            delete bm.shortcut;
+            void this.save().then(() => syncShortcutsToExtension(this.state.list as ShortcutBookmark[]));
+            paintShortcut();
+          },
+        });
+      };
+      // Sample mode (landing demos) skips the extension gate entirely — the
+      // capture UI itself is the showcase, and an install toast inside an
+      // animation would be noise (a visitor can't install anything from there).
+      if (this.sample) {
+        openModal();
+        return;
+      }
+      // LIVE detection, not the cached extensionActive() flag, for the same
+      // reason as "Open all in a new window" below (Gabe, 9/8/26): a cold page
+      // load hasn't heard a PONG yet, so the cache can wrongly say "not
+      // installed". And per Gabe the same night, this gate is now a TOAST like
+      // that button's, not the old pop-up banner inside the modal — one
+      // consistent way the app says "this needs the extension".
+      void detectExtension().then((r) => {
+        if (!r.installed) {
+          showToast(SHORTCUT_NEEDS_EXTENSION_MSG);
+          return;
+        }
+        openModal();
       });
     });
 

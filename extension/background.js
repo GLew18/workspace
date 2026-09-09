@@ -458,6 +458,39 @@ async function handleOpenTabs(payload, sendAck) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// OPEN_WINDOW — open a set of links as ONE new browser window, one tab per link.
+//
+// Gabe, 9/8/26, correcting the OPEN_TABS-based "windows" button shipped the
+// night before: "That button should create a new Chrome window that has all
+// of the attachments or links as separate tabs. It's not that the links or
+// attachments are windows themselves, that they compose one Chrome window."
+// The page side cannot do this itself: window.open only ever gets ONE popup
+// per click, and a page can never add further tabs to a window it already
+// opened. chrome.windows.create CAN, by taking an array of urls — it opens
+// exactly one window with one tab per url. Same URL hygiene and cap as
+// OPEN_GROUP/OPEN_TABS above.
+// ---------------------------------------------------------------------------
+async function handleOpenWindow(payload, sendAck) {
+  const ack = (ok, count) => sendAck({ source: 'workspace-ext', v: PROTOCOL_VERSION, type: 'OPEN_WINDOW_ACK', ok, count });
+  const p = payload && typeof payload === 'object' ? payload : {};
+  const urls = (Array.isArray(p.urls) ? p.urls : [])
+    .filter((u) => typeof u === 'string' && /^https?:\/\//i.test(u))
+    .slice(0, MAX_GROUP_TABS);
+  if (!urls.length) {
+    ack(false, 0);
+    return;
+  }
+  try {
+    const win = await chrome.windows.create({ url: urls, focused: true });
+    const count = win && Array.isArray(win.tabs) ? win.tabs.length : urls.length;
+    ack(true, count);
+  } catch (e) {
+    console.error('[Cobalt] open window failed:', e && e.message ? e.message : e);
+    ack(false, 0);
+  }
+}
+
 async function handleOpenGroup(payload, sendAck) {
   const ack = (ok, count) => sendAck({ source: 'workspace-ext', v: PROTOCOL_VERSION, type: 'OPEN_GROUP_ACK', ok, count });
   const p = payload && typeof payload === 'object' ? payload : {};
@@ -556,6 +589,11 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
     return true; // async: one tabs.create per link
   }
 
+  if (msg.type === 'OPEN_WINDOW') {
+    handleOpenWindow(msg.payload, sendResponse);
+    return true; // async: one windows.create with every url
+  }
+
   // Unknown external message — ignore.
 });
 
@@ -610,6 +648,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     }
     if (msg.type === 'OPEN_TABS') {
       handleOpenTabs(msg.payload, sendResponse);
+      return true;
+    }
+    if (msg.type === 'OPEN_WINDOW') {
+      handleOpenWindow(msg.payload, sendResponse);
       return true;
     }
   }

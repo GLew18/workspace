@@ -240,12 +240,12 @@ export function openIcalGuide(onClose?: () => void): void {
   if (document.querySelector('.onb-sso')) return; // one at a time
 
   const wrap = el('div', {
-    class: 'onb-sso',
+    class: 'onb-sso guide-scrim',
     role: 'dialog',
     'aria-modal': 'true',
     'aria-label': 'Where to find your calendar link',
   });
-  const card = el('div', { class: 'onb-sso-card' });
+  const card = el('div', { class: 'onb-sso-card guide-sheet' });
   const close = el('button', { class: 'onb-sso-close', 'aria-label': 'Close', text: '✕' });
   const title = el('h3', { class: 'onb-sso-title', text: 'Where your iCal link lives' });
   const sub = el('div', { class: 'onb-sso-sub', text: 'Two clicks and a scroll. About 15 seconds.' });
@@ -284,7 +284,7 @@ export function openIcalGuide(onClose?: () => void): void {
     );
     nextSlot.replaceChildren();
     if (i === SLIDES.length - 1) {
-      const done = el('button', { class: 'onb-sso-done', text: 'Got it, back to pasting' });
+      const done = el('button', { class: 'onb-sso-done bm-btn-primary', text: 'Got it, back to pasting' });
       done.addEventListener('click', dismiss);
       nextSlot.append(done);
     } else {

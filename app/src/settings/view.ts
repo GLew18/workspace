@@ -1268,10 +1268,10 @@ export class SettingsView {
    *  include (tap to toggle). Saved through the Data layer as a 'playlist_*' record. */
   private openPlaylistEditor(existing: CustomPlaylist | null, host: HTMLElement): void {
     const chosen = new Set<string>(existing?.trackIds ?? []);
-    const back = el('div', { class: 'editor-backdrop' });
-    const box = el('div', { class: 'playlist-editor' });
+    const back = el('div', { class: 'bm-backdrop' });
+    const box = el('div', { class: 'bm-modal playlist-editor' });
 
-    box.append(el('h3', { class: 'playlist-editor-title', text: existing ? 'Edit playlist' : 'New playlist' }));
+    box.append(el('h3', { class: 'bm-modal-title', text: existing ? 'Edit playlist' : 'New playlist' }));
     const nameRow = el('div', { class: 'playlist-editor-namerow' });
     const emojiWrap = el('div', { class: 'playlist-emoji-wrap' });
     // The emoji box is a pure SELECTOR (a button that opens the menu) — not
@@ -1370,10 +1370,10 @@ export class SettingsView {
     draw();
     search.addEventListener('input', draw);
 
-    const actions = el('div', { class: 'confirm-actions' });
-    const cancel = el('button', { class: 'confirm-cancel', text: 'Cancel' });
+    const actions = el('div', { class: 'bm-modal-footer' });
+    const cancel = el('button', { class: 'bm-btn', text: 'Cancel' });
     cancel.addEventListener('click', () => fadeRemove(back));
-    const save = el('button', { class: 'playlist-editor-save', text: 'Save' });
+    const save = el('button', { class: 'bm-btn bm-btn-primary', text: 'Save' });
     save.addEventListener('click', () => {
       const name = nameIn.value.trim();
       if (!name || !chosen.size) return; // need a name + at least one song
@@ -1389,7 +1389,7 @@ export class SettingsView {
         void this.drawPlaylists(host);
       });
     });
-    actions.append(cancel, save);
+    actions.append(el('div', { class: 'bm-modal-spacer' }), cancel, save);
     box.append(actions);
 
     back.append(box);
@@ -2042,8 +2042,8 @@ export class SettingsView {
    *  flips) with a caption — a looping mini-video of exactly what to do. Data +
    *  scenes live in settings/notifyGuides.ts. Esc/backdrop/✕ close; ←/→ page. */
   private openNotifyGuides(): void {
-    const overlay = el('div', { class: 'ngd' });
-    const card = el('div', { class: 'ngd-card' });
+    const overlay = el('div', { class: 'ngd guide-scrim' });
+    const card = el('div', { class: 'ngd-card guide-sheet' });
     // Which OS's guide list is showing (8/31). Defaults to the DETECTED OS
     // (util/os.ts — unknown reads as Mac); the Mac/Windows switcher on the index
     // covers school machines and wrong guesses. Switching resets to the index,
@@ -2135,11 +2135,12 @@ export class SettingsView {
       const caption = el('div', { class: 'ngd-caption', text: g.steps[si].caption });
       const dots = el('div', { class: 'ngd-dots' });
       g.steps.forEach((_, k) => dots.append(el('span', { class: `ngd-dot${k === si ? ' on' : ''}` })));
-      const nav = el('div', { class: 'ngd-nav' });
-      const prev = el('button', { class: 'ngd-btn', text: 'Back' }) as HTMLButtonElement;
+      const nav = el('div', { class: 'bm-modal-footer' });
+      const prev = el('button', { class: 'bm-btn', text: 'Back' }) as HTMLButtonElement;
       prev.style.visibility = si === 0 ? 'hidden' : 'visible';
       prev.addEventListener('click', () => go(-1));
-      const next = el('button', { class: 'ngd-btn ngd-next', text: si === g.steps.length - 1 ? 'Done, next cause' : 'Next' }) as HTMLButtonElement;
+      const spacer = el('div', { class: 'bm-modal-spacer' });
+      const next = el('button', { class: 'bm-btn bm-btn-primary', text: si === g.steps.length - 1 ? 'Done, next cause' : 'Next' }) as HTMLButtonElement;
       next.addEventListener('click', () => {
         if (si < g.steps.length - 1) go(1);
         else {
@@ -2147,7 +2148,7 @@ export class SettingsView {
           render();
         }
       });
-      nav.append(prev, next);
+      nav.append(prev, spacer, next);
       card.append(head, stage, caption, dots, nav);
     };
 
@@ -2441,10 +2442,12 @@ export class SettingsView {
     if (!h) return;
     const back = el('div', { class: 'help-backdrop' });
     const box = el('div', { class: 'help-box' });
-    box.append(el('h3', { text: h.title }), el('p', { class: 'help-text', text: h.text }));
-    const ok = el('button', { class: 'btn-primary', text: 'Got it' });
+    box.append(el('h3', { class: 'bm-modal-title', text: h.title }), el('p', { class: 'help-text', text: h.text }));
+    const ok = el('button', { class: 'bm-btn bm-btn-primary', text: 'Got it' });
     ok.addEventListener('click', () => fadeRemove(back));
-    box.append(ok);
+    const footer = el('div', { class: 'bm-modal-footer' });
+    footer.append(el('div', { class: 'bm-modal-spacer' }), ok);
+    box.append(footer);
     back.append(box);
     back.addEventListener('click', (e) => {
       if (e.target === back) fadeRemove(back);

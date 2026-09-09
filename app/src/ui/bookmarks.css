@@ -664,35 +664,15 @@
   color: var(--green);
 }
 
-/* ===== Premium / install prompt ===== */
+/* ===== Premium / install prompt =====
+   The shortcut-capture modal's own install banner (.bm-install-banner/-title/
+   -body/-actions) was removed 9/8/26: that gate is a toast now (view.ts, next to
+   OPEN_WINDOW_NEEDS_EXTENSION_MSG), so the modal never opens without the
+   extension and never needs its own banner. .bm-install-wrap/-note/-connected/
+   -dot below were ALREADY unused before that change (no .ts file references
+   them) — left as-is, out of scope for this fix. */
 .bm-install-wrap {
   margin: 12px 0 4px;
-}
-.bm-install-banner {
-  border: 1px solid rgba(125, 180, 255, 0.35);
-  background: rgba(125, 180, 255, 0.08);
-  border-radius: 12px;
-  padding: 12px 14px;
-}
-.bm-install-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--accent);
-  margin-bottom: 4px;
-}
-.bm-install-body {
-  font-size: 11px;
-  color: var(--text);
-  line-height: 1.45;
-}
-.bm-install-actions {
-  display: flex;
-  gap: 8px;
-  margin: 10px 0 8px;
-}
-.bm-install-actions .bm-btn {
-  padding: 6px 12px;
-  font-size: 12px;
 }
 .bm-install-note {
   font-size: 10.5px;
