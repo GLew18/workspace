@@ -6,7 +6,7 @@
    lives here. */
 .cp-pop {
   position: absolute;
-  z-index: 5000; /* above every backdrop in the app (settings tops out at 1700, landing at 3000) */
+  z-index: var(--z-popover); /* above every backdrop in the app (settings tops out at 1700, landing at 3000) */
   width: 196px;
   padding: 8px;
   display: flex;
@@ -14,8 +14,8 @@
   gap: 8px;
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 12px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  border-radius: var(--pop-radius);
+  box-shadow: var(--pop-shadow);
   user-select: none;
 }
 /* The saturation/value square: the TS layers black-over-white-to-hue gradients

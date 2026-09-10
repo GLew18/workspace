@@ -77,7 +77,17 @@ export interface OpenShortcutModalOptions {
 
 // #region Constants
 export const PROTOCOL_VERSION = 1;
-export const PING_TIMEOUT_MS = 600;
+// 600ms used to be the default here, tuned for a warm extension that answers
+// almost instantly. It was too tight for the one case that matters most: an
+// MV3 service worker Chrome has evicted after ~30s idle (see background.js),
+// which has to cold-start before it can answer a PING at all. A press that
+// lands right after that eviction genuinely has the extension installed but
+// loses the race, so the gate wrongly says "not installed" (Gabe, 9/9/26 bug
+// report — his keyboard shortcuts still fired because content.js's OPEN_URL
+// is fire-and-forget with no deadline, but the "needs extension" toasts,
+// which DO have a deadline, fired anyway). 1500ms gives a cold wake real room
+// while staying well under anything a user would call slow.
+export const PING_TIMEOUT_MS = 1500;
 
 /** Hardcoded published extension id. Dev override: localStorage 'ws:extId' or a
  *  Vite env var (VITE_WS_EXT_ID). Empty until the extension is published — until
@@ -310,6 +320,7 @@ export function installInAppDispatcher(getList: () => ShortcutBookmark[]): void 
   // installed it), so detection + any open install banner stay fresh.
   window.addEventListener('focus', () => {
     _detectCache = null;
+    _concludedAbsent = false; // they may have just installed or reloaded it
     void detectExtension();
   });
 }
@@ -320,6 +331,14 @@ let _announcedExtId = '';
 let _bridgeListening = false;
 let _detectCache: { result: DetectResult; at: number } | null = null;
 const DETECT_CACHE_MS = 5000;
+// A "not installed" result is cached far more briefly than a positive one. A
+// positive result staying stale for 5s is harmless (the extension really is
+// there). A NEGATIVE result staying stale for 5s is what let one lost race
+// against a cold service-worker wake (see PING_TIMEOUT_MS above) poison every
+// click for the next 5 seconds with the same wrong "not installed" answer,
+// without ever re-probing. 800ms still coalesces rapid double-clicks but lets
+// the very next deliberate press get a fresh, honest probe.
+const DETECT_NEGATIVE_CACHE_MS = 800;
 // Resolvers for in-flight detectExtension() calls, settled by an ANNOUNCE or PONG.
 const _detectWaiters = new Set<(r: DetectResult) => void>();
 // Resolvers for bridge-relayed REQUESTS, keyed by reqId. bridge.js echoes the
@@ -328,6 +347,54 @@ const _detectWaiters = new Set<(r: DetectResult) => void>();
 const _replyWaiters = new Map<string, (reply: Record<string, unknown>) => void>();
 let _reqSeq = 0;
 const nextReqId = (): string => `ws${Date.now().toString(36)}${(_reqSeq++).toString(36)}`;
+
+// --- The instant install signal (Gabe, 9/9/26) ---------------------------
+// bridge.js stamps <html data-cobalt-ext="1.1.0"> at document_start. Reading an
+// attribute costs nothing and cannot lose a race, so it replaces the old
+// "post a PING and wait up to 1.5s" gate as the FIRST thing every check does.
+// The PING survives underneath it for two jobs the attribute cannot do: telling
+// a genuinely-absent extension apart from a live-but-unresponsive one, and
+// supporting an older installed build that predates the attribute.
+const EXT_ATTR = 'cobaltExt';
+
+/** The extension version stamped on <html>, or null when nothing stamped it. */
+function stampedExtVersion(): string | null {
+  try {
+    const v = document.documentElement.dataset[EXT_ATTR];
+    return v ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+// True once any signal (stamp, ANNOUNCE or PONG) has ever confirmed the
+// extension in this page's lifetime. Guards the fast negative below: we only
+// answer "not installed" without waiting when we have never seen it at all.
+let _everSawExt = false;
+// Set when a full probe has run and come back empty, which is what licenses an
+// INSTANT "not installed" on later checks instead of another full timeout.
+let _concludedAbsent = false;
+
+/** Watch for a LATE stamp: background.js injects bridge.js into tabs that were
+ *  already open when the extension loaded or reloaded, so the attribute can
+ *  appear seconds after the page did. Without this the page would sit on a
+ *  stale "not installed" until the next window focus. */
+function watchForLateStamp(): void {
+  if (typeof MutationObserver === 'undefined') return;
+  const obs = new MutationObserver(() => {
+    const v = stampedExtVersion();
+    if (!v) return;
+    obs.disconnect();
+    _everSawExt = true;
+    _extActive = true;
+    _concludedAbsent = false;
+    _detectCache = { result: { installed: true, version: v }, at: Date.now() };
+    const waiters = [..._detectWaiters];
+    _detectWaiters.clear();
+    for (const w of waiters) w({ installed: true, version: v });
+  });
+  obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-cobalt-ext'] });
+}
 
 /** Listen for the extension's postMessage signals: ANNOUNCE (posted on page load)
  *  AND PONG (the reply to our PING). Either means "installed", and either resolves
@@ -353,6 +420,8 @@ function ensureBridgeListener(): void {
       if (d.extId) _announcedExtId = d.extId;
       const r: DetectResult = { installed: true, version: d.extVersion };
       _extActive = true;
+      _everSawExt = true;
+      _concludedAbsent = false;
       _detectCache = { result: r, at: Date.now() };
       const waiters = [..._detectWaiters];
       _detectWaiters.clear();
@@ -377,8 +446,32 @@ function knownExtId(): string {
 export function detectExtension(timeoutMs: number = PING_TIMEOUT_MS): Promise<DetectResult> {
   ensureBridgeListener();
 
-  if (_detectCache && Date.now() - _detectCache.at < DETECT_CACHE_MS) {
-    return Promise.resolve(_detectCache.result);
+  // 0. INSTANT YES. bridge.js stamped the version on <html> at document_start,
+  //    so the answer is already sitting in the DOM. No message, no timeout.
+  const stamped = stampedExtVersion();
+  if (stamped) {
+    const r: DetectResult = { installed: true, version: stamped };
+    _extActive = true;
+    _everSawExt = true;
+    _concludedAbsent = false;
+    _detectCache = { result: r, at: Date.now() };
+    return Promise.resolve(r);
+  }
+
+  // 0b. INSTANT NO. A full probe already came back empty and nothing has
+  //     confirmed the extension since, so make the user wait exactly zero ms
+  //     for the "install the extension" toast. A later install is still picked
+  //     up: the window-focus re-probe and the late-stamp observer both clear
+  //     this flag.
+  if (_concludedAbsent && !_everSawExt) {
+    return Promise.resolve({ installed: false });
+  }
+
+  if (_detectCache) {
+    const ttl = _detectCache.result.installed ? DETECT_CACHE_MS : DETECT_NEGATIVE_CACHE_MS;
+    if (Date.now() - _detectCache.at < ttl) {
+      return Promise.resolve(_detectCache.result);
+    }
   }
 
   return new Promise<DetectResult>((resolve) => {
@@ -391,6 +484,8 @@ export function detectExtension(timeoutMs: number = PING_TIMEOUT_MS): Promise<De
       window.clearTimeout(timer);
       _detectCache = { result: r, at: Date.now() };
       _extActive = r.installed;
+      if (r.installed) _everSawExt = true;
+      else if (!_everSawExt) _concludedAbsent = true;
       resolve(r);
     };
     // An ANNOUNCE/PONG arriving via the bridge resolves this call.
@@ -506,7 +601,50 @@ export function syncShortcutsToExtension(list: ShortcutBookmark[]): Promise<bool
  *  fallback once that's gone. False when the cache is cold (never detected yet), so
  *  the caller simply takes the plain-tabs path. */
 export function extensionActive(): boolean {
+  if (stampedExtVersion()) {
+    _extActive = true;
+    return true;
+  }
   return _extActive;
+}
+
+/** Shown when the extension IS installed but its service worker never answered.
+ *  Deliberately different wording from the "install it" toasts: the fix here is
+ *  a reload in chrome://extensions, not an install. */
+export const EXTENSION_NOT_RESPONDING_MSG =
+  'The Cobalt extension did not respond. Try reloading it in chrome://extensions.';
+
+// --- Boot probe + one diagnostic line ------------------------------------
+// One console.info at startup saying exactly how detection landed and why, so a
+// "the premium buttons do nothing" report can be diagnosed from the console in
+// seconds instead of another round of guessing (Gabe, 9/9/26).
+function bootDetectionProbe(): void {
+  ensureBridgeListener();
+  watchForLateStamp();
+  const stamped = stampedExtVersion();
+  if (stamped) {
+    _extActive = true;
+    _everSawExt = true;
+    _detectCache = { result: { installed: true, version: stamped }, at: Date.now() };
+    console.info(
+      `[Cobalt] extension detected: YES (version ${stamped}, read from the data-cobalt-ext stamp on <html>). Origin ${location.origin}.`
+    );
+    return;
+  }
+  void detectExtension().then((r) => {
+    if (r.installed) {
+      console.info(
+        `[Cobalt] extension detected: YES (version ${r.version ?? 'unknown'}, via a PONG reply, no data-cobalt-ext stamp). The installed build predates the stamp: reload it in chrome://extensions. Origin ${location.origin}.`
+      );
+    } else {
+      console.info(
+        `[Cobalt] extension detected: NO (no data-cobalt-ext stamp on <html> and no PONG within ${PING_TIMEOUT_MS}ms). Either it is not installed, or it is installed but was last reloaded before ${location.origin} was added to its manifest. Fix: chrome://extensions, find Cobalt Premium, click Reload, then hard-refresh this tab.`
+      );
+    }
+  });
+}
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  bootDetectionProbe();
 }
 
 // #region Chrome tab groups (premium) — open a set of links as one named bundle

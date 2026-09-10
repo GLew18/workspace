@@ -477,7 +477,7 @@
 .bm-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: var(--z-dialog);
   background: var(--scrim-dim); /* the drawer's dim (components.css :root) */
   animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
   display: flex;
@@ -488,11 +488,11 @@
 .bm-modal {
   width: 100%;
   max-width: 420px;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  background: var(--dlg-bg);
+  border: 1px solid var(--dlg-border);
+  border-radius: var(--dlg-radius);
+  padding: var(--dlg-pad);
+  box-shadow: var(--dlg-shadow);
 }
 .bm-modal-sm {
   max-width: 360px;
@@ -740,14 +740,18 @@
   border-color: inherit;
   color: inherit;
 }
-/* The names listed under a bulk-delete confirmation. */
+/* The second line under a dialog's title: the names in a bulk-delete
+   confirmation, or a help card's full explanatory text (pre-wrap so its
+   double-newline paragraph breaks survive; the height cap is just a backstop
+   for anything unusually long, never expected to engage on real copy). */
 .bm-modal-note {
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-dim);
   margin: -4px 0 10px;
-  max-height: 96px;
+  max-height: 240px;
   overflow-y: auto;
+  white-space: pre-wrap;
 }
 
 /* NO WHITE RING ON A CARD, AND NO RULE HERE TO DO IT (Gabe, 8/15, rewritten 8/20).

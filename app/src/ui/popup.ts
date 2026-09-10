@@ -89,5 +89,17 @@ export function openPopup(
   backdrop.addEventListener('click', (e) => {
     if (e.target === backdrop) close();
   });
+  // Escape closes, same as every other dialog family (9/9/26 audit: this was the
+  // one popup with no keydown handler at all). Self-cleaning once the backdrop
+  // leaves the DOM, so a popup that closed some other way doesn't leave a listener
+  // behind to fire on the NEXT Escape press.
+  const onEsc = (e: KeyboardEvent) => {
+    if (!backdrop.isConnected) {
+      document.removeEventListener('keydown', onEsc);
+      return;
+    }
+    if (e.key === 'Escape') close();
+  };
+  document.addEventListener('keydown', onEsc);
   build(body, close);
 }

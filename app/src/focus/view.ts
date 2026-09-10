@@ -4,7 +4,7 @@ import type { Data } from '../db';
 import type { Task, TaskMap, TaskFolder, Priority } from '../types';
 import { getTaskFolders, saveTaskFolders, makeFolder, normFolder, FOLDERS_EVENT } from '../tasks/folders';
 import { makeResizeGrip, restoreSavedHeight } from '../util/resize';
-import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToast, fadeRemove } from '../util/dom';
+import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToast, fadeRemove, escapeCloses } from '../util/dom';
 import { attachColorPicker } from '../ui/colorPicker';
 import { makeWheel } from './wheel';
 import { genId } from '../util/ids';
@@ -1701,7 +1701,7 @@ export class FocusView {
       Promise.all(batch.map((b) => this.fileTodoInFolder(b, folderId))).then(redraw);
     const back = el('div', { class: 'focus-modal-back' });
     const card = el('div', { class: 'focus-modal focus-modal-wide' });
-    card.append(el('div', { class: 'focus-modal-title', text: 'Add to folder' }));
+    card.append(el('h3', { class: 'focus-modal-title', text: 'Add to folder' }));
     const wrap = el('div', { class: 'folder-pick' });
     if (batch.length > 1) {
       wrap.append(el('div', { class: 'popup-bulk-note', text: `Applies to all ${batch.length} selected tasks.` }));
@@ -3024,7 +3024,7 @@ export class FocusView {
     }
     const back = el('div', { class: 'focus-modal-back' });
     const card = el('div', { class: 'focus-modal focus-extend-modal' });
-    card.append(el('div', { class: 'focus-modal-title', text: sign > 0 ? 'Add time' : 'Trim time' }));
+    card.append(el('h3', { class: 'focus-modal-title', text: sign > 0 ? 'Add time' : 'Trim time' }));
 
     const HOURS = Array.from({ length: 13 }, (_, i) => i); // 0–12
     const UNITS = Array.from({ length: 60 }, (_, i) => i); // 00–59
@@ -3042,9 +3042,12 @@ export class FocusView {
 
     const amount = () => hW.value() * 3600 + mW.value() * 60 + sW.value();
     const actions = el('div', { class: 'focus-modal-actions' });
-    const cancel = el('button', { class: 'focus-ctrl', text: 'Cancel' });
+    // Skinned to the shared bm-btn recipe (9/9/26 audit), not the pill-shaped
+    // .focus-ctrl these used to borrow — that pill stays for the session overlay's
+    // Pause/Resume/End Session, which are NOT inside a modal.
+    const cancel = el('button', { class: 'bm-btn', text: 'Cancel' });
     const ok = el('button', {
-      class: `focus-ctrl ${sign > 0 ? 'gold' : 'danger'}`,
+      class: `bm-btn ${sign > 0 ? 'bm-btn-primary' : 'bm-btn-danger'}`,
       text: sign > 0 ? 'Add' : 'Trim',
     });
     const close = () => fadeRemove(back);
@@ -3062,6 +3065,7 @@ export class FocusView {
       if (e.target === back) close();
     });
     enterConfirms(back, () => ok); // Enter = Add/Trim the dialed amount
+    escapeCloses(back, close);
     this.host().append(back);
 
     // Default the picker to 5 minutes; position the wheels once the popup is laid out.
@@ -4383,9 +4387,44 @@ export class FocusView {
       const winH = Math.min(contentH + 70, Math.round((screen.availHeight || 900) * 0.85));
       const pip = await dpip.requestWindow({ width: 300, height: winH });
       // The PiP window is blank — copy the app's stylesheets so the widget renders
-      // with its real theme (colors, ring, buttons, the dark-blue background).
-      for (const node of document.querySelectorAll('style, link[rel="stylesheet"]')) {
-        pip.document.head.appendChild(node.cloneNode(true));
+      // with its real theme (colors, ring, buttons, the dark-blue background). Dev
+      // serves CSS as <style data-vite-dev-id> tags; the production build serves it
+      // as ONE <link rel="stylesheet" href="/assets/index-*.css"> that Vite marks
+      // crossorigin. That attribute is the bug: cloning it into the PiP document's
+      // separate browsing context makes Chrome refetch the stylesheet as a CORS
+      // request, and Firebase Hosting sends no Access-Control-Allow-Origin header on
+      // static assets, so the fetch silently fails and the mini player renders with
+      // zero CSS — HTML only, exactly what Gabe saw. Dev never hit this because dev
+      // CSS is inline <style> text, nothing to fetch. Dropping crossorigin before the
+      // clone is appended lets it load as the plain same-origin request it always was
+      // in the main document. Each clone is wrapped so one bad node (a stray
+      // <style> with no cssText, say) can't stop the rest from being copied.
+      for (const node of document.head.querySelectorAll('link[rel="stylesheet"], style')) {
+        try {
+          const clone = node.cloneNode(true) as HTMLLinkElement | HTMLStyleElement;
+          if (clone instanceof HTMLLinkElement) {
+            clone.removeAttribute('crossorigin');
+            // Pin the ABSOLUTE url. The attribute is root-relative ("/assets/..."),
+            // and a PiP document has no url of its own to resolve that against;
+            // node.href is the already-resolved form the main document used.
+            clone.href = (node as HTMLLinkElement).href;
+          }
+          pip.document.head.appendChild(clone);
+        } catch {
+          /* one bad node shouldn't cost the rest of the theme */
+        }
+      }
+      // Belt-and-suspenders: copy any stylesheets attached via the Constructable
+      // Stylesheets API (document.adoptedStyleSheets). Nothing in this codebase uses
+      // them today, but they're invisible to the querySelectorAll loop above (they
+      // aren't DOM nodes), so a future change that adopts one would silently repeat
+      // this exact bug if this weren't here.
+      try {
+        if (document.adoptedStyleSheets?.length) {
+          pip.document.adoptedStyleSheets = [...document.adoptedStyleSheets];
+        }
+      } catch {
+        /* older browsers / unsupported — the link+style clones above still cover it */
       }
       pip.document.body.classList.add('focus-pip-body');
       // The mini player deliberately shows NO scrollbar. Chrome's native scrollbar

@@ -80,6 +80,38 @@
   --toast-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   --radius: 14px;
   --red: #ef4444;
+
+  /* ===== DIALOG SKIN — every popup in the app wears exactly this (9/9/26 audit) =====
+     Ported verbatim from the canon bm-modal recipe (ui/bookmarks.css): surface box,
+     border-strong 1px, 16px radius, 20px padding, the one shared drop shadow. Every
+     centered dialog family (popup, guide sheet, focus modals, the settings panel)
+     now points its box metrics at these tokens instead of repeating the numbers, so
+     the whole app can only drift by changing one place. --dlg-scrim mirrors
+     --scrim-dim (components.css :root) under a dialog-scoped name; the two stay in
+     sync by hand since --scrim-dim lives in the file that already owns the scrim
+     fade keyframes. */
+  --dlg-bg: var(--surface);
+  --dlg-border: var(--border-strong);
+  --dlg-radius: 16px;
+  --dlg-pad: 20px;
+  --dlg-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  --dlg-scrim: rgba(0, 0, 0, 0.2); /* == components.css --scrim-dim */
+  /* Anchored popovers (no backdrop): the row "…" menu, the Focus music menu, the
+     language-search results, the color-picker card. Smaller radius than a dialog
+     (they hang off a button, not the center of the screen) but the SAME shadow. */
+  --pop-radius: 12px;
+  --pop-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  /* ===== Z TIERS — named so a new overlay picks its stacking order by MEANING
+     instead of guessing a bigger number (9/9/26 audit). Existing components keep
+     their literal values for now (this is a skin pass, not a stacking rewrite) —
+     these tokens exist for anything wired to them going forward. */
+  --z-dialog: 1000;
+  --z-popup: 1100;
+  --z-guide: 1200;
+  --z-focus: 2000;
+  --z-focus-modal: 2100;
+  --z-focus-widget: 2500;
+  --z-popover: 5000;
 }
 
 * {

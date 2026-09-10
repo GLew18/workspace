@@ -15,8 +15,9 @@
 
 import type { Data } from '../db';
 import { selectionBar, type SelBar } from '../ui/selbar';
-import { el, textInput, enterConfirms, showToast, fadeRemove } from '../util/dom';
+import { el, textInput, enterConfirms, showToast, fadeRemove, escapeCloses } from '../util/dom';
 import { popupGuideButton } from '../ui/popupGuide';
+import { confirmDialog } from '../ui/confirm';
 import { attachColorPicker } from '../ui/colorPicker';
 import { genId } from '../util/ids';
 import { normalizeUrl } from './url';
@@ -29,13 +30,13 @@ import {
   openShortcutModal,
   prettyCombo,
   normalizeCombo,
-  extensionActive,
   openUrlsInGroup,
   openUrlsInWindow,
   openTabs,
   openLink,
   OPEN_WINDOW_NEEDS_EXTENSION_MSG,
   SHORTCUT_NEEDS_EXTENSION_MSG,
+  EXTENSION_NOT_RESPONDING_MSG,
   type ShortcutBookmark,
 } from './shortcuts';
 
@@ -530,18 +531,21 @@ export class BookmarksView {
       if (this.sample) return;
       const urls = urlsOf();
       if (!urls.length) return;
-      // One line in the console on every launch, saying which path ran and why.
-      // Silent fallback was impossible to tell apart from a broken extension.
-      const active = extensionActive();
-      console.info('[Cobalt] Open as group:', { group: group.name, links: urls.length, extensionDetected: active });
-      if (!active) {
-        // No silent fallback to plain tabs: a missing extension gets told WHY.
-        showToast('Install the Cobalt extension to open links as one tab group.');
-        return;
-      }
-      void openUrlsInGroup(group.name, group.color, urls).then((ok) => {
-        console.info('[Cobalt] tab group created:', ok);
-        if (!ok) openTabs(urls); // extension answered "no" (old Chrome, missing permission)
+      // LIVE detection, not the cached extensionActive() flag (same fix as
+      // "Open all in a new window" below, applied here 9/9/26): a cold page
+      // load hasn't heard a PONG yet, so the cache can say "not installed"
+      // when the extension is right there and just hasn't answered yet.
+      void detectExtension().then((r) => {
+        console.info('[Cobalt] Open as group:', { group: group.name, links: urls.length, extensionDetected: r.installed });
+        if (!r.installed) {
+          // No silent fallback to plain tabs: a missing extension gets told WHY.
+          showToast('Install the Cobalt extension to open links as one tab group.');
+          return;
+        }
+        void openUrlsInGroup(group.name, group.color, urls).then((ok) => {
+          console.info('[Cobalt] tab group created:', ok);
+          if (!ok) openTabs(urls); // extension answered "no" (old Chrome, missing permission)
+        });
       });
     });
 
@@ -573,7 +577,11 @@ export class BookmarksView {
           // misleading behavior, whether the extension is missing, timed out,
           // or answered no — every one of those cases gets the same message
           // and opens nothing.
-          if (!ok) showToast(OPEN_WINDOW_NEEDS_EXTENSION_MSG);
+          // Detection above already said it IS installed, so a failure here is
+          // an unresponsive service worker, not a missing extension. Telling
+          // him to install what he already has is what sent him in circles
+          // (Gabe, 9/9/26), so this one names the real fix: reload it.
+          if (!ok) showToast(EXTENSION_NOT_RESPONDING_MSG);
         });
       });
     });
@@ -870,6 +878,10 @@ export class BookmarksView {
           nameEdit.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') void commit();
             if (e.key === 'Escape') {
+              // Stop it here so the picker's own Escape handler (which closes the
+              // whole picker) never sees this press — Escape while renaming only
+              // cancels the rename, same as today.
+              e.stopPropagation();
               editingId = null;
               draw();
             }
@@ -963,6 +975,13 @@ export class BookmarksView {
     back.addEventListener('click', (e) => {
       if (e.target === back) close();
     });
+    // Escape closes the picker, UNLESS a rename is in progress, in which case the
+    // inline rename input's own handler above (Escape cancels the rename, stays in
+    // the picker) owns the key instead.
+    escapeCloses(back, () => {
+      if (editingId !== null) return;
+      close();
+    });
     (this.sample?.host ?? document.body).append(back);
   }
 
@@ -1035,6 +1054,7 @@ export class BookmarksView {
       if (e.target === back) close();
     });
     enterConfirms(back, () => saveBtn); // Enter anywhere in the modal = Save
+    escapeCloses(back, close);
     (this.sample?.host ?? document.body).append(back);
     nameInp.focus();
   }
@@ -1043,50 +1063,31 @@ export class BookmarksView {
    *  N separate deletes would mean N saves and N re-renders for a single gesture. */
   private confirmDelete(targets: Bookmark[]): void {
     if (!targets.length) return;
-    const back = el('div', { class: 'bm-backdrop' });
-    const box = el('div', { class: 'bm-modal bm-modal-sm' });
     // The count is in the title, not a footnote: deleting twelve links when you
     // meant one is exactly the mistake a confirmation exists to prevent.
-    box.append(
-      el('h3', {
-        class: 'bm-modal-title',
-        text: targets.length === 1 ? `Delete “${targets[0].name}”?` : `Delete ${targets.length} links?`,
-      })
-    );
-    if (targets.length > 1) {
-      box.append(
-        el('div', {
-          class: 'bm-modal-note',
-          text: targets.map((b) => b.name).join(', '),
-        })
-      );
-    }
-    const footer = el('div', { class: 'bm-modal-footer' });
-    const cancel = el('button', { class: 'bm-btn', text: 'Cancel' });
-    cancel.addEventListener('click', () => fadeRemove(back));
-    const yes = el('button', { class: 'bm-btn bm-btn-danger', text: 'Delete' });
-    yes.addEventListener('click', async () => {
-      const ids = new Set(targets.map((b) => b.id));
-      const hadShortcut = targets.some((b) => !!b.shortcut);
-      this.state.list = this.state.list.filter((b) => !ids.has(b.id));
-      this.clearSelection();
-      await this.save();
-      if (hadShortcut) void syncShortcutsToExtension(this.state.list as ShortcutBookmark[]);
-      fadeRemove(back);
-      this.renderGrid();
+    confirmDialog({
+      title: targets.length === 1 ? `Delete “${targets[0].name}”?` : `Delete ${targets.length} links?`,
+      note: targets.length > 1 ? targets.map((b) => b.name).join(', ') : undefined,
+      host: this.sample?.host,
+      buttons: [
+        { label: 'Cancel', kind: 'cancel' },
+        {
+          label: 'Delete',
+          kind: 'danger',
+          onClick: () => {
+            void (async () => {
+              const ids = new Set(targets.map((b) => b.id));
+              const hadShortcut = targets.some((b) => !!b.shortcut);
+              this.state.list = this.state.list.filter((b) => !ids.has(b.id));
+              this.clearSelection();
+              await this.save();
+              if (hadShortcut) void syncShortcutsToExtension(this.state.list as ShortcutBookmark[]);
+              this.renderGrid();
+            })();
+          },
+        },
+      ],
     });
-    footer.append(el('div', { class: 'bm-modal-spacer' }), cancel, yes);
-    box.append(footer);
-    back.append(box);
-    back.addEventListener('click', (e) => {
-      if (e.target === back) fadeRemove(back);
-    });
-    (this.sample?.host ?? document.body).append(back);
-    // Same policy as Settings' confirmDanger (Gabe, 8/7/26): deleting is
-    // consequential, so Enter must never confirm it. Focus moves INTO the dialog
-    // (onto Cancel) so Enter can't re-activate the still-focused Delete button
-    // that opened it, and a stray Enter just dismisses harmlessly.
-    cancel.focus();
   }
   // #endregion
 }

@@ -170,7 +170,6 @@ body.app-mode .app-below {
 }
 .popup-backdrop.closing,
 .bm-backdrop.closing,
-.help-backdrop.closing,
 .focus-songwin-backdrop.closing,
 .focus-modal-back.closing {
   animation: scrim-out var(--scrim-dur) var(--scrim-ease) both;
@@ -1579,7 +1578,7 @@ body.app-mode .app-below {
   text-align: left;
   background: var(--surface2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px; /* bm-btn recipe (9/9/26 skin audit); was 10px */
   color: var(--text);
   font: inherit;
   font-weight: 600;
@@ -1588,6 +1587,7 @@ body.app-mode .app-below {
   min-width: 0;
 }
 /* WRAP RULE: a long folder name wraps inside the picker row. */
+/* .folder-pick-remove/-add/-color below also move to the bm-btn 8px radius */
 .folder-pick-row span {
   min-width: 0;
   white-space: normal;
@@ -1611,7 +1611,7 @@ body.app-mode .app-below {
 .folder-pick-remove {
   background: none;
   border: 1px dashed var(--border-strong);
-  border-radius: 10px;
+  border-radius: 8px;
   color: var(--text-dim);
   font: inherit;
   font-size: 12.5px;
@@ -1662,7 +1662,7 @@ body.app-mode .app-below {
   background: var(--accent);
   color: var(--on-accent);
   border: none;
-  border-radius: 10px;
+  border-radius: 8px;
   font-size: 19px;
   font-weight: 700;
   line-height: 1;
@@ -1687,7 +1687,7 @@ body.app-mode .app-below {
   flex: none;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--surface2); /* the picker sets background-color inline */
   cursor: pointer;
 }
@@ -2214,8 +2214,8 @@ html[data-kbd] :focus-visible {
   padding: 5px;
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+  border-radius: var(--pop-radius);
+  box-shadow: var(--pop-shadow);
 }
 .row-menu-empty {
   padding: 10px 11px;
@@ -2543,18 +2543,18 @@ body:has(.selbar:not([hidden])) .toast {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1100;
+  z-index: var(--z-popup);
   padding: 20px;
 }
 .popup {
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 16px;
-  padding: 20px; /* matches .bm-modal, the app-wide dialog reference */
+  background: var(--dlg-bg);
+  border: 1px solid var(--dlg-border);
+  border-radius: var(--dlg-radius);
+  padding: var(--dlg-pad); /* matches .bm-modal, the app-wide dialog reference */
   width: 100%;
   max-width: 420px; /* matches .bm-modal's form-dialog width, not just bm-modal-sm's */
   max-height: 80vh;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5); /* matches .bm-modal */
+  box-shadow: var(--dlg-shadow); /* matches .bm-modal */
   /* The BODY scrolls, not the card: an edge-anchored width grip (and the title)
      must stay put instead of scrolling away with long content. */
   display: flex;
@@ -2586,6 +2586,15 @@ body:has(.selbar:not([hidden])) .toast {
   font-size: 12px;
   font-weight: 600;
 }
+/* .btn-primary and .notify-howto both carry their own global look (signin forms,
+   the Bookmarks/Tasks page headers) — scoped here so ONLY the instance inside a
+   .popup (the attachments popup's "Open all" trio and its pop-up-blocker fix-it
+   link) picks up the bm-btn radius, without reshaping either class everywhere
+   else it's used (9/9/26 skin audit). */
+.popup .btn-primary,
+.popup .notify-howto {
+  border-radius: 8px;
+}
 .priority-option {
   display: flex;
   align-items: center;
@@ -2593,7 +2602,7 @@ body:has(.selbar:not([hidden])) .toast {
   width: 100%;
   background: var(--surface2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px; /* bm-btn recipe, radius only — full-row layout and 42px height stay as they are */
   padding: 10px 12px;
   color: var(--text);
   margin-bottom: 7px;
@@ -2766,7 +2775,7 @@ body:has(.selbar:not([hidden])) .toast {
   width: 100%;
   background: var(--surface2);
   border: 1px dashed var(--border-strong);
-  border-radius: 9px;
+  border-radius: 8px; /* bm-btn recipe (ui/bookmarks.css); dashed border kept, it's the "add" affordance */
   color: var(--text);
   padding: 8px 10px;
   font-size: 12.5px;
@@ -3133,9 +3142,33 @@ body:has(.selbar:not([hidden])) .toast {
   animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
 }
 .guide-sheet {
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  background: var(--dlg-bg);
+  border: 1px solid var(--dlg-border);
+  border-radius: var(--dlg-radius);
+  padding: var(--dlg-pad);
+  box-shadow: var(--dlg-shadow);
+}
+
+/* ===== The one ✕ recipe every dialog's close button wears (9/9/26 skin audit) =====
+   .ngd-close, .onb-sso-close and .focus-songwin-close used to hand-copy this same
+   handful of properties with small drifts between them (padding, hover background).
+   One class, aliased onto all three so their own selectors keep working for
+   positioning (top/right differ per dialog) and any override that's still theirs.
+   Keyboard focus needs nothing here: html[data-kbd] :focus-visible (above) already
+   rings every button in the app, this one included. */
+.dlg-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  border-radius: 8px;
+  padding: 6px;
+  cursor: pointer;
+  line-height: 1;
+}
+.dlg-close:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
 }

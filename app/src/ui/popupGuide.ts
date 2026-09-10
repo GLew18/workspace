@@ -184,7 +184,7 @@ export function openPopupBlockerGuide(): void {
 
   const render = (): void => {
     card.replaceChildren();
-    const closeBtn = el('button', { class: 'ngd-close', text: '✕', 'aria-label': 'Close' });
+    const closeBtn = el('button', { class: 'dlg-close ngd-close', text: '✕', 'aria-label': 'Close' });
     closeBtn.addEventListener('click', close);
     const head = el('div', { class: 'ngd-head' });
     head.append(el('div', { class: 'ngd-head-title', text: '🚫 Chrome is blocking the extra tabs' }));

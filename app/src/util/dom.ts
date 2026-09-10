@@ -297,6 +297,23 @@ export function enterConfirms(back: HTMLElement, primary: () => HTMLElement | nu
   document.addEventListener('keydown', onKey);
 }
 
+/** Escape closes a centered dialog, self-cleaning once `back` leaves the DOM.
+ *  Same pattern as confirmDialog's own onEsc in ui/confirm.ts, pulled out so
+ *  every other centered dialog in the app can wire it in one line instead of
+ *  copying it by hand. Callers with a nested input/picker of their own (a
+ *  rename field, a sub-picker) should check that state first and only call
+ *  `close` when nothing more local should eat the Escape. */
+export function escapeCloses(back: HTMLElement, close: () => void): void {
+  const onEsc = (e: KeyboardEvent) => {
+    if (!back.isConnected) {
+      document.removeEventListener('keydown', onEsc);
+      return;
+    }
+    if (e.key === 'Escape') close();
+  };
+  document.addEventListener('keydown', onEsc);
+}
+
 /** Fade an overlay out, THEN remove it. The drawer's scrim fades both ways, so a
  *  popup that vanished on the frame it closed read as a cut beside it (Gabe,
  *  9/3/26). Lives here rather than in ui/popup.ts because every modal in the app

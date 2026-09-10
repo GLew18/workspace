@@ -8,7 +8,7 @@
 // the "This session" panel right. EVERY control is clickable: the clock ticks, ± (and ✎) adjust it,
 // todos toggle, the add-box adds, and Import Tasks opens a real list that imports.
 
-import { el, textInput, enterConfirms, fadeRemove } from '../util/dom';
+import { el, textInput, enterConfirms, fadeRemove, escapeCloses } from '../util/dom';
 import { makeWheel } from '../focus/wheel';
 
 const START_SECONDS = 25 * 60; // a classic 25:00 focus block
@@ -105,7 +105,7 @@ export function buildFocusDemo(): HTMLElement {
     const host = root.closest('.lp-frame-body') ?? root;
     const back = el('div', { class: 'focus-modal-back' });
     const card = el('div', { class: 'focus-modal focus-extend-modal' });
-    card.append(el('div', { class: 'focus-modal-title', text: sign > 0 ? 'Add time' : 'Trim time' }));
+    card.append(el('h3', { class: 'focus-modal-title', text: sign > 0 ? 'Add time' : 'Trim time' }));
 
     const hourW = makeWheel(Array.from({ length: 2 }, (_, i) => i), () => {});
     const minW = makeWheel(Array.from({ length: 60 }, (_, i) => i), () => {});
@@ -120,9 +120,11 @@ export function buildFocusDemo(): HTMLElement {
     card.append(carousel);
 
     const actions = el('div', { class: 'focus-modal-actions' });
-    const cancel = el('button', { class: 'focus-ctrl', text: 'Cancel' });
+    // Mirrors the real dialog exactly (focus/view.ts promptCustomExtend), including
+    // its 9/9/26 move onto the shared bm-btn recipe.
+    const cancel = el('button', { class: 'bm-btn', text: 'Cancel' });
     const ok = el('button', {
-      class: `focus-ctrl ${sign > 0 ? 'gold' : 'danger'}`,
+      class: `bm-btn ${sign > 0 ? 'bm-btn-primary' : 'bm-btn-danger'}`,
       text: sign > 0 ? 'Add' : 'Trim',
     });
     const close = () => fadeRemove(back);
@@ -139,6 +141,7 @@ export function buildFocusDemo(): HTMLElement {
     card.append(actions);
     back.append(card);
     enterConfirms(back, () => null); // stacked-popup guard (see util/dom.ts)
+    escapeCloses(back, close); // matches the real dialog; a visitor's own Escape press, not scripted
     host.append(back);
     // Default the picker to 0:05:00 once the wheels are laid out.
     requestAnimationFrame(() => {

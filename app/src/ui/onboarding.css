@@ -593,20 +593,10 @@
   width: min(560px, 100%);
   position: relative;
 }
+/* Position/color/hover/radius/padding now come from .dlg-close (components.css),
+   aliased in the markup (onboarding/icalGuide.ts). Only the ✕'s own size stays here. */
 .onb-sso-close {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: none;
-  border: none;
-  color: var(--text-dim);
   font-size: 15px;
-  padding: 6px 9px;
-  border-radius: 8px;
-}
-.onb-sso-close:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
 }
 .onb-sso-title {
   font-size: 16px; /* matches bm-modal-title */

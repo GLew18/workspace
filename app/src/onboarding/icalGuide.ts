@@ -246,7 +246,7 @@ export function openIcalGuide(onClose?: () => void): void {
     'aria-label': 'Where to find your calendar link',
   });
   const card = el('div', { class: 'onb-sso-card guide-sheet' });
-  const close = el('button', { class: 'onb-sso-close', 'aria-label': 'Close', text: '✕' });
+  const close = el('button', { class: 'dlg-close onb-sso-close', 'aria-label': 'Close', text: '✕' });
   const title = el('h3', { class: 'onb-sso-title', text: 'Where your iCal link lives' });
   const sub = el('div', { class: 'onb-sso-sub', text: 'Two clicks and a scroll. About 15 seconds.' });
   const sceneHost = el('div', { class: 'onb-sso-scene' });

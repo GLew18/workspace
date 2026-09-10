@@ -10,7 +10,11 @@
 import type { Task, TaskMap, Priority, ParsedTask, TaskFolder } from '../types';
 import type { Data, TasksUpdate } from '../db';
 import { el, textInput, copyTextMetrics, autoWidthToText, showToast } from '../util/dom';
-import { extensionActive, detectExtension, OPEN_WINDOW_NEEDS_EXTENSION_MSG } from '../bookmarks/shortcuts';
+import {
+  detectExtension,
+  OPEN_WINDOW_NEEDS_EXTENSION_MSG,
+  EXTENSION_NOT_RESPONDING_MSG,
+} from '../bookmarks/shortcuts';
 import { popupGuideButton } from '../ui/popupGuide';
 import { attachColorPicker } from '../ui/colorPicker';
 import { openPopup, tabScopedOverlay } from '../ui/popup';
@@ -3388,12 +3392,18 @@ export class TasksView {
       );
       openGroupBtn.addEventListener('click', () => {
         if (this.sample) return;
-        // No silent fallback to plain tabs: a missing extension gets told WHY.
-        if (!extensionActive()) {
-          this.notice('Install the Cobalt extension to open links as one tab group.');
-          return;
-        }
-        openAll(notes, { name: task.title, color: getCourseColor(task.course) });
+        // LIVE detection, not the cached extensionActive() flag (same fix as
+        // "Open all in a new window" below, applied here 9/9/26): a cold page
+        // load hasn't heard a PONG yet, so the cache can say "not installed"
+        // when the extension is right there. This also primes _extActive
+        // before openAll() reads it internally.
+        void detectExtension().then((r) => {
+          if (!r.installed) {
+            this.notice('Install the Cobalt extension to open links as one tab group.');
+            return;
+          }
+          openAll(notes, { name: task.title, color: getCourseColor(task.course) });
+        });
       });
       const openWindowsBtn = el('button', {
         class: 'btn-primary attach-open-group',
@@ -3421,7 +3431,10 @@ export class TasksView {
             // quietly becoming tabs in the CURRENT one is the exact misleading
             // behavior he reported. Missing, timed out, or answered no — every
             // failure gets the same message and opens nothing.
-            if (!ok) this.notice(OPEN_WINDOW_NEEDS_EXTENSION_MSG);
+            // Detection above already said it IS installed, so a failure here
+            // is an unresponsive service worker, not a missing extension
+            // (Gabe, 9/9/26). Name the real fix: reload it.
+            if (!ok) this.notice(EXTENSION_NOT_RESPONDING_MSG);
           });
         });
       });

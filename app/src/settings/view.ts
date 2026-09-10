@@ -9,10 +9,10 @@
 // #region Imports & types — dependencies, the draft model, the options object
 import type { Data } from '../db';
 import type { CourseConfig, SchoologySettings } from '../types';
-import { el, textInput, escapeHtml, enterConfirms, fadeRemove } from '../util/dom';
+import { el, textInput, escapeHtml, enterConfirms, fadeRemove, escapeCloses } from '../util/dom';
 import { attachColorPicker } from '../ui/colorPicker';
 import { openAtTop } from '../ui/tabs';
-import { confirmDanger } from '../ui/confirm';
+import { confirmDanger, confirmDialog } from '../ui/confirm';
 import { genId } from '../util/ids';
 import type { SettingsSection } from '../util/router';
 import { capitalizeName } from '../util/names';
@@ -1330,11 +1330,20 @@ export class SettingsView {
     };
     emojiBtn.addEventListener('click', () => (pickerOpen ? closePicker() : openPicker()));
     emojiBtn.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Escape') closePicker();
+      if (ev.key === 'Escape') {
+        // Stop it here so the editor's own Escape handler (below) never also sees
+        // this press: Escape closes the emoji picker first, the editor only on a
+        // second press, same as the bookmarks group picker's rename Escape.
+        ev.stopPropagation();
+        closePicker();
+      }
     });
 
     emojiWrap.append(emojiBtn);
-    const nameIn = textInput({ class: 'settings-input', placeholder: 'Playlist name', value: existing?.name ?? '' });
+    // bm-input added 9/9/26 (skin audit): this is the ONE settings-input the popup
+    // skin pass moved onto the bm-input recipe — the search box just below keeps
+    // its plain Settings look, since only the name row was in scope.
+    const nameIn = textInput({ class: 'settings-input bm-input', placeholder: 'Playlist name', value: existing?.name ?? '' });
     nameRow.append(emojiWrap, nameIn);
     box.append(nameRow);
 
@@ -1370,9 +1379,10 @@ export class SettingsView {
     draw();
     search.addEventListener('input', draw);
 
+    const close = () => fadeRemove(back);
     const actions = el('div', { class: 'bm-modal-footer' });
     const cancel = el('button', { class: 'bm-btn', text: 'Cancel' });
-    cancel.addEventListener('click', () => fadeRemove(back));
+    cancel.addEventListener('click', close);
     const save = el('button', { class: 'bm-btn bm-btn-primary', text: 'Save' });
     save.addEventListener('click', () => {
       const name = nameIn.value.trim();
@@ -1394,9 +1404,15 @@ export class SettingsView {
 
     back.append(box);
     back.addEventListener('click', (e) => {
-      if (e.target === back) fadeRemove(back);
+      if (e.target === back) close();
     });
     enterConfirms(back, () => save); // Enter = Save (no-ops until name + a song exist)
+    // Escape closes the emoji picker first if it is open, else the whole editor
+    // (the picker's own Escape handler above stops the key from reaching here).
+    escapeCloses(back, () => {
+      if (pickerOpen) closePicker();
+      else close();
+    });
     document.body.append(back);
     nameIn.focus(); // focus INTO the dialog so Enter reaches Save, not the opener
   }
@@ -2073,14 +2089,14 @@ export class SettingsView {
 
     const render = (): void => {
       card.replaceChildren();
-      const closeBtn = el('button', { class: 'ngd-close', text: '✕', 'aria-label': 'Close' });
+      const closeBtn = el('button', { class: 'dlg-close ngd-close', text: '✕', 'aria-label': 'Close' });
       closeBtn.addEventListener('click', close);
       card.append(closeBtn);
 
       if (gi < 0) {
         // ---- index: every cause, most likely first ----
         card.append(
-          el('div', { class: 'ngd-title', text: 'Notifications not allowed?' }), // plural, matching the button that opens this (Gabe, 8/22)
+          el('h3', { class: 'ngd-title', text: 'Notifications not allowed?' }), // plural, matching the button that opens this (Gabe, 8/22)
           el('div', { class: 'ngd-sub', text: 'Work down this list. It’s ordered by how often each cause is the culprit. Every guide plays the fix step by step.' })
         );
         // Mac/Windows switcher — the fixes live in different settings apps.
@@ -2440,20 +2456,13 @@ export class SettingsView {
   private showHelp(topic: string): void {
     const h = HELP[topic];
     if (!h) return;
-    const back = el('div', { class: 'help-backdrop' });
-    const box = el('div', { class: 'help-box' });
-    box.append(el('h3', { class: 'bm-modal-title', text: h.title }), el('p', { class: 'help-text', text: h.text }));
-    const ok = el('button', { class: 'bm-btn bm-btn-primary', text: 'Got it' });
-    ok.addEventListener('click', () => fadeRemove(back));
-    const footer = el('div', { class: 'bm-modal-footer' });
-    footer.append(el('div', { class: 'bm-modal-spacer' }), ok);
-    box.append(footer);
-    back.append(box);
-    back.addEventListener('click', (e) => {
-      if (e.target === back) fadeRemove(back);
+    // Same shared dialog as every other text+buttons popup (Gabe, 9/9) — a
+    // single "Got it" button instead of Cancel/confirm.
+    confirmDialog({
+      title: h.title,
+      note: h.text,
+      buttons: [{ label: 'Got it', kind: 'primary' }],
     });
-    enterConfirms(back, () => null); // stacked-popup guard (see util/dom.ts)
-    document.body.append(back);
   }
   // #endregion
 }

@@ -1908,7 +1908,11 @@ html[data-kbd] .landing :is(button, a):focus-visible {
      width unscaled inside this narrow column and the card blows past 90vh.
      This caps the card itself so that failure mode can't happen, regardless
      of whether the JS has run yet. */
-  .lp-stack-card { top: 126px; padding: 16px 14px 16px; border-radius: 18px; max-height: 65vh; overflow: hidden; }
+  /* The cap has a PIXEL FLOOR (9/9/26 audit): on a 360x780 phone 65vh is 507px
+     and the first card's real content measured 517px, so the tab label under
+     the frame was cut off. 580px clears every card at 360px wide (517/498/493
+     measured) while the vh term still keeps tall screens proportional. */
+  .lp-stack-card { top: 126px; padding: 16px 14px 16px; border-radius: 18px; max-height: max(65vh, 580px); overflow: hidden; }
   /* Left-aligned copy, not centred (overrides the 980px tablet rule above,
      which still centres a stacked split at that width). */
   .lp-features .lp-stack-card .lp-split-text { text-align: left; }

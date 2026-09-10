@@ -666,6 +666,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // content.js is idempotent (see its __wsShortcutsLoaded guard), so re-injecting
 // a tab that already has it is a harmless no-op.
 // ---------------------------------------------------------------------------
+// The Cobalt origins that get bridge.js. KEEP IN LOCK-STEP with
+// manifest.json content_scripts[1].matches and externally_connectable.matches.
+const COBALT_ORIGIN_RE =
+  /^(https:\/\/(www\.)?cobaltstudy\.com|https:\/\/workspace-67029\.(web\.app|firebaseapp\.com)|http:\/\/(localhost|127\.0\.0\.1):5173)(\/|$)/i;
+
 function injectContentScript(tabId, url) {
   if (typeof tabId !== 'number') return;
   // Only http(s) pages accept content scripts (not chrome://, the Web Store,
@@ -677,6 +682,24 @@ function injectContentScript(tabId, url) {
       void chrome.runtime.lastError; // some tabs still refuse; ignore quietly
     }
   );
+  // Same reasoning for the postMessage bridge, and it matters MORE than it does
+  // for content.js (Gabe, 9/9/26). bridge.js is what stamps <html
+  // data-cobalt-ext> and relays the app's requests, so a Cobalt tab that was
+  // already open when the extension loaded or reloaded looks, to the app, like
+  // the extension is not installed at all: the premium buttons toast "install
+  // the extension" while the global shortcuts keep working, because those ride
+  // content.js instead. Top frame only, matching the manifest entry and
+  // bridge.js's own top-frame guard; its __wsBridgeLoaded guard makes a double
+  // injection a no-op.
+  if (COBALT_ORIGIN_RE.test(url || '')) {
+    chrome.scripting.executeScript(
+      { target: { tabId, allFrames: false }, files: ['bridge.js'] },
+      () => {
+        void chrome.runtime.lastError;
+      }
+    );
+  }
+
   // Same reasoning for the Schoology scraper: the manifest entry only fires on
   // navigations AFTER the extension loads, so a Schoology tab that was already
   // open at install time would have no scraper — and a "Refresh" from the app

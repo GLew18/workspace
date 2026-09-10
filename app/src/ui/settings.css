@@ -1,28 +1,9 @@
 /* Cobalt: Preferences screen. */
 
-.settings-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(3px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 16px;
-  z-index: 1000;
-}
-
-.settings-panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  width: 100%;
-  max-width: 540px;
-  max-height: 88vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
-}
+/* .settings-backdrop / .settings-panel deleted 9/9/26 (skin audit): grep confirmed
+   neither is rendered by any .ts file — Settings has run as a full tab (.settings-page)
+   since before this file's other dead code was swept, not a centered modal. Dead CSS,
+   not a family the popup skin pass needed to touch. */
 
 .settings-head {
   display: flex;
@@ -78,16 +59,8 @@
   opacity: 0.5;
   cursor: default;
 }
-.settings-close {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  font-size: 18px;
-  cursor: pointer;
-}
-.settings-close:hover {
-  color: var(--text);
-}
+/* .settings-close deleted 9/9/26: same dead family as .settings-panel above, no
+   markup references it (grep confirmed). */
 
 .settings-body {
   padding: 18px;
@@ -858,35 +831,9 @@
   color: var(--text);
   border-color: var(--accent);
 }
-.help-backdrop {
-  position: fixed;
-  inset: 0;
-  background: var(--scrim-dim); /* the drawer's dim (components.css :root) */
-  animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  z-index: 1500;
-}
-.help-box {
-  /* Matches bm-modal (ui/bookmarks.css): border-strong, literal 16px radius,
-     20px padding, same shadow. Title is .bm-modal-title on the <h3> itself;
-     this selector no longer sets margin/size so it doesn't out-specificity it. */
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 16px;
-  max-width: 380px;
-  padding: 20px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-}
-.help-text {
-  margin: 0 0 16px;
-  font-size: 13px;
-  color: var(--text-dim);
-  line-height: 1.55;
-  white-space: pre-wrap;
-}
+/* help "?" popup now renders through the shared bm-backdrop/bm-modal dialog
+   (ui/confirm.ts confirmDialog), so it looks identical to every other
+   text+buttons popup in the app. */
 
 /* The "are you sure?" confirmation (e.g. changing the Schoology link, signing
    out) now renders the shared bm-backdrop/bm-modal skin from ui/bookmarks.css
@@ -1284,7 +1231,7 @@
      matching the bm-modal family. z-index stays 1200 on purpose: this guide is
      launched from other popups (e.g. the attachments popup) and must always
      land on top of them, not behind at the bm-modal tier (1000). */
-  position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center;
+  position: fixed; inset: 0; z-index: var(--z-guide); display: grid; place-items: center;
   padding: 20px;
 }
 .ngd-card {
@@ -1293,13 +1240,16 @@
      here: this guide runs wider than a bm-modal to fit its screenshots. */
   position: relative; width: min(560px, 100%); max-height: 92vh; overflow-y: auto;
 }
+/* Position/color/hover/radius/padding now come from .dlg-close (components.css),
+   aliased in the markup (settings/view.ts, ui/popupGuide.ts). Only what's still
+   genuinely THIS guide's own — the ✕'s size and sitting above the scrolling
+   content — stays here. */
 .ngd-close {
-  position: absolute; top: 12px; right: 14px; background: none; border: none;
-  color: var(--text-dim); font-size: 15px; cursor: pointer; line-height: 1; padding: 4px; z-index: 1;
+  font-size: 15px;
+  z-index: 1;
 }
-.ngd-close:hover { color: var(--text); }
 /* index */
-.ngd-title { font-size: 16px; font-weight: 700; } /* matches bm-modal-title */
+.ngd-title { margin: 0 0 14px; font-size: 16px; font-weight: 700; } /* matches bm-modal-title (9/9/26: added the margin too, .ngd-sub already carries its own margin-top so nothing doubles) */
 .ngd-sub { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; margin: 6px 24px 16px 0; }
 .ngd-list { display: flex; flex-direction: column; gap: 8px; }
 /* Each guide carries a likelihood heat color in --gda (red = most common → purple =
@@ -1307,7 +1257,7 @@
    left accent stripe, the tag, and the step dots. */
 .ngd-item {
   display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
-  background: var(--surface2); border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
   border-left: 3px solid var(--gda, var(--border-strong));
   color: var(--text); font-family: inherit; padding: 12px 14px; cursor: pointer;
   transition: border-color 0.16s ease, background 0.16s ease;
@@ -1374,7 +1324,7 @@
 /* Mac/Windows switcher on the guide index (8/31) — same segmented look as .nseg,
    sized to sit under the subtitle. Defaults to the detected OS (util/os.ts). */
 .ngd-os { display: inline-grid; grid-template-columns: repeat(2, minmax(96px, 1fr)); gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; margin-bottom: 14px; }
-.ngd-os-btn { background: none; border: none; color: var(--text-dim); font-family: inherit; font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 7px; cursor: pointer; transition: background 0.18s ease, color 0.18s ease; }
+.ngd-os-btn { background: none; border: none; color: var(--text-dim); font-family: inherit; font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 8px; cursor: pointer; transition: background 0.18s ease, color 0.18s ease; }
 .ngd-os-btn:hover { color: var(--text); }
 .ngd-os-btn.active { background: var(--accent); color: var(--on-accent); }
 
@@ -1745,10 +1695,10 @@ a.settings-credits-lic:hover { color: var(--accent); border-color: var(--accent)
   z-index: 30;
   max-height: 244px;
   overflow-y: auto;
-  background: var(--surface-2, #0f2352);
+  background: var(--surface); /* was a bespoke blue (var(--surface-2, #0f2352)) — unified 9/9/26 with every other anchored popover */
   border: 1px solid var(--border-strong);
-  border-radius: 11px;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  border-radius: var(--pop-radius);
+  box-shadow: var(--pop-shadow);
   padding: 5px;
 }
 .lang-results[hidden] { display: none; }

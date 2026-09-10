@@ -803,7 +803,7 @@
 .focus-songwin-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1200;
+  z-index: var(--z-guide);
   background: var(--scrim-dim); /* the drawer's dim (components.css :root); no blur, the drawer has none */
   animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
   display: flex;
@@ -817,11 +817,11 @@
   max-height: 78vh;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 16px;
+  background: var(--dlg-bg);
+  border: 1px solid var(--dlg-border);
+  border-radius: var(--dlg-radius);
   overflow: hidden;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5); /* matches .bm-modal / .popup */
+  box-shadow: var(--dlg-shadow); /* matches .bm-modal / .popup */
 }
 .focus-songwin-head {
   display: flex;
@@ -1206,15 +1206,10 @@
 .focus-ctrl.primary:hover {
   background: rgba(125, 180, 255, 0.12);
 }
-.focus-ctrl.gold {
-  /* Outline style (dark bg + gold text/border), mirroring .danger so Add & Trim match. */
-  color: var(--accent);
-  border-color: rgba(125, 180, 255, 0.4);
-}
-.focus-ctrl.gold:hover {
-  background: rgba(125, 180, 255, 0.12);
-  border-color: var(--accent);
-}
+/* .focus-ctrl.gold deleted 9/9/26 (skin audit): its one caller, the extend/trim
+   dialog's Add button, moved onto bm-btn-primary (see focus/view.ts
+   promptCustomExtend) along with the rest of that dialog's buttons — grep
+   confirmed nothing else used the gold variant. */
 .focus-ctrl.danger {
   color: var(--focus-red);
   border-color: rgba(var(--focus-red-rgb), 0.4);
@@ -1439,7 +1434,7 @@
 .focus-modal-back {
   position: fixed;
   inset: 0;
-  z-index: 2100;
+  z-index: var(--z-focus-modal);
   background: var(--scrim-dim); /* the drawer's dim (components.css :root) */
   animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
   display: flex;
@@ -1454,14 +1449,14 @@
 .focus-modal {
   width: 100%;
   max-width: 300px;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 16px;
-  padding: 20px;
+  background: var(--dlg-bg);
+  border: 1px solid var(--dlg-border);
+  border-radius: var(--dlg-radius);
+  padding: var(--dlg-pad);
   display: flex;
   flex-direction: column;
   gap: 14px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5); /* matches .bm-modal / .popup */
+  box-shadow: var(--dlg-shadow); /* matches .bm-modal / .popup */
 }
 /* The folder picker shares the folder-pick markup with Tasks' own picker (.popup,
    now 420px wide) and reads as a smaller card next to it at the carousel's 300px.
@@ -1470,8 +1465,16 @@
   max-width: 420px;
 }
 .focus-modal-title {
+  margin: 0 0 14px; /* matches bm-modal-title (9/9/26 skin audit) */
   font-size: 16px;
   font-weight: 700;
+}
+/* .focus-modal is `display:flex; flex-direction:column; gap:14px` (below), which
+   already puts 14px after the title on its own — the margin above would double
+   it to 28px. Cancel just that one gap instead of touching the container's gap
+   (every other pair of children still wants it). */
+.focus-modal-title + * {
+  margin-top: -14px;
 }
 .focus-modal-input {
   background: var(--surface2);
@@ -1518,9 +1521,9 @@
   width: 272px;
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 14px;
+  border-radius: var(--pop-radius);
   padding: 12px 12px 14px;
-  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--pop-shadow);
   /* Never grow into the top edge of the screen — cap the popover and let it
      scroll as ONE list instead (breathing room stays above it). */
   max-height: calc(100vh - 110px);

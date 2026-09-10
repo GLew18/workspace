@@ -133,6 +133,14 @@ export function openSuggestionBox(screen = ''): void {
   back.addEventListener('click', (e) => {
     if (e.target === back) close();
   });
+  // Escape closes, like every other bm-modal dialog (audit, 9/9/26: this box
+  // was the one dialog that ignored it, even with the textarea focused).
+  back.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      close();
+    }
+  });
   enterConfirms(back, () => (send.disabled ? null : send));
 
   send.addEventListener('click', () => {
