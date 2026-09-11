@@ -33,6 +33,44 @@ import './ui/bookmarks.css';
 import './ui/landing.css';
 import './ui/auth.css';
 import './ui/onboarding.css';
+import './ui/plus.css';
+import { openPlusScreen, closePlusScreen } from './plus/view';
+
+// The Cobalt Plus screen, reachable without a trigger (see plus/view.ts):
+// ?plus=1 opens it plain, ?plus=<feature> opens it for that feature, on any
+// screen including sign-in. window.__cobaltPlus is the same function for the
+// console; the guard keeps a locked-down window from throwing at boot.
+//
+// The URL open itself runs from openPlusFromUrl(), AFTER the first screen has
+// rendered (see the auth wiring below): opened here at module top it came up
+// before the landing/app existed, and whatever rendered next took the focus
+// off the dialog's Start button.
+try {
+  (window as unknown as { __cobaltPlus?: typeof openPlusScreen }).__cobaltPlus = openPlusScreen;
+} catch {
+  /* a frozen window is not worth failing boot over */
+}
+let plusUrlHandled = false;
+function openPlusFromUrl(): void {
+  if (plusUrlHandled) return;
+  // A first-run account: renderApp() returned early into the onboarding wizard
+  // (.onb-deck on <body>, onboarding/view.ts). An upgrade screen over that would
+  // interrupt the one flow a new user has to finish, so it does not open NOW.
+  // Not latched: the wizard's onDone re-renders and calls back here, and the
+  // ?plus= param is still in the URL (it is only stripped after an open).
+  if (document.querySelector('.onb-deck')) return;
+  plusUrlHandled = true;
+  const q = new URLSearchParams(location.search);
+  const plusParam = q.get('plus');
+  if (plusParam === null || plusParam === '' || plusParam === '0') return;
+  // Capped: the feature name is printed in the headline verbatim.
+  openPlusScreen(plusParam === '1' ? {} : { feature: plusParam.slice(0, 80) });
+  // Then drop ONLY this param. The router copies location.search onto every
+  // path it writes, so left in place it would ride along to every tab and
+  // reopen the screen on each reload; anything else in the query stays.
+  q.delete('plus');
+  history.replaceState(null, '', location.pathname + (q.size ? '?' + q.toString() : '') + location.hash);
+}
 
 // OFF unless explicitly turned on. Names whatever is making the stray sound on
 // reload (see util/soundTrace.ts). Two switches, because the localStorage one alone
@@ -250,7 +288,8 @@ async function renderApp(user: AuthUser): Promise<void> {
       data,
       email: user.email,
       fallbackName: user.displayName,
-      onDone: () => void renderApp(user),
+      // Then honour a ?plus= deep link the wizard made us postpone (main.ts top).
+      onDone: () => void renderApp(user).then(openPlusFromUrl),
     });
     return;
   }
@@ -804,10 +843,13 @@ onAuth((user) => {
     document.querySelector('.auth-overlay')?.remove();
     if (user.uid !== currentUid) {
       currentUid = user.uid;
-      void renderApp(user);
+      void renderApp(user).then(openPlusFromUrl);
     }
   } else {
     currentUid = null;
+    // The Cobalt Plus screen also lives on <body>: left open across a sign-out
+    // it would float over the sign-in page with the page's scroll still locked.
+    closePlusScreen();
     if (autoSyncTimer !== null) {
       clearInterval(autoSyncTimer);
       autoSyncTimer = null;
@@ -829,6 +871,7 @@ onAuth((user) => {
     }
     setPrefsCache(DEFAULT_PREFS);
     renderSignIn();
+    openPlusFromUrl();
   }
 });
 }

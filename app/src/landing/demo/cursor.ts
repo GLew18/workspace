@@ -18,6 +18,11 @@
 
 import { el } from '../../util/dom';
 
+/** The Cobalt Plus screen (plus/view.ts) can sit over the landing page while
+ *  the demo keeps running. While it is up, the demo must not pull focus off
+ *  the dialog; the events still fire, only the focus() is skipped. */
+const plusScreenOpen = (): boolean => !!document.querySelector('.plus-backdrop');
+
 const CURSOR_SVG =
   '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M5.5 3.2l12.3 10.4-5.4.7 3 6.2-2.6 1.2-3-6.3-4.3 3.6z" fill="#fff" stroke="#0b1f4d" stroke-width="1.4" stroke-linejoin="round"/></svg>';
 
@@ -509,7 +514,7 @@ export class GhostCursor {
    *  tiny hesitations after word breaks. Ends WITHOUT committing (callers press
    *  Enter themselves when the flow calls for it). */
   async typeInto(field: HTMLInputElement | HTMLTextAreaElement, text: string): Promise<void> {
-    field.focus({ preventScroll: true }); // never scroll the visitor's page to the field
+    if (!plusScreenOpen()) field.focus({ preventScroll: true }); // never scroll the visitor's page to the field
     if (this.opts.instant) {
       field.value += text;
       field.dispatchEvent(new InputEvent('input', { bubbles: true }));
@@ -528,7 +533,7 @@ export class GhostCursor {
    *  like a person). The full honest sequence a real Ctrl+V emits: modifier
    *  keydown, V keydown, a paste ClipboardEvent, one insertFromPaste input. */
   async paste(field: HTMLInputElement | HTMLTextAreaElement, text: string): Promise<void> {
-    field.focus({ preventScroll: true }); // never scroll the visitor's page to the field
+    if (!plusScreenOpen()) field.focus({ preventScroll: true }); // never scroll the visitor's page to the field
     await this.wait(200); // the beat of reaching for Ctrl+V
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', ctrlKey: true, bubbles: true }));
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true }));
@@ -543,7 +548,7 @@ export class GhostCursor {
   /** Select-all + retype (the rename gesture after an inline editor opens with
    *  the old value selected). */
   async retype(field: HTMLInputElement | HTMLTextAreaElement, text: string): Promise<void> {
-    field.focus({ preventScroll: true }); // never scroll the visitor's page to the field
+    if (!plusScreenOpen()) field.focus({ preventScroll: true }); // never scroll the visitor's page to the field
     field.select();
     await this.wait(140);
     field.value = '';

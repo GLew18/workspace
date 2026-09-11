@@ -18,7 +18,9 @@
 // NOTE on ids: every wordmark instance emits the same defs ids (cb-*). That is
 // deliberate: url(#...) resolves to the first match in the document, and all
 // instances are identical, so any resolution target renders correctly.
-const STONE_SVG = `<svg class="ws-mon" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+// Exported so the Cobalt Plus screen (plus/view.ts) can paint the same stone as
+// its hero at a larger size, instead of copying the artwork.
+export const STONE_SVG = `<svg class="ws-mon" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
   <defs>
     <clipPath id="cb-clip"><rect x="9" y="9" width="82" height="82" rx="31" ry="31"/></clipPath>
     <radialGradient id="cb-body" cx="36%" cy="30%" r="88%">

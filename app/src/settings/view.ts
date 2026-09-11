@@ -10,6 +10,7 @@
 import type { Data } from '../db';
 import type { CourseConfig, SchoologySettings } from '../types';
 import { el, textInput, escapeHtml, enterConfirms, fadeRemove, escapeCloses } from '../util/dom';
+import { createPlusSidebarButton } from '../plus/view';
 import { attachColorPicker } from '../ui/colorPicker';
 import { openAtTop } from '../ui/tabs';
 import { confirmDanger, confirmDialog } from '../ui/confirm';
@@ -266,6 +267,9 @@ export class SettingsView {
     const PREMIUM_TABS = new Set(['Notifications']);
     const premWrap = el('div', { class: 'settings-side-prem' });
     premWrap.append(el('div', { class: 'settings-side-subhead', text: 'Premium' }));
+    // "Cobalt Plus" opens the upgrade screen (plus/view.ts). It sits under the
+    // subhead, above the premium tabs, and is not a tab itself.
+    premWrap.append(createPlusSidebarButton());
     tabs.forEach(([label], i) => {
       const b = el('button', { class: 'settings-side-btn' }) as HTMLButtonElement;
       if (PREMIUM_TABS.has(label)) b.classList.add('premium');

@@ -1,0 +1,505 @@
+/* ===== Cobalt Plus upgrade screen (plus/view.ts) =====
+   A full-screen overlay: the shared scrim behind a centered two-column card,
+   hero on the left (the real gem, glowing) and the pitch on the right. Box
+   metrics come from the dialog tokens in theme.css so it wears the same skin as
+   every other popup; the violet is the premium identity (#8b5cf6, lightened to
+   #a78bfa wherever it is text on a dark ground, for 4.5:1). The gem keeps its
+   own blue. */
+
+:root {
+  --plus-violet: #8b5cf6;
+  --plus-violet-text: #a78bfa; /* 6.4:1 on --surface */
+  --plus-violet-deep: #7c3aed; /* button fill: white on it is 5.7:1 */
+  --plus-violet-rgb: 139, 92, 246;
+}
+
+/* ---- Overlay ---- */
+.plus-backdrop {
+  position: fixed;
+  inset: 0;
+  /* Above the Focus overlay (--z-focus 2000) as well as the ordinary tabs: the
+     greyed-out-control trigger can fire from inside a running session, and an
+     upgrade screen that opened BEHIND the timer would read as broken. */
+  z-index: var(--z-focus-modal);
+  /* Heavier than the shared --dlg-scrim, and blurred: this one covers a whole
+     screen's worth of UI and the card has to read as the only thing on it. */
+  background: rgba(6, 10, 22, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: scrim-in var(--scrim-dur) var(--scrim-ease) both;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+/* Leaves through fadeRemove() (util/dom.ts), like every dialog. Two classes so
+   this outranks the base rule's own animation. */
+.plus-backdrop.closing {
+  animation: scrim-out var(--scrim-dur) var(--scrim-ease) both;
+  pointer-events: none;
+}
+/* fadeRemove() removes the node on the first animationend it hears, and a
+   child's entrance still running on an early Escape would end first and cut
+   the fade short. While leaving, the children stop animating and hold their
+   finished state. */
+.plus-backdrop.closing :is(.plus-card, .plus-row, .plus-tl-step, .plus-tl-line) {
+  animation: none;
+}
+
+/* ---- Card ---- */
+.plus-card {
+  width: 100%;
+  max-width: 900px;
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  overflow: auto; /* only ever scrolls on a short window; 720 tall fits whole */
+  overscroll-behavior: contain; /* a scroll that hits the card's end stops there */
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  background: var(--dlg-bg);
+  border: 1px solid var(--dlg-border);
+  border-radius: var(--dlg-radius);
+  box-shadow: var(--dlg-shadow);
+  animation: plus-rise 0.42s var(--scrim-ease) both;
+}
+@keyframes plus-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- Hero column: the product itself ---- */
+.plus-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 32px 22px;
+  /* The page's own navy, so the gem sits on the ground it lives on in the app,
+     with a faint violet cast behind the gem to say "Plus". */
+  background:
+    radial-gradient(120% 70% at 50% 35%, rgba(var(--plus-violet-rgb), 0.22), transparent 60%),
+    linear-gradient(165deg, #0e2457 0%, #091a43 55%, #07132e 100%);
+  border-right: 1px solid var(--border);
+  border-radius: var(--dlg-radius) 0 0 var(--dlg-radius);
+  overflow: hidden;
+}
+.plus-gem {
+  position: relative;
+  width: 128px;
+  height: 128px;
+  display: grid;
+  place-items: center;
+}
+.plus-gem-stone {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+/* The stone wears .ws-mon (1em tall, nudged for the wordmark slot). At hero size
+   it fills its box instead. */
+.plus-gem-stone .ws-mon {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  transform: none;
+}
+/* The glow: the gem's own blue, breathing slowly. Behind the stone, larger than
+   it, feathered to nothing. 6s each way, so it is felt rather than watched. */
+.plus-gem-glow {
+  position: absolute;
+  inset: -34%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(125, 180, 255, 0.55) 0%, rgba(125, 180, 255, 0.18) 40%, rgba(125, 180, 255, 0) 70%);
+  filter: blur(6px);
+  animation: plus-breathe 6s ease-in-out infinite alternate;
+}
+@keyframes plus-breathe {
+  from {
+    opacity: 0.55;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+.plus-hero-mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 1;
+}
+.plus-hero-mark .ws-mark {
+  font-size: 26px; /* size only; the wordmark's proportions are its own */
+}
+.plus-tag {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--plus-violet-text);
+  background: rgba(var(--plus-violet-rgb), 0.16);
+  border: 1px solid rgba(var(--plus-violet-rgb), 0.45);
+  border-radius: 999px;
+  padding: 3px 9px;
+  line-height: 1.2;
+}
+/* One quiet line under the wordmark, so the column says what it is for. */
+.plus-hero-caption {
+  margin-top: -6px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  text-align: center;
+  text-wrap: balance; /* two even lines, no one-word orphan */
+  color: var(--text-dim);
+  z-index: 1;
+}
+/* A slot for a later feature preview (a real screenshot or a live miniature of
+   the feature the user reached for). Nothing fills it yet, so it takes no room. */
+.plus-hero-preview {
+  width: 100%;
+  z-index: 1;
+}
+.plus-hero-preview:empty {
+  display: none;
+}
+
+/* ---- Content column ---- */
+.plus-body {
+  padding: 30px 34px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.plus-headline {
+  margin: 0 0 4px;
+  font-size: 27px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  color: var(--text);
+  text-wrap: balance;
+  overflow-wrap: anywhere; /* the feature name comes from the URL */
+}
+.plus-headline-feature {
+  color: var(--plus-violet-text);
+}
+.plus-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* Checklist */
+.plus-list {
+  list-style: none;
+  margin: -6px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 14px;
+}
+.plus-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 13.5px;
+  /* Quieter than the timeline titles, so the two lists do not compete; the
+     lead row below is the one that reads first. */
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.78);
+  animation: plus-row-in 0.4s var(--scrim-ease) both;
+  animation-delay: calc(180ms + var(--i) * 55ms);
+}
+@keyframes plus-row-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.plus-check {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--plus-violet-deep);
+}
+.plus-row-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* The row the user came for: full width, tinted, and it reads first. */
+.plus-row.lead {
+  grid-column: 1 / -1;
+  font-weight: 700;
+  color: var(--text);
+  background: rgba(var(--plus-violet-rgb), 0.14);
+  border-color: rgba(var(--plus-violet-rgb), 0.45);
+}
+.plus-row.lead .plus-check {
+  background: var(--plus-violet);
+  box-shadow: 0 0 0 4px rgba(var(--plus-violet-rgb), 0.22);
+}
+
+/* Timeline */
+.plus-tl {
+  list-style: none;
+  margin: -4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.plus-tl-step {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 0 12px;
+  animation: plus-row-in 0.4s var(--scrim-ease) both;
+  animation-delay: calc(420ms + var(--i) * 140ms);
+}
+.plus-tl-rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.plus-tl-icon {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--plus-violet-text);
+  background: rgba(var(--plus-violet-rgb), 0.14);
+  border: 1px solid rgba(var(--plus-violet-rgb), 0.4);
+  z-index: 1;
+}
+/* The connector: violet under the icon, fading to nothing before the next one,
+   drawn top-down once its step has arrived. */
+.plus-tl-line {
+  position: absolute;
+  top: 30px;
+  bottom: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: linear-gradient(to bottom, rgba(var(--plus-violet-rgb), 0.7), rgba(var(--plus-violet-rgb), 0.08));
+  transform-origin: top;
+  animation: plus-draw 0.5s var(--scrim-ease) both;
+  animation-delay: calc(560ms + var(--i) * 140ms);
+}
+@keyframes plus-draw {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+.plus-tl-text {
+  padding: 4px 0 10px;
+  min-width: 0;
+}
+.plus-tl-step:last-child .plus-tl-text {
+  padding-bottom: 0;
+}
+.plus-tl-when {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--plus-violet-text);
+  line-height: 1.3;
+}
+.plus-tl-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.35;
+}
+.plus-tl-sub {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+/* Actions */
+.plus-actions {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.plus-start {
+  --glow-rgb: var(--plus-violet-rgb); /* glows in its own hue, same softness as every button */
+  appearance: none;
+  border: none;
+  border-radius: 10px;
+  padding: 13px 20px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--plus-violet-deep);
+}
+.plus-start:hover {
+  background: var(--plus-violet);
+  box-shadow: 0 0 var(--glow-blur) var(--glow-spread) rgba(var(--glow-rgb), var(--glow-alpha));
+}
+/* Rings only when the keyboard is driving (html[data-kbd], see components.css):
+   the screen focuses this button on open, and a click-opened dialog must not
+   arrive wearing a ring. Violet instead of the app's blue, in this one place. */
+html[data-kbd] .plus-start:focus-visible {
+  outline: 2px solid var(--plus-violet-text);
+  outline-offset: 2px;
+}
+.plus-reassure {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.plus-notnow {
+  align-self: center;
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.plus-notnow:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+html[data-kbd] .plus-notnow:focus-visible {
+  outline: 2px solid var(--plus-violet-text);
+  outline-offset: 2px;
+}
+
+/* The Settings sidebar entry (.settings-side-plus, settings/view.ts) is a plain
+   .settings-side-btn and takes that file's styling as-is: standard white hover,
+   never .active. The Premium block is deliberately neutral (settings.css). */
+
+/* ---- Narrow: one column, hero on top, card scrolls inside ---- */
+@media (max-width: 760px) {
+  .plus-backdrop {
+    padding: 12px;
+  }
+  .plus-card {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+  .plus-hero {
+    flex-direction: row;
+    justify-content: center;
+    gap: 18px;
+    padding: 10px 20px 8px; /* strip ~84px tall, so a 375x812 phone fits the whole card */
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    border-radius: var(--dlg-radius) var(--dlg-radius) 0 0;
+  }
+  .plus-gem {
+    width: 64px;
+    height: 64px;
+  }
+  .plus-hero-mark .ws-mark {
+    font-size: 22px;
+  }
+  .plus-hero-preview,
+  .plus-hero-caption {
+    display: none; /* the preview slot and caption are desktop affordances */
+  }
+  .plus-body {
+    padding: 18px 18px 16px;
+    gap: 11px;
+  }
+  .plus-headline {
+    font-size: 22px;
+  }
+  .plus-list {
+    grid-template-columns: 1fr;
+    gap: 1px;
+  }
+  .plus-row {
+    padding: 3px 8px; /* 27px rows */
+    font-size: 13px;
+  }
+  .plus-tl-text {
+    padding: 3px 0 10px;
+  }
+  .plus-actions {
+    gap: 6px;
+  }
+  /* A 44px touch target; the gap above it is absorbed into the target. */
+  .plus-notnow {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 14px;
+    margin-top: -6px;
+  }
+}
+
+/* ---- Short windows: keep the whole card visible before allowing a scroll ---- */
+@media (max-height: 640px) and (min-width: 761px) {
+  .plus-body {
+    padding: 22px 28px 20px;
+    gap: 10px;
+  }
+  .plus-gem {
+    width: 104px;
+    height: 104px;
+  }
+}
+
+/* ---- Reduced motion: fades only, nothing moves, nothing breathes ---- */
+@media (prefers-reduced-motion: reduce) {
+  .plus-card,
+  .plus-row,
+  .plus-tl-step {
+    animation: plus-fade var(--scrim-dur) ease both;
+    animation-delay: 0s;
+  }
+  .plus-tl-line {
+    animation: none;
+  }
+  .plus-gem-glow {
+    animation: none;
+    opacity: 0.8;
+    transform: none;
+  }
+}
+@keyframes plus-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
