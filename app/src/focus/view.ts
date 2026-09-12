@@ -302,7 +302,7 @@ export class FocusView {
   private todoBar: SelBar | null = null;
   private lastSel: 'imp' | 'todo' = 'todo'; // which selection was touched most recently
   private watchingTasks = false;
-  private musicVolume = 50; // live session music volume (0–100), driven by the in-session slider
+  private musicVolume = 75; // live session music volume (0–100), driven by the in-session slider
   private playlist: Track[] = [];
   // The active music collection driving the session playlist — a genre, an artist,
   // "various" (the pooled small artists), or the user's favorites.
@@ -2258,7 +2258,7 @@ export class FocusView {
     // handed the +/- buttons straight back (Gabe, 8/20).
     this.accountabilityLatch = !!s.accountability;
     this.sessionMusic = s.selectedMusic;
-    this.musicVolume = s.musicVolume ?? 50;
+    this.musicVolume = s.musicVolume ?? 75;
     if (s.musicColl) this.musicColl = { ...s.musicColl }; // resume the exact collection
 
     const remaining = s.paused

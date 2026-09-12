@@ -98,7 +98,7 @@ export class MusicEngine {
   private onBlocked: (() => void) | null = null; // fires when the browser refuses play() (autoplay policy)
   private onPlayState: ((playing: boolean) => void) | null = null; // mirrors the element's real play/pause
   private onTime: ((cur: number, dur: number) => void) | null = null; // playback-position updates for the seek bar
-  private volume01 = 0.5; // 0..1 slider fraction — the single volume source
+  private volume01 = 0.75; // 0..1 slider fraction — the single volume source
   private graph: { gain: GainNode; limiter: DynamicsCompressorNode } | null = null; // Web Audio chain (lazy)
   private srcNode: MediaElementAudioSourceNode | null = null; // the element's node; REPLACED by a rebuild
   /** Fixed first stage. The source node connects INTO this, and everything downstream
@@ -140,7 +140,7 @@ export class MusicEngine {
   // The cost is honest: the very top is quieter than it was. The right way to buy
   // that back is a louder NORMALIZATION target in library.ts (gainDb), which raises
   // the floor without ever crossing the ceiling — not by driving a limiter.
-  private static readonly MAX_GAIN = 1.0;
+  private static readonly MAX_GAIN = 2.0; // doubled 9/11/26 (Gabe: music too quiet)
   private static readonly VOL_CURVE = 2.2; // perceptual exponent (see applyVolume) — widens the usable range
   // "Warmth" EQ for focus: a gentle high-shelf that rolls the bright/harsh treble
   // down a few dB across EVERY track, so long sessions are easier on the ears and
