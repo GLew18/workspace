@@ -27,6 +27,7 @@ import { TasksView } from '../../tasks/render';
 import { BookmarksView } from '../../bookmarks/view';
 import { SettingsView } from '../../settings/view';
 import { FocusView } from '../../focus/view';
+import { TaskArchiveView } from '../../tasks/archiveView';
 import { createDanData, danDueTodayCount } from './seed';
 
 // The signed-in header's exact glyphs (main.ts) — copied, not imported, because
@@ -55,8 +56,15 @@ const BULB_SVG =
   '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1v.2h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>';
 const BELL_SVG =
   '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>';
+// 18px box, 2.22 stroke — matches the real settingsBtn's own size correction
+// (main.ts, 8/26), not the 20/2 every other header icon uses. See main.ts's
+// note on why the gear alone needs both numbers moved.
 const GEAR_SVG =
-  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.22" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+// 🗄 Task Archives — the real archiveBtn's exact mark (main.ts). Sits between
+// the bulb and the bell, same as the real header.
+const ARCHIVE_SVG =
+  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(0 .5)"><rect x="3" y="3" width="18" height="4" rx="1"/><path d="M5 7v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7"/><path d="M10 12h4"/></g></svg>';
 
 export interface DemoShell {
   /** The framed screen (append this to the hero stage). */
@@ -71,8 +79,8 @@ export interface DemoShell {
   navOpen(): boolean;
   /** The sidebar's nav buttons by tab id (the cursor clicks these). */
   navBtn(id: string): HTMLElement;
-  /** The header's hamburger / bell / gear (cursor targets). */
-  chrome: { menu: HTMLElement; bell: HTMLElement; gear: HTMLElement };
+  /** The header's hamburger / archive / bell / gear (cursor targets). */
+  chrome: { menu: HTMLElement; archive: HTMLElement; bell: HTMLElement; gear: HTMLElement };
   destroy(): void;
 }
 
@@ -98,11 +106,13 @@ export async function buildDemoShell(): Promise<DemoShell> {
   const userBox = el('div', { class: 'app-user' });
   const suggestBtn = el('button', { class: 'icon-btn' });
   suggestBtn.innerHTML = BULB_SVG;
+  const archiveBtn = el('button', { class: 'icon-btn' });
+  archiveBtn.innerHTML = ARCHIVE_SVG;
   const bellBtn = el('button', { class: 'icon-btn' });
   bellBtn.innerHTML = BELL_SVG;
   const gearBtn = el('button', { class: 'icon-btn' });
   gearBtn.innerHTML = GEAR_SVG;
-  userBox.append(suggestBtn, bellBtn, gearBtn, el('span', { class: 'app-user-name', text: 'Dan' }));
+  userBox.append(suggestBtn, archiveBtn, bellBtn, gearBtn, el('span', { class: 'app-user-name', text: 'Dan' }));
   header.append(headerLeft, userBox);
 
   // --- Below: scrim + sidebar + tab panels (replica of renderApp's .app-below).
@@ -152,6 +162,7 @@ export async function buildDemoShell(): Promise<DemoShell> {
   // shell body, and page-global side effects (tab title, wake lock, persist,
   // PiP, audible music) are all skipped — see the sample gates in focus/view.ts.
   const focusView = new FocusView(data, { host: body });
+  const archiveView = new TaskArchiveView(data);
   const controller: TabController = mountTabs(
     tabsHost,
     [
@@ -160,6 +171,7 @@ export async function buildDemoShell(): Promise<DemoShell> {
       { id: 'focus', label: 'Focus', render: (p) => void focusView.mount(p) },
       { id: 'bookmarks', label: 'Bookmarks', render: (p) => void new BookmarksView(data, { host: body }).mount(p) },
       { id: 'settings', label: 'Settings', onShow: (p) => void settingsView.mount(p) },
+      { id: 'archive', label: 'Task Archives', onShow: (p) => archiveView.mount(p) },
     ],
     (id) => {
       navBtns.forEach((b, k) => b.classList.toggle('active', k === id));
@@ -168,7 +180,13 @@ export async function buildDemoShell(): Promise<DemoShell> {
       dropSelections();
     }
   );
+  // Settings and the archive live in the header, not the drawer, but both still
+  // register so they pick up the "active" highlight when their tab is showing —
+  // same reasoning as main.ts's own navBtns.set for these two.
+  navBtns.set('settings', gearBtn);
+  navBtns.set('archive', archiveBtn);
   gearBtn.addEventListener('click', () => controller.goToTab('settings'));
+  archiveBtn.addEventListener('click', () => controller.goToTab('archive'));
 
   // Scrim BEFORE the sidebar so the sidebar paints over it (main.ts order).
   below.append(scrim, sidebar, tabsHost);
@@ -217,7 +235,7 @@ export async function buildDemoShell(): Promise<DemoShell> {
     setNav: (open) => below.classList.toggle('nav-open', open),
     navOpen: () => below.classList.contains('nav-open'),
     navBtn: (id) => navBtns.get(id)!,
-    chrome: { menu: menuBtn, bell: bellBtn, gear: gearBtn },
+    chrome: { menu: menuBtn, archive: archiveBtn, bell: bellBtn, gear: gearBtn },
     destroy: () => {
       pipWatch.disconnect();
       // FocusView owns timers + window listeners that outlive the DOM; teardown

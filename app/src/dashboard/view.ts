@@ -4,13 +4,12 @@
 
 import type { Data } from '../db';
 import type { ScheduleItem } from '../types';
-import { el } from '../util/dom';
+import { el, textInput } from '../util/dom';
 import { todayStr, addDays, scheduleMonday } from '../util/dates';
 import { getPrefs, PREFS_EVENT } from '../prefs';
 import { quoteOfDay, type Quote } from '../quotes';
-import { openAttachment } from '../tasks/attachments';
+import { openAttachment, normalizeUrl } from '../tasks/attachments';
 import { isAssessmentTask } from '../tasks/store';
-import { runSync } from '../schoology/sync';
 import { TasksView } from '../tasks/render';
 
 
@@ -73,6 +72,19 @@ function greeting(name: string): string {
   return `${greetingPhrase()}, ${name}`;
 }
 
+/**
+ * The schedule QUICK LINK, stored at profile/scheduleLink. Many schools keep the
+ * timetable outside Schoology (Heschel's lives in Veracross, on a per-student
+ * page whose URL never changes), so the card takes that page's URL once and
+ * then opens it in a click from every sign-in (Gabe, 9/12/26). Nothing is
+ * fetched or parsed: the page needs the student's own school login, which only
+ * their browser has. Removing the link (the ✕ on the row) clears the profile key.
+ */
+interface ScheduleLink {
+  url: string;
+}
+const SCHEDULE_LINK_KEY = 'scheduleLink';
+
 export class DashboardView {
   private data: Data;
   private firstName: string;
@@ -85,6 +97,10 @@ export class DashboardView {
    *  back (Gabe, 8/13, spotted when pinning a task-row action, which fires
    *  PREFS_EVENT → mount()). null = never fetched, so there is nothing to paint. */
   private scheduleWeek: ScheduleItem[] | null = null;
+  /** The saved quick link, cached beside scheduleWeek for the same instant repaint. */
+  private scheduleLink: ScheduleLink | null = null;
+  /** True while the "paste a link" form is open, so a repaint keeps it open. */
+  private linkFormOpen = false;
   private greetingEl: HTMLElement | null = null;
   private sample: boolean; // landing preview → external links (schedule) are inert
   private panelEl: HTMLElement | null = null; // kept so a prefs change can re-render
@@ -250,43 +266,16 @@ export class DashboardView {
     this.dueBox.append(this.dueBody);
   }
 
-  /** A "Refresh schedule" button that re-pulls the Schoology iCal on demand.
-   *  On success runSync() calls data.refresh(), which re-runs refreshSchedule and
-   *  rebuilds this button fresh (back to idle). We only restore state on error. */
-  private makeRefreshBtn(label: string): HTMLButtonElement {
-    // Icon-only (↻). The label lives in the tooltip; states are single glyphs so
-    // the button never changes width: spins while loading, ⚠ on failure.
-    const btn = el('button', { class: 'dash-refresh-btn', text: '↻', title: label }) as HTMLButtonElement;
-    if (this.sample) {
-      // Landing preview: the button is scenery — looks real, does nothing.
-      // (CSS also disables pointer events; skipping the listener + tab stop
-      // covers keyboard activation.)
-      btn.tabIndex = -1;
-      return btn;
-    }
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      btn.classList.add('spinning');
-      try {
-        await runSync(this.data); // success → data.refresh() rebuilds this button fresh
-      } catch {
-        btn.classList.remove('spinning');
-        btn.textContent = '⚠';
-        setTimeout(() => {
-          btn.disabled = false;
-          btn.textContent = '↻';
-        }, 1800);
-      }
-    });
-    return btn;
-  }
-
   // --- schedule (Monday-anchored, matching Schoology's weekly posts) -------
   // Mon–Fri shows THIS week's schedule; Sat & Sun show NEXT week's, so students
   // can prep ahead. See scheduleMonday() in util/dates.
 
   private async refreshSchedule(): Promise<void> {
-    const stored = await this.data.getProfile<{ list: ScheduleItem[] }>('schedule');
+    const [stored, link] = await Promise.all([
+      this.data.getProfile<{ list: ScheduleItem[] }>('schedule'),
+      this.data.getProfile<ScheduleLink>(SCHEDULE_LINK_KEY),
+    ]);
+    this.scheduleLink = link?.url ? link : null;
     const items = stored?.list ?? [];
     const monday = scheduleMonday();
     const weekEnd = addDays(monday, 5); // Mon…Sat window catches any weekday-dated post
@@ -305,24 +294,93 @@ export class DashboardView {
    *  run synchronously from the cache on mount, with no await in front of it. */
   private renderSchedule(week: ScheduleItem[]): void {
     this.scheduleBox.replaceChildren();
+    // No refresh icon (Gabe, 9/12): the quick link below is a manual paste, not a
+    // Schoology sync, so there is nothing here for a refresh to re-pull.
     const header = el('div', { class: 'dash-schedule-header' });
     header.append(el('span', { text: 'Schedule' }));
-    header.append(this.makeRefreshBtn('Refresh schedule'));
     this.scheduleBox.append(header);
 
-    if (!week.length) {
-      this.scheduleBox.append(el('div', { class: 'dash-schedule-empty', text: 'No schedule this week.' }));
-      return;
+    const link = this.scheduleLink;
+    // The quick link IS the whole timetable, so it gets one plain button, not a
+    // titled row (Gabe, 9/12: "My schedule" + "View Schedule" read as redundant).
+    if (link) {
+      const row = el('div', { class: 'dash-schedule-linkrow' });
+      const view = el('a', { class: 'dash-schedule-view-btn', text: 'View Schedule →' });
+      if (!this.sample) view.addEventListener('click', () => openAttachment(link.url));
+      const remove = el('button', { class: 'dash-schedule-link-x', text: '✕', title: 'Remove schedule link' });
+      remove.addEventListener('click', () => void this.saveScheduleLink(null));
+      row.append(view, remove);
+      this.scheduleBox.append(row);
     }
 
-    const list = el('div', { class: 'dash-schedule-list' });
-    for (const it of week) {
-      const row = el('a', { class: 'dash-schedule-item' });
-      row.append(el('span', { class: 'dash-schedule-title', text: it.title }));
-      row.append(el('span', { class: 'dash-schedule-open', text: 'View Schedule →' }));
-      if (it.url && !this.sample) row.addEventListener('click', () => openAttachment(it.url));
-      list.append(row);
+    // Schoology-fed weekly posts (rare: Heschel's own schedule lives in Veracross,
+    // so this list is normally empty; other schools may still post it there).
+    if (week.length) {
+      const list = el('div', { class: 'dash-schedule-list' });
+      for (const it of week) {
+        const row = el('a', { class: 'dash-schedule-item' });
+        row.append(el('span', { class: 'dash-schedule-title', text: it.title }));
+        row.append(el('span', { class: 'dash-schedule-open', text: 'View Schedule →' }));
+        if (it.url && !this.sample) row.addEventListener('click', () => openAttachment(it.url));
+        list.append(row);
+      }
+      this.scheduleBox.append(list);
     }
-    this.scheduleBox.append(list);
+
+    // No link yet: offer the one-time paste, no "no schedule" caption (Gabe, 9/12:
+    // it isn't needed — the add button already says what's missing). The landing
+    // preview never shows it, since nothing there can be saved.
+    if (!link && !this.sample) {
+      this.scheduleBox.append(this.linkFormOpen ? this.buildLinkForm() : this.buildLinkAddBtn());
+    }
+  }
+
+  private buildLinkAddBtn(): HTMLElement {
+    const btn = el('button', { class: 'dash-schedule-add', text: '+ Add schedule' });
+    btn.addEventListener('click', () => {
+      this.linkFormOpen = true;
+      this.renderSchedule(this.scheduleWeek ?? []);
+      this.scheduleBox.querySelector<HTMLTextAreaElement>('.dash-schedule-link-input')?.focus();
+    });
+    return btn;
+  }
+
+  /** Paste box + Save/Cancel. Enter saves, Escape cancels. A blank Save is a no-op. */
+  private buildLinkForm(): HTMLElement {
+    const form = el('div', { class: 'dash-schedule-link-form' });
+    const input = textInput({
+      class: 'dash-schedule-link-input',
+      placeholder: 'Paste the link to your schedule page',
+      'aria-label': 'Schedule link',
+    });
+    const save = el('button', { class: 'dash-schedule-link-save', text: 'Save' });
+    const cancel = el('button', { class: 'dash-schedule-link-cancel', text: 'Cancel' });
+    const submit = () => {
+      const url = normalizeUrl(input.value);
+      if (!url) return;
+      this.linkFormOpen = false;
+      void this.saveScheduleLink({ url });
+    };
+    const close = () => {
+      this.linkFormOpen = false;
+      this.renderSchedule(this.scheduleWeek ?? []);
+    };
+    save.addEventListener('click', submit);
+    cancel.addEventListener('click', close);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submit();
+      } else if (e.key === 'Escape') close();
+    });
+    form.append(input, el('div', { class: 'dash-schedule-link-btns' }, [save, cancel]));
+    return form;
+  }
+
+  /** Write (or clear, with null) the quick link and repaint the card from cache. */
+  private async saveScheduleLink(link: ScheduleLink | null): Promise<void> {
+    this.scheduleLink = link;
+    this.renderSchedule(this.scheduleWeek ?? []); // optimistic: the row appears at once
+    await this.data.setProfile(SCHEDULE_LINK_KEY, link ?? { url: '' });
   }
 }

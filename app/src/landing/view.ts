@@ -1118,7 +1118,7 @@ function compareSection(): HTMLElement {
 // #region Capabilities word cloud ----------------------------------------------
 function capabilitiesSection(): HTMLElement {
   const sec = el('section', { class: 'lp-section lp-caps lp-reveal', id: 'caps' });
-  // The section reads as one sentence: "The capacity to [cloud] your Schoology
+  // The section reads as one sentence: "The capacity to [cloud]  
   // assignments" — every cloud word slots into the blank grammatically.
   sec.append(el('h2', { class: 'lp-h2', text: 'The capacity to' }));
 

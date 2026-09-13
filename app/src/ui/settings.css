@@ -275,7 +275,8 @@
 }
 .settings-input:focus {
   outline: none;
-  border-color: var(--border-strong);
+  border-color: var(--accent); /* every input focuses to the accent blue (Gabe, 9/12) */
+  box-shadow: 0 0 0 3px var(--gold-glow);
 }
 .settings-input.invalid,
 .settings-input.invalid:focus {
@@ -371,7 +372,7 @@
   font-size: 14px;
 }
 .course-del:hover {
-  color: var(--red);
+  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12) */
 }
 
 .parse-chips {
@@ -403,7 +404,7 @@
   padding: 0 2px;
 }
 .parse-chip-x:hover {
-  color: var(--red);
+  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12) */
 }
 /* THE ADD PILL IS A PARSE CHIP (Gabe, 8/27).
    It is the same object as the saved chips beside it, in the same row, doing the
@@ -585,12 +586,12 @@
 }
 .settings-playlist-btn.danger {
   padding: 6px 10px;
-  color: #ffb4b4;
+  color: var(--text-dim); /* every ✕ app-wide rests on --text-dim (see .dlg-close) */
   border-color: rgba(239, 68, 68, 0.4);
 }
 .settings-playlist-btn.danger:hover {
   background: rgba(239, 68, 68, 0.14);
-  color: #fff;
+  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12); the tint keeps the danger read */
   border-color: var(--red);
 }
 

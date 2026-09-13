@@ -912,7 +912,6 @@ html[data-kbd] .landing :is(button, a):focus-visible {
    ↻ button stays VISIBLE to mimic the real view, but is display-only — no hover,
    no clicks (its listener is also skipped in sample mode; see makeRefreshBtn). */
 .lp-frame .tasks-header { display: none; }
-.lp-frame .dash-refresh-btn { pointer-events: none; }
 /* No quick-add bar in the demo: the freed height makes room for a fourth sample
    task (the TEST-badged one) without the frame growing a scrollbar. */
 .lp-frame .quick-add { display: none; }

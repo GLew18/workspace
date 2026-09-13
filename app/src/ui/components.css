@@ -2146,7 +2146,7 @@ html[data-kbd] :focus-visible {
 .task-test-badge-x {
   background: none;
   border: none;
-  color: var(--red);
+  color: var(--text-dim); /* every ✕ app-wide rests on --text-dim (see .dlg-close) */
   font-size: 9px;
   line-height: 1;
   padding: 0;
@@ -2163,6 +2163,7 @@ html[data-kbd] :focus-visible {
 }
 .task-test-badge .task-test-badge-x:hover {
   opacity: 1;
+  color: var(--text);
 }
 
 .task-actions {
@@ -2768,7 +2769,7 @@ body:has(.selbar:not([hidden])) .toast {
   border-color: var(--border-strong);
 }
 .attach-iconbtn.danger:hover {
-  color: var(--red);
+  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12); the red border keeps the danger read */
   border-color: rgba(239, 68, 68, 0.4);
 }
 .attach-add {
@@ -3018,7 +3019,7 @@ body:has(.selbar:not([hidden])) .toast {
   transition: opacity 0.14s ease, color 0.14s ease;
 }
 .folder-pick-row:hover .group-pick-del { opacity: 1; }
-.group-pick-del:hover { color: var(--red); }
+.group-pick-del:hover { color: var(--text); } /* every ✕ hovers to --text (Gabe, 9/12) */
 /* Save, inside an inline rename row. Sized to sit beside .folder-pick-input. */
 .folder-pick-mini {
   flex: none;

@@ -52,7 +52,7 @@
   opacity: 1;
 }
 .focus-preset-del:hover {
-  color: var(--red);
+  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12) */
 }
 /* "+ Preset" under the carousel — saves the dialed time as a new preset above. */
 .focus-add-preset {
@@ -685,7 +685,7 @@
   font-size: 13px;
 }
 .focus-todo-del:hover {
-  color: var(--red);
+  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12) */
 }
 .focus-music-list {
   display: flex;

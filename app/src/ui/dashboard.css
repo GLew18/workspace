@@ -161,35 +161,6 @@
   color: var(--text);
   margin-bottom: 12px;
 }
-.dash-refresh-btn {
-  /* Icon-only ↻. Compact circle so the loading spin is clean and it never resizes
-     (single-glyph states: ↻ / ⚠). */
-  flex: none;
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  line-height: 1;
-  color: var(--gold);
-  background: rgba(125, 180, 255, 0.08);
-  border: 1px solid rgba(125, 180, 255, 0.3);
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
-}
-.dash-refresh-btn:hover {
-  background: rgba(125, 180, 255, 0.16);
-  border-color: rgba(125, 180, 255, 0.5);
-}
-.dash-refresh-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-.dash-refresh-btn.spinning {
-  animation: ws-spin 0.7s linear infinite;
-}
 .dash-schedule-list {
   display: flex;
   flex-direction: column;
@@ -224,7 +195,115 @@
   font-weight: 600;
   color: var(--gold);
 }
-.dash-schedule-empty {
+/* ===== Schedule quick link (dashboard/view.ts, ScheduleLink) =====
+   One plain button that opens the student's own timetable page (Veracross etc.),
+   plus the one-time "+ Add schedule" paste that creates it. No title row: the
+   button already says what it does (Gabe, 9/12 — "My schedule" + "View Schedule"
+   read as redundant since the link can't be renamed anyway).
+   The row wears the SAME gray-box + accent-arrow look as the Schoology-fed
+   .dash-schedule-item rows below it (Gabe, 9/12: the solid blue button didn't
+   match — this should read as one more schedule row, not a call-to-action). */
+.dash-schedule-linkrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dash-schedule-view-btn {
+  /* Left-aligned block, same as .dash-schedule-add's text (Gabe, 9/12): the row
+     should sit in the same spot whether or not a link has been added yet. */
+  flex: 1;
+  display: block;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--gold);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+.dash-schedule-view-btn:hover {
+  border-color: var(--border-strong);
+}
+.dash-schedule-link-x {
+  /* The app-wide ✕: rests on --text-dim, hovers to --text (Gabe, 9/12). */
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   color: var(--text-dim);
-  font-size: 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.dash-schedule-link-x:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+/* When the link row is already showing, the list of Schoology-fed posts (if any)
+   and the schedule row need a gap between them. */
+.dash-schedule-linkrow + .dash-schedule-list {
+  margin-top: 8px;
+}
+.dash-schedule-add {
+  /* Ghost button, dashed: reads as an empty slot, not a call to action. */
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 14px;
+  background: none;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.dash-schedule-add:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.dash-schedule-link-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.dash-schedule-link-form .dash-schedule-link-input {
+  width: 100%;
+}
+.dash-schedule-link-btns {
+  display: flex;
+  gap: 8px;
+}
+.dash-schedule-link-save,
+.dash-schedule-link-cancel {
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dash-schedule-link-save {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #0b1a33;
+}
+.dash-schedule-link-save:hover {
+  filter: brightness(1.08);
+}
+.dash-schedule-link-cancel {
+  background: none;
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+}
+.dash-schedule-link-cancel:hover {
+  color: var(--text);
 }

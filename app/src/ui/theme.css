@@ -262,6 +262,37 @@ textarea {
   font-family: inherit;
 }
 
+/* ===== Input styling continuity (Gabe, 9/12/26) =====
+   Every text field in the app is meant to look the same: the dark surface, a
+   quiet border, and the accent-blue highlight on focus — never a native/white
+   box. This is the SAFETY NET a field gets when it carries no look-class of its
+   own (a class-based rule like .settings-input or .bm-input always wins on
+   specificity, so this never fights an already-styled field). It exists because
+   the schedule quick-link paste box shipped with no look-class and rendered as a
+   plain white textarea — the same trap components.css already warns about for
+   .sg-input. Sliders (type="range") opt out; they are a different control. */
+input:not([type='range']),
+textarea,
+select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 12px 14px;
+  font-size: 14px;
+}
+input:not([type='range'])::placeholder,
+textarea::placeholder {
+  color: var(--text-dim);
+}
+input:not([type='range']):focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--gold-glow);
+}
+
 a {
   color: var(--accent);
 }

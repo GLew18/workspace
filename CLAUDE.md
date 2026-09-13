@@ -20,7 +20,23 @@ npm run build:deploy && firebase deploy --only hosting --project workspace-67029
 
 **Live URL:** `https://workspace-67029.web.app` (Firebase project `workspace-67029`).
 
-**The real domain is `cobaltstudy.com`** — it is what the app displays everywhere a URL is shown. As of 9/3/26 it is registered at Namecheap but still points at their parking page; connecting it (Firebase Hosting custom domain + DNS) and adding it to Firebase Auth → Authorized domains are Gabe's to do. Until then, deploys land on the `.web.app` URL and that is the one to verify against.
+**The real domain is `cobaltstudy.com`, and it is LIVE** (connected to Firebase Hosting 9/3/26; `www` redirects to it; `authDomain` is `cobaltstudy.com` since 9/4/26). It is what the app displays everywhere a URL is shown. Deploys land on both addresses at once; verify against `https://cobaltstudy.com`, the `.web.app` URL is only a fallback.
+
+## UI conventions
+
+**Every input looks the same, app-wide (standing rule, Gabe 9/12/26).** Text inputs, textareas, and selects all get one look: the dark surface background, a quiet border, and the accent blue on focus. Never a native/white box, never a one-off color. The canonical recipe (also the app-wide default in `app/src/ui/theme.css`, so any field with no look-class of its own gets it automatically):
+```css
+background: var(--surface);
+border: 1px solid var(--border);
+border-radius: 10px;
+color: var(--text);
+/* :focus */
+border-color: var(--accent);
+box-shadow: 0 0 0 3px var(--gold-glow);
+```
+This came from the schedule quick-link paste box shipping with no look-class and rendering as a plain white textarea. When adding any new field, either give it that theme.css default for free (no look-class) or match it explicitly if the component needs its own class.
+
+Same continuity rule already applies to every ✕ close/dismiss button (see `.dlg-close` in `app/src/ui/components.css`): rests on `var(--text-dim)`, hovers to `var(--text)`.
 
 ## The landing demo
 

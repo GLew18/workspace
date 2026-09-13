@@ -121,12 +121,19 @@
   color: var(--text);
 }
 .bm-group-head-count {
+  /* Gabe, 9/12: the number read as off-center — an inline span has no baseline
+     control, so the digit sat slightly high in the pill. Centering it as a flex
+     box with line-height: 1 fixes that regardless of font metrics. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-dim);
   background: rgba(255, 255, 255, 0.06);
   border-radius: 999px;
-  padding: 1px 7px;
+  padding: 3px 7px;
 }
 /* "Open all" is ALWAYS visible. It used to fade in on hover, which hid the whole
    feature: you cannot use a launcher you never see. */
@@ -429,9 +436,12 @@
 }
 /* Small icon delete: red glyph + a subtle red tint (NOT a full red fill), matching
    .attach-iconbtn.danger — the full fill is reserved for labeled Delete buttons. */
+.bm-icon-danger {
+  color: var(--text-dim); /* every ✕ app-wide rests on --text-dim (see .dlg-close) */
+}
 .bm-icon-danger:hover {
   background: var(--red-tint);
-  color: var(--red);
+  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12); the tint keeps the danger read */
 }
 
 /* ===== Add button (right end of the search row) ===== */
