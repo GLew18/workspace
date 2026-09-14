@@ -590,24 +590,6 @@ export class FocusView {
     this.restore(s);
   }
 
-  /** Bring the end-toast's snapshot back to life (the manual-End undo). */
-  private retrieveSession(s: FocusState, resumeRunning: boolean): void {
-    if (this.overlay || this.widget) return; // a session is already up — never stack two
-    // The session is coming BACK — a still-ringing completion cue would be a lie.
-    this.endCue?.stop();
-    this.endCue = null;
-    const remaining = s.paused ? s.pausedRemainingSec ?? 0 : Math.round((s.endTimeMs - Date.now()) / 1000);
-    if (remaining <= 0) {
-      this.finishElapsedSession(s); // its leftover time elapsed → end it properly
-      return;
-    }
-    s.ownerTab = getTabId(); // this tab owns the resurrected session
-    s.suspended = false;
-    saveFocusState(s);
-    this.restore(s);
-    if (resumeRunning && this.paused) this.togglePause();
-  }
-
   /** A restored session whose timer already ran out while you were away: END it
    *  properly — play the end sound + show the "complete" toast (+ fire the completion
    *  notification) instead of silently dropping it, exactly as if the app had stayed
@@ -2543,30 +2525,6 @@ export class FocusView {
     // ended early reports honestly.
     const minutes = Math.max(0, Math.floor((this.totalSeconds - this.currentRemaining()) / 60));
 
-    // Manual ends get an undo window: snapshot the session BEFORE teardown so the
-    // toast's Restore button can bring it back. A naturally completed session has
-    // nothing left to resume, so it gets no snapshot.
-    const retrieveState: FocusState | null = completed
-      ? null
-      : {
-          sessionActive: true,
-          paused: true, // retrieveSession() un-pauses it straight back into running
-          endTimeMs: 0,
-          totalSeconds: this.totalSeconds,
-          pausedRemainingSec: this.currentRemaining(),
-          todos: [...this.sessionTodos],
-          selectedMusic: this.sessionMusic,
-          musicVolume: this.musicVolume,
-          musicIndex: this.engine?.currentIndex() ?? 0,
-          currentTrackKey: this.engine?.currentTrack()?.key ?? null,
-          musicColl: { ...this.musicColl },
-          musicWasPlaying: this.paused ? this.musicPlayingAtPause : this.musicPlaying,
-          quote: this.quote,
-      accountability: this.accountabilityLatch, // a reload must not unlock the clock
-
-          savedAt: Date.now(),
-        };
-
     clearFocusState();
     this.engine?.destroy();
     this.engine = null;
@@ -2594,11 +2552,13 @@ export class FocusView {
       void this.selectDraftCollection(p.kind, p.key, p.index);
     }
 
-    // The completion sound plays whether the timer ran out or the session was ended
-    // manually. Keep the handle: restoring the session mid-ring silences it.
+    // The completion sound and toast are for a session that actually finished.
+    // A manual/early end (Gabe, 9/13/26: "there should be no toast and no chime
+    // when you end it manually") gets neither — same rule for the overlay and
+    // the mini widget, since both share this one endSession().
     this.releaseWakeLock();
-    if (this.endSoundEnabled) this.endCue = playEndSound(this.endSoundKey, this.endSoundVolume);
     if (completed) {
+      if (this.endSoundEnabled) this.endCue = playEndSound(this.endSoundKey, this.endSoundVolume);
       // A completed session ALSO announces via the system notification (Settings ▸
       // Notifications ▸ Focus) — but that requires the browser permission AND the
       // Focus channel to be turned on, and Gabe ran several sessions and never saw
@@ -2615,17 +2575,8 @@ export class FocusView {
         `${minutes} min focused` + (total > 0 ? ` • ${done}/${total} tasks done` : '')
       );
       this.showEndToast(true, minutes, done, total);
-    } else {
-      // Manual / early ends get NO notification — so the toast stays for them, mainly
-      // to carry the "Restore" undo (a mis-tapped End can be taken back for ~10s).
-      this.showEndToast(
-        false,
-        minutes,
-        done,
-        total,
-        retrieveState ? { label: 'Restore', onClick: () => this.retrieveSession(retrieveState, true) } : undefined
-      );
     }
+    // Manual / early ends: no sound, no toast, no notification — ending is final.
     this.sessionTodos = [];
     this.redrawSessionTodos = null;
     this.todos = []; // fresh setup next time
