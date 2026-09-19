@@ -438,8 +438,11 @@ export class TasksView {
     await this.data.putTasksBulk(changed);
   }
 
-  /** "Refresh tasks" — re-pull the Schoology iCal on demand. runSync() imports any
-   *  new future assignments and calls data.refresh(), which re-renders the list. */
+  /** "Refresh tasks" — re-pull the Schoology iCal on demand. force:true (Gabe,
+   *  9/16/26) makes this the one place that ignores the "never resurrect a
+   *  deleted import" rule: it imports anything in the feed that isn't CURRENTLY
+   *  a task, so a deleted (or pre-dating-your-link) Schoology assignment comes
+   *  back with one press instead of staying gone forever. See SyncOptions.force. */
   private makeRefreshBtn(): HTMLButtonElement {
     // Icon-only (↻). Label is in the tooltip; single-glyph states keep the width
     // fixed: spins while loading, then ✓ on success / ⚠ on failure, then back to ↻.
@@ -449,7 +452,7 @@ export class TasksView {
       btn.classList.add('spinning');
       let ok = true;
       try {
-        await runSync(this.data);
+        await runSync(this.data, { force: true });
       } catch {
         ok = false;
       }

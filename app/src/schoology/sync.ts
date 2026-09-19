@@ -8,6 +8,9 @@
 //   • FUTURE only — assignments due today or later (no past backlog).
 //   • Each logical item imported AT MOST ONCE, ever (a persistent "seen" ledger),
 //     so re-syncs only add genuinely new items and never resurrect deleted ones.
+//     EXCEPT: the manual "Refresh tasks" button (Tasks tab) passes force:true,
+//     which imports anything in the feed that isn't CURRENTLY a task — the one
+//     deliberate way to bring back something you deleted (see SyncOptions.force).
 //   • An item posted on multiple calendar days collapses to its LATEST day.
 //   • Logical identity = the assignment's /assignment/<id> (stable across days);
 //     non-assignment events fall back to their title.
@@ -175,8 +178,20 @@ function newTask(key: string, e: IcalEvent, course: string): Task {
 // #endregion
 
 // #region runSync() — fetch → dedup → import new tasks → rebuild schedule → save state
+export interface SyncOptions {
+  /** Bypass the "never resurrect a deleted import" rule: import EVERY feed item
+   *  that isn't CURRENTLY a task, even if its key is already in the seen ledger
+   *  (i.e. it was imported once before and later deleted). Only the manual
+   *  "Refresh tasks" button in the Tasks tab sets this (Gabe, 9/16/26: a Schoology
+   *  assignment he'd deleted, or that predated his link, should come back with one
+   *  press instead of staying gone forever). The background auto-sync and the
+   *  Settings "Save & sync" keep the default, ledger-respecting behavior — an
+   *  automatic sync silently un-deleting a task would be its own kind of bug. */
+  force?: boolean;
+}
+
 /** Full import pass. Returns counts; throws only on fetch/parse failure. */
-export async function runSync(data: Data): Promise<SyncResult> {
+export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncResult> {
   const settings = await data.getProfile<SchoologySettings>('schoology');
   if (!settings?.icalUrl) throw new Error('No Schoology link configured.');
 
@@ -203,12 +218,15 @@ export async function runSync(data: Data): Promise<SyncResult> {
     if (!prev || e.date > prev.date) byKey.set(key, e);
   }
 
-  // --- only import keys we've never imported before ---
+  // --- only import keys we've never imported before (or, forced: keys that
+  // aren't CURRENTLY a task — see SyncOptions.force above) ---
   const ledger = (await data.getProfile<SeenLedger>('imported')) || { keys: [] };
   const seen = new Set(ledger.keys);
+  const existing = await data.getTasksAll(); // also reused by the alterations pass below
   const fresh: { key: string; e: IcalEvent }[] = [];
   for (const [key, e] of byKey) {
-    if (!seen.has(key)) fresh.push({ key, e });
+    const isNew = opts.force ? !existing['ical_' + key] : !seen.has(key);
+    if (isNew) fresh.push({ key, e });
   }
 
   // --- GROUND TRUTH BEATS GUESSING -----------------------------------------
@@ -288,9 +306,10 @@ export async function runSync(data: Data): Promise<SyncResult> {
   // own edits always win: a field is only overwritten while its _manual flag is
   // unset (the flag is set the moment the user hand-edits title or date/time).
   // Never adds or removes tasks and never touches the ledger — deleted tasks stay
-  // deleted. (`seen` here still holds only previously-imported keys — fresh keys
-  // are added below — so brand-new tasks, already written complete, are skipped.)
-  const existing = await data.getTasksAll();
+  // deleted (outside `force`). (`seen` here still holds only previously-imported
+  // keys — fresh keys are added below — so brand-new tasks, just written above,
+  // are skipped: `existing` was fetched before that write, so it doesn't have them
+  // either, which lands on the same "skip" via the `!cur` check right below.)
   const altered: Task[] = [];
   for (const [key, e] of byKey) {
     if (!seen.has(key)) continue;
