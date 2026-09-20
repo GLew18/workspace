@@ -17,6 +17,9 @@
 //   • ALTERATIONS carry through: when the feed's title / due date / due time /
 //     description / link changed since import, the stored task is updated in
 //     place — unless the user hand-edited that field (_manual* flags win).
+//   • An assignment DELETED at the source (its VEVENT is gone from the feed
+//     entirely, past or future) is removed from Cobalt too — unless it's
+//     already checked off, which keeps completed work as a record.
 
 import type { Data } from '../db';
 import type { Task, ScheduleItem, SchoologySettings } from '../types';
@@ -36,6 +39,7 @@ export interface SyncResult {
   added: number;
   skipped: number; // already imported before (not re-added)
   updated: number; // already-imported tasks whose feed item changed (title/date/…)
+  removed: number; // already-imported, incomplete tasks whose assignment vanished from the feed
   total: number; // future candidates considered
   scheduleCount: number;
 }
@@ -396,6 +400,22 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
   }
   if (altered.length) await data.putTasksBulk(altered);
 
+  // --- remove tasks whose Schoology assignment was deleted at the source ---
+  // A teacher deleting an assignment just drops its VEVENT from the feed — no
+  // "cancelled" marker, no matter whether the due date is past or future. Check
+  // against the FULL unfiltered feed (not `byKey`, which is future-windowed and
+  // import-preference-filtered) so an assignment that's merely overdue, or of a
+  // type you've toggled off in Import, is never mistaken for deleted. Only
+  // incomplete schoology-ical imports are candidates: completed work stays as a
+  // record even if the source assignment disappears later, and nothing the
+  // student typed themselves is ever touched.
+  const allFeedKeys = new Set(taskEvents(events).map(logicalKey));
+  const gone = Object.entries(existing)
+    .filter(([, t]) => t.source === 'schoology-ical' && !t.completed)
+    .map(([id]) => id)
+    .filter((id) => !allFeedKeys.has(id.slice('ical_'.length)));
+  if (gone.length) await data.removeTasksBulk(gone);
+
   // remember every key we've now seen so it never re-imports (even if deleted)
   for (const { key } of fresh) seen.add(key);
   await data.setProfile('imported', { keys: [...seen] });
@@ -428,6 +448,7 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
     added: fresh.length,
     skipped: byKey.size - fresh.length,
     updated: altered.length,
+    removed: gone.length,
     total: byKey.size,
     scheduleCount: schedule.length,
   };

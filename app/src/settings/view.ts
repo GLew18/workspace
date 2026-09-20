@@ -477,7 +477,7 @@ export class SettingsView {
         const r = await runSync(this.data);
         this.schoologyMeta = (await this.data.getProfile<SchoologySettings>('schoology')) || this.schoologyMeta;
         this.setSyncStatus(
-          `Synced: ${r.added} new${r.updated ? `, ${r.updated} updated` : ''}${r.skipped - r.updated > 0 ? `, ${r.skipped - r.updated} unchanged` : ''}.`
+          `Synced: ${r.added} new${r.updated ? `, ${r.updated} updated` : ''}${r.removed ? `, ${r.removed} removed` : ''}${r.skipped - r.updated > 0 ? `, ${r.skipped - r.updated} unchanged` : ''}.`
         );
       } catch (err) {
         this.setSyncStatus('Sync failed: ' + (err as Error).message, true);

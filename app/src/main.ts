@@ -149,6 +149,7 @@ const root = document.getElementById('root')!;
 
 let autoSyncTimer: number | null = null;
 let prefsListener: (() => void) | null = null; // re-arms the sync timer when Settings changes prefs
+let visSyncListener: (() => void) | null = null; // re-syncs on tab regain-focus, see armSyncTimer
 let stopNotifications: (() => void) | null = null; // assignment-reminder scheduler teardown
 
 // The signed-in session's FocusView — held here so sign-out can tear down any
@@ -581,6 +582,25 @@ async function renderApp(user: AuthUser): Promise<void> {
   prefsListener = armSyncTimer;
   window.addEventListener(PREFS_EVENT, prefsListener);
 
+  // Re-sync when the tab regains focus, not just on first load. A background
+  // tab's setInterval is throttled by the browser (sometimes suspended for
+  // minutes at a stretch), so a student who leaves Cobalt open and switches
+  // back after checking Schoology in another tab saw stale assignments until
+  // they pressed "Refresh tasks" by hand — the timer just hadn't ticked
+  // (Gabe, 9/19/26). Throttled to once a minute so rapid tab-switching doesn't
+  // spam the fetch.
+  let lastVisSync = 0;
+  if (visSyncListener) document.removeEventListener('visibilitychange', visSyncListener);
+  visSyncListener = () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!getPrefs().sync.onOpen && !getPrefs().sync.auto) return;
+    const now = Date.now();
+    if (now - lastVisSync < 60_000) return;
+    lastVisSync = now;
+    void syncIfLinked();
+  };
+  document.addEventListener('visibilitychange', visSyncListener);
+
   // Assignment reminders (see src/notify): due-soon + daily-digest notifications
   // while the app is open. Stopped on sign-out, restarted per sign-in. Clicking a
   // notification focuses the window and jumps straight to the Tasks tab.
@@ -868,6 +888,10 @@ onAuth((user) => {
     if (prefsListener) {
       window.removeEventListener(PREFS_EVENT, prefsListener);
       prefsListener = null;
+    }
+    if (visSyncListener) {
+      document.removeEventListener('visibilitychange', visSyncListener);
+      visSyncListener = null;
     }
     setPrefsCache(DEFAULT_PREFS);
     renderSignIn();
