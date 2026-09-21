@@ -20,7 +20,12 @@ export async function createFirebaseBackend(uid: string): Promise<Backend> {
       return onValue(child(userRef, c), (snap) => cb((snap.val() ?? {}) as Record<string, T>));
     },
     async set<T>(c: Collection, id: string, value: T): Promise<void> {
-      await set(child(userRef, `${c}/${id}`), value);
+      // RTDB rejects the ENTIRE write when any property is explicitly
+      // undefined, and callers are optimistic (UI already painted), so one
+      // stray `field: undefined` used to mean a task that LOOKED saved and
+      // vanished on reload (9/20/26, "מי אני"). A JSON round-trip drops
+      // undefined properties; every value here is already plain JSON.
+      await set(child(userRef, `${c}/${id}`), JSON.parse(JSON.stringify(value)));
     },
     async remove(c: Collection, id: string): Promise<void> {
       await remove(child(userRef, `${c}/${id}`));

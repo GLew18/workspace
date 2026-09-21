@@ -154,7 +154,7 @@ function logicalKey(e: IcalEvent): string {
 
 /** Build a fresh imported task from an event + its classified course. */
 function newTask(key: string, e: IcalEvent, course: string): Task {
-  return {
+  const t: Task = {
     id: 'ical_' + key,
     title: e.summary,
     dueDate: e.date,
@@ -175,9 +175,16 @@ function newTask(key: string, e: IcalEvent, course: string): Task {
       { title: e.summary, details: e.description, skipUrls: [e.url] },
       genId
     ),
-    details: e.description || undefined,
-    schoologyUrl: e.url || undefined,
   };
+  // Present-or-absent, never `field: undefined`: Firebase rejects the WHOLE
+  // write for one explicitly-undefined property. An assignment whose only
+  // "instructions" were the stripped "- Link:" suffix produced details:
+  // undefined here, the set failed silently behind the optimistic UI, and the
+  // task vanished on every reload while the seen-ledger swore it was imported
+  // (the 9/20/26 "מי אני" hunt). Same rule as the alterations pass below.
+  if (e.description) t.details = e.description;
+  if (e.url) t.schoologyUrl = e.url;
+  return t;
 }
 // #endregion
 
@@ -414,7 +421,13 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
     .filter(([, t]) => t.source === 'schoology-ical' && !t.completed)
     .map(([id]) => id)
     .filter((id) => !allFeedKeys.has(id.slice('ical_'.length)));
-  if (gone.length) await data.removeTasksBulk(gone);
+  if (gone.length) {
+    await data.removeTasksBulk(gone);
+    // Drop their keys from the ledger too: the SOURCE deleted these, not the
+    // student, so if a teacher re-posts the same assignment it should come back
+    // on its own instead of needing the force button.
+    for (const id of gone) seen.delete(id.slice('ical_'.length));
+  }
 
   // remember every key we've now seen so it never re-imports (even if deleted)
   for (const { key } of fresh) seen.add(key);
