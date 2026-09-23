@@ -37,7 +37,7 @@ export interface AppPrefs {
     quote: boolean;
     /** Which quote flavor rotates (library in src/quotes.ts; 'mixed' blends all). */
     quoteStyle: 'stoic' | 'modern' | 'literary' | 'science' | 'mixed';
-    /** Show the Today's Tasks card. */
+    /** Show the Due Today & Tomorrow card. */
     tasksCard: boolean;
     /** Show the weekly Schedule card. */
     scheduleCard: boolean;

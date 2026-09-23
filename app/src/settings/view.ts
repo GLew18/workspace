@@ -649,8 +649,8 @@ export class SettingsView {
 
     sec.append(
       this.prefRow(
-        "Today's Tasks",
-        "Show the list of what's due today.",
+        'Due Today & Tomorrow',
+        "Show the list of what's due today and tomorrow.",
         this.prefSwitch(p.dash.tasksCard, (on) => {
           p.dash.tasksCard = on;
           save();

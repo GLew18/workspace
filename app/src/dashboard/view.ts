@@ -163,7 +163,7 @@ export class DashboardView {
     // The boxes always exist (update()/refreshSchedule() write into them); the
     // Settings toggles decide whether they're APPENDED — an off card renders into
     // a detached node, harmlessly.
-    // OVERDUE sits ABOVE Today's Tasks (Gabe, 8/11) and shouts in red: it is the
+    // OVERDUE sits ABOVE Due Today & Tomorrow (Gabe, 8/11) and shouts in red: it is the
     // one thing on this screen that is already going wrong. It rides the same
     // Settings toggle as the tasks card, since it is the same family of card.
     this.overdueBox = el('div', { class: 'dash-overdue' });
@@ -196,19 +196,20 @@ export class DashboardView {
   }
 
   /**
-   * "Today's Tasks" is a REAL EXCERPT of the Tasks tab (Gabe, 8/10), not a
-   * lookalike: it mounts a TasksView in excerpt mode filtered to today, so the
-   * rows are byte-for-byte the Tasks-tab rows (course chip, due time, badges,
+   * "Due Today & Tomorrow" (renamed from "Today's Tasks", Gabe 9/22) is a REAL
+   * EXCERPT of the Tasks tab (Gabe, 8/10), not a lookalike: it mounts a
+   * TasksView in excerpt mode filtered to today and tomorrow, so the rows are
+   * byte-for-byte the Tasks-tab rows (course chip, due time, badges,
    * attachments, priority, editing, multi-select) and can never drift from
    * them. Tasks living in folders are compiled in alongside the loose ones,
-   * because "due today" is one question, not one per folder.
+   * because "due today or tomorrow" is one question, not one per folder.
    *
    * Mounted ONCE and left alone: the excerpt view has its own watchTasks
    * subscription, so it repaints itself on the same tick as the Tasks tab.
    * renderDue only builds the card's header the first time.
    */
   /**
-   * The OVERDUE card: the same real-excerpt trick as Today's Tasks, filtered to
+   * The OVERDUE card: the same real-excerpt trick as Due Today & Tomorrow, filtered to
    * anything dated before today and still open, in red.
    *
    * It HIDES ITSELF when nothing is overdue (the count comes from the excerpt
@@ -246,7 +247,7 @@ export class DashboardView {
     // themselves are real task rows now, so clicking one edits, not navigates),
     // and .dash-due-link strips the button chrome so it reads as the heading.
     const header = el('div', { class: 'dash-schedule-header' });
-    const link = el('button', { class: 'dash-due-link', text: "Today's Tasks" });
+    const link = el('button', { class: 'dash-due-link', text: 'Due Today & Tomorrow' });
     link.addEventListener('click', () => this.goToTab('tasks'));
     header.append(link);
     this.dueBox.append(header);
@@ -255,9 +256,12 @@ export class DashboardView {
       // todayStr() is read per render (not captured), so a session left open
       // past midnight rolls over to the new day on the next repaint. In the
       // landing preview, popups mount INSIDE the frame, as the Tasks preview does.
+      // Tomorrow is included alongside today (Gabe, 9/22) because a task due
+      // tomorrow is usually due in the morning, which in practice means it has
+      // to get done tonight.
       new TasksView(this.data, this.sample ? { host: this.dueBody } : undefined, {
-        filter: (t) => t.dueDate === todayStr(),
-        empty: 'All clear today',
+        filter: (t) => t.dueDate === todayStr() || t.dueDate === addDays(todayStr(), 1),
+        empty: 'All clear today and tomorrow',
       }).mount(this.dueBody);
     }
     // A prefs change re-mounts the dashboard and rebuilds dueBox. RE-USE the same
