@@ -8,8 +8,8 @@
 //
 // So the task keeps a GHOST of itself: the values as they stood the last time the
 // student acknowledged it (Task.feedPrev, written by the sync). Clicking the ✱
-// opens the two side by side, with the words that went in green and the words that
-// went out struck through in red, the way a diff reads anywhere else.
+// opens ONE merged version, with the words that went in green and the words that
+// went out struck through in red, the way tracked changes read anywhere else.
 //
 // WHY THE OLDEST VALUE AND NOT THE PREVIOUS ONE: feedPrev holds the value from
 // before the FIRST un-dismissed change, matching how feedUpdated accumulates. Three
@@ -112,15 +112,15 @@ function display(kind: 'text' | 'date' | 'time' | 'url', v: string): string {
   return v;
 }
 
-/** One line of diffed text: same words plain, removed struck through in red, added
- *  in green. `only` renders just one side, for the ghost / current blocks. */
-function diffLine(runs: Run[], only: 'del' | 'add'): HTMLElement {
+/** ONE merged version (Gabe, 9/23): unchanged words plain, removed words struck
+ *  through in red, added words in green, all in reading order. It replaced a "was"
+ *  box stacked over a "now" box, which repeated every unchanged word twice. */
+function diffLine(runs: Run[]): HTMLElement {
   const line = el('div', { class: 'fd-line' });
   for (const r of runs) {
-    if (r.state !== 'same' && r.state !== only) continue;
     line.append(
       el('span', {
-        class: r.state === 'same' ? 'fd-same' : only === 'del' ? 'fd-del' : 'fd-add',
+        class: r.state === 'same' ? 'fd-same' : r.state === 'del' ? 'fd-del' : 'fd-add',
         text: r.text,
       })
     );
@@ -214,17 +214,14 @@ export function buildFeedDiff(task: Task): HTMLElement | null {
     const { runs, capped } = diffWords(f.before, f.after);
     const block = el('div', { class: 'fd-block' });
     block.append(el('div', { class: 'fd-label', text: f.label }));
-    // The GHOST first: this is what the task said when you last looked at it.
-    const was = el('div', { class: 'fd-side fd-was' });
-    was.append(el('span', { class: 'fd-side-tag', text: 'was' }), diffLine(runs, 'del'));
-    const now = el('div', { class: 'fd-side fd-now' });
-    now.append(el('span', { class: 'fd-side-tag', text: 'now' }), diffLine(runs, 'add'));
-    block.append(was, now);
+    const box = el('div', { class: 'fd-side' });
+    box.append(diffLine(runs));
+    block.append(box);
     if (capped) {
       block.append(
         el('div', {
           class: 'fd-note',
-          text: 'Too long to highlight word by word, so both versions are shown in full.',
+          text: 'Too long to highlight word by word, so the old version is struck through in full, followed by the new one.',
         })
       );
     }

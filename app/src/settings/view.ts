@@ -907,7 +907,7 @@ export class SettingsView {
       this.prefRow(
         'Default calendar view',
         'The layout the calendar opens in.',
-        this.prefSeg([['month', 'Month'], ['week', 'Week']], () => p.calendar.defaultView, (v) => {
+        this.prefSeg([['month', 'Month'], ['week', 'Week'], ['day', 'Day']], () => p.calendar.defaultView, (v) => {
           p.calendar.defaultView = v;
           save();
         })
@@ -939,16 +939,6 @@ export class SettingsView {
         'Opening the calendar lands on the first month with an active task.',
         this.prefSwitch(p.calendar.jumpToEarliest, (on) => {
           p.calendar.jumpToEarliest = on;
-          save();
-        })
-      )
-    );
-    sec.append(
-      this.prefRow(
-        'Color chips by',
-        'What the color strip on each chip encodes.',
-        this.prefSeg([['priority', 'Priority'], ['course', 'Course']], () => p.calendar.colorBy, (v) => {
-          p.calendar.colorBy = v;
           save();
         })
       )

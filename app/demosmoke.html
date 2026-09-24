@@ -17,12 +17,17 @@
   const { startHeroDemo, SCENE_NAMES } = await import('/src/landing/demo/script.ts');
   log('scenes: ' + SCENE_NAMES.join(', '));
   const t0 = performance.now();
-  const h = startHeroDemo(document.getElementById('stage'), { instant: true, loops: 1 });
+  // onLoop, not __demoLoopN: the counter is bumped when a loop STARTS, so polling
+  // it reported PASS ~60ms in, before a single scene had run (found 9/23). A scene
+  // failure in instant mode rejects, which the unhandledrejection hook records.
+  let finished = false;
+  const h = startHeroDemo(document.getElementById('stage'), { instant: true, loops: 1, onLoop: () => { finished = true; } });
   const done = new Promise((res) => {
     const iv = setInterval(() => {
-      if (window.__demoLoopN >= 1) { clearInterval(iv); res('finished'); }
+      if (finished) { clearInterval(iv); res('finished'); }
+      else if (errs.length) { clearInterval(iv); res('failed'); }
     }, 60);
-    setTimeout(() => { clearInterval(iv); res('TIMEOUT'); }, 45000);
+    setTimeout(() => { clearInterval(iv); res('TIMEOUT'); }, 120000);
   });
   const verdict = await done;
   try { h.stop?.(); } catch {}

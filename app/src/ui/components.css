@@ -591,37 +591,58 @@ body.app-mode .app-below {
   margin-top: 18px;
 }
 
-/* ---- Tasks header (refresh) ---- */
+/* ---- Tasks header: List | Calendar on the left, 💡 and refresh on the right ---- */
 .tasks-header {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
-/* List ⇄ Calendar toggle — the refresh button's twin. */
-.tasks-mode-btn {
-  width: 30px;
-  height: 30px;
+.tasks-header-tools {
+  display: flex;
+  gap: 8px;
+}
+/* LIST | CALENDAR (Gabe, 9/23): named and side by side so the calendar cannot be
+   missed. Built like the calendar's own Month/Week/Day switch (.cal-seg), one size
+   up, because this one chooses what the whole tab is. */
+.tasks-mode-seg {
+  display: flex;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px;
+  gap: 3px;
+}
+.tasks-mode-opt {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  color: var(--gold);
-  background: rgba(125, 180, 255, 0.08);
-  border: 1px solid rgba(125, 180, 255, 0.3);
-  border-radius: 999px;
+  gap: 7px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 7px 18px;
+  border-radius: 9px;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition: color 0.15s ease, background 0.15s ease;
 }
-.tasks-mode-btn:hover {
-  background: rgba(125, 180, 255, 0.16);
+.tasks-mode-opt:hover {
+  color: var(--text);
 }
-.tasks-mode-btn svg {
+.tasks-mode-opt.active {
+  background: var(--gold-glow);
+  color: var(--gold);
+}
+.tasks-mode-opt svg {
   display: block;
+  flex: none;
 }
-/* 💡 Task Pro Tips — the third of the header's identical circles, sitting between
-   the other two. Same size and same ring, because it is the same KIND of thing: a
-   small always-there control, not an alert. The emoji carries its own color, so
-   unlike its twins it sets no `color`. */
+/* 💡 Task Pro Tips — the refresh button's identical twin. Same size and same ring,
+   because it is the same KIND of thing: a small always-there control, not an
+   alert. The emoji carries its own color, so unlike its twin it sets no `color`. */
 .tasks-tips-btn {
   width: 30px;
   height: 30px;
@@ -1948,9 +1969,6 @@ html[data-kbd] :focus-visible {
   padding: 4px 5px;
   gap: 3px;
 }
-.cal-week .cal-cell {
-  min-height: 300px;
-}
 .cal-cell.out {
   opacity: 0.42;
 }
@@ -1977,15 +1995,15 @@ html[data-kbd] :focus-visible {
   background: var(--gold);
 }
 
-/* Chips: color strip via --chip (priority or course per the pref), title only
-   (no times), clamped to two lines so long names show without dilating rows. */
+/* Chips: course dot + title and nothing else (Gabe, 9/23: the priority strip that
+   ran down the left edge came out), clamped to two lines so long names show without
+   dilating rows. */
 .cal-chip {
   display: block;
   width: 100%;
   text-align: left;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--chip);
   border-radius: 7px;
   padding: 3px 6px;
   cursor: pointer;
@@ -1993,7 +2011,6 @@ html[data-kbd] :focus-visible {
 }
 .cal-chip:hover {
   border-color: var(--border-strong);
-  border-left-color: var(--chip);
 }
 .cal-chip-txt {
   display: -webkit-box;
@@ -2032,12 +2049,105 @@ html[data-kbd] :focus-visible {
 .task-folder-body.cal-scope .cal-cell {
   min-height: 76px;
 }
-.task-folder-body.cal-scope .cal-week .cal-cell {
-  min-height: 190px;
+.task-folder-body.cal-scope .cal-tscroll {
+  max-height: 300px;
 }
 
-/* Course dot: always course-colored, so the course reads at a glance even when
-   chips color by priority. Inline with the first line of the title. */
+/* ---- Week & Day on a time axis (Gabe, 9/23, after Schoology's calendar) ----
+   Every row is the same grid: a 52px hour gutter, then one column per day, so the
+   header, the all-day strip and the hours line up without measuring anything. */
+.cal-tgrid {
+  --cal-gutter: 52px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface2);
+  overflow: hidden;
+}
+.cal-trow {
+  display: grid;
+  grid-template-columns: var(--cal-gutter) repeat(var(--cal-cols), minmax(0, 1fr));
+}
+.cal-thead {
+  border-bottom: 1px solid var(--border);
+}
+.cal-thead-day {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 8px 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cal-thead-day.today {
+  color: var(--gold);
+}
+.cal-tgutter {
+  min-width: 0;
+}
+/* The all-day strip: tasks with a date but no time, stacked like a month cell. */
+.cal-tallday {
+  border-bottom: 1px solid var(--border-strong);
+}
+.cal-tallday-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: right;
+  padding: 7px 8px 0 0;
+}
+.cal-tallday-cell {
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-left: 1px solid var(--border);
+}
+/* The hours scroll inside the grid, so the toolbar above stays in reach. */
+.cal-tscroll {
+  max-height: 520px;
+  overflow-y: auto;
+}
+.cal-tbody {
+  height: calc(24 * var(--cal-hour));
+  /* One line per hour, drawn once across the whole row rather than per cell. */
+  background-image: linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 100% var(--cal-hour);
+}
+.cal-thours {
+  position: relative;
+}
+.cal-thour {
+  position: absolute;
+  right: 8px;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.cal-tcol {
+  position: relative;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+}
+.cal-tallday-cell.today,
+.cal-tcol.today {
+  background: rgba(125, 180, 255, 0.05);
+}
+.cal-tchip {
+  position: absolute;
+  height: calc(var(--cal-hour) - 3px);
+  margin-top: 1px;
+  overflow: hidden;
+}
+
+/* Course dot: the chip's only color, so the course reads at a glance. Inline with
+   the first line of the title. */
 /* 9/7/26 (Gabe: "looks a little ai generated"): was a flat 7px circle next to
    an 11.5px chip title — bigger than the text it sits beside, the kind of
    round default that wasn't checked against the type next to it. Sized down
@@ -3036,11 +3146,10 @@ body:has(.selbar:not([hidden])) .toast {
 .folder-pick-mini:hover { border-color: var(--accent); }
 .folder-pick-input.invalid { border-color: var(--red); }
 
-/* ---- "What changed on Schoology": the ✱ badge's before/after (tasks/feedDiff.ts) ----
-   A diff, read the way diffs are read everywhere else: the old version above the new
-   one, words that left struck through in red, words that arrived in green. The two
-   sides are labelled "was" and "now" rather than +/- because this is a student
-   looking at their homework, not a code review. */
+/* ---- "What changed on Schoology": the ✱ badge's diff (tasks/feedDiff.ts) ----
+   ONE merged version per field (Gabe, 9/23), read like tracked changes: words that
+   left struck through in red, words that arrived in green, everything else as
+   normal text. It replaced a "was" box over a "now" box. */
 .fd-body {
   display: flex;
   flex-direction: column;
@@ -3058,33 +3167,13 @@ body:has(.selbar:not([hidden])) .toast {
   letter-spacing: 0.09em;
   color: var(--accent);
 }
-/* Each side is a row: a fixed tag column so "was" and "now" line up, then the text.
-   The ghost is dimmed as a whole — it is a memory of the task, not the task. */
 .fd-side {
-  display: flex;
-  gap: 8px;
   font-size: 13px;
   line-height: 1.5;
   padding: 6px 9px;
   border-radius: 8px;
   border: 1px solid var(--border);
-}
-.fd-was {
-  background: rgba(239, 68, 68, 0.05);
-  opacity: 0.85;
-}
-.fd-now {
-  background: rgba(34, 197, 94, 0.05);
-}
-.fd-side-tag {
-  flex: none;
-  width: 30px;
-  font-size: 10.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-dim);
-  padding-top: 2px;
+  background: var(--surface);
 }
 .fd-line {
   min-width: 0;
@@ -3092,7 +3181,7 @@ body:has(.selbar:not([hidden])) .toast {
   overflow-wrap: anywhere;
 }
 .fd-same {
-  color: var(--text-dim);
+  color: var(--text);
 }
 /* The two colors do the work, so the marks stay quiet: a tint and a strike, not
    blocks of solid red and green, which at paragraph length is unreadable. */
@@ -3106,6 +3195,11 @@ body:has(.selbar:not([hidden])) .toast {
   color: #7ee2a8;
   background: rgba(34, 197, 94, 0.16);
   border-radius: 3px;
+}
+/* A replaced word sits right against its replacement, so "11" → "12" would read
+   as one struck "1112" without a sliver of air between the two marks. */
+.fd-del + .fd-add {
+  margin-left: 3px;
 }
 .fd-empty {
   color: var(--text-dim);

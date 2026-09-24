@@ -116,7 +116,6 @@ import { mountTabs, type TabController } from './ui/tabs';
 import { parsePath, setRoute, resetRoute, onNavigate, type Route } from './util/router';
 import { DashboardView } from './dashboard/view';
 import { TasksView } from './tasks/render';
-import { TaskArchiveView } from './tasks/archiveView';
 import { FocusView } from './focus/view';
 import { createWordmark } from './ui/laurel';
 import { el, textInput } from './util/dom';
@@ -398,18 +397,8 @@ async function renderApp(user: AuthUser): Promise<void> {
     '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1v.2h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>';
   suggestBtn.addEventListener('click', () => openSuggestionBox(controller.current()));
 
-  // 🗄 Task Archives — everything checked off, with a Restore on every row (see
-  // tasks/archiveView.ts). It sits BETWEEN 💡 and 🔔 exactly as Gabe placed it
-  // (8/21). No count badge: unlike the bell, a number here would only ever say how
-  // much work you have finished, which is not something to be nagged about.
-  const archiveBtn = el('button', { class: 'icon-btn', 'aria-label': 'Task Archives', title: 'Task Archives' });
-  // The <g> is a half-unit drop, not decoration: the box spans y 3→20 inside a 24
-  // square, so its own centre is at 11.5 and it hung half a unit above every icon
-  // beside it. Half of 24 units at 20px is 0.42 CSS px, which is nothing on a
-  // 1x display and a visible device pixel on the Mac's 2x one.
-  archiveBtn.innerHTML =
-    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(0 .5)"><rect x="3" y="3" width="18" height="4" rx="1"/><path d="M5 7v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7"/><path d="M10 12h4"/></g></svg>';
-  archiveBtn.addEventListener('click', () => controller.goToTab('archive'));
+  // The 🗄 Task Archives icon that sat here came out on 9/23 (Gabe): finished work is
+  // now the "Completed" drawer at the bottom of the Tasks list (tasks/archiveView.ts).
 
   // No sign-out pill up here on purpose (per Gabe): the only way to sign out is
   // Settings → Sign out, behind its confirm dialog. One easy top-bar button made
@@ -418,7 +407,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   // the left, with the name reading as the label at the end of the cluster.
   // 💡 sits FIRST: it is the only one of the four that is not a destination, so
   // putting it left of the rest keeps the three navigating icons adjacent.
-  userBox.append(suggestBtn, archiveBtn, bellBtn, settingsBtn, nameSpan);
+  userBox.append(suggestBtn, bellBtn, settingsBtn, nameSpan);
   header.append(headerLeft, userBox);
 
   // --- Sidebar: the slide-out nav drawer (Dashboard / Tasks / Focus / Bookmarks) ---
@@ -456,7 +445,6 @@ async function renderApp(user: AuthUser): Promise<void> {
   // register so they pick up the "active" highlight when their tab is showing.
   navBtns.set('settings', settingsBtn);
   navBtns.set('notifications', bellBtn);
-  navBtns.set('archive', archiveBtn);
 
   const tabsHost = el('div', { class: 'app' }); // centered content column
   // Scrim BEFORE the sidebar so the sidebar paints over it even at equal stacking.
@@ -481,7 +469,6 @@ async function renderApp(user: AuthUser): Promise<void> {
   // --- Tabs + their views: each tab's content is built by its own module ---
   let controller: TabController;
   const notifyLogView = new NotificationLogView();
-  const archiveView = new TaskArchiveView(data);
   const dashboardView = new DashboardView(data, displayName, (id) => controller.goToTab(id));
   const tasksView = new TasksView(data);
   const focusView = new FocusView(data);
@@ -500,9 +487,6 @@ async function renderApp(user: AuthUser): Promise<void> {
       { id: 'settings', label: 'Settings', onShow: (p) => void settingsView.mount(p) },
       // Same deal: re-mount so the log is current every time the bell is pressed.
       { id: 'notifications', label: 'Notifications', onShow: (p) => notifyLogView.mount(p) },
-      // …and the archive, which is a live read of the task map: re-mounting means
-      // it opens at the top showing whatever was checked off since you last looked.
-      { id: 'archive', label: 'Task Archives', onShow: (p) => archiveView.mount(p) },
     ],
     // EVERY tab change, which is the whole point of putting it here (Gabe, 8/16).
     // A selection belongs to the list it was made in, so leaving that list ends it.

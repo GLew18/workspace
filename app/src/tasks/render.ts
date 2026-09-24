@@ -43,6 +43,7 @@ import { parseDateTime, isPastDate, PAST_DATE_MSG, isPastTime, PAST_TIME_MSG } f
 import { shiftSelect } from '../util/select';
 import { detectAttachmentType, normalizeUrl, openAttachment, openAll, openAllInWindow } from './attachments';
 import { playCompleteChime, showUndoToast } from './complete';
+import { CompletedSection } from './archiveView';
 import { selectionBar, type SelBar } from '../ui/selbar';
 import {
   getTaskFolders,
@@ -122,6 +123,51 @@ const CAL_SVG =
 const LIST_SVG =
   '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>';
 
+/** One hour's height on the week/day time axis. A chip is one hour tall, which
+ *  fits a two-line title, the same span Schoology gives an 8am item. */
+const CAL_HOUR_PX = 44;
+
+/** "5am" / "12pm", or "05:00" under the 24-hour setting: the time axis labels. */
+function hourLabel(h: number): string {
+  if (getPrefs().timeFormat === '24h') return `${String(h).padStart(2, '0')}:00`;
+  return `${h % 12 || 12}${h < 12 ? 'am' : 'pm'}`;
+}
+
+/**
+ * Where each timed task sits in its day column. Every chip is drawn an hour tall,
+ * so two tasks less than an hour apart would overlap; those split the column's
+ * width between them instead, the way Schoology puts three 8am items side by side.
+ * A run of chips that touch one another shares one lane count, so a chip never
+ * widens back out underneath a neighbour it overlaps.
+ */
+function layoutTimed(tasks: Task[]): Array<{ t: Task; min: number; lane: number; lanes: number }> {
+  const items = tasks
+    .map((t) => {
+      const [h, m] = (t.dueTime || '0:0').split(':').map(Number);
+      return { t, min: Math.max(0, Math.min(24 * 60 - 1, (h || 0) * 60 + (m || 0))), lane: 0, lanes: 1 };
+    })
+    .sort((a, b) => a.min - b.min);
+  let run: typeof items = [];
+  let laneEnds: number[] = [];
+  let runEnd = -1;
+  const close = (): void => {
+    for (const it of run) it.lanes = laneEnds.length;
+    run = [];
+    laneEnds = [];
+  };
+  for (const it of items) {
+    if (it.min >= runEnd) close();
+    let lane = laneEnds.findIndex((end) => end <= it.min);
+    if (lane < 0) lane = laneEnds.push(0) - 1;
+    laneEnds[lane] = it.min + 60;
+    it.lane = lane;
+    run.push(it);
+    runEnd = Math.max(runEnd, it.min + 60);
+  }
+  close();
+  return items;
+}
+
 const DOWS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 /** THE folder-dissolve animation — every dissolution (completed, emptied by
@@ -183,10 +229,15 @@ export class TasksView {
   // pref; `calView`/`calCursor` are pure view state; `calJumped` makes the
   // jump-to-earliest pref fire once per session, not on every render.
   private mode: 'list' | 'calendar' = 'list';
-  private calView: 'month' | 'week' = 'month';
+  private calView: 'month' | 'week' | 'day' = 'month';
   private calCursor = new Date();
   private calJumped = false;
-  private modeBtn!: HTMLButtonElement;
+  private modeSeg!: HTMLElement;
+  /** Where each time grid was last scrolled to, by scope ('' = the main calendar,
+   *  else a folder id). The grid is rebuilt on every task write, and without this
+   *  a translation landing in the background would throw you back to 7am. Kept per
+   *  scope, not per week, so paging through weeks holds the hour you were reading. */
+  private calScroll = new Map<string, number>();
   // The floating task popover (a REAL task row): tracked so data updates can
   // rebuild its row in place, and so only one is ever open.
   private calPop: { taskId: string; pop: HTMLElement } | null = null;
@@ -197,6 +248,10 @@ export class TasksView {
   // File-Explorer rule: using the TOOLBOX on any selected row applies that action
   // to every selected task at once.
   private selectedIds = new Set<string>();
+  /** The "Completed" drawer under the list (tasks/archiveView.ts). Built once and
+   *  re-appended after every repaint, so its open state and rows survive the list
+   *  being rebuilt around it. List mode only. */
+  private doneBox: HTMLElement | null = null;
 
   // EXCERPT MODE (Gabe, 8/10): the Dashboard's "Today's Tasks" card mounts THIS
   // view filtered to one day, so its rows are the real Tasks-tab rows, not a
@@ -248,27 +303,41 @@ export class TasksView {
       return;
     }
     const header = el('div', { class: 'tasks-header' });
-    // List ⇄ Calendar toggle (quick nav; the Default-screen pref sets the start).
+    // LIST | CALENDAR, labelled, at the head of the tab (Gabe, 9/23). This was one
+    // unlabelled 30px circle in the top right that swapped its own icon, and nobody
+    // found the calendar without being shown it. The calendar is half of what this
+    // tab is, so both halves are named, side by side, with the current one lit.
+    // The Default-screen pref still decides which half the tab opens on.
     this.mode = getPrefs().calendar.defaultScreen;
     this.calView = getPrefs().calendar.defaultView;
-    this.modeBtn = el('button', { class: 'tasks-mode-btn' }) as HTMLButtonElement;
-    const syncModeBtn = (): void => {
-      this.modeBtn.innerHTML = this.mode === 'list' ? CAL_SVG : LIST_SVG;
-      this.modeBtn.title = this.mode === 'list' ? 'Calendar view' : 'List view';
-    };
-    syncModeBtn();
-    this.modeBtn.addEventListener('click', () => {
-      this.mode = this.mode === 'list' ? 'calendar' : 'list';
-      syncModeBtn();
-      this.render();
-    });
-    // 💡 Pro tips, BETWEEN the two round buttons (Gabe, 8/22). The tips used to be
+    this.modeSeg = el('div', { class: 'tasks-mode-seg', role: 'tablist' });
+    const modeOpts: Array<['list' | 'calendar', string, string]> = [
+      ['list', 'List', LIST_SVG],
+      ['calendar', 'Calendar', CAL_SVG],
+    ];
+    for (const [m, label, svg] of modeOpts) {
+      const b = el('button', { class: 'tasks-mode-opt', role: 'tab' });
+      b.dataset.mode = m;
+      b.innerHTML = svg;
+      b.append(el('span', { text: label }));
+      b.addEventListener('click', () => {
+        if (this.mode === m) return;
+        this.mode = m;
+        this.syncModeSeg();
+        this.render();
+      });
+      this.modeSeg.append(b);
+    }
+    this.syncModeSeg();
+    // 💡 Pro tips, beside the refresh circle (Gabe, 8/22). The tips used to be
     // scattered: one printed above the list, one inside each folder picker, and the
     // rest were things you could only learn by being told. They are one popup now,
     // in the one place a student goes looking for "what else can this do".
     const tipsBtn = el('button', { class: 'tasks-tips-btn', text: '💡', title: 'Task pro tips' });
     tipsBtn.addEventListener('click', () => this.openProTips());
-    header.append(this.modeBtn, tipsBtn, this.makeRefreshBtn());
+    const tools = el('div', { class: 'tasks-header-tools' });
+    tools.append(tipsBtn, this.makeRefreshBtn());
+    header.append(this.modeSeg, tools);
     // Settings changes (week start, density, colors…) repaint the calendar live.
     window.addEventListener(PREFS_EVENT, () => this.render()); // mount runs once per session
     // Esc clears the multi-select (unless an inline editor owns the keyboard).
@@ -278,6 +347,10 @@ export class TasksView {
     });
     const quickAdd = buildQuickAdd((parsed) => this.addTask(parsed), () => this.folders);
     this.listEl = el('div', { class: 'task-list' });
+    if (!this.doneBox) {
+      this.doneBox = el('div');
+      new CompletedSection(this.data, this.sample?.host).mount(this.doneBox);
+    }
     panel.append(this.bannerHost, header, quickAdd, this.listEl);
     this.watchQuickAdd(quickAdd);
 
@@ -513,7 +586,6 @@ export class TasksView {
       this.listEl.append(
         el('div', { class: 'empty-state', text: 'No tasks yet. Add one above to get started.' })
       );
-      return;
     }
     for (const g of groups) {
       this.listEl.append(
@@ -521,6 +593,7 @@ export class TasksView {
       );
       for (const t of g.tasks) this.listEl.append(this.renderTask(t, g));
     }
+    if (this.doneBox) this.listEl.append(this.doneBox);
   }
 
   /** Excerpt render: one flat, sorted list of the matching tasks, folders and
@@ -544,6 +617,15 @@ export class TasksView {
 
   // --- calendar mode (the big-project port) --------------------------------
 
+  /** Light the List / Calendar half that is showing. */
+  private syncModeSeg(): void {
+    for (const b of this.modeSeg.querySelectorAll<HTMLElement>('.tasks-mode-opt')) {
+      const on = b.dataset.mode === this.mode;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', String(on));
+    }
+  }
+
   /** The whole calendar screen: toolbar (view seg + nav) and the active view. */
   private renderCalendar(): void {
     const prefs = getPrefs().calendar;
@@ -559,7 +641,7 @@ export class TasksView {
 
     const bar = el('div', { class: 'cal-bar' });
     const seg = el('div', { class: 'cal-seg' });
-    for (const v of ['month', 'week'] as const) {
+    for (const v of ['month', 'week', 'day'] as const) {
       const b = el('button', {
         class: `cal-seg-btn${this.calView === v ? ' active' : ''}`,
         text: v[0].toUpperCase() + v.slice(1),
@@ -579,7 +661,7 @@ export class TasksView {
     });
     const step = (dir: 1 | -1): void => {
       if (this.calView === 'month') this.calCursor.setMonth(this.calCursor.getMonth() + dir);
-      else this.calCursor.setDate(this.calCursor.getDate() + dir * 7);
+      else this.calCursor.setDate(this.calCursor.getDate() + dir * (this.calView === 'week' ? 7 : 1));
       this.render();
     };
     const prev = el('button', { class: 'cal-nav-btn', text: '‹', title: 'Previous' });
@@ -600,8 +682,30 @@ export class TasksView {
     // tasks live THERE, so the main grid below shows only loose tasks.
     this.renderFolders('cal');
     const loose = this.calByDate((t) => !this.liveFolder(t));
-    if (this.calView === 'month') this.calMonth(prefs, loose, this.listEl);
-    else this.calWeek(prefs, loose, this.listEl);
+    this.calDraw(prefs, loose, this.listEl, '');
+  }
+
+  /** The active view into `host`. `scope` keys the time grid's remembered scroll:
+   *  '' for the main calendar, a folder id for that folder's own. */
+  private calDraw(prefs: AppPrefs['calendar'], by: Map<string, Task[]>, host: HTMLElement, scope: string): void {
+    if (this.calView === 'month') this.calMonth(prefs, by, host);
+    else {
+      const days: Date[] = [];
+      const start = this.calView === 'week' ? this.weekStartDate() : this.dayCursor();
+      for (let i = 0; i < (this.calView === 'week' ? 7 : 1); i++) {
+        const d = new Date(start);
+        d.setDate(d.getDate() + i);
+        days.push(d);
+      }
+      this.calTimeGrid(days, by, host, scope);
+    }
+  }
+
+  /** The cursor pinned to noon, so date arithmetic never trips on a DST midnight. */
+  private dayCursor(): Date {
+    const d = new Date(this.calCursor);
+    d.setHours(12, 0, 0, 0);
+    return d;
   }
 
   /** Is TODAY already on screen? Drives whether the "Today" button is shown. */
@@ -613,6 +717,7 @@ export class TasksView {
         this.calCursor.getMonth() === now.getMonth()
       );
     }
+    if (this.calView === 'day') return formatDate(this.calCursor) === todayStr();
     // Week view: today is on screen when it sits in [weekStart, weekStart + 7).
     const start = this.weekStartDate();
     const end = new Date(start);
@@ -623,6 +728,8 @@ export class TasksView {
   private calLabel(): string {
     if (this.calView === 'month')
       return this.calCursor.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    if (this.calView === 'day')
+      return this.calCursor.toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     const start = this.weekStartDate();
     const end = new Date(start);
     end.setDate(end.getDate() + 6);
@@ -650,8 +757,8 @@ export class TasksView {
       // ARCHIVED tasks never draw a chip, whatever "Show completed" says (Gabe,
       // 8/21). They used to be deleted at the next boot, so the calendar has
       // always shown only the current run of work; now that they are kept, the
-      // grid would slowly fill up with months of finished chips. They live on the
-      // Task Archives screen, which is where a student goes looking for them.
+      // grid would slowly fill up with months of finished chips. They live in the
+      // list's Completed drawer, which is where a student goes looking for them.
       if (!t.dueDate || t.archived || this.completingIds.has(t.id) || (t.completed && !show)) continue;
       if (filter && !filter(t)) continue;
       (by.get(t.dueDate) ?? by.set(t.dueDate, []).get(t.dueDate)!).push(t);
@@ -663,21 +770,16 @@ export class TasksView {
     return by;
   }
 
-  /** One chip: color strip per the Color-by pref, a course-colored dot (always —
-   *  so the course reads at a glance either way), two-line title, NO time
-   *  (times live in the popover). Click floats the real task row. */
+  /** One chip: the course dot and the title, nothing else (Gabe, 9/23). A priority
+   *  strip ran down the left edge as well, and a priority stripe plus a course dot
+   *  in a box this small was one signal too many. The preview answers "what is it
+   *  and for which class"; priority, time and the rest are in the real row the
+   *  click floats open. */
   private calChip(t: Task): HTMLElement {
-    const color =
-      getPrefs().calendar.colorBy === 'course'
-        ? t.course
-          ? getCourseColor(t.course)
-          : '#7db4ff'
-        : priorityDef(t.priority).color;
     const chip = el('button', {
       class: `cal-chip${t.completed ? ' done' : ''}`,
       title: t.course ? `${t.title} · ${t.course}` : t.title,
     });
-    chip.style.setProperty('--chip', color);
     const txt = el('span', { class: 'cal-chip-txt' });
     if (t.course) {
       const dot = el('span', { class: 'cal-chip-dot' });
@@ -735,21 +837,82 @@ export class TasksView {
     host.append(head, grid);
   }
 
-  private calWeek(prefs: AppPrefs['calendar'], by: Map<string, Task[]>, host: HTMLElement): void {
-    const start = this.weekStartDate();
+  /**
+   * WEEK AND DAY, ON A TIME AXIS (Gabe, 9/23, from Schoology's own calendar). Hours
+   * run down the left, each task sits at its due time, and tasks with no time
+   * collect in an "all-day" strip above the hours, the way Schoology lays them out.
+   * Week is seven columns of this, Day is one.
+   *
+   * The hours scroll INSIDE the grid rather than stretching the page: 24 rows at a
+   * readable height is taller than a laptop screen, and the toolbar has to stay in
+   * reach. It opens at 7am, or earlier if something on screen is due before that.
+   */
+  private calTimeGrid(days: Date[], by: Map<string, Task[]>, host: HTMLElement, scope: string): void {
+    const H = CAL_HOUR_PX;
     const todayISO = todayStr();
-    const head = el('div', { class: 'cal-dows' });
-    const grid = el('div', { class: `cal-grid cal-week cal-${prefs.density}` });
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(start);
-      d.setDate(d.getDate() + i);
-      const dISO = formatDate(d);
-      head.append(el('div', { text: `${DOWS[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}` }));
-      const cell = el('div', { class: `cal-cell${dISO === todayISO ? ' today' : ''}` });
-      for (const t of by.get(dISO) ?? []) cell.append(this.calChip(t));
-      grid.append(cell);
+    const single = days.length === 1;
+    const wrap = el('div', { class: 'cal-tgrid' });
+    wrap.style.setProperty('--cal-cols', String(days.length));
+    wrap.style.setProperty('--cal-hour', `${H}px`);
+
+    const head = el('div', { class: 'cal-trow cal-thead' });
+    const allDay = el('div', { class: 'cal-trow cal-tallday' });
+    head.append(el('div', { class: 'cal-tgutter' }));
+    allDay.append(el('div', { class: 'cal-tgutter cal-tallday-label', text: 'all-day' }));
+
+    const scroller = el('div', { class: 'cal-tscroll' });
+    const body = el('div', { class: 'cal-trow cal-tbody' });
+    const hours = el('div', { class: 'cal-tgutter cal-thours' });
+    for (let h = 1; h < 24; h++) {
+      const lab = el('div', { class: 'cal-thour', text: hourLabel(h) });
+      lab.style.top = `${h * H}px`;
+      hours.append(lab);
     }
-    host.append(head, grid);
+    body.append(hours);
+
+    let earliest = 7 * 60;
+    for (const d of days) {
+      const dISO = formatDate(d);
+      const isToday = dISO === todayISO;
+      head.append(
+        el('div', {
+          class: `cal-thead-day${isToday ? ' today' : ''}`,
+          text: single
+            ? d.toLocaleString('en-US', { weekday: 'long', month: 'numeric', day: 'numeric' })
+            : `${DOWS[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}`,
+        })
+      );
+      const tasks = by.get(dISO) ?? [];
+      const untimed = tasks.filter((t) => !t.dueTime);
+      const cell = el('div', { class: `cal-tallday-cell${isToday ? ' today' : ''}` });
+      for (const t of untimed) cell.append(this.calChip(t));
+      allDay.append(cell);
+
+      const col = el('div', { class: `cal-tcol${isToday ? ' today' : ''}` });
+      for (const { t, min, lane, lanes } of layoutTimed(tasks.filter((x) => !!x.dueTime))) {
+        earliest = Math.min(earliest, min);
+        const chip = this.calChip(t);
+        chip.classList.add('cal-tchip');
+        // Clamped so an 11:59pm deadline (common for Schoology) still shows whole
+        // instead of hanging off the bottom of the day.
+        chip.style.top = `${Math.min((min / 60) * H, 24 * H - (H - 3))}px`;
+        chip.style.left = `calc(${(lane / lanes) * 100}% + 2px)`;
+        chip.style.width = `calc(${100 / lanes}% - 4px)`;
+        col.append(chip);
+      }
+      body.append(col);
+    }
+    scroller.append(body);
+    wrap.append(head, allDay, scroller);
+    host.append(wrap);
+
+    const top = this.calScroll.get(scope) ?? Math.max(0, (Math.floor(earliest / 60) * H) - 6);
+    const apply = (): void => {
+      scroller.scrollTop = top;
+    };
+    apply();
+    requestAnimationFrame(apply); // a grid drawn while its tab is hidden has no height yet
+    scroller.addEventListener('scroll', () => this.calScroll.set(scope, scroller.scrollTop), { passive: true });
   }
 
   /** Chip click → the task's REAL list row, floated. Same element, same handlers:
@@ -1033,8 +1196,7 @@ export class TasksView {
           // cursor as the main grid (the one toolbar drives every calendar).
           const prefs = getPrefs().calendar;
           const scoped = this.calByDate((t) => t.folderId === f.id);
-          if (this.calView === 'month') this.calMonth(prefs, scoped, body);
-          else this.calWeek(prefs, scoped, body);
+          this.calDraw(prefs, scoped, body, f.id);
         } else {
           const subMap: TaskMap = {};
           for (const t of openMembers) subMap[t.id] = t; // the same set the head counts
@@ -3053,7 +3215,7 @@ export class TasksView {
       ],
       [
         'Checked something off by mistake?',
-        'Nothing you finish is thrown away. Open Task Archives from the filing-cabinet icon in the top bar, find it, and press Restore to put it back on your list.',
+        'Nothing you finish is thrown away. Open Completed at the bottom of your task list, find it, and press Restore to put it back.',
       ],
     ];
     this.popup('Task Pro Tips:', (body) => {

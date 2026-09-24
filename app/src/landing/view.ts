@@ -514,7 +514,7 @@ function heroSection(opts: LandingOpts): HTMLElement {
 // THE APP'S OWN GLYPHS, not lookalikes (Gabe, 9/2/26: "make sure the icons actually
 // match their app counterparts"). Where a feature has a mark in the product, that
 // exact mark is used here — the priority arrow from priorities.ts, the folder and
-// calendar and archive outlines from the real buttons. Only the three features whose
+// calendar outlines from the real buttons. Only the three features whose
 // control carries no icon of its own (focus sessions, bookmark groups, quick-add) sit
 // on the landing's established tab emoji instead.
 //
@@ -525,9 +525,6 @@ const FN_SVG = (path: string, extra = ''): string =>
 const FN_FOLDER = FN_SVG('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>');
 const FN_CAL = FN_SVG('<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>');
 const FN_BELL = FN_SVG('<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>');
-const FN_ARCHIVE = FN_SVG(
-  '<g transform="translate(0 .5)"><rect x="3" y="3" width="18" height="4" rx="1"/><path d="M5 7v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7"/><path d="M10 12h4"/></g>'
-);
 // ALL ONE COLOUR (Gabe, 9/2/26). The row's 🌐 and 📎 and the tab emoji are full-colour
 // glyphs, and mixed in among stroked outlines the strip looked like two icon sets
 // pasted together. These are the same marks drawn as line art in currentColor, so the
@@ -564,8 +561,9 @@ const FUNCTIONS: Array<[string, string]> = [
   [FN_MARK, 'Bookmark groups'],
   [FN_KEYS, 'Bookmark shortcuts'],
   [FN_BELL, 'Notifications'],
-  [FN_ARCHIVE, 'Task archives'],
-  [FN_CAL, 'Month & week calendars'],
+  // "Task archives" came out on 9/23 (Gabe): it is a drawer in the Tasks list now,
+  // not a feature of its own.
+  [FN_CAL, 'Month, week & day calendars'],
   [FN_PENCIL, 'Quick-add parsing'],
 ];
 

@@ -107,14 +107,16 @@ function danTasks(): Record<string, Task> {
     },
     // --- Variety #2: the SPANISH row (Gabe, 9/1/26 — "show multiple
     // translations"): title AND description in Spanish, both translated. Scene 6
-    // opens this description first. Due tomorrow so today stays at three rows.
+    // opens this description first. Due in TWO days, not tomorrow (9/23): the
+    // dashboard card became "Due Today & Tomorrow" on 9/22, and a tomorrow row
+    // made it a fourth line that pushed the dashboard past the frame's fold.
     {
       ...base,
       ...imported,
       id: 'dan_spanish',
       title: 'Estudiar los verbos irregulares para la prueba',
       course: 'Spanish',
-      dueDate: addDays(today, 1),
+      dueDate: addDays(today, 2),
       dueTime: '08:00',
       priority: 'normal',
       details: 'Estudiar la lista de verbos irregulares de la unidad 3. La prueba cubre el pretérito y el imperfecto.',

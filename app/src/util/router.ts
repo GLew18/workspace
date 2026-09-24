@@ -17,7 +17,7 @@
 //     its normal opening behaviour rather than showing a blank tab.
 
 /** The signed-in tabs, exactly as mountTabs knows them (see main.ts). */
-const TABS = new Set(['dashboard', 'tasks', 'focus', 'bookmarks', 'settings', 'notifications', 'archive']);
+const TABS = new Set(['dashboard', 'tasks', 'focus', 'bookmarks', 'settings', 'notifications']);
 
 /** Settings' own side tabs, lowercased. The labels live in settings/view.ts; these
  *  are their slugs, and SETTINGS_LABEL maps back to the label it renders. */
@@ -34,6 +34,9 @@ export interface Route {
 export function parsePath(path: string = location.pathname): Route | null {
   const parts = path.split('/').filter(Boolean).map((s) => decodeURIComponent(s).toLowerCase());
   const [tab, section] = parts;
+  // The Task Archives screen became the Tasks list's Completed drawer (9/23), so a
+  // bookmarked /archive lands on the tab where that drawer now lives.
+  if (tab === 'archive') return { tab: 'tasks' };
   if (!tab || !TABS.has(tab)) return null;
   if (tab === 'settings' && section && (SETTINGS_SECTIONS as readonly string[]).includes(section)) {
     return { tab, section: section as SettingsSection };

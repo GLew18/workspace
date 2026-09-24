@@ -148,14 +148,14 @@ export interface AppPrefs {
     defaultScreen: 'list' | 'calendar';
     /** 0 = Sunday-first, 1 = Monday-first. */
     weekStart: 0 | 1;
-    defaultView: 'month' | 'week';
+    defaultView: 'month' | 'week' | 'day';
     density: 'comfortable' | 'compact';
     /** Keep checked-off chips visible on the calendar. */
     showCompleted: boolean;
     /** Opening the calendar jumps to the first month holding an active task. */
     jumpToEarliest: boolean;
-    /** What the chip strip color encodes. */
-    colorBy: 'priority' | 'course';
+    // `colorBy` (priority or course for the chip's strip) was removed 9/23 along
+    // with the strip itself. A saved value is simply ignored on read.
   };
 }
 
@@ -176,7 +176,6 @@ export const DEFAULT_PREFS: AppPrefs = {
     density: 'comfortable',
     showCompleted: false,
     jumpToEarliest: false,
-    colorBy: 'priority',
   },
 };
 
@@ -244,11 +243,10 @@ export function normalizePrefs(raw: unknown): AppPrefs {
     calendar: {
       defaultScreen: pick(r.calendar?.defaultScreen, ['list', 'calendar'] as const, d.calendar.defaultScreen),
       weekStart: pick(r.calendar?.weekStart, [0, 1] as const, d.calendar.weekStart),
-      defaultView: pick(r.calendar?.defaultView, ['month', 'week'] as const, d.calendar.defaultView),
+      defaultView: pick(r.calendar?.defaultView, ['month', 'week', 'day'] as const, d.calendar.defaultView),
       density: pick(r.calendar?.density, ['comfortable', 'compact'] as const, d.calendar.density),
       showCompleted: bool(r.calendar?.showCompleted, d.calendar.showCompleted),
       jumpToEarliest: bool(r.calendar?.jumpToEarliest, d.calendar.jumpToEarliest),
-      colorBy: pick(r.calendar?.colorBy, ['priority', 'course'] as const, d.calendar.colorBy),
     },
   };
 }

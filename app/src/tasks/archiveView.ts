@@ -1,11 +1,17 @@
-// Cobalt: the 🗄 Task Archives screen (a full tab, like Settings and the bell).
+// Cobalt: the "Completed" section at the bottom of the Tasks list.
 //
 // WHERE FINISHED WORK GOES. Checking a task off takes it out of the list, and until
-// now the next morning's first load deleted it outright — so a term's work simply
-// evaporated, and a task checked off by mistake was gone for good. This screen is
+// 8/21 the next morning's first load deleted it outright — so a term's work simply
+// evaporated, and a task checked off by mistake was gone for good. This section is
 // the other half of that: every completed task, newest first, each with a Restore
 // that puts it back on the list and a Delete that ends it for good, plus one
 // "Delete all" for when the student wants the slate clean.
+//
+// A DRAWER IN THE TASKS TAB, NOT A SCREEN OF ITS OWN (Gabe, 9/23). This was the
+// "Task Archives" tab behind a filing-cabinet icon in the top bar, which nobody
+// found without being told. It now folds shut under the list exactly the way
+// Focus's "Completed" drawer does (same head, same classes), so finished work sits
+// one click below the work that is left, in both places a student checks things off.
 //
 // A ROW HERE IS THE TASK, NOT A RECEIPT FOR IT (Gabe, 8/21). It is drawn with the
 // Tasks list's own markup and its own CSS classes — the translation under a foreign
@@ -16,7 +22,7 @@
 // It reads the SAME task map every other screen reads (data.watchTasks), so a task
 // checked off in Tasks or in a focus session appears here immediately — no separate
 // store, nothing to keep in sync. `archived` (set at boot by
-// Data.archiveStaleCompleted) is not a filter here: this screen shows everything
+// Data.archiveStaleCompleted) is not a filter here: this section shows everything
 // completed, whether it retired last month or thirty seconds ago.
 
 import { el } from '../util/dom';
@@ -41,10 +47,13 @@ import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
 import { shiftSelect } from '../util/select';
 import { selectionBar, type SelBar } from '../ui/selbar';
 
-export class TaskArchiveView {
+export class CompletedSection {
   private host: HTMLElement | null = null;
   private map: TaskMap = {};
   private watching = false;
+  /** Shut by default, and per session: the section is a place you go to, not a
+   *  second list competing with the live one for the top of the screen. */
+  private open = false;
   /** Multi-select, exactly as the Tasks list does it: modifier-click to start one,
    *  Shift to draw a range, then Restore or Delete acts on the whole set. */
   private selectedIds = new Set<string>();
@@ -56,25 +65,28 @@ export class TaskArchiveView {
    *  commits. */
   private pendingDelete = new Set<string>();
 
-  constructor(private data: Data) {}
+  /** Whether this section's selection is what the shared bar is showing. */
+  private barShown = false;
 
-  /** Mounted fresh on every visit (the tab uses onShow). The subscriptions are
-   *  registered ONCE — mountTabs hands the same panel back each time, and a second
-   *  subscription would repaint the screen twice per write. */
-  mount(panel: HTMLElement): void {
-    const page = el('div', { class: 'arch-page' });
-    this.host = page;
-    panel.replaceChildren(page);
+  /** `barHost`: where the selection bar mounts. The landing demo passes its own
+   *  frame, as the Tasks list does, so the bar never escapes onto the real page. */
+  constructor(private data: Data, private barHost?: HTMLElement) {}
+
+  /** `host` is an element the Tasks list owns and re-appends under every render of
+   *  its rows, so what is drawn in here (and whether it is open) survives the list
+   *  being rebuilt around it. Subscriptions are registered ONCE. */
+  mount(host: HTMLElement): void {
+    this.host = host;
+    host.classList.add('tasks-done');
     this.map = this.data.getTasks();
     if (!this.watching) {
       this.watching = true;
       this.data.watchTasks((u) => {
         this.map = u.tasks;
-        // Only when this screen is actually on the page. The subscription outlives
-        // the panel, and every task write in the app fires it — rebuilding a
-        // detached archive of hundreds of rows on each keystroke-driven save would
-        // be pure waste. The next mount() draws from the map we just stored.
-        if (this.host?.isConnected) this.draw();
+        // Always, connected or not: the Tasks list re-appends this element after
+        // its own repaint, so a draw skipped while detached would come back stale.
+        // Shut, a draw is one header, so it costs nothing to keep current.
+        this.draw();
       });
       // Escape = deselect, the way out the selection bar advertises. Only while this
       // screen is the one showing, and NOT while a confirm is up: Escape cancels that
@@ -106,45 +118,43 @@ export class TaskArchiveView {
     // last paint is no longer something the buttons can act on.
     const live = new Set(tasks.map((t) => t.id));
     for (const id of [...this.selectedIds]) if (!live.has(id)) this.selectedIds.delete(id);
-    this.visIds = tasks.map((t) => t.id);
+    this.visIds = this.open ? tasks.map((t) => t.id) : [];
     host.replaceChildren();
 
-    // Same page head as the Notifications screen: centered title over a one-line
-    // purpose, with the destructive button pinned right and OUT of the flow so it
-    // can't drag the centered text off-center.
-    const head = el('div', { class: 'arch-head' });
-    const headText = el('div', { class: 'arch-head-text' });
-    headText.append(
-      el('div', { class: 'arch-title', text: 'Task Archives' }),
-      el('div', {
-        class: 'arch-desc',
-        text: 'Every task you have checked off, newest first. Restore one to put it back on your list.',
-      })
-    );
-    head.append(headText);
-    if (tasks.length) {
-      const clear = el('button', { class: 'arch-clear', text: 'Delete all' });
-      clear.addEventListener('click', () => this.deleteAll(tasks.length));
-      head.append(clear);
-    }
-    host.append(head);
-
+    // Nothing finished yet: no drawer at all, the way Focus draws none. An empty
+    // "Completed 0" under every new student's list would be a header for nothing.
     if (!tasks.length) {
-      const empty = el('div', { class: 'arch-empty' });
-      empty.append(
-        // VS16 on purpose: bare U+1F5C4 falls back to a thin monochrome glyph on
-        // Windows, which reads as a missing character next to the bell's 🔔.
-        el('div', { class: 'arch-empty-icon', text: '🗄️' }),
-        el('div', { class: 'arch-empty-title', text: 'Nothing archived yet' }),
-        el('div', {
-          class: 'arch-empty-sub',
-          text: 'Tasks you check off collect here instead of disappearing, so nothing is ever lost to a stray click.',
-        })
-      );
-      host.append(empty);
       this.syncSelectionUI();
       return;
     }
+
+    // FOCUS'S DRAWER HEAD, CLASS FOR CLASS (Gabe, 9/23: "it mirrors focus so it adds
+    // more continuity"). Green dashed bar, "Completed", the count in its green
+    // circle, the ▶ that turns when open. Styled by focus.css, not a lookalike.
+    const head = el('button', { class: 'focus-finished-head' + (this.open ? ' open' : '') });
+    head.append(
+      el('span', { class: 'focus-finished-label', text: 'Completed' }),
+      el('span', { class: 'count-badge focus-finished-count', text: String(tasks.length) }),
+      el('span', { class: 'focus-folder-arrow' + (this.open ? ' open' : ''), text: '▶' })
+    );
+    head.addEventListener('click', () => {
+      this.open = !this.open;
+      if (!this.open) this.selectedIds.clear(); // a folded-away selection is invisible state
+      this.draw();
+    });
+    host.append(head);
+    if (!this.open) {
+      this.syncSelectionUI();
+      return;
+    }
+
+    // The one bulk action, on its own quiet line under the head rather than inside
+    // it: a button nested in the drawer's own button would open it on every miss.
+    const tools = el('div', { class: 'tasks-done-tools' });
+    const clear = el('button', { class: 'arch-clear', text: 'Delete all' });
+    clear.addEventListener('click', () => this.deleteAll(tasks.length));
+    tools.append(clear);
+    host.append(tools);
 
     // Group by the day it was finished, walking the already-sorted list and
     // emitting a heading whenever the label changes (same shape as the bell log).
@@ -381,7 +391,15 @@ export class TaskArchiveView {
     for (const row of this.host?.querySelectorAll<HTMLElement>('.arch-row[data-task-id]') ?? [])
       row.classList.toggle('selected', this.selectedIds.has(row.dataset.taskId!));
     // A selection is invisible state; the bar is how you find your way out of it.
-    this.selBar ??= selectionBar('task', () => this.clearSelection());
+    //
+    // ONLY WHILE THIS SECTION HAS ONE, or has just lost one. The bar is a single
+    // node shared with the live list above, and whoever last reports a count owns
+    // it. This section redraws on every task write, so reporting "0" each time
+    // would hide the bar, and take over its Deselect button, out from under a
+    // selection the student is still holding in the list.
+    if (!this.selectedIds.size && !this.barShown) return;
+    this.barShown = this.selectedIds.size > 0;
+    this.selBar ??= selectionBar('task', () => this.clearSelection(), this.barHost);
     this.selBar.update(this.selectedIds.size);
   }
 
@@ -502,7 +520,7 @@ export class TaskArchiveView {
     );
   }
 
-  /** Empty the archive.
+  /** Empty the Completed section.
    *
    *  `n` is the count as the button was drawn, which is what the question is about.
    *  WHAT gets deleted is re-read when the answer comes back, because the archive is
@@ -513,7 +531,7 @@ export class TaskArchiveView {
       // Same sentence as the single delete, deliberately: two phrasings for the same
       // class of action is how a student learns to read one of them and not the
       // other. "all 1 archived task" is sidestepped rather than pluralized around.
-      `${n === 1 ? 'Delete the one archived task' : `Delete all ${n} archived tasks`}? You can’t undo this after the toast expires.`,
+      `${n === 1 ? 'Delete the one completed task' : `Delete all ${n} completed tasks`}? You can’t undo this after the toast expires.`,
       () => {
         const doomed = this.entries();
         if (doomed.length) this.beginDelete(doomed);

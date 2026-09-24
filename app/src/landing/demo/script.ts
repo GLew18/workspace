@@ -129,6 +129,13 @@ const sceneTasksBulk: Scene = {
  *  keeps its own .task-item rows in the DOM, so a bare querySelector can hand
  *  back an invisible duplicate — always filter to the row that's actually on
  *  screen. (Rows also re-render constantly; never cache them.) */
+/** A priority option in a popup that is still OPEN. A dismissed popup stays in the
+ *  DOM for its fade-out, and in instant mode the next scene opens its own popup
+ *  inside that fade, so a plain `.priority-option` lookup found the dying popup's
+ *  button first and set the wrong task (9/23). */
+const LIVE_POPUP = '.popup-backdrop:not(.closing)';
+const LIVE_PRIORITY_OPT = `${LIVE_POPUP} .priority-option`;
+
 const row = (shell: DemoShell, id: string): HTMLElement => {
   const r = [...shell.body.querySelectorAll<HTMLElement>(`.task-item[data-task-id="${id}"]`)].find(
     (x) => x.offsetParent !== null
@@ -292,15 +299,15 @@ const sceneHistoryProject: Scene = {
     // right in the folder block he just built, fully in view.
     await cur.ensureInView(scroller, row(shell, 'dan_hp2'));
     await cur.click(row(shell, 'dan_hp2').querySelector('.task-actions button[title="Priority"]')!);
-    await cur.waitFor('.priority-option', shell.body);
-    const high = [...shell.body.querySelectorAll<HTMLElement>('.priority-option')].find(
+    await cur.waitFor(LIVE_PRIORITY_OPT, shell.body);
+    const high = [...shell.body.querySelectorAll<HTMLElement>(LIVE_PRIORITY_OPT)].find(
       (b) => /high/i.test(b.textContent ?? '') && !/very/i.test(b.textContent ?? '')
     );
     expect(high, 'High missing from the priority popup');
     await cur.wait(240);
     await cur.click(
       await cur.fresh(
-        () => [...shell.body.querySelectorAll<HTMLElement>('.priority-option')].find((b) => /high/i.test(b.textContent ?? '') && !/very/i.test(b.textContent ?? '')),
+        () => [...shell.body.querySelectorAll<HTMLElement>(LIVE_PRIORITY_OPT)].find((b) => /high/i.test(b.textContent ?? '') && !/very/i.test(b.textContent ?? '')),
         'High option'
       )
     );
@@ -392,13 +399,13 @@ const scenePremiumAndCourse: Scene = {
 
     // Priority: the permanent arrow button → Very High.
     await cur.click(row(shell, 'dan_prem').querySelector('.task-actions button[title="Priority"]')!);
-    await cur.waitFor('.priority-option', shell.body);
-    const veryHigh = [...shell.body.querySelectorAll<HTMLElement>('.priority-option')].find((b) => /very high/i.test(b.textContent ?? ''));
+    await cur.waitFor(LIVE_PRIORITY_OPT, shell.body);
+    const veryHigh = [...shell.body.querySelectorAll<HTMLElement>(LIVE_PRIORITY_OPT)].find((b) => /very high/i.test(b.textContent ?? ''));
     expect(veryHigh, 'Very High missing from the priority popup');
     await cur.wait(240);
     await cur.click(
       await cur.fresh(
-        () => [...shell.body.querySelectorAll<HTMLElement>('.priority-option')].find((b) => /very high/i.test(b.textContent ?? '')),
+        () => [...shell.body.querySelectorAll<HTMLElement>(LIVE_PRIORITY_OPT)].find((b) => /very high/i.test(b.textContent ?? '')),
         'Very High option'
       )
     );
@@ -522,7 +529,7 @@ const sceneEssayAttachments: Scene = {
     const readDescription = async (id: string, translated: RegExp): Promise<void> => {
       await cur.ensureInView(scroller, row(shell, id));
       await cur.click(row(shell, id).querySelector('.task-actions button[title="Description"]')!);
-      const back = await cur.waitFor<HTMLElement>('.popup-backdrop', shell.body);
+      const back = await cur.waitFor<HTMLElement>(LIVE_POPUP, shell.body);
       // Polled, not read once: the popup body fills in on its own frame, and an
       // instant read raced it (the visual auditor caught the flake, 9/1/26).
       await cur.waitUntil(
@@ -539,7 +546,7 @@ const sceneEssayAttachments: Scene = {
 
     await cur.ensureInView(scroller, row(shell, 'dan_essay'));
     await cur.click(row(shell, 'dan_essay').querySelector('.task-actions button[title="Attachments"]')!);
-    const pop = await cur.waitFor<HTMLElement>('.popup-backdrop', shell.body);
+    const pop = await cur.waitFor<HTMLElement>(LIVE_POPUP, shell.body);
     expect(/rubric/i.test(pop.textContent ?? ''), 'seeded Rubric attachment missing');
     await cur.wait(700);
     await cur.click(pop.querySelector('.attach-add')!);
@@ -572,7 +579,7 @@ const sceneCalendar: Scene = {
     // header on their own schedule, and a toggle captured before that redraw is
     // a corpse — the click lands nowhere, the waitFor times out, and the loop
     // restarts mid-flow (the "cut off before bookmarks" Gabe saw).
-    await cur.click(await cur.fresh(() => shell.body.querySelector<HTMLElement>('.tasks-mode-btn'), 'calendar toggle'));
+    await cur.click(await cur.fresh(() => shell.body.querySelector<HTMLElement>('.tasks-mode-opt[data-mode="calendar"]'), 'calendar toggle'));
     await cur.waitFor('.cal-bar', shell.body);
     await cur.wait(600);
 
@@ -623,7 +630,7 @@ const sceneCalendar: Scene = {
     await cur.waitUntil(() => shell.body.querySelector('.cal-label')?.textContent === before, 3000, 'calendar returned to this month');
     await cur.wait(600);
     // Back to list — fresh for the same redraw-race reason as the way in.
-    await cur.click(await cur.fresh(() => shell.body.querySelector<HTMLElement>('.tasks-mode-btn'), 'list toggle'));
+    await cur.click(await cur.fresh(() => shell.body.querySelector<HTMLElement>('.tasks-mode-opt[data-mode="list"]'), 'list toggle'));
     await cur.waitFor('.quick-add', shell.body);
     await cur.wait(300);
   },
@@ -652,7 +659,8 @@ const sceneBookmarks: Scene = {
       // this scrolls back up to it rather than chasing it down past the new cards.
       await cur.ensureInView(scroller, addBtn);
       await cur.click(addBtn);
-      const modal = await cur.waitFor<HTMLElement>('.bm-modal', shell.body);
+      // An open dialog only: the previous link's dialog is still fading out (see LIVE_POPUP).
+      const modal = await cur.waitFor<HTMLElement>('.bm-backdrop:not(.closing) .bm-modal', shell.body);
       const inputs = modal.querySelectorAll<HTMLTextAreaElement>('.bm-input');
       await cur.click(inputs[0]);
       await cur.typeInto(inputs[0], name);

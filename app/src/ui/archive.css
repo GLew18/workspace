@@ -1,46 +1,21 @@
-/* Cobalt: the 🗄 Task Archives screen (see src/tasks/archiveView.ts).
+/* Cobalt: the "Completed" drawer under the Tasks list (see src/tasks/archiveView.ts).
 
-   Deliberately the same reading surface as the Notifications screen (notifylog.css):
-   a centered page head, uppercase day headings, and one row per item with a fixed
-   time gutter. Gabe asked for "a similar appearance to notifs", and the two screens
-   ARE the same shape of thing — a dated history you scroll, not a control panel. The
-   classes are separate (.arch-* vs .nlog-*) rather than shared, because only the
-   frame matches: an archive row carries a course chip and an action button, and the
-   two will drift as they grow. */
+   The head is Focus's own drawer head (focus.css .focus-finished-head), so the two
+   read as one idea. What opens beneath it keeps the archive's reading surface:
+   uppercase completion-day headings and one row per task with a time gutter. */
 
-.arch-page {
-  padding: 4px 0 40px;
+.tasks-done {
+  margin-top: 14px;
 }
-
-/* Head — title over a one-line purpose, both centered. "Delete all" is positioned
-   OUT of the flow so it cannot drag the centered text off-center by half its own
-   width (the same trick as .nlog-clear). */
-.arch-head {
-  position: relative;
-  margin-bottom: 22px;
-}
-.arch-head-text {
-  min-width: 0;
-  text-align: center;
-}
-.arch-title {
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--text);
-}
-.arch-desc {
-  font-size: 13px;
-  color: var(--text-dim);
-  margin-top: 4px;
+.tasks-done-tools {
+  display: flex;
+  justify-content: flex-end;
+  margin: 10px 0 2px;
 }
 /* Reads as an ordinary outline button until you approach it, then turns red: this
    is the one control in the app that destroys tasks in bulk, so it should not look
    inviting, and it should be unmistakable once the pointer is on it. */
 .arch-clear {
-  position: absolute;
-  top: 0;
-  right: 0;
   background: none;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -66,9 +41,9 @@
   color: var(--accent);
   margin: 20px 2px 8px;
 }
-/* The first heading sits directly under the page head, so it drops its top gap. */
-.arch-head + .arch-day {
-  margin-top: 0;
+/* The first heading sits directly under the Delete-all line, so it drops most of its gap. */
+.tasks-done-tools + .arch-day {
+  margin-top: 4px;
 }
 
 /* Row — time gutter, the task, then its two actions at the end. Translucent navy so
@@ -165,51 +140,9 @@
   background: rgba(239, 68, 68, 0.1);
 }
 
-/* Empty state — the same soft halo the bell's empty screen uses, so a blank archive
-   still carries the brand instead of reading as a dead end. */
-.arch-empty {
-  text-align: center;
-  padding: 56px 20px;
-}
-.arch-empty-icon {
-  width: 74px;
-  height: 74px;
-  margin: 0 auto;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 30px;
-  background: radial-gradient(circle, rgba(125, 180, 255, 0.16), transparent 70%);
-  opacity: 0.75;
-}
-.arch-empty-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text);
-  margin-top: 12px;
-}
-.arch-empty-sub {
-  font-size: 13px;
-  color: var(--text-dim);
-  margin-top: 6px;
-  max-width: 460px;
-  margin-left: auto;
-  margin-right: auto;
-}
-
-/* Narrow: the pinned "Delete all" runs straight into the centered title long before
-   the phone width, because the title is centered in the FULL head and the button is
-   floating over its right end. Below this width it rejoins the flow underneath,
-   centered, where it has the whole row to itself.
-
-   The rows relax at the same breakpoint: the time gutter and the Restore button stop
-   competing for the width, so the action can drop beneath a long task title. */
+/* Narrow: the time gutter and the Restore button stop competing for the width, so
+   the action can drop beneath a long task title. */
 @media (max-width: 560px) {
-  .arch-clear {
-    position: static;
-    display: block;
-    margin: 12px auto 0;
-  }
   /* Time + task on the first line, the two actions on their own beneath. `flex-wrap`
      alone was not enough: the task column is `.task-info`, which is `flex: 1;
      min-width: 0`, so it obediently squeezed to nothing rather than pushing the
