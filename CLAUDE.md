@@ -4,6 +4,8 @@
 
 **Any change a visitor can see ships to the live site in the same session, without being asked.** Gabe should never have to request a deploy for work that is already finished and verified.
 
+**Deploying is part of the change, not a follow-up (reinforced 9/24).** Gabe, verbatim: *"I should expect it to be deployed. Always deployed."* A done message for a visible change is only sent after the deploy has run and been verified on `https://cobaltstudy.com`, and it says so in one line. He should never have to open the site to find out whether it went out. This includes fixes made after an audit.
+
 Run from `app/`, on either machine:
 
 ```bash
@@ -43,4 +45,4 @@ Same continuity rule already applies to every ✕ close/dismiss button (see `.dl
 `app/src/landing/demo/` drives a real, miniature Cobalt in the hero. Two standing rules:
 - **The demo may never show something the real app does not do.** Fabricated chrome is allowed only where the browser itself owns it (the mini player's Picture-in-Picture title bar) and must be labelled as such in the code.
 - **No dead beats.** The ghost cursor never parks doing nothing.
-- **Every UI or behavior change reaches the demo in the same change (Gabe, 9/23).** The demo mounts the real views, so most changes carry over by themselves. What does NOT carry over is anything the demo hard-codes: the scripted scenes' selectors (`demo/script.ts`), the replica header (`demo/shell.ts`), Dan's seed data and dates (`demo/seed.ts`), and the landing marquee (`landing/view.ts` FUNCTIONS). Check all four on every UI change, then run `app/demosmoke.html` on the dev server; it must end in PASS. (As of 9/23 it stops at the Focus time-wheel scene when run in Claude's hidden browser pane; every scene before it passes. Cause not yet confirmed.)
+- **Every UI or behavior change reaches the demo in the same change (Gabe, 9/23).** The demo mounts the real views, so most changes carry over by themselves. What does NOT carry over is anything the demo hard-codes: the scripted scenes' selectors (`demo/script.ts`), the replica header (`demo/shell.ts`), Dan's seed data and dates (`demo/seed.ts`), and the landing marquee (`landing/view.ts` FUNCTIONS). Check all four on every UI change, then run `app/demosmoke.html` on the dev server; it must end in PASS. (In Claude's hidden browser pane it stops at the Focus time-wheel scene. Confirmed 9/24 as a pane limit, not a demo bug: a hidden page never delivers native scroll events, and the wheel only saves its value on one. With scroll events emulated, the full loop completes, and a virtual-clock run of all 10 scenes showed zero cursor jumps.)

@@ -252,6 +252,8 @@ export class TasksView {
    *  re-appended after every repaint, so its open state and rows survive the list
    *  being rebuilt around it. List mode only. */
   private doneBox: HTMLElement | null = null;
+  /** The drawer itself: the calendar borrows its row for a finished chip's popover. */
+  private done: CompletedSection | null = null;
 
   // EXCERPT MODE (Gabe, 8/10): the Dashboard's "Today's Tasks" card mounts THIS
   // view filtered to one day, so its rows are the real Tasks-tab rows, not a
@@ -349,7 +351,8 @@ export class TasksView {
     this.listEl = el('div', { class: 'task-list' });
     if (!this.doneBox) {
       this.doneBox = el('div');
-      new CompletedSection(this.data, this.sample?.host).mount(this.doneBox);
+      this.done = new CompletedSection(this.data, this.sample?.host);
+      this.done.mount(this.doneBox);
     }
     panel.append(this.bannerHost, header, quickAdd, this.listEl);
     this.watchQuickAdd(quickAdd);
@@ -746,27 +749,27 @@ export class TasksView {
     return d;
   }
 
-  /** Chips eligible for a grid: dated, not mid-completion, completed only when
-   *  the Show-completed pref keeps them, and passing `filter` — the main
-   *  calendar filters to LOOSE tasks, each folder's calendar to its members
-   *  (mirroring the list view's folder/loose split). */
+  /** Chips eligible for a grid: dated, not mid-completion, and passing `filter`
+   *  — the main calendar filters to LOOSE tasks, each folder's calendar to its
+   *  members (mirroring the list view's folder/loose split).
+   *
+   *  COMPLETED TASKS ALWAYS SHOW, GRAYED (Gabe, 9/24), archived ones included.
+   *  This reverses two older rules: completed chips were hidden unless a "Show
+   *  completed" setting was on, and archived ones never drew at all (8/21, to keep
+   *  months of finished chips off the grid). A calendar is where a student looks
+   *  back at a week, and a finished assignment belongs on its day, just quieter. */
   private calByDate(filter?: (t: Task) => boolean): Map<string, Task[]> {
-    const show = getPrefs().calendar.showCompleted;
     const by = new Map<string, Task[]>();
     for (const t of Object.values(this.map)) {
-      // ARCHIVED tasks never draw a chip, whatever "Show completed" says (Gabe,
-      // 8/21). They used to be deleted at the next boot, so the calendar has
-      // always shown only the current run of work; now that they are kept, the
-      // grid would slowly fill up with months of finished chips. They live in the
-      // list's Completed drawer, which is where a student goes looking for them.
-      if (!t.dueDate || t.archived || this.completingIds.has(t.id) || (t.completed && !show)) continue;
+      if (!t.dueDate || this.completingIds.has(t.id)) continue;
       if (filter && !filter(t)) continue;
       (by.get(t.dueDate) ?? by.set(t.dueDate, []).get(t.dueDate)!).push(t);
     }
-    // Time first, then the list's hierarchy (see compareForCalendar in store.ts).
-    // This was time-then-title, which meant a cell's "+N more" hid whatever happened
-    // to be latest in the day rather than whatever mattered least (Gabe, 9/2/26).
-    for (const list of by.values()) list.sort(compareForCalendar);
+    // Open work first, then time, then the list's hierarchy (see compareForCalendar
+    // in store.ts). Finished chips go last so a month cell's "+N more" hides them
+    // before it hides anything still to do.
+    for (const list of by.values())
+      list.sort((a, b) => Number(!!a.completed) - Number(!!b.completed) || compareForCalendar(a, b));
     return by;
   }
 
@@ -967,8 +970,12 @@ export class TasksView {
   }
 
   private calPopRow(task: Task): HTMLElement {
-    // Synthesize the row's due-date group; a completed task (viewable when
-    // Show-completed is on) gets a stub since groupTasks only returns active.
+    // A FINISHED chip opens the Completed drawer's row, not the live one (Gabe,
+    // 9/24): Restore and Delete are what you do with finished work, and the live
+    // row's checkbox and editors are not. Pressing either closes the popover so the
+    // toast or the delete confirm has the screen to itself.
+    if (task.completed && this.done) return this.done.soloRow(task, () => this.closeCalPop());
+    // Synthesize the row's due-date group (groupTasks only returns active tasks).
     const g =
       groupTasks({ [task.id]: task })[0] ??
       ({ key: 'none', header: '', tone: 'none', tasks: [task] } as TaskGroup);
@@ -992,7 +999,7 @@ export class TasksView {
     if (this.completingIds.has(taskId)) return;
     const t = this.map[taskId];
     const rowHost = pop.querySelector('.cal-pop-row');
-    if (!t || !rowHost || (t.completed && !getPrefs().calendar.showCompleted)) {
+    if (!t || !rowHost) {
       this.closeCalPop();
       return;
     }

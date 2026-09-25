@@ -171,9 +171,24 @@ export class CompletedSection {
     this.syncSelectionUI();
   }
 
-  private row(t: Task, at: number): HTMLElement {
+  /**
+   * One completed task as the drawer draws it, standing alone, for the calendar's
+   * popover (Gabe, 9/24: a finished chip "brings up the task archive task ui").
+   * Same row, same Restore and Delete; no multi-select, because there is no list
+   * around it to select within. `onAct` runs when either button is pressed, so the
+   * popover can get out of the way of the toast or the confirm that follows.
+   */
+  soloRow(t: Task, onAct: () => void): HTMLElement {
+    const at = t.completedAt ? Date.parse(t.completedAt) : NaN;
+    const r = this.row(t, at, true);
+    for (const b of r.querySelectorAll('.arch-restore, .arch-delete')) b.addEventListener('click', onAct);
+    return r;
+  }
+
+  private row(t: Task, at: number, solo = false): HTMLElement {
     const row = el('div', { class: 'arch-row' });
     row.dataset.taskId = t.id;
+    if (solo) return this.rowBody(row, t, at, true);
     if (this.selectedIds.has(t.id)) row.classList.add('selected');
     row.addEventListener('mousedown', (e) => {
       if (e.shiftKey || e.ctrlKey || e.metaKey) e.preventDefault(); // no text painting
@@ -194,7 +209,11 @@ export class CompletedSection {
       true
     );
     row.addEventListener('click', (e) => this.onRowClick(t, e));
+    return this.rowBody(row, t, at, false);
+  }
 
+  /** Everything inside a row: the time gutter, the task, Restore and Delete. */
+  private rowBody(row: HTMLElement, t: Task, at: number, solo: boolean): HTMLElement {
     row.append(el('div', { class: 'arch-time', text: Number.isNaN(at) ? '—' : formatWallClock(at) }));
 
     /**
@@ -357,9 +376,12 @@ export class CompletedSection {
     // eye lands on first, and the destructive one is a deliberate reach downward.
     const actions = el('div', { class: 'arch-actions' });
     const restore = el('button', { class: 'arch-restore', text: 'Restore' });
-    restore.addEventListener('click', () => void this.restore(this.targets(t)));
+    // A solo row (the calendar popover) always acts on its own task, never on a
+    // selection that happens to be standing in the drawer.
+    const targets = (): Task[] => (solo ? [t] : this.targets(t));
+    restore.addEventListener('click', () => void this.restore(targets()));
     const del = el('button', { class: 'arch-delete', text: 'Delete' });
-    del.addEventListener('click', () => this.deleteTasks(this.targets(t)));
+    del.addEventListener('click', () => this.deleteTasks(targets()));
     actions.append(restore, del);
 
     row.append(main, actions);

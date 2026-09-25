@@ -925,16 +925,6 @@ export class SettingsView {
     );
     sec.append(
       this.prefRow(
-        'Show completed tasks',
-        'Keep checked-off chips on the calendar (crossed out).',
-        this.prefSwitch(p.calendar.showCompleted, (on) => {
-          p.calendar.showCompleted = on;
-          save();
-        })
-      )
-    );
-    sec.append(
-      this.prefRow(
         'Jump to earliest task',
         'Opening the calendar lands on the first month with an active task.',
         this.prefSwitch(p.calendar.jumpToEarliest, (on) => {

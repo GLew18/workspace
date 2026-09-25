@@ -2022,9 +2022,19 @@ html[data-kbd] :focus-visible {
   color: var(--text);
   word-break: break-word;
 }
+/* A finished task, grayed on its day (Gabe, 9/24): the whole chip recedes, the
+   course dot with it, and the title is struck the way the Completed drawer strikes
+   it. Still a button: a click opens that drawer's row, with Restore and Delete. */
+.cal-chip.done {
+  background: transparent;
+  opacity: 0.45;
+}
 .cal-chip.done .cal-chip-txt {
   text-decoration: line-through;
-  opacity: 0.5;
+  color: var(--text-dim);
+}
+.cal-chip.done:hover {
+  opacity: 0.75;
 }
 .cal-more {
   background: none;
