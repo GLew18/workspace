@@ -947,9 +947,12 @@
   min-width: 0;
 }
 @media (min-width: 900px) {
+  /* The session card is WIDER than it was (Gabe, 9/25: 360-440px), because its
+     rows are the Tasks tab's full rows now, action cluster and all. A first pass:
+     he said to widen it "for now" and reformat if it looks bad. */
   .focus-stage {
-    grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
-    max-width: 1100px;
+    grid-template-columns: minmax(0, 1fr) minmax(440px, 600px);
+    max-width: 1240px;
     gap: 60px; /* was 90 — part of the fit shrink */
     align-items: center;
   }

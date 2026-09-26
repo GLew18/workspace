@@ -12,7 +12,19 @@ import { LocalBackend } from './backend';
 import { hasFirebaseConfig } from './firebase';
 import type { Task, TaskMap } from './types';
 import { snapshotIfNeeded, latestBundle, isEmptyBundle, type AccountBundle } from './backup';
-import { todayStr } from './util/dates';
+import { todayStr, formatDate } from './util/dates';
+
+/**
+ * A finished task whose time is up: its due day is over, or, with no due date to
+ * wait for, the day it was finished is. These are deleted at the next boot and
+ * hidden from the Completed drawer and the calendar until then (Gabe, 9/25).
+ */
+export function isSpentCompleted(t: Task, today = todayStr()): boolean {
+  if (!t.completed) return false;
+  if (t.dueDate) return t.dueDate < today;
+  const doneOn = t.completedAt ? formatDate(new Date(t.completedAt)) : '';
+  return !doneOn || doneOn < today;
+}
 
 const ECHO_WINDOW_MS = 2000;
 
@@ -162,29 +174,43 @@ export class Data {
   }
 
   /**
-   * Retire completed tasks whose day has passed into the Task Archives. Today's
-   * completed tasks stay put, so the daily lightbulb can still measure progress.
-   * Run once at boot.
+   * The boot-time sweep of finished work. Run once at boot, before anything renders.
    *
-   * THIS USED TO DELETE THEM (Gabe, 8/21). Everything a student had finished was
-   * destroyed on the next morning's first load, which is why "where did my old
-   * tasks go" had no answer. Now they are flagged and kept: they still leave every
-   * list (each one filters on `completed`), but they are somewhere — the Task
-   * Archives screen, which can hand one back or, deliberately, empty the lot.
+   * DELETED ONCE THEIR DUE DATE HAS PASSED (Gabe, 9/25). A finished task is kept
+   * only while it is still due, today or later, so the Completed drawer holds the
+   * work you got ahead on, not every task you have ever finished. This is the third
+   * rule here: finished tasks were deleted the next morning until 8/21, then kept
+   * forever (flagged `archived`) until 9/25.
    *
-   * ONE write per task, and only for tasks not already flagged, so a boot with a
-   * full archive behind it costs nothing.
+   * WHY THE DAY AFTER, NOT THE MOMENT THE DUE TIME PASSES: the Schoology import
+   * skips anything due before today, so a task deleted once its day is over can
+   * never come back, not even through the manual Refresh button, which re-imports
+   * anything missing. Deleting at 8am on the due day would let that button bring
+   * the task straight back as undone.
+   *
+   * The survivors that were finished on an earlier day still get `archived`, which
+   * keeps them out of the daily lightbulb when their day arrives (see dailyProgress).
    */
   async archiveStaleCompleted(): Promise<void> {
     const all = await this.backend.getAll<Task>('tasks');
     const today = todayStr();
+    const spent: string[] = [];
     for (const t of Object.values(all)) {
-      if (t.completed && !t.archived && t.dueDate !== today) {
+      if (isSpentCompleted(t, today)) spent.push(t.id);
+      else if (t.completed && !t.archived && t.dueDate !== today) {
         const next = { ...normalizeTask(t), archived: true };
         await this.backend.set('tasks', t.id, next);
         if (this.lastTasks[t.id]) this.lastTasks[t.id] = next;
       }
     }
+    if (!spent.length) return;
+    // Straight to the backend, NOT removeTasksBulk: this runs before the task
+    // listener has filled the cache, and that method would publish the half-empty
+    // cache as the whole task list.
+    const results = await Promise.allSettled(spent.map((id) => this.backend.remove('tasks', id)));
+    for (const [i, r] of results.entries()) if (r.status === 'fulfilled') delete this.lastTasks[spent[i]];
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed) console.error(`archiveStaleCompleted: ${failed}/${spent.length} deletes failed`);
   }
 
   /**

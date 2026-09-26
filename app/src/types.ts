@@ -22,12 +22,11 @@ export interface Task {
   completed: boolean;
   completedAt: string | null; // ISO
   /**
-   * RETIRED TO THE TASK ARCHIVES (Gabe, 8/21) — a completed task whose day has
-   * passed. Set by Data.archiveStaleCompleted at boot, which is where completed
-   * tasks used to be DELETED outright. Nothing in the app hides a task because of
-   * this flag (every list already filters on `completed`); it exists so the two
-   * counters that measure "today" — the daily lightbulb and the calendar grid —
-   * can tell a task finished today apart from one dug out of last month.
+   * FINISHED ON AN EARLIER DAY (Gabe, 8/21) — a completed task that is still due
+   * (today or later) but was not finished today. Set by Data.archiveStaleCompleted
+   * at boot. Finished tasks whose due date has passed are deleted there instead
+   * (9/25). Nothing hides a task because of this flag; it exists so the daily
+   * lightbulb can tell a task finished today from one finished days ago.
    */
   archived?: boolean;
   priority: Priority;

@@ -134,6 +134,13 @@ const sceneTasksBulk: Scene = {
  *  inside that fade, so a plain `.priority-option` lookup found the dying popup's
  *  button first and set the wrong task (9/23). */
 const LIVE_POPUP = '.popup-backdrop:not(.closing)';
+
+/** Focus to-do rows. Since 9/25 a to-do with a task behind it is drawn as the
+ *  Tasks tab's own row (.focus-task-row, title in .task-title); the older Focus
+ *  row is still what an unlinked to-do gets. Each selector takes either. */
+const SETUP_ROW = '.focus-todo-list .focus-todo-row, .focus-todo-list .focus-task-row';
+const SESSION_ROW = '.focus-todo-item, .focus-overlay-todos .focus-task-row';
+const TODO_TEXT = '.focus-todo-text, .focus-task-row .task-title';
 const LIVE_PRIORITY_OPT = `${LIVE_POPUP} .priority-option`;
 
 const row = (shell: DemoShell, id: string): HTMLElement => {
@@ -828,7 +835,7 @@ const sceneFocusSetup: Scene = {
     // Re-find the LIVE row, stage it, and only press a + that is connected and
     // squarely in frame; the todo-count assert proves the press did it.
     const pressImportPlus = async (find: () => HTMLElement | undefined, label: string): Promise<void> => {
-      const before = shell.body.querySelectorAll('.focus-todo-row').length;
+      const before = shell.body.querySelectorAll(SETUP_ROW).length;
       for (let attempt = 0; attempt < 4; attempt++) {
         const r = await cur.fresh(find, label);
         const panelBody = r.closest<HTMLElement>('.focus-import-body');
@@ -838,7 +845,7 @@ const sceneFocusSetup: Scene = {
         if (!r.isConnected) continue; // a redraw won the race — re-find, never ghost-click
         await cur.click(r.querySelector('.focus-import-add')!);
         try {
-          await cur.waitUntil(() => shell.body.querySelectorAll('.focus-todo-row').length > before, 2500, `${label} imported`);
+          await cur.waitUntil(() => shell.body.querySelectorAll(SETUP_ROW).length > before, 2500, `${label} imported`);
           return;
         } catch {
           /* the press landed on a corpse after all — go around */
@@ -869,14 +876,14 @@ const sceneFocusSetup: Scene = {
       () => [...shell.body.querySelectorAll<HTMLElement>('.focus-import-task')].find((r) => (r.textContent ?? '').includes('get cobalt premium')),
       'get cobalt premium'
     );
-    // Setup-screen todo rows are .focus-todo-row (the session's are .focus-todo-item).
-    await cur.waitUntil(() => shell.body.querySelectorAll('.focus-todo-row').length >= 2, 4000, 'both imports landed in the session list');
+    // Setup-screen rows (see SETUP_ROW); the session's are SESSION_ROW.
+    await cur.waitUntil(() => shell.body.querySelectorAll(SETUP_ROW).length >= 2, 4000, 'both imports landed in the session list');
     await cur.wait(700); // both rows sit in the list BEFORE the panel folds — the tuck must not read as the cause
     await cur.click(shell.body.querySelector('.focus-import')!); // tuck the panel away
     // The output: BOTH imported rows in frame (Gabe, 8/17 — the first fix
     // only guaranteed one). Stage to the last row, then check the first
     // still fits; the pair is ~120px, so one gentle scroll covers both.
-    const todoRows = (): HTMLElement[] => [...shell.body.querySelectorAll<HTMLElement>('.focus-todo-row')];
+    const todoRows = (): HTMLElement[] => [...shell.body.querySelectorAll<HTMLElement>(SETUP_ROW)];
     await cur.ensureInView(scroller, todoRows()[todoRows().length - 1]);
     await cur.ensureInView(scroller, todoRows()[0]);
     await cur.wait(1000);
@@ -928,7 +935,7 @@ const sceneFocusSession: Scene = {
     if (impBody) await cur.ensureInView(impBody, impRow, 12);
     await cur.click(impRow.querySelector('.focus-import-add')!);
     await cur.waitUntil(
-      () => [...ov.querySelectorAll<HTMLElement>('.focus-todo-text')].some((t) => (t.textContent ?? '').includes('study for algebra 2 test')),
+      () => [...ov.querySelectorAll<HTMLElement>(TODO_TEXT)].some((t) => (t.textContent ?? '').includes('study for algebra 2 test')),
       4000,
       'algebra task imported into the session'
     );
@@ -936,7 +943,7 @@ const sceneFocusSession: Scene = {
     // The output ON CAMERA (Gabe, 8/17): the imported row must be visible in
     // the session's own list, not below its internal fold.
     const sessionTodos = ov.querySelector<HTMLElement>('.focus-overlay-todos');
-    const importedRow = [...ov.querySelectorAll<HTMLElement>('.focus-todo-item')].find((r) =>
+    const importedRow = [...ov.querySelectorAll<HTMLElement>(SESSION_ROW)].find((r) =>
       (r.textContent ?? '').includes('study for algebra 2 test')
     );
     if (sessionTodos && importedRow) await cur.ensureInView(sessionTodos, importedRow, 20);
@@ -945,7 +952,7 @@ const sceneFocusSession: Scene = {
     // Reorder the two LOOSE todos (premium + algebra; the History import lives
     // in its folder block and drags never cross groups — the app's own rule).
     const looseRows = (): HTMLElement[] =>
-      [...ov.querySelectorAll<HTMLElement>('.focus-todo-item')].filter((r) => {
+      [...ov.querySelectorAll<HTMLElement>(SESSION_ROW)].filter((r) => {
         const txt = r.textContent ?? '';
         return txt.includes('get cobalt premium') || txt.includes('study for algebra 2 test');
       });
@@ -963,7 +970,7 @@ const sceneFocusSession: Scene = {
     // Append to the premium todo's title (dblclick → the editor opens with the
     // text; typing appends; Enter commits).
     const premText = await cur.fresh(
-      () => [...ov.querySelectorAll<HTMLElement>('.focus-todo-text')].find((t) => (t.textContent ?? '').includes('get cobalt premium')),
+      () => [...ov.querySelectorAll<HTMLElement>(TODO_TEXT)].find((t) => (t.textContent ?? '').includes('get cobalt premium')),
       'premium todo'
     );
     beat('premium-append-dblclick');
@@ -979,7 +986,7 @@ const sceneFocusSession: Scene = {
     await cur.retype(editor, 'get cobalt premium right after completing homework');
     cur.pressKey(editor, 'Enter');
     await cur.waitUntil(
-      () => [...ov.querySelectorAll<HTMLElement>('.focus-todo-text')].some((t) => /right after completing homework/.test(t.textContent ?? '')),
+      () => [...ov.querySelectorAll<HTMLElement>(TODO_TEXT)].some((t) => /right after completing homework/.test(t.textContent ?? '')),
       4000,
       'premium todo title appended'
     );
@@ -994,11 +1001,11 @@ const sceneFocusSession: Scene = {
     await cur.wait(300);
     await cur.click(ov.querySelector('.focus-add-btn')!);
     const speechRow = await cur.waitForResult(
-      () => [...ov.querySelectorAll<HTMLElement>('.focus-todo-item')].find((r) => (r.textContent ?? '').includes('start working on speech')),
+      () => [...ov.querySelectorAll<HTMLElement>(SESSION_ROW)].find((r) => (r.textContent ?? '').includes('start working on speech')),
       4000,
       'speech todo added (date parsed out of the title)'
     );
-    expect(!/in 2 days/.test(speechRow.querySelector('.focus-todo-text')?.textContent ?? ''), 'date words should have parsed OUT of the title');
+    expect(!/in 2 days/.test(speechRow.querySelector(TODO_TEXT)?.textContent ?? ''), 'date words should have parsed OUT of the title');
     // Same rule as the quick-add: the parse OUTPUT gets its own moment — and
     // it must be IN FRAME (new rows land at the list's bottom; scroll the
     // session list, not hope).
@@ -1006,7 +1013,7 @@ const sceneFocusSession: Scene = {
     // Fresh at use: the auto-translate write-back can redraw the list between
     // capture and this moment, leaving speechRow a detached corpse.
     const findSpeechRow = (): HTMLElement | undefined =>
-      [...ov.querySelectorAll<HTMLElement>('.focus-todo-item')].find((r) => (r.textContent ?? '').includes('start working on speech'));
+      [...ov.querySelectorAll<HTMLElement>(SESSION_ROW)].find((r) => (r.textContent ?? '').includes('start working on speech'));
     // STABLE, not merely fresh (Gabe's audit, 9/3/26: the hand never reached this
     // row, every loop). The list is redrawn a beat after the row first appears, in
     // the gap between the staging scroll and the move — so the node found here was
@@ -1027,7 +1034,7 @@ const sceneFocusSession: Scene = {
     let courseEd: HTMLTextAreaElement | null = null;
     for (let attempt = 0; attempt < 5 && !courseEd; attempt++) {
       const fresh = await cur.waitForResult(
-        () => [...ov.querySelectorAll<HTMLElement>('.focus-todo-item')].find((r) => (r.textContent ?? '').includes('start working on speech')),
+        () => [...ov.querySelectorAll<HTMLElement>(SESSION_ROW)].find((r) => (r.textContent ?? '').includes('start working on speech')),
         3000,
         'speech todo row'
       );
@@ -1051,7 +1058,7 @@ const sceneFocusSession: Scene = {
     await cur.wait(200);
     cur.pressKey(courseEd, 'Enter');
     await cur.waitUntil(
-      () => /miscellaneous/i.test(speechRow.textContent ?? '') || [...ov.querySelectorAll<HTMLElement>('.focus-todo-item')].some((r) => (r.textContent ?? '').includes('start working on speech') && /miscellaneous/i.test(r.textContent ?? '')),
+      () => /miscellaneous/i.test(speechRow.textContent ?? '') || [...ov.querySelectorAll<HTMLElement>(SESSION_ROW)].some((r) => (r.textContent ?? '').includes('start working on speech') && /miscellaneous/i.test(r.textContent ?? '')),
       4000,
       'speech todo coursed via the misc parse word'
     );

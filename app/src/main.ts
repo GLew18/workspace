@@ -271,7 +271,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   // These boot reads are independent of each other — run them CONCURRENTLY so
   // sign-in waits one database round-trip, not four sequential ones.
   const [, , , account, rawPrefs] = await Promise.all([
-    data.archiveStaleCompleted(), // retire yesterday's completed into the Archives before anything renders
+    data.archiveStaleCompleted(), // delete finished tasks whose due date has passed, before anything renders
     initRegistry(data), // load course config (seed defaults on first run)
     initLearn(data), // load the learned course model (Layer 1b)
     // First-run onboarding check: confirm name → connect Schoology, then re-render.

@@ -8,7 +8,7 @@
 // or the student pins it there. See rowActions / openMoreMenu.
 
 import type { Task, TaskMap, Priority, ParsedTask, TaskFolder } from '../types';
-import type { Data, TasksUpdate } from '../db';
+import { isSpentCompleted, type Data, type TasksUpdate } from '../db';
 import { el, textInput, copyTextMetrics, autoWidthToText, showToast } from '../util/dom';
 import {
   detectExtension,
@@ -242,6 +242,8 @@ export class TasksView {
   // rebuild its row in place, and so only one is ever open.
   private calPop: { taskId: string; pop: HTMLElement } | null = null;
   private calPopOutside: ((e: MouseEvent) => void) | null = null;
+  /** The "+N more" day list: which day, and the tasks it was opened on. */
+  private dayPop: { pop: HTMLElement; dateISO: string; ids: string[] } | null = null;
   // Multi-select (list mode): Ctrl/Cmd+click toggles rows, Shift+click reaches
   // across a range (util/select.ts), Esc clears. There is deliberately NO anchor
   // field here any more - see that file for why remembering one was the bug.
@@ -252,6 +254,12 @@ export class TasksView {
    *  re-appended after every repaint, so its open state and rows survive the list
    *  being rebuilt around it. List mode only. */
   private doneBox: HTMLElement | null = null;
+  /** Set only while embedRow is building a hosted row (see there). */
+  private embedding: { checked: boolean; onCheck: () => void; handle?: HTMLElement; selected: boolean } | null = null;
+  /** A host's selection, as task ids (setExternalSelection). */
+  private extSel: Set<string> | null = null;
+  /** Each owned row's ⋮⋮ grip, built with its drag wiring and placed by renderTask. */
+  private rowHandle = new WeakMap<HTMLElement, HTMLElement>();
   /** The drawer itself: the calendar borrows its row for a finished chip's popover. */
   private done: CompletedSection | null = null;
 
@@ -566,6 +574,11 @@ export class TasksView {
     this.listEl.replaceChildren();
     if (this.excerpt) {
       this.renderExcerpt();
+      // A host of embedRow redraws its rows here. The row's own editors and toggles
+      // finish by repainting THIS view (an inline edit's Escape, a language row), and
+      // hosted rows are not in this view's list, so without the hook a cancelled
+      // edit would sit on the host's row for good.
+      this.afterRender?.();
       return;
     }
     this.listEl.classList.toggle('cal-mode', this.mode === 'calendar');
@@ -753,15 +766,15 @@ export class TasksView {
    *  — the main calendar filters to LOOSE tasks, each folder's calendar to its
    *  members (mirroring the list view's folder/loose split).
    *
-   *  COMPLETED TASKS ALWAYS SHOW, GRAYED (Gabe, 9/24), archived ones included.
-   *  This reverses two older rules: completed chips were hidden unless a "Show
-   *  completed" setting was on, and archived ones never drew at all (8/21, to keep
-   *  months of finished chips off the grid). A calendar is where a student looks
-   *  back at a week, and a finished assignment belongs on its day, just quieter. */
+   *  COMPLETED TASKS SHOW, GRAYED (Gabe, 9/24), for as long as they exist: a
+   *  finished task is deleted once its due date passes (9/25, see isSpentCompleted
+   *  in db.ts), and is left off the grid from that moment, so a session left open
+   *  past midnight matches a fresh load. */
   private calByDate(filter?: (t: Task) => boolean): Map<string, Task[]> {
     const by = new Map<string, Task[]>();
+    const today = todayStr();
     for (const t of Object.values(this.map)) {
-      if (!t.dueDate || this.completingIds.has(t.id)) continue;
+      if (!t.dueDate || this.completingIds.has(t.id) || isSpentCompleted(t, today)) continue;
       if (filter && !filter(t)) continue;
       (by.get(t.dueDate) ?? by.set(t.dueDate, []).get(t.dueDate)!).push(t);
     }
@@ -923,48 +936,91 @@ export class TasksView {
    *  behave exactly like the list view. (The ⋮⋮ handle is hidden by CSS — a
    *  standalone container has no list to reorder within.) */
   private openCalPopover(task: Task, e: MouseEvent): void {
-    this.closeCalPop();
-    const pop = el('div', { class: 'cal-pop' });
+    // Only the task popover is replaced. A "+N more" list it was opened from STAYS
+    // (Gabe, 9/25): closing it left the task floating with no context, and the
+    // student had to reopen the list to look at the next one.
+    this.closeTaskPop();
+    const pop = el('div', { class: 'cal-pop cal-task-pop' });
     const closeB = el('button', { class: 'cal-pop-close', text: '✕' });
-    closeB.addEventListener('click', () => this.closeCalPop());
+    closeB.addEventListener('click', () => this.closeTaskPop());
     const rowHost = el('div', { class: 'cal-pop-row' });
     rowHost.append(this.calPopRow(task));
     // Completing from the popover: let the row's glide play, then the popover goes.
     rowHost.addEventListener('click', (ev) => {
-      if ((ev.target as Element).closest('.task-cb')) window.setTimeout(() => this.closeCalPop(), 900);
+      if ((ev.target as Element).closest('.task-cb')) window.setTimeout(() => this.closeTaskPop(), 900);
     });
     pop.append(closeB, rowHost);
-    this.mountCalPop(pop, e, task.id);
+    this.placeCalPop(pop, e);
+    this.calPop = { taskId: task.id, pop };
+    this.watchCalPopOutside();
   }
 
   /** "+N more" → a small popup listing the day's full chip stack. */
   private openDayPop(dateISO: string, tasks: Task[], e: MouseEvent): void {
-    this.closeCalPop();
+    this.closeAllCalPops();
     const pop = el('div', { class: 'cal-pop cal-day-pop' });
     const closeB = el('button', { class: 'cal-pop-close', text: '✕' });
-    closeB.addEventListener('click', () => this.closeCalPop());
+    closeB.addEventListener('click', () => this.closeAllCalPops());
     const d = new Date(dateISO + 'T12:00:00');
+    const list = el('div', { class: 'cal-day-pop-list' });
     pop.append(
       closeB,
       el('div', {
         class: 'cal-day-pop-title',
         text: d.toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }),
-      })
+      }),
+      list
     );
-    for (const t of tasks) pop.append(this.calChip(t));
-    this.mountCalPop(pop, e, '');
+    this.dayPop = { pop, dateISO, ids: tasks.map((t) => t.id) };
+    this.drawDayPopChips();
+    this.placeCalPop(pop, e);
+    this.watchCalPopOutside();
   }
 
-  /** Shared popover plumbing: mount, clamp to the viewport, close on outside
-   *  click (clicks inside popups the row itself opens don't count as outside). */
-  private mountCalPop(pop: HTMLElement, e: MouseEvent, taskId: string): void {
-    (this.sample?.host ?? document.body).append(pop);
-    pop.style.left = `${Math.max(12, Math.min(window.innerWidth - pop.offsetWidth - 12, e.clientX + 8))}px`;
-    pop.style.top = `${Math.max(12, Math.min(window.innerHeight - pop.offsetHeight - 12, e.clientY + 8))}px`;
-    this.calPop = { taskId, pop };
+  /** The day list's chips, from the CURRENT tasks: it now outlives task edits made
+   *  in the popover opened from it, so it redraws rather than going stale. A task
+   *  moved to another day, deleted, or past its time drops out; an empty list closes. */
+  private drawDayPopChips(): void {
+    if (!this.dayPop) return;
+    const { pop, dateISO, ids } = this.dayPop;
+    const today = todayStr();
+    const tasks = ids
+      .map((id) => this.map[id])
+      .filter((t): t is Task => !!t && t.dueDate === dateISO && !this.completingIds.has(t.id) && !isSpentCompleted(t, today));
+    if (!tasks.length) return this.closeAllCalPops();
+    pop.querySelector('.cal-day-pop-list')?.replaceChildren(...tasks.map((t) => this.calChip(t)));
+  }
+
+  /**
+   * MOUNTED IN THE CALENDAR, NOT FLOATING OVER THE WINDOW (Gabe, 9/25). Both
+   * popovers were position: fixed on <body>, so scrolling the page left them
+   * hanging in mid-air over whatever scrolled underneath. They now live inside the
+   * task list, absolutely positioned, and travel with the calendar they belong to.
+   *
+   * The spot is unchanged: just off the pointer, kept on screen. That is worked out
+   * in window coordinates, then converted into the list's own. The divide by `scale`
+   * is for the landing demo, which shrinks the whole app with a CSS transform.
+   */
+  private placeCalPop(pop: HTMLElement, e: MouseEvent): void {
+    const host = this.listEl;
+    host.append(pop);
+    const hr = host.getBoundingClientRect();
+    const scale = host.offsetWidth ? hr.width / host.offsetWidth : 1;
+    const w = pop.offsetWidth * scale;
+    const h = pop.offsetHeight * scale;
+    const vx = Math.max(12, Math.min(window.innerWidth - w - 12, e.clientX + 8));
+    const vy = Math.max(12, Math.min(window.innerHeight - h - 12, e.clientY + 8));
+    pop.style.left = `${(vx - hr.left) / scale}px`;
+    pop.style.top = `${(vy - hr.top) / scale}px`;
+  }
+
+  /** One outside-click listener for both popovers. Clicks inside either, or inside a
+   *  popup or confirm that a row in them opened, don't count as outside. */
+  private watchCalPopOutside(): void {
+    if (this.calPopOutside) return;
     this.calPopOutside = (ev: MouseEvent) => {
       const t = ev.target as Element;
-      if (!t.closest('.cal-pop') && !t.closest('.popup-backdrop')) this.closeCalPop();
+      if (!t.closest('.cal-pop') && !t.closest('.popup-backdrop') && !t.closest('.bm-backdrop')) this.closeAllCalPops();
     };
     document.addEventListener('click', this.calPopOutside);
   }
@@ -974,7 +1030,7 @@ export class TasksView {
     // 9/24): Restore and Delete are what you do with finished work, and the live
     // row's checkbox and editors are not. Pressing either closes the popover so the
     // toast or the delete confirm has the screen to itself.
-    if (task.completed && this.done) return this.done.soloRow(task, () => this.closeCalPop());
+    if (task.completed && this.done) return this.done.soloRow(task, () => this.closeTaskPop());
     // Synthesize the row's due-date group (groupTasks only returns active tasks).
     const g =
       groupTasks({ [task.id]: task })[0] ??
@@ -982,35 +1038,53 @@ export class TasksView {
     return this.renderTask(task, { ...g, key: `cal:${g.key}` });
   }
 
-  /** Keep the open popover honest across re-renders: rebuild its row from the
-   *  fresh task (so committed edits replace the editor), close it when its task
-   *  is gone or the mode changed. Mid-glide completions are left to their timer. */
+  /** Keep the open popovers honest across re-renders. A repaint empties the list
+   *  they are mounted in, so each goes back in (the day list first, so the task
+   *  popover opened from it stays on top), the day list redraws its chips, and the
+   *  task popover rebuilds its row from the fresh task (so committed edits replace
+   *  the editor). Leaving calendar mode closes both. Mid-glide completions are left
+   *  to their timer. */
   private refreshCalPop(): void {
-    if (!this.calPop) return;
+    if (!this.calPop && !this.dayPop) return;
     if (this.mode !== 'calendar') {
-      this.closeCalPop();
+      this.closeAllCalPops();
       return;
     }
+    if (this.dayPop) {
+      this.listEl.append(this.dayPop.pop);
+      this.drawDayPopChips();
+    }
+    if (!this.calPop) return;
     const { taskId, pop } = this.calPop;
-    if (!taskId) {
-      this.closeCalPop(); // day-list popup: any data change makes it stale
-      return;
-    }
+    this.listEl.append(pop);
     if (this.completingIds.has(taskId)) return;
     const t = this.map[taskId];
     const rowHost = pop.querySelector('.cal-pop-row');
     if (!t || !rowHost) {
-      this.closeCalPop();
+      this.closeTaskPop();
       return;
     }
     rowHost.replaceChildren(this.calPopRow(t));
   }
 
-  private closeCalPop(): void {
-    if (this.calPopOutside) document.removeEventListener('click', this.calPopOutside);
-    this.calPopOutside = null;
+  /** Close the task popover only; a day list under it stays open. */
+  private closeTaskPop(): void {
     this.calPop?.pop.remove();
     this.calPop = null;
+    if (!this.dayPop) this.unwatchCalPopOutside();
+  }
+
+  private closeAllCalPops(): void {
+    this.calPop?.pop.remove();
+    this.calPop = null;
+    this.dayPop?.pop.remove();
+    this.dayPop = null;
+    this.unwatchCalPopOutside();
+  }
+
+  private unwatchCalPopOutside(): void {
+    if (this.calPopOutside) document.removeEventListener('click', this.calPopOutside);
+    this.calPopOutside = null;
   }
 
   /** The folder a task belongs to — undefined when unfoldered OR the folder no
@@ -1917,11 +1991,86 @@ export class TasksView {
     showToast(msg, this.sample?.host ?? document.body);
   }
 
+  /**
+   * THE TASKS ROW, HOSTED BY ANOTHER SCREEN (Gabe, 9/25: Focus's to-dos should
+   * "look exactly like tasks in the task panel... same functions"). The very row
+   * this tab draws, with its priority strip, description, Schoology link,
+   * attachments, priority arrow, ⋯ menu and inline editing, all writing to the
+   * real task.
+   *
+   * Three things are the host's, because they mean something different there:
+   * the checkbox (Focus ticks a to-do in place and keeps it under its own
+   * Completed drawer), the ⋮⋮ grip (Focus orders its session, not a due-date
+   * group) and multi-select (Focus keeps its own). The host passes the check
+   * handler and its own grip, and reports its selection through
+   * setExternalSelection so a bulk edit from the toolbox reaches the same rows the
+   * host has highlighted.
+   */
+  embedRow(
+    task: Task,
+    o: { checked: boolean; onCheck: () => void; handle?: HTMLElement; selected: boolean }
+  ): HTMLElement {
+    const g =
+      groupTasks({ [task.id]: task })[0] ??
+      ({ key: 'none', header: '', tone: 'none', tasks: [task] } as TaskGroup);
+    this.embedding = o;
+    try {
+      return this.renderTask(task, { ...g, key: `embed:${g.key}` });
+    } finally {
+      this.embedding = null;
+    }
+  }
+
+  /** Set by a host of embedRow: called after every repaint, so the host redraws
+   *  its rows too (see the excerpt branch of render). */
+  afterRender: (() => void) | null = null;
+
+  /** The host's selection, as task ids. Toolbox actions on a row in it act on all
+   *  of it (see selTargets), exactly as they do on this tab's own selection. */
+  setExternalSelection(taskIds: string[] | null): void {
+    this.extSel = taskIds ? new Set(taskIds) : null;
+  }
+
   private renderTask(task: Task, group: TaskGroup): HTMLElement {
-    const item = el('div', { class: `task-item${task.completed ? ' completed' : ''}` });
+    // A hosted row (embedRow) takes its checkbox, grip and selection from the host.
+    const emb = this.embedding;
+    const item = el('div', { class: `task-item${(emb ? emb.checked : task.completed) ? ' completed' : ''}` });
     // Multi-select: rows carry their id, wear .selected, and route clicks.
     item.dataset.taskId = task.id;
-    if (this.selectedIds.has(task.id)) item.classList.add('selected');
+    if (emb ? emb.selected : this.selectedIds.has(task.id)) item.classList.add('selected');
+    if (!emb) this.wireRowSelectAndDrag(task, group, item);
+    // The strip is DORMANT (Gabe, 8/13): a color band you read, never a control
+    // you press. It was briefly clickable; the arrow button in the action cluster
+    // is the one way to change priority now. It still carries the label as a
+    // tooltip, and it is still the visible cause of the list's order, since
+    // `sortTasks` tie-breaks on priority.
+    item.append(
+      el('div', {
+        class: `task-priority ${task.priority}`,
+        title: `Priority: ${priorityDef(task.priority).label}`,
+      })
+    );
+    if (emb) {
+      if (emb.handle) item.append(emb.handle);
+    } else if (!this.excerpt) {
+      // (The grip itself is built in wireRowSelectAndDrag; excerpt cards get none.)
+      item.append(this.rowHandle.get(item)!);
+    }
+
+    const cb = el('button', { class: `task-cb${(emb ? emb.checked : task.completed) ? ' checked' : ''}` });
+    cb.innerHTML = CHECK_SVG;
+    if (emb) {
+      const onCheck = emb.onCheck;
+      cb.addEventListener('click', () => onCheck());
+    } else cb.addEventListener('click', () => this.complete(task, item));
+    item.append(cb);
+
+    return this.renderTaskBody(task, item);
+  }
+
+  /** The grip, drag-to-reorder and multi-select wiring of a row this tab owns. A
+   *  hosted row (embedRow) gets none of it: those belong to its host. */
+  private wireRowSelectAndDrag(task: Task, group: TaskGroup, item: HTMLElement): void {
     // Shift/Ctrl clicks are SELECTION gestures here — kill the browser's native
     // text-selection at its source (the mousedown default), or a shift+click
     // paints every row in between blue instead of selecting tasks.
@@ -1945,17 +2094,6 @@ export class TasksView {
       true
     );
     item.addEventListener('click', (e) => this.onRowClick(task, e));
-    // The strip is DORMANT (Gabe, 8/13): a color band you read, never a control
-    // you press. It was briefly clickable; the arrow button in the action cluster
-    // is the one way to change priority now. It still carries the label as a
-    // tooltip, and it is still the visible cause of the list's order, since
-    // `sortTasks` tie-breaks on priority.
-    item.append(
-      el('div', {
-        class: `task-priority ${task.priority}`,
-        title: `Priority: ${priorityDef(task.priority).label}`,
-      })
-    );
 
     // ⋮⋮ drag-to-reorder (same handle as bookmark cards). A drop is only accepted
     // WITHIN the same due-date group — the group is determined by the due date, so
@@ -1995,13 +2133,13 @@ export class TasksView {
     // every other pin in the group it is handed, silently wiped the student's
     // arrangements in several real date groups at once. An excerpt is a read-only
     // summary; reordering belongs on the Tasks tab where the groups are real.
-    if (!this.excerpt) item.append(handle);
+    // (renderTask places the grip, after the priority strip, for non-excerpt rows.)
+    this.rowHandle.set(item, handle);
+  }
 
-    const cb = el('button', { class: `task-cb${task.completed ? ' checked' : ''}` });
-    cb.innerHTML = CHECK_SVG;
-    cb.addEventListener('click', () => this.complete(task, item));
-    item.append(cb);
-
+  /** Everything after the checkbox: title, badges, translation, course · date and
+   *  the action cluster. Shared by this tab's rows and hosted ones (embedRow). */
+  private renderTaskBody(task: Task, item: HTMLElement): HTMLElement {
     const info = el('div', { class: 'task-info' });
 
     // Title (double-click to edit)
@@ -2310,8 +2448,10 @@ export class TasksView {
   /** The tasks a toolbox action operates on: the WHOLE selection when the acted-on
    *  row is part of it, just that task otherwise (the File-Explorer rule). */
   private selTargets(task: Task): Task[] {
-    if (this.selectedIds.has(task.id) && this.selectedIds.size > 1)
-      return [...this.selectedIds].map((id) => this.map[id]).filter((t): t is Task => !!t);
+    // A host's selection (embedRow) stands in for this tab's own when it has one.
+    const sel = this.extSel ?? this.selectedIds;
+    if (sel.has(task.id) && sel.size > 1)
+      return [...sel].map((id) => this.map[id]).filter((t): t is Task => !!t);
     return [task];
   }
 

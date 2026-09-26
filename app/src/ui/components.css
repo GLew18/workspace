@@ -2174,9 +2174,14 @@ html[data-kbd] :focus-visible {
   flex: none;
 }
 
+/* The popovers are mounted INSIDE the task list (Gabe, 9/25), so they scroll with
+   the calendar instead of hanging over the window. The list is their anchor. */
+.task-list.cal-mode {
+  position: relative;
+}
 /* The floating popover: the task's REAL list row, standalone. */
 .cal-pop {
-  position: fixed;
+  position: absolute;
   z-index: 700;
   width: min(524px, calc(100vw - 24px));
   background: var(--surface);
@@ -2199,6 +2204,18 @@ html[data-kbd] :focus-visible {
 .cal-pop-close:hover {
   color: var(--text);
 }
+/* The task popover's ✕ sits in the popover's own top-right corner (Gabe, 9/25),
+   on a strip above the task card rather than on top of the card's corner, where
+   it read as part of the row. */
+.cal-task-pop {
+  padding-top: 26px;
+}
+.cal-task-pop .cal-pop-close {
+  top: 4px;
+  right: 6px;
+  padding: 2px 4px;
+  line-height: 1;
+}
 /* A lone container has no list to reorder within — no ⋮⋮ here. */
 .cal-pop .task-handle {
   display: none;
@@ -2208,6 +2225,11 @@ html[data-kbd] :focus-visible {
 }
 .cal-day-pop {
   width: min(320px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cal-day-pop-list {
   display: flex;
   flex-direction: column;
   gap: 4px;

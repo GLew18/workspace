@@ -9,6 +9,7 @@ import { attachColorPicker } from '../ui/colorPicker';
 import { makeWheel } from './wheel';
 import { genId } from '../util/ids';
 import { sortTasks, makeTask } from '../tasks/store';
+import { TasksView } from '../tasks/render';
 import { getCourseColor, matchCourseStrict } from '../courses/registry';
 import { armAudioContext, formatClock } from './timer';
 import { playEndSound, DEFAULT_END_SOUND, DEFAULT_END_VOLUME, FOCUS_SOUND_EVENT, type EndSoundHandle, type FocusSoundSettings } from './sounds';
@@ -62,6 +63,10 @@ function sortCollections<T>(items: T[], tracksOf: (x: T) => LibraryTrack[]): { i
 /** Filled folder glyph, tinted with the folder's color (focus folders + import rows). */
 const FOCUS_FOLDER_SVG = (color: string) =>
   `<svg class="focus-folder-ico" viewBox="0 0 24 24" fill="${color}"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
+/** The width the mini player's task list is laid out at before it is zoomed down
+ *  to fit (see fitWidgetTodos). Measured 9/25: below ~420px a Tasks row's course,
+ *  date and buttons start wrapping onto extra lines. */
+const WIDGET_TODO_W = 420;
 /** Outline folder glyph for the per-todo 🗀 button (currentColor). */
 const FOCUS_FOLDER_BTN_SVG =
   '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
@@ -279,6 +284,11 @@ export class FocusView {
    *  same UI; only the globals are contained. */
   private sample?: { host: HTMLElement };
   private panel!: HTMLElement;
+  /** An off-screen Tasks view that draws the real task rows for the to-do lists
+   *  (see taskRow). Built on first use. */
+  private rowSource: TasksView | null = null;
+  /** The mini player's task list and the observer keeping it scaled (fitWidgetTodos). */
+  private todoFit: { list: HTMLElement; win: Window; ro: ResizeObserver } | null = null;
 
   // setup ("creation") state — the draft you assemble before starting. Deliberately
   // SEPARATE from the running session (below), so adding a task to one never shows in
@@ -1044,6 +1054,36 @@ export class FocusView {
       const visIds: string[] = [];
       const buildRow = (t: FocusTodo): HTMLElement => {
         visIds.push(t.id);
+        // Takes it out of THIS session only (see the ✕ on the Focus row below).
+        const removeFromSession = (): void => {
+          for (const m of this.todoTargets(t, this.todos)) {
+            const i = this.todos.indexOf(m);
+            if (i >= 0) this.todos.splice(i, 1);
+            this.todoSel.delete(m.id);
+          }
+          drawTodos();
+          importUI?.refresh();
+        };
+        // The Tasks row when there is a task behind this to-do (see taskRow). No
+        // grip, as on the Focus row: nothing in the draft is ordered yet. The ✕
+        // stays, after the row's own actions, because leaving a session is a Focus
+        // idea the Tasks row has no control for.
+        const taskRow = this.taskRow(t, this.todos, {
+          onCheck: () => {
+            const next = !t.done;
+            const flipped = this.todoTargets(t, this.todos).filter((m) => m.done !== next);
+            for (const m of flipped) m.done = next;
+            void this.syncLinkedTasks(flipped);
+            drawTodos();
+          },
+        });
+        if (taskRow) {
+          this.wireTodoSelect(taskRow, visIds, t.id, drawTodos);
+          const del = el('button', { class: 'focus-todo-del', text: '✕', title: 'Remove from this session' });
+          del.addEventListener('click', removeFromSession);
+          taskRow.append(del);
+          return taskRow;
+        }
         const row = el('div', { class: `focus-todo-row${this.todoSel.has(t.id) ? ' selected' : ''}` });
         // Multi-select: shift/ctrl clicks route into the shared todo selection.
         row.addEventListener('mousedown', (e) => {
@@ -1069,15 +1109,7 @@ export class FocusView {
         // so the task itself is never touched here. Delete it in the Tasks tab.
         // On a selected row, ✕ removes the WHOLE selection from the session.
         const del = el('button', { class: 'focus-todo-del', text: '✕', title: 'Remove from this session' });
-        del.addEventListener('click', () => {
-          for (const m of this.todoTargets(t, this.todos)) {
-            const i = this.todos.indexOf(m);
-            if (i >= 0) this.todos.splice(i, 1);
-            this.todoSel.delete(m.id);
-          }
-          drawTodos(); // prunes + repaints the strip on the way through
-          importUI?.refresh();
-        });
+        del.addEventListener('click', removeFromSession); // drawTodos prunes + repaints the strip
         row.append(del);
         return row;
       };
@@ -1433,6 +1465,74 @@ export class FocusView {
 
   /** Route one row click into the selection model. Returns true when the click
    *  WAS a selection gesture (caller re-syncs its list UI and stops). */
+  /** Focus's multi-select on a hosted Tasks row (taskRow). A modifier click is
+   *  caught on the way DOWN, before the checkbox or any toolbox button can act on
+   *  it, the rule the Tasks tab learned on 8/20; a plain click on bare row space
+   *  toggles while a selection is live. */
+  private wireTodoSelect(row: HTMLElement, visIds: string[], id: string, redraw: () => void): void {
+    row.addEventListener('mousedown', (e) => {
+      if (e.shiftKey || e.ctrlKey || e.metaKey) e.preventDefault(); // no text painting
+    });
+    row.addEventListener(
+      'click',
+      (e) => {
+        if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return;
+        e.stopPropagation();
+        if (this.selClick('todo', visIds, id, e)) redraw();
+      },
+      true
+    );
+    row.addEventListener('click', (e) => {
+      const tgt = e.target as HTMLElement;
+      if (tgt.closest('button, a, input, textarea, .inline-edit-block, .focus-todo-handle, .course-chip, .meta-date')) return;
+      if (this.selClick('todo', visIds, id, e)) redraw();
+    });
+  }
+
+  /**
+   * THE MINI PLAYER SHRINKS ITS TASK ROWS, IT DOES NOT RE-FLOW THEM (Gabe, 9/25).
+   * The rows are full Tasks rows now, and at the mini player's ~250px they broke onto
+   * three and four lines. Instead the list is laid out at WIDGET_TODO_W, the width a
+   * row needs to sit on its usual lines (measured: 420px), and zoomed down to
+   * whatever the mini player actually has, so a row keeps its proportions and only
+   * its size changes.
+   *
+   * Measured rather than written in vw: the in-tab float lives in the main window,
+   * where vw is the whole browser's width, not the float's. Outside the mini player
+   * the list is left alone.
+   */
+  private fitWidgetTodos(list: HTMLElement): void {
+    const parent = list.parentElement;
+    if (!parent) return;
+    const win = list.ownerDocument.defaultView ?? window;
+    // Watch FIRST, before deciding anything: the mini player's panel is built
+    // before it is put on the page (the pop-out window is awaited), so the first
+    // call can come while it is still detached. The observer re-runs this once it
+    // lands, and on every size change after. It is re-homed when the list moves
+    // into the pop-out window's document.
+    if (this.todoFit?.list !== list || this.todoFit.win !== win) {
+      this.todoFit?.ro.disconnect();
+      const RO = (win as unknown as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
+      if (RO) {
+        const ro = new RO(() => this.fitWidgetTodos(list));
+        ro.observe(parent);
+        this.todoFit = { list, win, ro };
+      }
+    }
+    if (!list.closest('.focus-widget')) {
+      list.style.zoom = '';
+      list.style.width = '';
+      return;
+    }
+    const cs = win.getComputedStyle(parent);
+    const avail = parent.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    if (avail <= 0) return;
+    const z = Math.min(1, avail / WIDGET_TODO_W);
+    list.style.zoom = String(z);
+    // Width in the list's own (zoomed) units, so it lands at exactly `avail`.
+    list.style.width = `${avail / z}px`;
+  }
+
   private selClick(kind: 'imp' | 'todo', ids: string[], id: string, e: MouseEvent): boolean {
     const sel = kind === 'imp' ? this.importSel : this.todoSel;
     const multi = e.ctrlKey || e.metaKey || e.shiftKey;
@@ -1562,6 +1662,46 @@ export class FocusView {
    *  unlinked have no taskId, so nothing about them crosses over either way. */
   private linked(): boolean {
     return getPrefs().focus.linkTasks;
+  }
+
+  /**
+   * THE TASKS ROW, IN FOCUS (Gabe, 9/25: "make to-dos in this panel look exactly
+   * like tasks in the task panel... the priority strip, same functions"). This
+   * reverses 8/17's "no ↗ / info on focus todos": the description, the Schoology
+   * link, attachments, priority and the ⋯ menu all come across with the row.
+   *
+   * The row is drawn by an off-screen Tasks view (embedRow), so it is the same
+   * element with the same handlers, never a lookalike. Focus keeps the three things
+   * that mean something different here: the checkbox (ticks the to-do in place;
+   * the task follows through syncLinkedTasks), the ⋮⋮ grip (session order), and
+   * multi-select (this.todoSel, reported across so toolbox edits act on it).
+   *
+   * Null when there is no task to draw, which the caller answers with the Focus
+   * row: an unlinked to-do (Settings ▸ Focus ▸ Link off), where writing through to
+   * a task is exactly what the setting forbids, or a source task since deleted.
+   */
+  private taskRow(todo: FocusTodo, list: FocusTodo[], o: { handle?: HTMLElement; onCheck: () => void }): HTMLElement | null {
+    if (!this.linked() || !todo.taskId) return null;
+    const task = this.data.getTasks()[todo.taskId];
+    if (!task) return null;
+    if (!this.rowSource) {
+      this.rowSource = new TasksView(this.data, this.sample, { filter: () => false, empty: '' });
+      this.rowSource.mount(el('div'));
+      this.rowSource.afterRender = () => {
+        this.redrawTodos?.();
+        this.redrawSessionTodos?.();
+      };
+    }
+    const sel = list.filter((t) => this.todoSel.has(t.id) && t.taskId).map((t) => t.taskId!);
+    this.rowSource.setExternalSelection(sel);
+    const row = this.rowSource.embedRow(task, {
+      checked: todo.done,
+      onCheck: o.onCheck,
+      handle: o.handle,
+      selected: this.todoSel.has(todo.id),
+    });
+    row.classList.add('focus-task-row');
+    return row;
   }
 
   private addTypedTodo(list: FocusTodo[], raw: string): void {
@@ -2763,6 +2903,9 @@ export class FocusView {
     const todoList = el('div', { class: 'focus-overlay-todos' });
     this.drawOverlayTodos(todoList);
     this.redrawSessionTodos = () => this.drawOverlayTodos(todoList); // external edits refresh this list
+    // Scaled to the mini player once the panel is on the page (fitWidgetTodos);
+    // the observer it sets up handles every size change after that.
+    queueMicrotask(() => this.fitWidgetTodos(todoList));
 
     // Import-tasks dropdown (declared before the add row, which refreshes it).
     const importUI = this.buildImportUI(
@@ -3377,6 +3520,31 @@ export class FocusView {
     const buildRow = (todo: FocusTodo, draggable: boolean): HTMLElement => {
       const i = this.sessionTodos.indexOf(todo);
       visIds.push(todo.id);
+      // The Tasks row when there is a task behind this to-do (see taskRow).
+      const check = (): void => {
+        // Checking a SELECTED row checks the whole selection, to the clicked row's
+        // NEW state (same rule as below and as the Tasks tab's bulk actions).
+        const next = !todo.done;
+        const flipped = this.todoTargets(todo, this.sessionTodos).filter((m) => m.done !== next);
+        for (const m of flipped) m.done = next;
+        void this.syncLinkedTasks(flipped);
+        this.drawOverlayTodos(host);
+        this.persist();
+      };
+      const grip = draggable
+        ? el('span', { class: 'task-handle focus-todo-handle', text: '⋮⋮', title: 'Drag to reorder' })
+        : undefined;
+      const taskRow = this.taskRow(todo, this.sessionTodos, { handle: grip, onCheck: check });
+      if (taskRow) {
+        this.wireTodoSelect(taskRow, visIds, todo.id, () => this.drawOverlayTodos(host));
+        if (grip) {
+          this.makeTodoDraggable(taskRow, grip, i, todo.folderId || '', this.sessionTodos, () => {
+            this.drawOverlayTodos(host);
+            this.persist();
+          });
+        }
+        return taskRow;
+      }
       const row = el('div', {
         class: `focus-todo-item${todo.done ? ' done' : ''}${this.todoSel.has(todo.id) ? ' selected' : ''}`,
       });
@@ -4303,6 +4471,8 @@ export class FocusView {
     this.makeDraggable(w);
     this.host().append(w);
     this.restoreWidgetPos(w);
+    const todos = w.querySelector<HTMLElement>('.focus-overlay-todos');
+    if (todos) this.fitWidgetTodos(todos); // on the page now, so it can be measured
   }
 
   /** Move the widget into a Document-Picture-in-Picture window so it floats over
@@ -4406,6 +4576,9 @@ export class FocusView {
       scroller.appendChild(content); // adopts the live nodes — listeners keep working
       pip.document.body.appendChild(scroller);
       content.classList.add('in-pip');
+      // The task list now lives in THIS window: refit it and re-home its observer.
+      const pipTodos = content.querySelector<HTMLElement>('.focus-overlay-todos');
+      if (pipTodos) this.fitWidgetTodos(pipTodos);
       // The focus ring asks html[data-kbd] (see main.ts), and this is a DIFFERENT
       // document, so the main page's flag means nothing here. Same two listeners,
       // same rule: a ring when you tab inside the mini player, never when you click.

@@ -3,7 +3,8 @@
 // WHERE FINISHED WORK GOES. Checking a task off takes it out of the list, and until
 // 8/21 the next morning's first load deleted it outright — so a term's work simply
 // evaporated, and a task checked off by mistake was gone for good. This section is
-// the other half of that: every completed task, newest first, each with a Restore
+// the other half of that: every completed task that is still due (a finished task
+// is deleted once its due date passes, Gabe 9/25), newest first, each with a Restore
 // that puts it back on the list and a Delete that ends it for good, plus one
 // "Delete all" for when the student wants the slate clean.
 //
@@ -22,8 +23,8 @@
 // It reads the SAME task map every other screen reads (data.watchTasks), so a task
 // checked off in Tasks or in a focus session appears here immediately — no separate
 // store, nothing to keep in sync. `archived` (set at boot by
-// Data.archiveStaleCompleted) is not a filter here: this section shows everything
-// completed, whether it retired last month or thirty seconds ago.
+// Data.archiveStaleCompleted) is not a filter here: a task finished early and due
+// next week shows beside one finished thirty seconds ago.
 
 import { el } from '../util/dom';
 // The SAME undo toast the Tasks tab uses to check a task off: one toast slot
@@ -31,10 +32,10 @@ import { el } from '../util/dom';
 // act and get the same way out. NOTE what onExpire is and is not for: see the long
 // note on beginDelete.
 import { showUndoToast, UNDO_MS } from './complete';
-import type { Data } from '../db';
+import { isSpentCompleted, type Data } from '../db';
 import type { Task, TaskMap } from '../types';
 import { getCourseColor } from '../courses/registry';
-import { formatMetaDate, formatTimeOfDay, formatWallClock, formatDayHeading } from '../util/dates';
+import { formatMetaDate, formatTimeOfDay, formatWallClock, formatDayHeading, todayStr } from '../util/dates';
 import { languageName } from '../util/translate';
 import { confirmDanger } from '../ui/confirm';
 import { openPopup } from '../ui/popup';
@@ -101,12 +102,15 @@ export class CompletedSection {
     this.draw();
   }
 
-  /** Completed tasks, newest completion first. `completedAt` is the sort key; the
-   *  handful of tasks that predate it (or that a restore-then-recomplete left
-   *  blank) fall to the bottom rather than being dropped. */
+  /** Completed tasks that are still due, newest completion first (Gabe, 9/25).
+   *  Once a task's due date has passed it is deleted at the next boot (see
+   *  Data.archiveStaleCompleted), and hidden here from that moment on, so a
+   *  session left open past midnight agrees with a fresh load. `completedAt` is the
+   *  sort key; the handful of tasks that predate it fall to the bottom. */
   private entries(): Task[] {
+    const today = todayStr();
     return Object.values(this.map)
-      .filter((t) => t.completed && !this.pendingDelete.has(t.id))
+      .filter((t) => t.completed && !isSpentCompleted(t, today) && !this.pendingDelete.has(t.id))
       .sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
   }
 
