@@ -28,7 +28,6 @@ import './ui/focus.css';
 import './ui/dashboard.css';
 import './ui/settings.css';
 import './ui/notifylog.css';
-import './ui/archive.css';
 import './ui/bookmarks.css';
 import './ui/landing.css';
 import './ui/auth.css';
@@ -398,7 +397,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   suggestBtn.addEventListener('click', () => openSuggestionBox(controller.current()));
 
   // The 🗄 Task Archives icon that sat here came out on 9/23 (Gabe): finished work is
-  // now the "Completed" drawer at the bottom of the Tasks list (tasks/archiveView.ts).
+  // shown in place in the Tasks list, crossed out, until its due date passes (9/26).
 
   // No sign-out pill up here on purpose (per Gabe): the only way to sign out is
   // Settings → Sign out, behind its confirm dialog. One easy top-bar button made

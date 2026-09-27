@@ -17,7 +17,7 @@ import { todayStr, formatDate } from './util/dates';
 /**
  * A finished task whose time is up: its due day is over, or, with no due date to
  * wait for, the day it was finished is. These are deleted at the next boot and
- * hidden from the Completed drawer and the calendar until then (Gabe, 9/25).
+ * hidden from the lists and the calendar until then (Gabe, 9/25).
  */
 export function isSpentCompleted(t: Task, today = todayStr()): boolean {
   if (!t.completed) return false;
@@ -177,8 +177,8 @@ export class Data {
    * The boot-time sweep of finished work. Run once at boot, before anything renders.
    *
    * DELETED ONCE THEIR DUE DATE HAS PASSED (Gabe, 9/25). A finished task is kept
-   * only while it is still due, today or later, so the Completed drawer holds the
-   * work you got ahead on, not every task you have ever finished. This is the third
+   * only while it is still due, today or later, so what shows crossed out in the
+   * list is the work you got ahead on, not every task you have ever finished. This is the third
    * rule here: finished tasks were deleted the next morning until 8/21, then kept
    * forever (flagged `archived`) until 9/25.
    *

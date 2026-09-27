@@ -1355,92 +1355,17 @@ export class FocusView {
     return { blocks, loose };
   }
 
-  /** Is the "Finished" block open? Collapsed by default and NOT persisted: the
-   *  point is that finished work gets out of the way, and a fresh look at the list
-   *  should start clean rather than remembering that you once peeked. */
-  private finishedOpen = new Set<string>();
-
-  /**
-   * Append checked todos under a collapsed "Finished (N)" header instead of listing
-   * them all inline (Gabe, 8/15). They used to pile up at the bottom of the list,
-   * which is honest but noisy once a few are done.
-   *
-   * Deliberately NOT a setting: a switch asks the student to predict whether they
-   * will be annoyed later, and the answer is always yes. It appears from the FIRST
-   * checked todo, because one finished row is already a row you cannot dismiss.
-   */
+  /** Append checked to-dos beneath the open ones, in place (9/26). This was a
+   *  collapsed "Completed" drawer from 8/15 to 9/26. */
   private appendFinished(
     host: HTMLElement,
     done: FocusTodo[],
-    buildRow: (t: FocusTodo, drag: boolean) => HTMLElement,
-    _redraw: () => void,
-    /** WHICH drawer this is: a folder's id, or '' for the loose list. The open
-     *  state is per drawer, and that is a fix, not a refinement (Gabe, 8/20). It
-     *  used to be ONE boolean shared by every Finished block on screen, so opening
-     *  the loose drawer also marked the one inside a folder as open: that block
-     *  repainted its own arrow and nobody repainted the others, which is why a
-     *  closed drawer sat there showing a down arrow. Two drawers, two answers. */
-    key = ''
+    buildRow: (t: FocusTodo, drag: boolean) => HTMLElement
   ): void {
-    if (!done.length) return;
-    // OFF means no drawer at all: the finished rows just sit at the bottom of the
-    // list, which is where they already were, minus the lid (focus.groupFinished).
-    if (!getPrefs().focus.groupFinished) {
-      for (const t of done) host.append(buildRow(t, false));
-      return;
-    }
-    const isOpen = this.finishedOpen.has(key);
-    const arrow = el('span', { class: 'focus-folder-arrow' + (isOpen ? ' open' : ''), text: '▶' });
-    const head = el('button', { class: 'focus-finished-head' + (isOpen ? ' open' : '') });
-    head.append(
-      // "Completed", matching the Tasks tab's toast: one word for one idea, wherever
-      // a check-off is described (Gabe, 8/21). The class name stays `finished` — it
-      // is a selector, not a sentence, and renaming it would touch CSS for nothing.
-      el('span', { class: 'focus-finished-label', text: 'Completed' }),
-      el('span', { class: 'count-badge focus-finished-count', text: String(done.length) }),
-      arrow
-    );
-    host.append(head);
-
-    // Done rows are never draggable — the finished zone is not a list you order.
-    const rows = done.map((t) => buildRow(t, false));
-    if (isOpen) for (const r of rows) host.append(r);
-
-    // THE TOGGLE DOES NOT REDRAW THE LIST (Gabe, 8/15).
-    //
-    // It used to call the parent's full redraw, which rebuilds every row with
-    // replaceChildren — and that is what threw the student back to the top of the
-    // list on a click. Two attempts to catch the scroll reset and undo it afterwards
-    // both left it jumping, which is the tell: the honest fix is not to restore the
-    // position after wrecking it, it is not to wreck it.
-    //
-    // Opening a drawer is a LOCAL change, so it makes a local change — the finished
-    // rows are inserted straight after the header, or taken back out. Every other
-    // row on screen keeps its identity, so there is nothing for the browser to
-    // re-anchor and nowhere for the scroll to go.
-    head.addEventListener('click', () => {
-      const open = !this.finishedOpen.has(key);
-      if (open) this.finishedOpen.add(key);
-      else this.finishedOpen.delete(key);
-      head.classList.toggle('open', open);
-      arrow.classList.toggle('open', open);
-      if (open) {
-        let after: ChildNode = head;
-        for (const r of rows) {
-          after.after(r);
-          after = r;
-        }
-        // …AND BRING THEM INTO VIEW. Finished sits at the BOTTOM of the list, so
-        // rows opened there land below the fold and the drawer looks like it did
-        // nothing (Gabe, 8/16). A folder never shows this because it opens
-        // mid-list. `block: 'nearest'` is the whole trick: it scrolls the minimum
-        // needed and does nothing at all when the rows are already visible, so
-        // this can reveal without ever becoming another jump.
-        rows[rows.length - 1]?.scrollIntoView({ block: 'nearest' });
-      } else {
-        for (const r of rows) r.remove();
-      }
-    });
+    // NO "COMPLETED" DRAWER ANY MORE (Gabe, 9/26): finished to-dos sit beneath the
+    // open ones, ticked and crossed out, the same rule as the Tasks tab. They are
+    // never draggable: the finished rows are not a list you order.
+    for (const t of done) host.append(buildRow(t, false));
   }
 
   /** Which folders are EXPANDED in the Import panel. Separate from
@@ -3677,7 +3602,7 @@ export class FocusView {
         // work stays on top (same rule as the loose list below). Unchecked ones
         // are ⋮⋮-draggable WITHIN the folder, exactly as in the Tasks tab.
         for (const m of members.filter((t) => !t.done)) body.append(buildRow(m, true));
-        this.appendFinished(body, members.filter((t) => t.done), buildRow, () => this.drawOverlayTodos(host), folder.id);
+        this.appendFinished(body, members.filter((t) => t.done), buildRow);
         box.append(body);
       }
       host.append(box);
@@ -3690,7 +3615,7 @@ export class FocusView {
     // This holds however it got checked — here, or over in the Tasks tab
     // (onTasksUpdate mirrors that check-off onto the todo, and the sink follows).
     for (const todo of loose.filter((t) => !t.done)) host.append(buildRow(todo, true));
-    this.appendFinished(host, loose.filter((t) => t.done), buildRow, () => this.drawOverlayTodos(host));
+    this.appendFinished(host, loose.filter((t) => t.done), buildRow);
     scrolled();
   }
 

@@ -71,7 +71,7 @@ const sceneDashboard: Scene = {
 
 /** Scene 2 — sidebar → Tasks; the imported variety scrolls past (the Hebrew row
  *  visibly translated); Dan shift-selects the two due-today rows and checks
- *  them off in one click (real bulk complete: shared glide, one undo toast). */
+ *  them off in one click (real bulk complete: both rows tick and sink, crossed out). */
 const sceneTasksBulk: Scene = {
   name: 'tasks-bulk-checkoff',
   async run({ shell, cur }) {
@@ -109,10 +109,9 @@ const sceneTasksBulk: Scene = {
     await cur.wait(320);
 
     await cur.click(await cur.fresh(() => row(shell, 'dan_read').querySelector<HTMLElement>('.task-cb'), 'read checkbox'));
-    await cur.wait(1500); // the shared glide-out + undo toast
+    await cur.wait(1100); // both rows tick and sink, crossed out, below today's open work: let that read
 
-    // The bulk write lands on the app's own clock (820ms after the glide
-    // starts), so the outcome is polled, not read once.
+    // Polled, not read once: the write settles on the data layer's own clock.
     await cur.waitUntil(
       async () => {
         const all = await shell.data.getTasksAll();

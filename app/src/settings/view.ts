@@ -649,8 +649,8 @@ export class SettingsView {
 
     sec.append(
       this.prefRow(
-        'Due Today & Tomorrow',
-        "Show the list of what's due today and tomorrow.",
+        'Current Tasks',
+        "Show what's still left to do that's due today or tomorrow.",
         this.prefSwitch(p.dash.tasksCard, (on) => {
           p.dash.tasksCard = on;
           save();
@@ -1171,16 +1171,6 @@ export class SettingsView {
       sw!.disabled = true;
       sw!.title = 'Locked while a focus session is running. That is the point of it.';
     }
-    sec.append(
-      this.prefRow(
-        'Group completed tasks',
-        'On, completed session tasks collect under a "Completed" drawer so the work left stays on top. Off, they simply sit at the bottom of the list where you can see them.',
-        this.prefSwitch(p.focus.groupFinished, (on) => {
-          p.focus.groupFinished = on;
-          save();
-        })
-      )
-    );
     sec.append(
       this.prefRow(
         'Link Focus and Tasks',

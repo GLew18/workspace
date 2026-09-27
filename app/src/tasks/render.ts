@@ -42,8 +42,8 @@ import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
 import { parseDateTime, isPastDate, PAST_DATE_MSG, isPastTime, PAST_TIME_MSG } from './parser';
 import { shiftSelect } from '../util/select';
 import { detectAttachmentType, normalizeUrl, openAttachment, openAll, openAllInWindow } from './attachments';
-import { playCompleteChime, showUndoToast } from './complete';
-import { CompletedSection } from './archiveView';
+import { playCompleteChime } from './complete';
+import { confirmDanger } from '../ui/confirm';
 import { selectionBar, type SelBar } from '../ui/selbar';
 import {
   getTaskFolders,
@@ -112,8 +112,13 @@ interface RowAction {
 const FOLDER_BTN_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 
+/** Trash can for the ⋯ menu's Delete (checked-off tasks only). Line art in
+ *  currentColor, like the folder glyph beside it in that menu. */
+const TRASH_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 11v6M14 11v6"/></svg>';
+
 // External-link / open-in-Schoology glyph. Exported for the Task Archives, whose
-// rows carry the same ↗ back to the assignment (tasks/archiveView.ts).
+// rows carried the same ↗ back to the assignment.
 export const SCHOOLOGY_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>';
 
@@ -212,6 +217,8 @@ export class TasksView {
   // task; folderBornAt stops the "empty folder" sweep from eating a folder in
   // the moment between its creation and its first member's save.
   private recentlyDissolved = new Map<string, { folder: TaskFolder; at: number }>();
+  /** Has folderMaintenance run yet? Its first sweep dissolves silently (see there). */
+  private folderSwept = false;
   private folderBornAt = new Map<string, number>();
   /** When the exit animation currently playing (a row gliding out, a folder block
    *  folding shut) is due to finish. A re-render before then would swap the moving
@@ -250,18 +257,12 @@ export class TasksView {
   // File-Explorer rule: using the TOOLBOX on any selected row applies that action
   // to every selected task at once.
   private selectedIds = new Set<string>();
-  /** The "Completed" drawer under the list (tasks/archiveView.ts). Built once and
-   *  re-appended after every repaint, so its open state and rows survive the list
-   *  being rebuilt around it. List mode only. */
-  private doneBox: HTMLElement | null = null;
   /** Set only while embedRow is building a hosted row (see there). */
   private embedding: { checked: boolean; onCheck: () => void; handle?: HTMLElement; selected: boolean } | null = null;
   /** A host's selection, as task ids (setExternalSelection). */
   private extSel: Set<string> | null = null;
   /** Each owned row's ⋮⋮ grip, built with its drag wiring and placed by renderTask. */
   private rowHandle = new WeakMap<HTMLElement, HTMLElement>();
-  /** The drawer itself: the calendar borrows its row for a finished chip's popover. */
-  private done: CompletedSection | null = null;
 
   // EXCERPT MODE (Gabe, 8/10): the Dashboard's "Today's Tasks" card mounts THIS
   // view filtered to one day, so its rows are the real Tasks-tab rows, not a
@@ -357,11 +358,6 @@ export class TasksView {
     });
     const quickAdd = buildQuickAdd((parsed) => this.addTask(parsed), () => this.folders);
     this.listEl = el('div', { class: 'task-list' });
-    if (!this.doneBox) {
-      this.doneBox = el('div');
-      this.done = new CompletedSection(this.data, this.sample?.host);
-      this.done.mount(this.doneBox);
-    }
     panel.append(this.bannerHost, header, quickAdd, this.listEl);
     this.watchQuickAdd(quickAdd);
 
@@ -411,10 +407,12 @@ export class TasksView {
   private onUpdate(u: TasksUpdate): void {
     this.map = u.tasks;
     this.recentLangsCache = null; // the tally below is counted FROM the map
-    // Selection follows reality: drop ids that vanished or got completed.
+    // Selection follows reality: drop ids that vanished. NOT ones that got
+    // completed any more (9/26): a finished row stays on screen, crossed out, and a
+    // selection of them is how several get un-ticked at once.
     for (const id of [...this.selectedIds]) {
       const t = this.map[id];
-      if (!t || t.completed) this.selectedIds.delete(id);
+      if (!t || isSpentCompleted(t)) this.selectedIds.delete(id);
     }
     this.bannerHost.replaceChildren();
     if (u.suspectedWipe) this.showWipeBanner();
@@ -609,7 +607,6 @@ export class TasksView {
       );
       for (const t of g.tasks) this.listEl.append(this.renderTask(t, g));
     }
-    if (this.doneBox) this.listEl.append(this.doneBox);
   }
 
   /** Excerpt render: one flat, sorted list of the matching tasks, folders and
@@ -945,10 +942,8 @@ export class TasksView {
     closeB.addEventListener('click', () => this.closeTaskPop());
     const rowHost = el('div', { class: 'cal-pop-row' });
     rowHost.append(this.calPopRow(task));
-    // Completing from the popover: let the row's glide play, then the popover goes.
-    rowHost.addEventListener('click', (ev) => {
-      if ((ev.target as Element).closest('.task-cb')) window.setTimeout(() => this.closeTaskPop(), 900);
-    });
+    // Ticking from the popover keeps it open: the row redraws crossed out in place
+    // (refreshCalPop), the same as in the list, and can be un-ticked right there.
     pop.append(closeB, rowHost);
     this.placeCalPop(pop, e);
     this.calPop = { taskId: task.id, pop };
@@ -1026,12 +1021,9 @@ export class TasksView {
   }
 
   private calPopRow(task: Task): HTMLElement {
-    // A FINISHED chip opens the Completed drawer's row, not the live one (Gabe,
-    // 9/24): Restore and Delete are what you do with finished work, and the live
-    // row's checkbox and editors are not. Pressing either closes the popover so the
-    // toast or the delete confirm has the screen to itself.
-    if (task.completed && this.done) return this.done.soloRow(task, () => this.closeTaskPop());
-    // Synthesize the row's due-date group (groupTasks only returns active tasks).
+    // A FINISHED chip opens its ordinary row, ticked and crossed out (9/26): the
+    // Completed section and its Restore / Delete row are gone, and un-ticking IS
+    // restoring. Delete is in the row's ⋯ menu, as for any task.
     const g =
       groupTasks({ [task.id]: task })[0] ??
       ({ key: 'none', header: '', tone: 'none', tasks: [task] } as TaskGroup);
@@ -1279,18 +1271,21 @@ export class TasksView {
           const scoped = this.calByDate((t) => t.folderId === f.id);
           this.calDraw(prefs, scoped, body, f.id);
         } else {
+          // Every member, finished ones included: they show crossed out below each
+          // day's open tasks, exactly as in the main list (groupTasks). The head
+          // still counts only the open ones.
           const subMap: TaskMap = {};
-          for (const t of openMembers) subMap[t.id] = t; // the same set the head counts
+          for (const t of members) if (!this.completingIds.has(t.id)) subMap[t.id] = t;
           const subgroups = groupTasks(subMap);
+          if (members.length && !openMembers.length) {
+            body.append(el('div', { class: 'task-folder-empty', text: 'Everything in here is done 🎉' }));
+          }
           for (const g of subgroups) {
             // Scope the group key to this folder so ⋮⋮ reordering never crosses
             // between a folder's list and the main list on the same date.
             const scoped: TaskGroup = { ...g, key: `${f.id}:${g.key}` };
             body.append(el('div', { class: `task-group-header tone-${g.tone}`, text: g.header }));
             for (const t of g.tasks) body.append(this.renderTask(t, scoped));
-          }
-          if (!subgroups.length) {
-            body.append(el('div', { class: 'task-folder-empty', text: 'Everything in here is done 🎉' }));
           }
         }
         row.append(body);
@@ -1914,12 +1909,14 @@ export class TasksView {
   /** Folder upkeep, run on every task update — two jobs, in this order:
    *  1. RESURRECT: an Undo brought a member back after its folder dissolved →
    *     re-add the folder (30s window), so instant dissolution never orphans.
-   *  2. DISSOLVE, instantly: all members completed → the folder goes in the SAME
-   *     render pass as the final check-off (per Gabe: simultaneous, no delay).
-   *     Folders left with no members also dissolve — except brand-new ones
-   *     (< 5s old), which are mid-creation awaiting their first member's save. */
+   *  2. DISSOLVE: a folder left with no members goes — except brand-new ones
+   *     (< 5s old), which are mid-creation awaiting their first member's save.
+   *     (Until 9/26 a folder also went the moment its last task was ticked; now
+   *     its finished tasks stay visible in it until they are deleted.) */
   private async folderMaintenance(): Promise<void> {
     const now = Date.now();
+    const firstSweep = !this.folderSwept;
+    this.folderSwept = true;
 
     // 1. resurrection (undo support)
     let changed = false;
@@ -1946,7 +1943,9 @@ export class TasksView {
       // seconds after creating it) dissolves on the very next sweep.
       if (members.length === 0) return now - (this.folderBornAt.get(f.id) ?? 0) > 5000;
       this.folderBornAt.delete(f.id);
-      return members.every((t) => t.completed);
+      // All-finished is NOT a reason any more (9/26): finished tasks still show,
+      // crossed out, inside the folder. It goes once they are deleted and it is empty.
+      return false;
     });
     if (gone.length) {
       this.folders = this.folders.filter((f) => !gone.includes(f));
@@ -1961,12 +1960,13 @@ export class TasksView {
           this.beginExitAnimation(); // the deadline IS the "are we animating?" flag now
         }
       }
-      // Only the EMPTIED case gets its own notice. All-members-done dissolves
-      // always ride a completion undo toast (single check-offs announce the
-      // folder inside that toast; bulk completes have "N tasks completed") —
-      // a second toast on top was redundant (per Gabe).
+      // Said only by the Tasks list itself (the dashboard cards and Focus's row
+      // source run this same sweep), and never on its FIRST sweep: a folder found
+      // empty then was emptied by the boot-time deletion of finished tasks, not by
+      // anything the student just did, and a notice about it on opening the app
+      // would read as something going wrong (9/26).
       const last = gone[gone.length - 1];
-      if (folderMembers(last, this.map).length === 0) {
+      if (!this.excerpt && !firstSweep && folderMembers(last, this.map).length === 0) {
         this.notice(`📁 “${last.name}” empty, folder dissolved`);
       }
       changed = true;
@@ -1999,8 +1999,7 @@ export class TasksView {
    * real task.
    *
    * Three things are the host's, because they mean something different there:
-   * the checkbox (Focus ticks a to-do in place and keeps it under its own
-   * Completed drawer), the ⋮⋮ grip (Focus orders its session, not a due-date
+   * the checkbox (Focus ticks the to-do, which the task then follows), the ⋮⋮ grip (Focus orders its session, not a due-date
    * group) and multi-select (Focus keeps its own). The host passes the check
    * handler and its own grip, and reports its selection through
    * setExternalSelection so a bulk edit from the toolbox reaches the same rows the
@@ -2062,7 +2061,7 @@ export class TasksView {
     if (emb) {
       const onCheck = emb.onCheck;
       cb.addEventListener('click', () => onCheck());
-    } else cb.addEventListener('click', () => this.complete(task, item));
+    } else cb.addEventListener('click', () => this.toggleDone(task));
     item.append(cb);
 
     return this.renderTaskBody(task, item);
@@ -2099,9 +2098,19 @@ export class TasksView {
     // WITHIN the same due-date group — the group is determined by the due date, so
     // dragging can never silently reschedule a task. The handle arms `draggable`
     // so text selection and button clicks elsewhere on the row stay untouched.
-    const handle = el('span', { class: 'task-handle', text: '⋮⋮', title: 'Drag to reorder' });
-    handle.addEventListener('pointerdown', () => item.setAttribute('draggable', 'true'));
-    handle.addEventListener('pointerup', () => item.removeAttribute('draggable'));
+    // A FINISHED row does not move (9/26): it sits below its day's open tasks by
+    // rule, so dragging it anywhere would be undone by the next repaint. Its grip is
+    // kept as an inert, invisible placeholder so the row still lines up with the
+    // open rows above it, and it is not a drop target either (dragover below).
+    const handle = el('span', {
+      class: `task-handle${task.completed ? ' inert' : ''}`,
+      text: '⋮⋮',
+      title: task.completed ? '' : 'Drag to reorder',
+    });
+    if (!task.completed) {
+      handle.addEventListener('pointerdown', () => item.setAttribute('draggable', 'true'));
+      handle.addEventListener('pointerup', () => item.removeAttribute('draggable'));
+    }
     item.addEventListener('dragstart', (e) => {
       this.dragFrom = { id: task.id, group: group.key };
       item.classList.add('dragging');
@@ -2114,7 +2123,7 @@ export class TasksView {
       this.dragFrom = null;
     });
     item.addEventListener('dragover', (e) => {
-      if (this.dragFrom?.group !== group.key) return; // cross-group: not a drop target
+      if (this.dragFrom?.group !== group.key || task.completed) return; // cross-group or finished: not a drop target
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
     });
@@ -2486,175 +2495,35 @@ export class TasksView {
     return el('div', { class: 'popup-bulk-note', text: `Applies to all ${n} selected tasks.` });
   }
 
-  /** Complete every selected task in ONE write, with ONE undo for the batch —
-   *  and the SAME exit animation the single check-off plays, on every row at
-   *  once. This mirrors `complete()` step for step (animate → dissolve emptied
-   *  folders → commit at 820ms → one undo toast); the only difference is that it
-   *  does all of it to N rows instead of one. */
-  private bulkComplete(): void {
-    const tasks = [...this.selectedIds]
-      .map((id) => this.map[id])
-      .filter((t): t is Task => !!t && !t.completed);
-    this.clearSelection();
-    if (!tasks.length) return;
-    playCompleteChime(); // ONE chime for the batch, not N overlapping ones
-    const ids = new Set(tasks.map((t) => t.id));
-
-    // Every selected row glides out together. The rows are found by id rather
-    // than passed in, because only the clicked row's element was ever handed to
-    // us. A row with no element (calendar popovers, or one scrolled out of a
-    // virtualized list) simply completes without the animation.
-    this.beginExitAnimation(); // hold every render until the glide + collapse lands
-    for (const id of ids) {
-      const row = this.listEl.querySelector<HTMLElement>(`.task-item[data-task-id="${id}"]`);
-      if (row) this.animateRowOut(row);
-      this.completingIds.add(id); // renders hide it while the write is pending
-    }
-
-    // FOLDERS: a folder finished off by this batch dissolves in the same breath,
-    // exactly as in the single path. "Finished off" means every member is either
-    // already completed or is in this batch, AND at least one member IS in this
-    // batch (otherwise an untouched folder would be swept up).
-    const dissolved: string[] = [];
-    for (const folder of [...this.folders]) {
-      const members = folderMembers(folder, this.map);
-      if (!members.length || !members.some((m) => ids.has(m.id))) continue;
-      if (!members.every((m) => m.completed || ids.has(m.id))) continue;
-      const block = this.listEl.querySelector(`.task-folder[data-folder-id="${folder.id}"]`);
-      if (block instanceof HTMLElement) collapseFolderBlock(block);
-      this.folders = this.folders.filter((f) => f !== folder);
-      this.openFolders.delete(folder.id);
-      this.recentlyDissolved.set(folder.id, { folder, at: Date.now() });
-      dissolved.push(folder.name);
-    }
-    if (dissolved.length) void saveTaskFolders(this.data, this.folders);
-
-    // Commit after the full glide + collapse (~0.8s), same as the single path, so
-    // the re-render that drops the rows can't interrupt the animation mid-flight.
-    const now = new Date().toISOString();
-    const commitTimer = window.setTimeout(() => {
-      void Promise.resolve(
-        this.data.putTasksBulk(tasks.map((t) => ({ ...t, completed: true, completedAt: now })))
-      ).finally(() => {
-        for (const id of ids) this.completingIds.delete(id);
-      });
-    }, 820);
-
-    // COMPLETED, not "Deleted" (Gabe, 8/21). Checking the box is how a task leaves
-    // the list, but calling that a deletion described the mechanism instead of what
-    // the student did, and it reads like data loss for what is in fact the good
-    // outcome. The row is retained either way (the daily lightbulb counts it).
-    // Same vocabulary as the single-task toast, and dissolved folders ride along in
-    // the one toast rather than firing their own.
-    const base = `${tasks.length} task${tasks.length === 1 ? '' : 's'} completed`;
-    const message = dissolved.length
-      ? `${base} · 📁 ${dissolved.map((n) => `“${n}”`).join(', ')} dissolved`
-      : base;
-    showUndoToast(
-      message,
-      () => {
-        clearTimeout(commitTimer); // a fast undo must not be clobbered by the pending commit
-        for (const id of ids) this.completingIds.delete(id);
-        this.animatingUntil = 0; // Undo cancels the exit — repaint at once, don't wait it out
-        // The un-complete write triggers folderMaintenance, whose resurrection
-        // path restores every just-dissolved folder along with its tasks.
-        void this.data.putTasksBulk(tasks.map((t) => ({ ...t, completed: false, completedAt: null })));
-      },
-      () => {},
-      this.sample?.host // landing preview → keep the toast inside the device frame
-    );
-  }
-
   // --- completion ---------------------------------------------------------
 
-  /** The check-off exit: tick the box, glide the row aside while it fades, then
-   *  collapse its height so the rows below ease up into the gap. The height is
-   *  PINNED to its measured value first, because a collapse animation needs a
-   *  from-value and `auto` isn't one. Shared by the single and bulk paths so a
-   *  batch never looks different from one row. */
-  private animateRowOut(row: HTMLElement): void {
-    row.querySelector('.task-cb')?.classList.add('checked');
-    const h = row.offsetHeight;
-    row.style.height = `${h}px`;
-    void row.offsetHeight; // force reflow so the collapse animates from full height
-    row.classList.add('completing');
-    requestAnimationFrame(() => {
-      row.style.height = '0px';
-      row.style.marginTop = '0px';
-      row.style.marginBottom = '0px';
-      row.style.paddingTop = '0px';
-      row.style.paddingBottom = '0px';
-    });
-  }
-
-  private complete(task: Task, animEl: HTMLElement): void {
-    if (task.completed) return;
-    // Checking a SELECTED row completes the whole selection (one write, one undo).
-    if (this.selectedIds.has(task.id) && this.selectedIds.size > 1) {
-      this.bulkComplete();
-      return;
-    }
-    playCompleteChime();
-
-    this.animateRowOut(animEl);
-    this.beginExitAnimation(); // hold every render until the glide + collapse lands
-    this.completingIds.add(task.id); // renders hide it while the write is pending
-
-    // FOLDER, SIMULTANEOUS DISSOLVE: if this check-off finishes its folder, the
-    // folder goes in the same breath — its block collapses alongside the row and
-    // the record is removed NOW (per Gabe: zero seconds between task and folder).
-    // The write below still lands at 820ms; the completingIds guard keeps the
-    // resurrection check from "rescuing" the folder in that window, while a real
-    // Undo (which un-completes with a write) restores folder AND task together.
-    const folder = this.liveFolder(task);
-    let dissolvedFolderName: string | null = null; // folds into the undo toast below (ONE toast, not two)
-    if (folder && folderMembers(folder, this.map).every((m) => m.completed || m.id === task.id)) {
-      // List mode: the row lives inside its folder block. Calendar mode: the row
-      // is a floating popover, so find the block by the folder's id instead.
-      const block =
-        [...this.listEl.querySelectorAll('.task-folder')].find((n) => n.contains(animEl)) ??
-        this.listEl.querySelector(`.task-folder[data-folder-id="${folder.id}"]`);
-      if (block instanceof HTMLElement) collapseFolderBlock(block);
-      this.folders = this.folders.filter((f) => f !== folder);
-      this.openFolders.delete(folder.id);
-      this.recentlyDissolved.set(folder.id, { folder, at: Date.now() });
-      void saveTaskFolders(this.data, this.folders);
-      dissolvedFolderName = folder.name; // announced inside the undo toast, not as a second one
-    }
-
-    // Commit completion only after the full slide-out + collapse (~0.8s) so the
-    // re-render that drops the row never interrupts the animation mid-glide.
-    const completeTimer = window.setTimeout(() => {
-      void Promise.resolve(
-        this.save({ ...task, completed: true, completedAt: new Date().toISOString() })
-      ).finally(() => this.completingIds.delete(task.id));
-    }, 820);
-
-    const name = task.title.length > 38 ? task.title.slice(0, 38).trimEnd() + '…' : task.title;
-    // ONE toast for the whole event (per Gabe): task gone — and, when this
-    // check-off finished its folder, the folder's fate rides along. Undo
-    // restores both (the un-complete write resurrects the folder).
-    const message = dissolvedFolderName
-      ? `“${name}” task completed · 📁 “${dissolvedFolderName}” dissolved`
-      : `“${name}” task completed`;
-    // Completed tasks are retained (hidden) so the daily lightbulb can measure
-    // progress; they're purged automatically once the day rolls over. Undo
-    // simply un-completes; letting the toast expire keeps it done. Cancelling the
-    // pending commit first prevents a fast undo (within the ~0.8s window) from
-    // being clobbered by the timer that would otherwise still mark it done.
-    showUndoToast(
-      message,
-      () => {
-        clearTimeout(completeTimer);
-        this.completingIds.delete(task.id);
-        this.animatingUntil = 0; // Undo cancels the exit — repaint at once, don't wait it out
-        this.save({ ...task, completed: false, completedAt: null });
-        // The un-complete write triggers folderMaintenance, whose resurrection
-        // path restores a just-dissolved folder along with this task.
-      },
-      () => {},
-      this.sample?.host // landing preview → keep the toast inside the device frame
+  /**
+   * TICK OR UN-TICK, IN PLACE (Gabe, 9/26). Ticking used to glide the row out of the
+   * list into a "Completed" section; now the task is written as done at once and
+   * redraws where it lives, crossed out, at the bottom of its day's group
+   * (groupTasks). Un-ticking a crossed-out row puts it back the same way, and IS
+   * the undo, so there is no toast either way. On a selected row it acts on
+   * the whole selection, all moving to the clicked row's new state, in ONE write.
+   *
+   * Folders no longer dissolve when their last task is ticked: the finished tasks
+   * are still showing inside them. A folder goes when it is EMPTY, which is when
+   * those tasks are deleted after their due dates (folderMaintenance).
+   */
+  private toggleDone(task: Task): void {
+    const done = !task.completed;
+    const bulk = this.selectedIds.has(task.id) && this.selectedIds.size > 1;
+    const targets = (bulk ? [...this.selectedIds].map((id) => this.map[id]) : [task]).filter(
+      (t): t is Task => !!t && !!t.completed !== done
     );
+    if (bulk) this.clearSelection();
+    if (!targets.length) return;
+    const now = new Date().toISOString();
+    const next = targets.map((t) => ({ ...t, completed: done, completedAt: done ? now : null }));
+    if (next.length === 1) void this.save(next[0]);
+    else void this.data.putTasksBulk(next);
+    // NO TOAST (Gabe, 9/26): the row stays, crossed out, and un-ticking it is the
+    // undo, so a timed "completed · Undo" toast offered nothing the row doesn't.
+    if (done) playCompleteChime(); // ONE chime for a batch, not N overlapping ones
   }
 
   // --- inline edits (double-click) ----------------------------------------
@@ -3178,7 +3047,45 @@ export class TasksView {
       },
     });
 
+    // DELETE — ONLY ON A CHECKED-OFF TASK, AND ONLY IN THIS MENU (Gabe, 9/26). An
+    // open task leaves the list by being done, not by being deleted, so the option
+    // does not exist until it is ticked. No row button (and so no 📌): a delete one
+    // tap from ↗ Schoology is the mis-press DUPLICATE was moved off the row for, and
+    // this one cannot be taken back.
+    if (task.completed) {
+      out.push({
+        id: 'delete',
+        label: 'Delete',
+        iconHtml: TRASH_SVG,
+        iconColor: 'var(--red)',
+        auto: false,
+        run: () => this.deleteFinished(task),
+      });
+    }
+
     return out;
+  }
+
+  /** Delete checked-off tasks for good, after a red confirm. On a selected row it
+   *  takes every CHECKED-OFF task in the selection and leaves the open ones alone,
+   *  which the question says in its own count. ONE write for the batch. */
+  private deleteFinished(task: Task): void {
+    const bulk = this.selectedIds.has(task.id) && this.selectedIds.size > 1;
+    const doomed = (bulk ? [...this.selectedIds].map((id) => this.map[id]) : [task]).filter(
+      (t): t is Task => !!t && !!t.completed
+    );
+    if (!doomed.length) return;
+    const name = task.title.length > 38 ? task.title.slice(0, 38).trimEnd() + '…' : task.title;
+    confirmDanger(
+      doomed.length === 1
+        ? `Delete “${doomed[0] === task ? name : doomed[0].title}”? You can’t undo this.`
+        : `Delete ${doomed.length} checked-off tasks? You can’t undo this.`,
+      () => {
+        if (bulk) this.clearSelection();
+        void this.data.removeTasksBulk(doomed.map((t) => t.id));
+      },
+      'Delete'
+    );
   }
 
   /** Persist a pinned-actions change: live cache first (so every open view
@@ -3362,7 +3269,7 @@ export class TasksView {
       ],
       [
         'Checked something off by mistake?',
-        'Nothing you finish is thrown away. Open Completed at the bottom of your task list, find it, and press Restore to put it back.',
+        'It stays right where it was, crossed out, until its due date passes. Click its checkbox again to put it back.',
       ],
     ];
     this.popup('Task Pro Tips:', (body) => {

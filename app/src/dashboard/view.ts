@@ -163,7 +163,7 @@ export class DashboardView {
     // The boxes always exist (update()/refreshSchedule() write into them); the
     // Settings toggles decide whether they're APPENDED — an off card renders into
     // a detached node, harmlessly.
-    // OVERDUE sits ABOVE Due Today & Tomorrow (Gabe, 8/11) and shouts in red: it is the
+    // OVERDUE sits ABOVE Current Tasks (Gabe, 8/11) and shouts in red: it is the
     // one thing on this screen that is already going wrong. It rides the same
     // Settings toggle as the tasks card, since it is the same family of card.
     this.overdueBox = el('div', { class: 'dash-overdue' });
@@ -196,7 +196,9 @@ export class DashboardView {
   }
 
   /**
-   * "Due Today & Tomorrow" (renamed from "Today's Tasks", Gabe 9/22) is a REAL
+   * "Current Tasks" (Gabe 9/26; "Today's Tasks" until 9/22, then "Due Today &
+   * Tomorrow", which read as a promise to list everything due, finished work
+   * included, while the card shows only what is still open) is a REAL
    * EXCERPT of the Tasks tab (Gabe, 8/10), not a lookalike: it mounts a
    * TasksView in excerpt mode filtered to today and tomorrow, so the rows are
    * byte-for-byte the Tasks-tab rows (course chip, due time, badges,
@@ -209,7 +211,7 @@ export class DashboardView {
    * renderDue only builds the card's header the first time.
    */
   /**
-   * The OVERDUE card: the same real-excerpt trick as Due Today & Tomorrow, filtered to
+   * The OVERDUE card: the same real-excerpt trick as Current Tasks, filtered to
    * anything dated before today and still open, in red.
    *
    * It HIDES ITSELF when nothing is overdue (the count comes from the excerpt
@@ -247,7 +249,7 @@ export class DashboardView {
     // themselves are real task rows now, so clicking one edits, not navigates),
     // and .dash-due-link strips the button chrome so it reads as the heading.
     const header = el('div', { class: 'dash-schedule-header' });
-    const link = el('button', { class: 'dash-due-link', text: 'Due Today & Tomorrow' });
+    const link = el('button', { class: 'dash-due-link', text: 'Current Tasks' });
     link.addEventListener('click', () => this.goToTab('tasks'));
     header.append(link);
     this.dueBox.append(header);

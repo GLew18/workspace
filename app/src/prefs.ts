@@ -16,7 +16,8 @@ import { DEFAULT_TRANSLATE_FROM } from './util/languages';
 // the asking happens inside the translation row rather than behind a glyph of its own
 // (Gabe, 8/21). It is deliberately absent from PINNABLE, so it cannot be promoted onto
 // the row by a pin either.
-export type PinnedAction = 'translate' | 'readings' | 'attach' | 'folder' | 'duplicate';
+// 'delete' is a ⋯-menu action like 'readings', never pinnable (see PINNABLE).
+export type PinnedAction = 'translate' | 'readings' | 'attach' | 'folder' | 'duplicate' | 'delete';
 export const PINNABLE: PinnedAction[] = ['translate', 'attach', 'folder', 'duplicate'];
 
 export interface AppPrefs {
@@ -37,7 +38,7 @@ export interface AppPrefs {
     quote: boolean;
     /** Which quote flavor rotates (library in src/quotes.ts; 'mixed' blends all). */
     quoteStyle: 'stoic' | 'modern' | 'literary' | 'science' | 'mixed';
-    /** Show the Due Today & Tomorrow card. */
+    /** Show the Current Tasks card (open work due today or tomorrow). */
     tasksCard: boolean;
     /** Show the weekly Schedule card. */
     scheduleCard: boolean;
@@ -126,16 +127,8 @@ export interface AppPrefs {
      * makes the commitment stricter. See FocusView's accountabilityOn.
      */
     timeAccountability: boolean;
-    /**
-     * Do finished session todos collect under a "Finished (N)" drawer, or just sit
-     * at the bottom of the list? ON by default, which is the behaviour that has
-     * always shipped: done work gets out of the way.
-     *
-     * Off for anyone who would rather see everything at once (Gabe, 8/20). A
-     * session list is short, and one student's clutter is another's evidence that
-     * the hour went somewhere.
-     */
-    groupFinished: boolean;
+    // `groupFinished` (a "Completed" drawer in Focus, on or off) was removed 9/26:
+    // finished to-dos always sit beneath the open ones now. A saved value is ignored.
     /** Are Focus todos and Tasks ONE list, or two independent systems?
      *  ON (default): adding a todo in Focus creates the real task, edits and
      *  check-offs travel both ways, and the two tabs are one system.
@@ -167,7 +160,7 @@ export const DEFAULT_PREFS: AppPrefs = {
   importPrefs: { assignments: true, assessments: true, quizzes: true, windowDays: 30 },
   tasks: { allowEdit: true, pinnedActions: [], translateFrom: [...DEFAULT_TRANSLATE_FROM] },
   sound: { system: false }, // check-off chime OFF by default, see the note on the type
-  focus: { showSeconds: true, keepAwake: true, autoStartMusic: true, resumeAfterReload: false, timeAccountability: false, groupFinished: true, linkTasks: true },
+  focus: { showSeconds: true, keepAwake: true, autoStartMusic: true, resumeAfterReload: false, timeAccountability: false, linkTasks: true },
   calendar: {
     defaultScreen: 'list',
     weekStart: 0,
@@ -235,7 +228,6 @@ export function normalizePrefs(raw: unknown): AppPrefs {
       autoStartMusic: bool(r.focus?.autoStartMusic, d.focus.autoStartMusic),
       resumeAfterReload: bool(r.focus?.resumeAfterReload, d.focus.resumeAfterReload),
       timeAccountability: bool(r.focus?.timeAccountability, d.focus.timeAccountability),
-      groupFinished: bool(r.focus?.groupFinished, d.focus.groupFinished),
       linkTasks: bool(r.focus?.linkTasks, d.focus.linkTasks),
     },
     calendar: {

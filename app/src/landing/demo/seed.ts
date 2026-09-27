@@ -108,7 +108,7 @@ function danTasks(): Record<string, Task> {
     // --- Variety #2: the SPANISH row (Gabe, 9/1/26 — "show multiple
     // translations"): title AND description in Spanish, both translated. Scene 6
     // opens this description first. Due in TWO days, not tomorrow (9/23): the
-    // dashboard card became "Due Today & Tomorrow" on 9/22, and a tomorrow row
+    // dashboard card began showing tomorrow too on 9/22 (now "Current Tasks"), and a tomorrow row
     // made it a fourth line that pushed the dashboard past the frame's fold.
     {
       ...base,

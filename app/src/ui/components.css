@@ -1092,6 +1092,11 @@ body.app-mode .app-below {
 .task-item.completed .task-title {
   text-decoration: line-through;
 }
+/* A finished row's grip: kept for alignment, never shown or pressed (9/26). */
+.task-handle.inert {
+  visibility: hidden;
+  pointer-events: none;
+}
 /* English translation shown beneath a foreign-language title. */
 .task-translation {
   display: flex;
@@ -2023,8 +2028,8 @@ html[data-kbd] :focus-visible {
   word-break: break-word;
 }
 /* A finished task, grayed on its day (Gabe, 9/24): the whole chip recedes, the
-   course dot with it, and the title is struck the way the Completed drawer strikes
-   it. Still a button: a click opens that drawer's row, with Restore and Delete. */
+   course dot with it, and the title is struck the way the list strikes a finished
+   row. Still a button: a click opens that row, ticked, to un-tick in place. */
 .cal-chip.done {
   background: transparent;
   opacity: 0.45;

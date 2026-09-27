@@ -1,10 +1,11 @@
-// Cobalt completion feedback: chime + 5s undo toast (spec §6.6).
+// Cobalt completion feedback: the chime.
+//
+// The 5-second "task completed · Undo" toast that used to live here was removed
+// 9/26 (Gabe): a checked-off task now stays on screen, crossed out, and clicking
+// its checkbox again IS the undo, so a timed toast offering the same thing was noise.
 
 import { getPrefs } from '../prefs';
 import { isDemoSilent } from '../util/silence';
-// The shared one-toast-at-a-time slot, and the exit duration that goes with it —
-// both kinds of toast leave at exactly the same speed because they share it.
-import { claimToastSlot, releaseToastSlot, TOAST_EXIT_MS } from '../util/dom';
 
 let audioCtx: AudioContext | null = null;
 
@@ -39,85 +40,5 @@ export function playCompleteChime(): void {
     }
   } catch {
     /* audio not available — silent */
-  }
-}
-
-let currentToast: { el: HTMLElement; timer: number } | null = null;
-
-/**
- * HOW LONG AN UNDO IS OFFERED FOR.
- *
- * Exported because a caller whose action is DESTRUCTIVE cannot put that action in
- * `onExpire` and must run it on a timer of its own (see beginDelete in
- * tasks/archiveView.ts). Its timer has to outlast the button, so it needs the same
- * number rather than a guess at it.
- */
-export const UNDO_MS = 5000;
-
-/** Show a single undo toast. Calls onExpire after UNDO_MS unless undone first.
- *  `host` scopes it to a container (e.g. the landing preview's device frame); it
- *  defaults to document.body (the normal full-page, viewport-pinned toast). */
-export function showUndoToast(
-  message: string,
-  onUndo: () => void,
-  onExpire: () => void,
-  host?: HTMLElement
-): void {
-  dismissToast();
-
-  const toast = document.createElement('div');
-  toast.className = 'toast';
-  const span = document.createElement('span');
-  span.textContent = message;
-  const btn = document.createElement('button');
-  btn.textContent = 'Undo';
-  toast.append(span, btn);
-  (host ?? document.body).append(toast);
-
-  // Slide up: force a layout pass so the hidden start state is painted first —
-  // adding .show in the same frame as append would skip the transition entirely.
-  void toast.offsetHeight;
-  toast.classList.add('show');
-
-  // Slide back down, then remove once the transition has played out.
-  const leave = () => {
-    toast.classList.remove('show');
-    window.setTimeout(() => toast.remove(), TOAST_EXIT_MS);
-  };
-
-  const expireTimer = window.setTimeout(() => {
-    currentToast = null;
-    releaseToastSlot(toast);
-    leave();
-    onExpire();
-  }, UNDO_MS);
-
-  btn.addEventListener('click', () => {
-    clearTimeout(expireTimer);
-    currentToast = null;
-    releaseToastSlot(toast);
-    leave();
-    onUndo(); // undo applies immediately; the toast glides out on its own
-  });
-
-  currentToast = { el: toast, timer: expireTimer };
-  // ONE toast on screen app-wide (Gabe, 8/19). This one is built here rather than
-  // by showToast — it has a button and an expiry callback — so it has to claim the
-  // shared slot explicitly, or a plain toast fired a moment later would simply
-  // land on top of it. Being cut short expires it exactly as the timer would,
-  // which matters: onExpire is what actually completes the task.
-  claimToastSlot(toast, () => {
-    clearTimeout(expireTimer);
-    if (currentToast?.el === toast) currentToast = null;
-    onExpire();
-  });
-}
-
-/** Dismiss any visible toast WITHOUT firing its expire callback. */
-export function dismissToast(): void {
-  if (currentToast) {
-    clearTimeout(currentToast.timer);
-    currentToast.el.remove();
-    currentToast = null;
   }
 }

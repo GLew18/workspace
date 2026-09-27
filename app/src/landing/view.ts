@@ -429,7 +429,7 @@ function heroSection(opts: LandingOpts): HTMLElement {
     rise(
       el('h1', { class: 'lp-hero-title' }, [
         'Your ',
-        el('span', { class: 'lp-hero-accent', text: 'Schoology' }),
+        el('span', { class: 'lp-hero-accent', text: 'Schoology assignments' }),
         ', revolutionized',
       ]),
       1

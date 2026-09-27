@@ -34,8 +34,8 @@ export interface Route {
 export function parsePath(path: string = location.pathname): Route | null {
   const parts = path.split('/').filter(Boolean).map((s) => decodeURIComponent(s).toLowerCase());
   const [tab, section] = parts;
-  // The Task Archives screen became the Tasks list's Completed drawer (9/23), so a
-  // bookmarked /archive lands on the tab where that drawer now lives.
+  // The Task Archives screen is gone (9/23): finished tasks show in the Tasks list
+  // itself, so a bookmarked /archive lands there.
   if (tab === 'archive') return { tab: 'tasks' };
   if (!tab || !TABS.has(tab)) return null;
   if (tab === 'settings' && section && (SETTINGS_SECTIONS as readonly string[]).includes(section)) {

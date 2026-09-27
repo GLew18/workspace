@@ -5,6 +5,7 @@ import { genId } from '../util/ids';
 import { todayStr, dayDiff, formatGroupHeader } from '../util/dates';
 import { PRIORITY_WEIGHT } from './priorities';
 import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
+import { isSpentCompleted } from '../db';
 
 /**
  * IS THIS TASK AN ASSESSMENT — a test/quiz/exam EVENT rather than work to hand in
@@ -260,10 +261,21 @@ export interface TaskGroup {
   tasks: Task[];
 }
 
-/** Group active (incomplete) tasks by due day, with overdue → today → future → no-date. */
+/**
+ * Group tasks by due day, with overdue → today → future → no-date.
+ *
+ * FINISHED TASKS STAY IN THEIR DAY (Gabe, 9/26). A checked-off task is not moved
+ * into a separate "Completed" section any more: it keeps its place in its own day's
+ * group, crossed out, BELOW that day's open tasks, so the top of every day is still
+ * what is left to do. It stays until its due date has passed, when it is deleted
+ * (isSpentCompleted); a spent one is left out here even before that happens.
+ */
 export function groupTasks(map: TaskMap): TaskGroup[] {
-  const active = sortTasks(Object.values(map).filter((t) => !t.completed));
   const today = todayStr();
+  const live = Object.values(map).filter((t) => !isSpentCompleted(t, today));
+  // Open first, finished after, each in the list's usual order. Walked in this
+  // order below, so every day's group gets its open tasks, then its finished ones.
+  const active = [...sortTasks(live.filter((t) => !t.completed)), ...sortTasks(live.filter((t) => t.completed))];
 
   const byDate = new Map<string, Task[]>();
   const noDate: Task[] = [];
@@ -283,7 +295,7 @@ export function groupTasks(map: TaskMap): TaskGroup[] {
       // A past day is only OVERDUE if it still holds undone WORK. Assessments are
       // events — a test whose day has passed happened, it isn't late (Gabe, 9/1/26)
       // — so a past day holding nothing but tests keeps a plain date header.
-      const owesWork = byDate.get(date)!.some((t) => !isAssessmentTask(t));
+      const owesWork = byDate.get(date)!.some((t) => !t.completed && !isAssessmentTask(t));
       header = owesWork ? `${formatGroupHeader(date)} (overdue)` : formatGroupHeader(date);
       tone = owesWork ? 'red' : 'none';
     } else if (dayDiff(today, date) === 1) {
