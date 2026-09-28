@@ -225,7 +225,15 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: 780px;
+  /* 860px, up from 780 (Gabe, 9/27: "increase the width... so your Schoology
+     assignments fits on one line"). At the title's 60px desktop ceiling, "Your
+     Schoology assignments" alone measures ~822px — 780 was forcing a 3-line
+     wrap ("Your Schoology" / "assignments," / "revolutionized"). 860 clears
+     that with room to spare while staying well short of the ~1260px the full
+     line would need to also pull "revolutionized" up onto it, so the headline
+     reliably lands on its intended two lines. The tagline is unaffected: it
+     carries its own 52ch cap below. */
+  max-width: 860px;
   /* GABE'S PLACEMENT KNOB: nudges the whole hero text block (title, tagline,
      buttons, byline, chips) as one unit. Adjust the px to taste; negative
      moves it up. Horizontal too if wanted: translate(Xpx, Ypx).

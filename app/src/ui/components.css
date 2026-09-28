@@ -3007,7 +3007,15 @@ body:has(.selbar:not([hidden])) .toast {
    suggest.ts openSuggestionBox) so it looks identical to every other Cobalt
    form dialog: same box, same title, same Cancel/Send footer. Only the inside
    (the prose, the textarea, the anonymity note) stays bespoke to this box. */
-.sg-popup {
+/* .bm-modal.sg-popup, NOT plain .sg-popup (Gabe, 9/27: "it used to be a lot
+   wider... it looked a lot less cramped"). Both rules are `max-width` at equal
+   specificity, and bookmarks.css (.bm-modal: 420px) loads AFTER this file in
+   main.ts — so on an equal footing the later file wins and .bm-modal's 420px
+   silently overrode the 560px below ever since the 9/8/26 snapshot moved this
+   box onto the shared bm-modal skin. Two classes outrank one regardless of load
+   order, which is what actually restores the width instead of just reordering
+   imports and risking the same regression somewhere else next time. */
+.bm-modal.sg-popup {
   /* Wider than bm-modal's 420px default: this one holds a paragraph of prose
      and a big writing area, and a narrow column makes both feel cramped. */
   max-width: 560px;

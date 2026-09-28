@@ -1054,6 +1054,7 @@ export class FocusView {
       const visIds: string[] = [];
       const buildRow = (t: FocusTodo): HTMLElement => {
         visIds.push(t.id);
+        const i = this.todos.indexOf(t);
         // Takes it out of THIS session only (see the ✕ on the Focus row below).
         const removeFromSession = (): void => {
           for (const m of this.todoTargets(t, this.todos)) {
@@ -1064,11 +1065,19 @@ export class FocusView {
           drawTodos();
           importUI?.refresh();
         };
-        // The Tasks row when there is a task behind this to-do (see taskRow). No
-        // grip, as on the Focus row: nothing in the draft is ordered yet. The ✕
-        // stays, after the row's own actions, because leaving a session is a Focus
-        // idea the Tasks row has no control for.
+        // ⋮⋮-DRAGGABLE (Gabe, 9/27, reversing 8/11's "nothing here is ordered
+        // yet"): this IS the order a session starts with now — startSession()
+        // hands this.todos straight to this.sessionTodos — so whatever the
+        // student drags here is what they see first once the timer starts.
+        // Same grip, same drag machinery as the running session's list
+        // (makeTodoDraggable), just pointed at this.todos instead.
+        //
+        // The Tasks row when there is a task behind this to-do (see taskRow). The
+        // ✕ stays, after the row's own actions, because leaving a session is a
+        // Focus idea the Tasks row has no control for.
+        const grip = el('span', { class: 'task-handle focus-todo-handle', text: '⋮⋮', title: 'Drag to reorder' });
         const taskRow = this.taskRow(t, this.todos, {
+          handle: grip,
           onCheck: () => {
             const next = !t.done;
             const flipped = this.todoTargets(t, this.todos).filter((m) => m.done !== next);
@@ -1076,9 +1085,11 @@ export class FocusView {
             void this.syncLinkedTasks(flipped);
             drawTodos();
           },
+          redraw: drawTodos,
         });
         if (taskRow) {
           this.wireTodoSelect(taskRow, visIds, t.id, drawTodos);
+          this.makeTodoDraggable(taskRow, grip, i, t.folderId || '', this.todos, drawTodos);
           const del = el('button', { class: 'focus-todo-del', text: '✕', title: 'Remove from this session' });
           del.addEventListener('click', removeFromSession);
           taskRow.append(del);
@@ -1099,9 +1110,9 @@ export class FocusView {
           if (!(e.ctrlKey || e.metaKey || e.shiftKey) && tgt.closest('button, a, input, textarea, .inline-edit-block, .focus-todo-handle')) return;
           if (this.selClick('todo', visIds, t.id, e)) drawTodos();
         });
-        // NO drag grip on this list (Gabe, 8/11, reversing the same day's
-        // addition): the running session's list keeps one, the setup draft does
-        // not. Nothing here is ordered yet, so a grip was clutter.
+        const handle = el('span', { class: 'focus-todo-handle', text: '⋮⋮', title: 'Drag to reorder' });
+        this.makeTodoDraggable(row, handle, i, t.folderId || '', this.todos, drawTodos);
+        row.append(handle);
         // Title dblclick to edit; course/date are one-click and bulk-aware.
         row.append(this.buildTodoLabel(t, drawTodos, this.todos));
         // Takes it out of THIS session only. Every todo now has a real task behind
@@ -1605,7 +1616,11 @@ export class FocusView {
    * row: an unlinked to-do (Settings ▸ Focus ▸ Link off), where writing through to
    * a task is exactly what the setting forbids, or a source task since deleted.
    */
-  private taskRow(todo: FocusTodo, list: FocusTodo[], o: { handle?: HTMLElement; onCheck: () => void }): HTMLElement | null {
+  private taskRow(
+    todo: FocusTodo,
+    list: FocusTodo[],
+    o: { handle?: HTMLElement; onCheck: () => void; redraw: () => void }
+  ): HTMLElement | null {
     if (!this.linked() || !todo.taskId) return null;
     const task = this.data.getTasks()[todo.taskId];
     if (!task) return null;
@@ -1624,9 +1639,49 @@ export class FocusView {
       onCheck: o.onCheck,
       handle: o.handle,
       selected: this.todoSel.has(todo.id),
+      // "I'm trying to duplicate a task, it's not working" (Gabe, 9/27). It WAS
+      // writing a real new task — Duplicate just had nowhere on THIS screen to
+      // put it, since Focus only draws tasks it already has a to-do for. Landing
+      // the copy straight into the same list, right where the ⋯ menu was opened
+      // from, is what makes the button visibly do something here.
+      onDuplicated: (copies) => {
+        for (const t of copies) {
+          if (t.folderId) this.openFocusFolders.add(t.folderId);
+          list.push(this.makeFocusTodo(t));
+        }
+        o.redraw();
+      },
     });
     row.classList.add('focus-task-row');
     return row;
+  }
+
+  /** A Task, in the shape a session/checklist holds it — every field a row
+   *  displays carried across (course, date, Schoology link, translation state),
+   *  so an imported or duplicated task looks no different from one typed here.
+   *  Shared by the Import panel (buildImportUI's addTaskToTodos) and duplicating
+   *  a task from inside Focus (taskRow's onDuplicated, above). */
+  private makeFocusTodo(t: Task): FocusTodo {
+    return {
+      id: 'ft_' + genId(),
+      text: t.title,
+      done: false,
+      taskId: t.id, // ← the link back to the source task
+      course: t.course || '',
+      dueDate: t.dueDate || '',
+      dueTime: t.dueTime || '',
+      schoologyUrl: t.schoologyUrl || '',
+      translatedTitle: t.translatedTitle || '',
+      // CARRIED, not dropped (Gabe, 8/20). Hiding a translation with the globe is
+      // the student telling us it was wrong. It used to stay behind on the task,
+      // so importing the same task into a session showed the rejected line right
+      // back at them. Overriding an explicit correction is the worst thing this
+      // feature can do, so the dismissal travels with the text it dismisses.
+      translationHidden: t.translationHidden || false,
+      translationChosen: t.translationChosen || false,
+      translatedLang: t.translatedLang || '',
+      ...(t.folderId ? { folderId: t.folderId } : {}),
+    };
   }
 
   private addTypedTodo(list: FocusTodo[], raw: string): void {
@@ -1923,26 +1978,21 @@ export class FocusView {
     // somewhere visible instead of inside a collapsed folder.
     const addTaskToTodos = (t: Task) => {
       if (t.folderId) this.openFocusFolders.add(t.folderId);
-      getTodos().push({
-        id: 'ft_' + genId(),
-        text: t.title,
-        done: false,
-        taskId: t.id, // ← the link back to the source task
-        course: t.course || '',
-        dueDate: t.dueDate || '',
-        dueTime: t.dueTime || '',
-        schoologyUrl: t.schoologyUrl || '',
-        translatedTitle: t.translatedTitle || '',
-        // CARRIED, not dropped (Gabe, 8/20). Hiding a translation with the globe is
-        // the student telling us it was wrong. It used to stay behind on the task,
-        // so importing the same task into a session showed the rejected line right
-        // back at them. Overriding an explicit correction is the worst thing this
-        // feature can do, so the dismissal travels with the text it dismisses.
-        translationHidden: t.translationHidden || false,
-        translationChosen: t.translationChosen || false,
-        translatedLang: t.translatedLang || '',
-        ...(t.folderId ? { folderId: t.folderId } : {}),
-      });
+      getTodos().push(this.makeFocusTodo(t));
+    };
+
+    // STOPS THE SCREEN FROM JUMPING ON IMPORT (Gabe, 9/27). On the setup screen
+    // the assembled checklist sits ABOVE this panel and grows every time a task
+    // lands in it, which pushes the whole panel — buttons and all — down the
+    // page out from under the student's cursor. importBtn sits right where the
+    // checklist ends and this panel begins, so it shifts by exactly the amount
+    // the checklist grew; holding its on-screen position steady by nudging the
+    // shell's scroll offset the same amount cancels that shift out.
+    const withStableScroll = (mutate: () => void): void => {
+      const root = importBtn.closest('.app-below, .lp-demoshell-body .app') as HTMLElement | null;
+      const before = root ? importBtn.getBoundingClientRect().top : 0;
+      mutate();
+      if (root) root.scrollTop += importBtn.getBoundingClientRect().top - before;
     };
 
     // Visible order of the individual-task rows, for Shift+click ranges. Rebuilt
@@ -2058,21 +2108,37 @@ export class FocusView {
       // The + on a SELECTED row imports the whole selection in one click.
       const bulkN = selected && this.importSel.size > 1 ? this.importSel.size : 0;
       const add = el('button', {
-        class: `focus-import-add${already ? ' done' : ''}`,
-        text: already ? '✓' : '+',
-        title: already ? 'Imported' : bulkN ? `Import all ${bulkN} selected` : 'Import',
+        class: `focus-import-add${already ? ' imported' : ''}`,
+        text: already ? '−' : '+',
+        title: already ? 'Remove from this session' : bulkN ? `Import all ${bulkN} selected` : 'Import',
       });
-      if (!already) {
+      if (already) {
+        // A RED MINUS, not a static checkmark (Gabe, 9/27) — a real undo for the
+        // "didn't mean to import that" case, not just a status mark. Pulls every
+        // session todo this task landed as back out again.
         add.addEventListener('click', () => {
-          const targets = bulkN
-            ? this.importTasks.filter((x) => this.importSel.has(x.id))
-            : [t];
-          const imported = importedTaskIds();
-          for (const x of targets) if (!imported.has(x.id)) addTaskToTodos(x);
-          this.importSel.clear();
-          this.syncSelBars(); // the import that just consumed the selection also ends it
-          redraw();
-          drawImportBody();
+          withStableScroll(() => {
+            const todos = getTodos();
+            for (let i = todos.length - 1; i >= 0; i--) {
+              if (todos[i].taskId === t.id) todos.splice(i, 1);
+            }
+            redraw();
+            drawImportBody();
+          });
+        });
+      } else {
+        add.addEventListener('click', () => {
+          withStableScroll(() => {
+            const targets = bulkN
+              ? this.importTasks.filter((x) => this.importSel.has(x.id))
+              : [t];
+            const imported = importedTaskIds();
+            for (const x of targets) if (!imported.has(x.id)) addTaskToTodos(x);
+            this.importSel.clear();
+            this.syncSelBars(); // the import that just consumed the selection also ends it
+            redraw();
+            drawImportBody();
+          });
         });
       }
       row.append(add);
@@ -2105,6 +2171,36 @@ export class FocusView {
       // the "Import has no bulk selection" bug (Gabe, 8/31).
       const visIds: string[] = [];
 
+      // BULK IMPORT — group not-yet-imported tasks by course, one row each.
+      // Listed BEFORE Folders (Gabe, 9/27): course is the grouping every task
+      // already carries, so it's the more common bulk move; folders are opt-in.
+      const byCourse = new Map<string, Task[]>();
+      for (const t of filtered) {
+        if (!t.course || imported.has(t.id)) continue;
+        (byCourse.get(t.course) ?? byCourse.set(t.course, []).get(t.course)!).push(t);
+      }
+      if (byCourse.size) {
+        importBody.append(el('div', { class: 'focus-import-section gold', text: 'Bulk import' }));
+        for (const [course, list] of [...byCourse.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+          const row = el('div', { class: 'focus-import-bulk' });
+          const label = el('div', { class: 'focus-import-bulk-label' });
+          const cspan = el('span', { class: 'focus-import-course', text: course });
+          cspan.style.color = getCourseColor(course);
+          label.append(el('span', { text: 'All ' }), cspan, el('span', { text: ' tasks' }));
+          row.append(label, el('span', { class: 'focus-import-count', text: String(list.length) }));
+          const add = el('button', { class: 'focus-import-add', text: '+', title: `Import all ${course} tasks` });
+          add.addEventListener('click', () => {
+            withStableScroll(() => {
+              for (const t of list) addTaskToTodos(t);
+              redraw();
+              drawImportBody();
+            });
+          });
+          row.append(add);
+          importBody.append(row);
+        }
+      }
+
       // FOLDERS — bring a whole folder's un-imported tasks into the session.
       {
         const folderRows = this.taskFolders
@@ -2133,11 +2229,13 @@ export class FocusView {
             row.append(label, arrow, el('span', { class: 'focus-import-count', text: String(members.length) }));
             const add = el('button', { class: 'focus-import-add', text: '+', title: `Import the ${tf.name} folder` });
             add.addEventListener('click', () => {
-              // Nothing folder-specific to do here any more: every member already
-              // carries this folder's id, and addTaskToTodos honors it.
-              for (const t of members) addTaskToTodos(t);
-              redraw();
-              drawImportBody();
+              withStableScroll(() => {
+                // Nothing folder-specific to do here any more: every member already
+                // carries this folder's id, and addTaskToTodos honors it.
+                for (const t of members) addTaskToTodos(t);
+                redraw();
+                drawImportBody();
+              });
             });
             row.append(add);
             importBody.append(row);
@@ -2162,32 +2260,6 @@ export class FocusView {
               }
             }
           }
-        }
-      }
-
-      // BULK IMPORT — group not-yet-imported tasks by course, one row each.
-      const byCourse = new Map<string, Task[]>();
-      for (const t of filtered) {
-        if (!t.course || imported.has(t.id)) continue;
-        (byCourse.get(t.course) ?? byCourse.set(t.course, []).get(t.course)!).push(t);
-      }
-      if (byCourse.size) {
-        importBody.append(el('div', { class: 'focus-import-section gold', text: 'Bulk import' }));
-        for (const [course, list] of [...byCourse.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-          const row = el('div', { class: 'focus-import-bulk' });
-          const label = el('div', { class: 'focus-import-bulk-label' });
-          const cspan = el('span', { class: 'focus-import-course', text: course });
-          cspan.style.color = getCourseColor(course);
-          label.append(el('span', { text: 'All ' }), cspan, el('span', { text: ' tasks' }));
-          row.append(label, el('span', { class: 'focus-import-count', text: String(list.length) }));
-          const add = el('button', { class: 'focus-import-add', text: '+', title: `Import all ${course} tasks` });
-          add.addEventListener('click', () => {
-            for (const t of list) addTaskToTodos(t);
-            redraw();
-            drawImportBody();
-          });
-          row.append(add);
-          importBody.append(row);
         }
       }
 
@@ -2362,6 +2434,34 @@ export class FocusView {
       changed = true;
     }
     return changed;
+  }
+
+  /** Drop any todo whose linked task is GONE. DELETION TRAVELS BOTH WAYS (Gabe,
+   *  9/27: "if a task is checked off, either in tasks or focus, and then deleted
+   *  in one of them, it should be deleted in both of them") — the same promise
+   *  DONE already makes, and for the same reason: a checked-off task can only be
+   *  deleted from the "…" menu (Gabe, 9/26), so this is really the second half of
+   *  that rule finishing what it started. EXEMPT from linked() like DONE is,
+   *  never gated on it: a task that no longer exists is not a customization
+   *  choice, on either side. Without this, taskRow() quietly returning null for
+   *  a missing task downgraded the row to a static, stale, un-removable line
+   *  instead of the row actually going away.
+   *
+   *  Called from onTasksUpdate, which reaches every deletion regardless of which
+   *  screen triggered it — Tasks' own delete and Focus's hosted "…" → Delete
+   *  both end in the same data.removeTasksBulk write, so one prune covers both
+   *  directions. Returns whether anything was actually removed, so callers can
+   *  skip a pointless redraw + write. */
+  private pruneDeletedTasks(list: FocusTodo[], tasks: TaskMap): boolean {
+    let removed = false;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const todo = list[i];
+      if (!todo.taskId || tasks[todo.taskId]) continue;
+      list.splice(i, 1);
+      this.todoSel.delete(todo.id); // no dangling selection over a row that's gone
+      removed = true;
+    }
+    return removed;
   }
 
   /** Which genre a library track id belongs to (ids are "<genreId>-NN"). */
@@ -3459,7 +3559,14 @@ export class FocusView {
       const grip = draggable
         ? el('span', { class: 'task-handle focus-todo-handle', text: '⋮⋮', title: 'Drag to reorder' })
         : undefined;
-      const taskRow = this.taskRow(todo, this.sessionTodos, { handle: grip, onCheck: check });
+      const taskRow = this.taskRow(todo, this.sessionTodos, {
+        handle: grip,
+        onCheck: check,
+        redraw: () => {
+          this.drawOverlayTodos(host);
+          this.persist();
+        },
+      });
       if (taskRow) {
         this.wireTodoSelect(taskRow, visIds, todo.id, () => this.drawOverlayTodos(host));
         if (grip) {
@@ -3935,7 +4042,8 @@ export class FocusView {
    *  snapshot and any linked session todos' title/course/folder/DONE state in step.
    *  Completion travels both ways now (per Gabe): checked in either place means
    *  checked in both, and the Focus row sinks to the bottom exactly as if it had
-   *  been checked here. */
+   *  been checked here. DELETION travels both ways too (Gabe, 9/27): a task
+   *  deleted anywhere drops its row here, whichever screen it was showing on. */
   private onTasksUpdate(tasks: TaskMap): void {
     // The import snapshot ALWAYS follows the Tasks tab: that panel is the Tasks
     // side of the app, and importing stays available whether or not the two
@@ -3947,6 +4055,13 @@ export class FocusView {
       this.redrawTodos?.();
       this.redrawSessionTodos?.();
     });
+    // GONE IS GONE, checked FIRST and on BOTH lists, same as DONE below — a
+    // deleted task is not something the linked() setting has an opinion on, so
+    // this runs whether or not the rest of this function is about to bail out
+    // of syncing anything else (see pruneDeletedTasks).
+    const draftPruned = this.pruneDeletedTasks(this.todos, tasks);
+    const sessionPruned = this.pruneDeletedTasks(this.sessionTodos, tasks);
+    const pruned = draftPruned || sessionPruned;
     // UNLINKED: title, course, date and folder stop here — copying those onto the
     // Focus todos is exactly the connection the setting turns off. DONE is the one
     // exception (see linked()) and is mirrored first: a task checked off in Tasks
@@ -3957,7 +4072,7 @@ export class FocusView {
       // would skip mirroring the second list whenever the first one changed.
       const draftMoved = this.mirrorTaskDone(this.todos, tasks);
       const sessionMoved = this.mirrorTaskDone(this.sessionTodos, tasks);
-      const doneChanged = draftMoved || sessionMoved;
+      const doneChanged = draftMoved || sessionMoved || pruned;
       this.refreshImportBody?.();
       if (doneChanged) {
         this.redrawTodos?.();
@@ -3979,7 +4094,7 @@ export class FocusView {
         }
       }
     }
-    let changed = false;
+    let changed = pruned;
     // Keep BOTH the setup draft and the active session's linked todos in step with the
     // Tasks tab (the two lists are otherwise independent).
     const sync = (list: FocusTodo[]) => {

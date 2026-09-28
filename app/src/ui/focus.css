@@ -565,13 +565,15 @@
   border-color: var(--accent);
   background: rgba(125, 180, 255, 0.08);
 }
-.focus-import-add.done {
-  color: var(--green);
-  border-color: rgba(39, 174, 96, 0.4);
-  cursor: default;
+/* Imported already — a red minus, not a static checkmark (Gabe, 9/27). It's a
+   real undo, not just a status mark: one click pulls that task back out of the
+   session's checklist, for the "didn't mean to import that" case. */
+.focus-import-add.imported {
+  color: var(--red);
+  border-color: rgba(239, 68, 68, 0.4);
 }
-.focus-import-add.done:hover {
-  background: none;
+.focus-import-add.imported:hover {
+  background: var(--red-tint);
 }
 .focus-import-empty {
   padding: 18px 13px;
@@ -1449,6 +1451,23 @@
   --focus-red: #e04545;
   --focus-red-rgb: 224, 69, 69;
 }
+
+/* THE TASKS TOOLBOX, DURING A SESSION (Gabe, 9/27). A to-do row in the session
+   panel is a real, hosted Tasks row (see FocusView.taskRow), so its priority
+   arrow, ⋯ menu and every popup they open (folder, attachments, description) are
+   the SAME popups the Tasks tab uses — built for a screen where nothing else on
+   top of the page outranks them (.popup-backdrop: var(--z-popup), 1100; the ⋯
+   menu's .row-menu-back: 60). The session takeover sits at 2000, so during a
+   live session those popups were still opening, just behind it — every toolbox
+   button LOOKED dead. Raised to the session's own modal tier (same one
+   .focus-modal-back uses, just above) only while the takeover or its minimized
+   widget is actually on screen, so nothing about the Tasks tab itself changes.
+*/
+body:has(.focus-overlay, .focus-widget) .popup-backdrop,
+body:has(.focus-overlay, .focus-widget) .row-menu-back {
+  z-index: var(--z-focus-modal);
+}
+
 .focus-modal {
   width: 100%;
   max-width: 300px;

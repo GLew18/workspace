@@ -258,7 +258,13 @@ export class TasksView {
   // to every selected task at once.
   private selectedIds = new Set<string>();
   /** Set only while embedRow is building a hosted row (see there). */
-  private embedding: { checked: boolean; onCheck: () => void; handle?: HTMLElement; selected: boolean } | null = null;
+  private embedding: {
+    checked: boolean;
+    onCheck: () => void;
+    handle?: HTMLElement;
+    selected: boolean;
+    onDuplicated?: (copies: Task[]) => void;
+  } | null = null;
   /** A host's selection, as task ids (setExternalSelection). */
   private extSel: Set<string> | null = null;
   /** Each owned row's ⋮⋮ grip, built with its drag wiring and placed by renderTask. */
@@ -2007,7 +2013,17 @@ export class TasksView {
    */
   embedRow(
     task: Task,
-    o: { checked: boolean; onCheck: () => void; handle?: HTMLElement; selected: boolean }
+    o: {
+      checked: boolean;
+      onCheck: () => void;
+      handle?: HTMLElement;
+      selected: boolean;
+      /** Fires after Duplicate actually writes its copy/copies (Gabe, 9/27):
+       *  without a host listening for this, a duplicate made from inside
+       *  Focus landed nowhere Focus itself was showing, which read as the
+       *  button doing nothing. */
+      onDuplicated?: (copies: Task[]) => void;
+    }
   ): HTMLElement {
     const g =
       groupTasks({ [task.id]: task })[0] ??
@@ -2064,7 +2080,7 @@ export class TasksView {
     } else cb.addEventListener('click', () => this.toggleDone(task));
     item.append(cb);
 
-    return this.renderTaskBody(task, item);
+    return this.renderTaskBody(task, item, emb?.onDuplicated);
   }
 
   /** The grip, drag-to-reorder and multi-select wiring of a row this tab owns. A
@@ -2147,8 +2163,10 @@ export class TasksView {
   }
 
   /** Everything after the checkbox: title, badges, translation, course · date and
-   *  the action cluster. Shared by this tab's rows and hosted ones (embedRow). */
-  private renderTaskBody(task: Task, item: HTMLElement): HTMLElement {
+   *  the action cluster. Shared by this tab's rows and hosted ones (embedRow).
+   *  `onDuplicated` is renderTask's one-time capture of the host's callback (see
+   *  rowActions' comment on why it can't just be read off `this.embedding`). */
+  private renderTaskBody(task: Task, item: HTMLElement, onDuplicated?: (copies: Task[]) => void): HTMLElement {
     const info = el('div', { class: 'task-info' });
 
     // Title (double-click to edit)
@@ -2361,7 +2379,7 @@ export class TasksView {
     // row calm without asking the student to configure anything — the tasks that
     // use a feature show it, the ones that don't, don't. Pinning is the manual
     // override on top, for forcing an EMPTY control to stay put.
-    const optional = this.rowActions(task);
+    const optional = this.rowActions(task, onDuplicated);
     const pinned = getPrefs().tasks.pinnedActions;
     // `a.build` guards the buttonless one: 'readings' asks inside the translation row
     // rather than from the actions cluster, so it has nothing to append here.
@@ -2372,7 +2390,7 @@ export class TasksView {
     const more = el('button', { class: 'act-more', title: 'More', text: '⋯' });
     more.addEventListener('click', (e) => {
       e.stopPropagation(); // the row itself has click/dblclick behaviors
-      this.openMoreMenu(task, more);
+      this.openMoreMenu(task, more, onDuplicated);
     });
     actions.append(more);
 
@@ -2875,8 +2893,17 @@ export class TasksView {
   // --- popups -------------------------------------------------------------
 
   /** The optional row controls, in row order, each knowing whether it has earned
-   *  its slot (`auto`) and how to render both as a row button and as a menu entry. */
-  private rowActions(task: Task): RowAction[] {
+   *  its slot (`auto`) and how to render both as a row button and as a menu entry.
+   *
+   *  `onDuplicated` is a PARAMETER, not read off `this.embedding` (Gabe, 9/27: a
+   *  duplicate made from inside Focus wrote a real task but landed nowhere Focus
+   *  was showing). `this.embedding` is only valid for the instant embedRow is on
+   *  the stack — the "…" menu's own call to this function happens much later, on
+   *  an actual click, by which point embedRow's `finally` has already cleared it
+   *  back to null. The caller (renderTaskBody) captures the host's callback once,
+   *  while it's still live, and threads it through as a plain function reference
+   *  from there on, which stays valid no matter when it's actually invoked. */
+  private rowActions(task: Task, onDuplicated?: (copies: Task[]) => void): RowAction[] {
     const out: RowAction[] = [];
     const noteCount = task.notes?.length ?? 0;
     const inFolder = this.liveFolder(task);
@@ -3033,16 +3060,29 @@ export class TasksView {
     // DUPLICATE — never auto. Kept (Gabe, 8/13: don't delete it), but off the row
     // by default: sitting one target away from ↗ Schoology, the button students
     // press constantly, made it a mis-tap that silently forges a second copy.
+    //
+    // NOT routed through applyToSelection (Gabe, 9/27): that helper mutates the
+    // SAME task in place and reports nothing back, which is exactly right for
+    // priority/course/folder edits but wrong here — Duplicate makes a brand-new
+    // task, and the copy is the one thing a caller (a host's onDuplicated) needs
+    // to actually see. Same write shape (one putTask, or one putTasksBulk for a
+    // multi-row selection) either way.
+    const doDuplicate = (): void => {
+      const copies = this.selTargets(task).map((t) => duplicateTask(t));
+      if (copies.length > 1) void this.data.putTasksBulk(copies);
+      else void this.save(copies[0]);
+      onDuplicated?.(copies);
+    };
     out.push({
       id: 'duplicate',
       label: 'Duplicate',
       iconHtml: '⎘',
       auto: false,
-      run: () => this.applyToSelection(task, (t) => duplicateTask(t)),
+      run: doDuplicate,
       build: () => {
         const b = el('button', { title: 'Duplicate', text: '⎘' });
         // Duplicating a selected row duplicates the whole selection.
-        b.addEventListener('click', () => this.applyToSelection(task, (t) => duplicateTask(t)));
+        b.addEventListener('click', doDuplicate);
         return b;
       },
     });
@@ -3174,7 +3214,7 @@ export class TasksView {
    *
    *  A PIN, not a "+" (Gabe, 8/13): a "+" next to 📎 reads as "add an attachment",
    *  which is a completely different action one pixel away from this one. */
-  private openMoreMenu(task: Task, anchor: HTMLElement): void {
+  private openMoreMenu(task: Task, anchor: HTMLElement, onDuplicated?: (copies: Task[]) => void): void {
     this.dropdown(anchor, (body, close) => {
       const note = this.bulkNote(task);
       if (note) body.append(note);
@@ -3184,7 +3224,7 @@ export class TasksView {
       // button is already sitting on the row, so listing "Folder: Homework" in
       // here too was the same control offered twice. PINNED ones DO stay listed,
       // because their lit 📌 is the only way to unpin them again.
-      const entries = this.rowActions(task).filter((a) => !a.auto);
+      const entries = this.rowActions(task, onDuplicated).filter((a) => !a.auto);
       if (!entries.length) {
         body.append(el('div', { class: 'row-menu-empty', text: 'Everything is already on this task.' }));
         return;
