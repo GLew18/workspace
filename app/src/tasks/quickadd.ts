@@ -24,7 +24,7 @@ export function buildQuickAdd(
 ): HTMLElement {
   const wrap = el('div', { class: 'quick-add' });
   const input = textInput({
-    placeholder: 'Add a task… (natural language)',
+    placeholder: 'Add a task',
     autocomplete: 'off',
     spellcheck: false,
   });

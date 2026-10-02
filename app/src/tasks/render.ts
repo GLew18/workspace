@@ -19,6 +19,8 @@ import { popupGuideButton } from '../ui/popupGuide';
 import { attachColorPicker } from '../ui/colorPicker';
 import { openPopup, tabScopedOverlay } from '../ui/popup';
 import { buildFeedDiff, hasFeedDiff } from './feedDiff';
+import { playCheckoffEffect } from '../store/cosmetics';
+import { registerCheckoffOrigin } from '../gems/gems';
 import {
   TITLE_SLOT, DETAILS_SLOT, TX_SLOTS, verifySample,
   txText, txTranslated, txLang, txChecked, txHidden, txAmbiguous, txChosen,
@@ -237,7 +239,15 @@ export class TasksView {
   // jump-to-earliest pref fire once per session, not on every render.
   private mode: 'list' | 'calendar' = 'list';
   private calView: 'month' | 'week' | 'day' = 'month';
+  // Set from `new Date()` at CONSTRUCTION time (app boot), which is wrong by
+  // the time it's first shown if the session has been open a while — e.g. a
+  // tab left open overnight shows yesterday's (or last month's) date as the
+  // calendar's "default" view (Gabe, 10/1/26: still showed September on
+  // October 1st). `calMounted` (below) re-freshes it to the REAL current date
+  // the first time the calendar actually renders, so the stale boot-time value
+  // is never what the student sees.
   private calCursor = new Date();
+  private calMounted = false;
   private calJumped = false;
   private modeSeg!: HTMLElement;
   /** Where each time grid was last scrolled to, by scope ('' = the main calendar,
@@ -648,14 +658,29 @@ export class TasksView {
   /** The whole calendar screen: toolbar (view seg + nav) and the active view. */
   private renderCalendar(): void {
     const prefs = getPrefs().calendar;
+    // Re-freshes `calCursor` to the REAL current date the first time the
+    // calendar actually renders this session, overriding the stale
+    // construction-time value (see calCursor's own comment). Once per
+    // session, same as calJumped below: after this, the month shown is
+    // whatever the student navigated to, not something to keep correcting.
+    if (!this.calMounted) {
+      this.calMounted = true;
+      this.calCursor = new Date();
+    }
     // Jump-to-earliest: once per session, as soon as tasks exist to measure.
+    // NEVER jumps to a month before the real current one (Gabe, 10/1/26): an
+    // overdue task from last month already reads as overdue wherever it shows;
+    // landing the whole calendar in the past on open is just confusing. Only
+    // jumps forward, to an upcoming month with the earliest unstarted work.
     if (prefs.jumpToEarliest && !this.calJumped && Object.keys(this.map).length) {
       this.calJumped = true;
       const dates = Object.values(this.map)
         .filter((t) => !t.completed && t.dueDate)
         .map((t) => t.dueDate!)
         .sort();
-      if (dates[0]) this.calCursor = new Date(dates[0] + 'T12:00:00');
+      if (dates[0] && dates[0].slice(0, 7) >= todayStr().slice(0, 7)) {
+        this.calCursor = new Date(dates[0] + 'T12:00:00');
+      }
     }
 
     const bar = el('div', { class: 'cal-bar' });
@@ -2074,10 +2099,25 @@ export class TasksView {
 
     const cb = el('button', { class: `task-cb${(emb ? emb.checked : task.completed) ? ' checked' : ''}` });
     cb.innerHTML = CHECK_SVG;
+    const wasComplete = emb ? emb.checked : task.completed;
     if (emb) {
       const onCheck = emb.onCheck;
-      cb.addEventListener('click', () => onCheck());
-    } else cb.addEventListener('click', () => this.toggleDone(task));
+      cb.addEventListener('click', () => {
+        if (!wasComplete) {
+          playCheckoffEffect(item, task); // Store cosmetic, if any is equipped
+          registerCheckoffOrigin(task.id, item); // so a Gems award a moment later knows where to spew from
+        }
+        onCheck();
+      });
+    } else {
+      cb.addEventListener('click', () => {
+        if (!wasComplete) {
+          playCheckoffEffect(item, task);
+          registerCheckoffOrigin(task.id, item);
+        }
+        this.toggleDone(task);
+      });
+    }
     item.append(cb);
 
     return this.renderTaskBody(task, item, emb?.onDuplicated);

@@ -61,10 +61,18 @@ export interface Wordmark {
   el: HTMLElement;
 }
 
-export function createWordmark(): Wordmark {
+/**
+ * `gemOverride` swaps in a Store cosmetic's SVG for the default stone — used
+ * ONLY by the real, signed-in app header (main.ts), which reads the equipped
+ * Cobalt Gem Alternative. Marketing/legal pages and the landing demo call this
+ * with no argument on purpose and always get the real stone: those are
+ * pre-login, generic-visitor surfaces, not any one student's personal cosmetic
+ * loadout, and the brand mark there should never depend on who's signed in.
+ */
+export function createWordmark(gemOverride?: string): Wordmark {
   const root = document.createElement('span');
   root.className = 'ws-mark';
-  root.innerHTML = `<span class="ws-mark-text">C</span>${STONE_SVG}<span class="ws-mark-text">balt</span>`;
+  root.innerHTML = `<span class="ws-mark-text">C</span>${gemOverride ?? STONE_SVG}<span class="ws-mark-text">balt</span>`;
   return { el: root };
 }
 // #endregion

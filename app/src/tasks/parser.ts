@@ -26,7 +26,7 @@ const dayMap: Record<string, number> = {
 };
 
 const TOMORROW = new Set(['tomorrow', 'tom', 'tmrw', 'tmr']);
-const TODAY = new Set(['today', 'tod']);
+const TODAY = new Set(['today', 'tod', 'tonight']);
 
 // --- written numbers ------------------------------------------------------
 //
@@ -268,9 +268,23 @@ function nextOccurrence(monthIdx: number, day: number): string | null {
   return thisYear >= todayStr() ? thisYear : mkDate(now.getFullYear() + 1, monthIdx, day);
 }
 
+const NIGHT = new Set(['night', 'nite']);
+
 /** Try to parse a date starting at tokens[i]; returns the date and tokens consumed.
- *  `dayFirst` off skips the "11 jan" reading - see findDate for why. */
+ *  `dayFirst` off skips the "11 jan" reading - see findDate for why. Wraps
+ *  parseDateCore to strip a trailing "night" off ANY date word - "tomorrow
+ *  night", "wednesday night", "next friday night" all mean the date itself,
+ *  same as "tonight" means today (Gabe, 9/28: "a whole night family"). "night"
+ *  is a time-of-day qualifier here, never a specific hour, so it's consumed
+ *  and dropped rather than turned into a due time. */
 function parseDateAt(tokens: string[], i: number, dayFirst = true): { date: string; consumed: number } | null {
+  const hit = parseDateCore(tokens, i, dayFirst);
+  if (!hit) return null;
+  const next = tokens[i + hit.consumed]?.toLowerCase().replace(/,$/, '');
+  return next && NIGHT.has(next) ? { date: hit.date, consumed: hit.consumed + 1 } : hit;
+}
+
+function parseDateCore(tokens: string[], i: number, dayFirst = true): { date: string; consumed: number } | null {
   const tok = tokens[i].toLowerCase().replace(/,$/, ''); // tolerate a trailing comma
 
 
@@ -373,7 +387,18 @@ function findDate(
   for (const dayFirst of [false, true]) {
     for (let i = from; i < tokens.length; i++) {
       const hit = parseDateAt(tokens, i, dayFirst);
-      if (hit) return { ...hit, at: i };
+      if (hit) {
+        // "on" pairs with the date right after it and is redundant once the date
+        // is understood ("math on Tuesday" — Gabe, 9/30): fold it into the match
+        // so it leaves the title along with the date, not just Tuesday.
+        let at = i;
+        let consumed = hit.consumed;
+        if (at > 0 && tokens[at - 1].toLowerCase() === 'on') {
+          at -= 1;
+          consumed += 1;
+        }
+        return { date: hit.date, consumed, at };
+      }
     }
   }
   return null;
@@ -505,7 +530,10 @@ function extractPriority(tokens: string[]): Priority {
 // --- main -----------------------------------------------------------------
 
 export function parseQuickAdd(input: string): ParsedTask | null {
-  const text = input.trim();
+  // The bar's own placeholder says "Add a task", so a student typing that literally
+  // ("add a task math homework tomorrow") is following the label, not naming their
+  // task "Add a task" — strip it rather than parse it as the title (Gabe, 9/30).
+  const text = input.trim().replace(/^add\s+a\s+task\s*:?\s*/i, '');
   if (!text) return null;
 
   const tokens = text.split(/\s+/).filter(Boolean);

@@ -212,11 +212,13 @@ export const $ = <T extends Element = HTMLElement>(sel: string, root: ParentNode
 // Module-level, so it holds across views: the Tasks tab and Focus toast through
 // this same function and must not be able to double up.
 let liveToast: { el: HTMLElement; cancel: () => void } | null = null;
-const TOAST_MS = 2600; // time on screen
+export const TOAST_MS = 2600; // time on screen
 export const TOAST_EXIT_MS = 350; // must match the .toast transition in components.css
 
-/** Start `t`'s exit and remove it once the animation is done. */
-function retireToast(t: HTMLElement): void {
+/** Start `t`'s exit and remove it once the animation is done. Exported so a
+ *  caller building its own non-text toast (gems/gems.ts's icon+amount toast)
+ *  can still use the real show/hide choreography instead of a copy of it. */
+export function retireToast(t: HTMLElement): void {
   t.classList.remove('show');
   window.setTimeout(() => t.remove(), TOAST_EXIT_MS);
 }

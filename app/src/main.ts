@@ -33,6 +33,10 @@ import './ui/landing.css';
 import './ui/auth.css';
 import './ui/onboarding.css';
 import './ui/plus.css';
+import './ui/store.css';
+import './ui/checkoff.css';
+import './ui/gemAnim.css';
+import './ui/gemsToast.css';
 import { openPlusScreen, closePlusScreen } from './plus/view';
 
 // The Cobalt Plus screen, reachable without a trigger (see plus/view.ts):
@@ -123,6 +127,10 @@ import { initLearn } from './courses/learn';
 import { SettingsView } from './settings/view';
 import { BookmarksView } from './bookmarks/view';
 import { detectExtension } from './bookmarks/shortcuts';
+import { StoreView } from './store/view';
+import { initGems, noteTasksUpdate } from './gems/gems';
+import { initCosmetics, getEquippedGem, onCosmeticsChange } from './store/cosmetics';
+import { gemAltById } from './store/gemArt';
 import { runOnboarding } from './onboarding/view';
 import { setStorageUser, scopedKey } from './util/userScope';
 import { renderLanding } from './landing/view';
@@ -269,10 +277,12 @@ async function renderApp(user: AuthUser): Promise<void> {
   const data = await Data.create(user.uid);
   // These boot reads are independent of each other — run them CONCURRENTLY so
   // sign-in waits one database round-trip, not four sequential ones.
-  const [, , , account, rawPrefs] = await Promise.all([
+  const [, , , , , account, rawPrefs] = await Promise.all([
     data.archiveStaleCompleted(), // delete finished tasks whose due date has passed, before anything renders
     initRegistry(data), // load course config (seed defaults on first run)
     initLearn(data), // load the learned course model (Layer 1b)
+    initGems(data), // load the Gems balance before the first watchTasks update can award anything
+    initCosmetics(data), // load owned/equipped Store items before the header wordmark first paints
     // First-run onboarding check: confirm name → connect Schoology, then re-render.
     data.getProfile<{ displayName: string; onboarded: boolean }>('account'),
     data.getProfile('prefs'), // app preferences (Settings) into the sync cache
@@ -324,8 +334,17 @@ async function renderApp(user: AuthUser): Promise<void> {
   menuBtn.addEventListener('click', toggleNav);
 
   const brand = el('div', { class: 'app-brand' });
-  const laurel = createWordmark();
-  brand.append(laurel.el);
+  // The equipped Cobalt Gem Alternative (Store cosmetic), read fresh on every
+  // paint and repainted live when it changes — this is the ONE wordmark
+  // instance that reflects a signed-in student's own cosmetic (see
+  // createWordmark's doc comment for why the marketing/legal ones never do).
+  const paintWordmark = () => {
+    const equipped = getEquippedGem();
+    const svg = equipped ? gemAltById(equipped)?.svg : undefined;
+    brand.replaceChildren(createWordmark(svg).el);
+  };
+  paintWordmark();
+  onCosmeticsChange(paintWordmark);
   // Read at CLICK time, not now: changing the setting takes effect immediately,
   // with no reload.
   brand.addEventListener('click', () => controller.goToTab(getPrefs().openTo));
@@ -419,6 +438,7 @@ async function renderApp(user: AuthUser): Promise<void> {
     { id: 'tasks', label: 'Tasks' },
     { id: 'focus', label: 'Focus' },
     { id: 'bookmarks', label: 'Bookmarks' },
+    { id: 'store', label: 'Store' },
   ];
   const navBtns = new Map<string, HTMLElement>();
   // "Tasks" carries a red count of what's due TODAY (Gabe, 8/10) — the one number
@@ -440,6 +460,9 @@ async function renderApp(user: AuthUser): Promise<void> {
   };
   paintTasksCount(data.getTasks());
   data.watchTasks((u) => paintTasksCount(u.tasks));
+  // Same update stream, independent subscriber: awards Gems for real completions
+  // (see gems/gems.ts for the anti-loophole rule and the placeholder award curve).
+  data.watchTasks((u) => noteTasksUpdate(u.tasks));
   // Settings and the bell live in the header, not the drawer, but both still
   // register so they pick up the "active" highlight when their tab is showing.
   navBtns.set('settings', settingsBtn);
@@ -482,6 +505,7 @@ async function renderApp(user: AuthUser): Promise<void> {
       { id: 'tasks', label: 'Tasks', render: (p) => tasksView.mount(p), onShow: () => tasksView.onShow() },
       { id: 'focus', label: 'Focus', render: (p) => void focusView.mount(p) },
       { id: 'bookmarks', label: 'Bookmarks', render: (p) => void new BookmarksView(data).mount(p) },
+      { id: 'store', label: 'Store', render: (p) => void new StoreView(data).mount(p) },
       // Re-mount every visit so unsaved edits revert to the last-saved version.
       { id: 'settings', label: 'Settings', onShow: (p) => void settingsView.mount(p) },
       // Same deal: re-mount so the log is current every time the bell is pressed.

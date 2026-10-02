@@ -600,7 +600,11 @@
    Cobalt form dialog. Only the layout below is bespoke: the song list is the one
    part of the box that scrolls, so the modal grows into a column and caps its
    height instead of bm-modal's plain padded box. */
-.playlist-editor {
+/* .bm-modal.playlist-editor, not plain .playlist-editor: same two-class fix as
+   .bm-modal.sg-popup in components.css, so bookmarks.css's later-loaded
+   .bm-modal (max-width:420px) can never outrank this on load order alone. */
+.bm-modal.playlist-editor {
+  max-width: 560px; /* matches the suggestions popup (.bm-modal.sg-popup) */
   max-height: 82vh;
   display: flex;
   flex-direction: column;

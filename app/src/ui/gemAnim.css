@@ -1,0 +1,65 @@
+/* ===================== Cobalt Gem Alternatives: animations =====================
+   Applied via class name to specific sub-elements inside store/gemArt.ts's
+   markup. The exact same inline SVG renders in two places — the Store card
+   preview and (once equipped) the real header wordmark — so one stylesheet
+   covers both automatically.
+
+   Pearl and up animate; the 7 cheaper items stay static on purpose (Gabe,
+   9/30/26: "especially say after maybe 8 where you get into the 100 gem
+   territory you start getting animated — I think that would look really
+   cool"). Durations/origins can be overridden per instance via an inline
+   style attribute in gemArt.ts (e.g. a slower spin for Earth than Disco Ball). */
+
+@keyframes gem-spin-anim {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.gem-spin {
+  animation: gem-spin-anim 12s linear infinite;
+}
+
+@keyframes gem-shimmer-anim {
+  0%, 100% { transform: translate(-10px, -6px); opacity: 0.25; }
+  50% { transform: translate(10px, 8px); opacity: 0.75; }
+}
+.gem-shimmer {
+  animation: gem-shimmer-anim 2.6s ease-in-out infinite;
+}
+
+@keyframes gem-twinkle-anim {
+  0%, 100% { opacity: 0.25; transform: scale(0.7); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+.gem-twinkle {
+  animation: gem-twinkle-anim 1.6s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes gem-glow-pulse-anim {
+  0%, 100% { opacity: 0.18; }
+  50% { opacity: 0.42; }
+}
+.gem-glow-pulse {
+  animation: gem-glow-pulse-anim 3.2s ease-in-out infinite;
+}
+
+@keyframes gem-rays-pulse-anim {
+  0%, 100% { opacity: 0.75; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+.gem-rays-pulse {
+  animation: gem-rays-pulse-anim 1.8s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gem-spin,
+  .gem-shimmer,
+  .gem-twinkle,
+  .gem-glow-pulse,
+  .gem-rays-pulse {
+    animation: none;
+  }
+}

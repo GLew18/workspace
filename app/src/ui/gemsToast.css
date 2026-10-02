@@ -1,0 +1,62 @@
+/* ===================== Gems toast + spew trail (gems/gems.ts) =====================
+   Always-on core feedback for earning Gems — NOT a Store cosmetic, unlike
+   checkoff.css's purchasable effects. "+ [gem icon] N" instead of plain text
+   (Gabe, 10/1/26), plus a short stream of gems that flies from the row that
+   earned them toward where the toast lands, "like it forms an arrow that
+   directs you towards the toast" (his own description). */
+
+.gems-toast {
+  padding-left: 14px;
+  padding-right: 18px;
+}
+.gems-toast-plus {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.gems-toast-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  flex: none;
+}
+.gems-toast-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.gems-toast-amount {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.gems-spew-burst {
+  position: fixed;
+  pointer-events: none;
+  z-index: 1001; /* above the toast (z-index 1000) it's flying toward */
+  width: 0;
+  height: 0;
+}
+.gems-spew-piece {
+  position: absolute;
+  left: -5px;
+  top: -5px;
+  width: 10px;
+  height: 10px;
+  background: linear-gradient(135deg, #ffe9a8 0%, #e8b93a 55%, #8a610f 100%);
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+  opacity: 0;
+  animation: gems-spew-anim 0.75s cubic-bezier(0.3, 0.6, 0.3, 1) forwards;
+}
+@keyframes gems-spew-anim {
+  0% { transform: translate(0, 0) scale(0.5); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(0.8); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gems-spew-piece {
+    animation: none;
+    display: none;
+  }
+}
