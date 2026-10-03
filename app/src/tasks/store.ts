@@ -100,6 +100,7 @@ export function duplicateTask(task: Task): Task {
   return {
     ...task,
     id: 'dup_' + genId(),
+    pinned: false, // a copy is a new task; it earns its own pin
     completed: false,
     completedAt: null,
     addedAt: new Date().toISOString(),

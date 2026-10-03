@@ -196,7 +196,7 @@ function danBookmarks() {
   };
 }
 
-/** Count Dan uses for the briefing card + the sidebar Tasks badge. */
+/** Count Dan uses for the briefing card + the top-bar Tasks badge. */
 export function danDueTodayCount(): number {
   const today = todayStr();
   return Object.values(danTasks()).filter((t) => !t.completed && t.dueDate === today).length;

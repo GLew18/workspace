@@ -121,6 +121,7 @@ import { DashboardView } from './dashboard/view';
 import { TasksView } from './tasks/render';
 import { FocusView } from './focus/view';
 import { createWordmark } from './ui/laurel';
+import { createAppTabs } from './ui/appTabs';
 import { el, textInput } from './util/dom';
 import { initRegistry } from './courses/registry';
 import { initLearn } from './courses/learn';
@@ -240,10 +241,9 @@ function renderSignIn(): void {
 }
 // #endregion
 
-// #region renderApp() — the signed-in UI: boot data, header, sidebar, tabs, sync
+// #region renderApp() — the signed-in UI: boot data, header, tabs, sync
 async function renderApp(user: AuthUser): Promise<void> {
   root.replaceChildren();
-  root.classList.remove('nav-open');
   // Signed-in shell: the window doesn't scroll — .app-below does (components.css).
   // That caps the scrollbar BENEATH the header instead of slicing through it.
   document.body.classList.add('app-mode');
@@ -309,29 +309,13 @@ async function renderApp(user: AuthUser): Promise<void> {
   // --- Independent full-width header bar (own color; never compressed) ---
   const header = el('div', { class: 'app-header' });
 
-  // The area below the header (sidebar + content). Declared up here so the
-  // header's menu button can toggle the sidebar.
+  // The area below the header (the content).
   const below = el('div', { class: 'app-below' });
-  const setNav = (open: boolean) => below.classList.toggle('nav-open', open);
-  const toggleNav = () => setNav(!below.classList.contains('nav-open'));
-  // The drawer overlays the page now rather than pushing it (components.css), so it
-  // covers content instead of displacing it — which means it needs the two ways out
-  // every overlay is expected to have: click the dimmed area, or press Escape.
-  const scrim = el('div', { class: 'ws-scrim' });
-  scrim.addEventListener('click', () => setNav(false));
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && below.classList.contains('nav-open')) setNav(false);
-  });
 
-  // Header left: a menu (hamburger) button that reveals the sidebar, then the
-  // wordmark. Clicking the wordmark is "take me home", and home is whatever the
-  // student chose in Settings ▸ Preferences ▸ "Open Cobalt to" (Gabe, 8/12): the
+  // Header left: the wordmark. Clicking it is "take me home", and home is whatever
+  // the student chose in Settings ▸ Preferences ▸ "Open Cobalt to" (Gabe, 8/12): the
   // tab the app boots into is the same tab the logo returns to.
   const headerLeft = el('div', { class: 'app-header-left' });
-  const menuBtn = el('button', { class: 'icon-btn nav-toggle', 'aria-label': 'Menu', title: 'Menu' });
-  menuBtn.innerHTML =
-    '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
-  menuBtn.addEventListener('click', toggleNav);
 
   const brand = el('div', { class: 'app-brand' });
   // The equipped Cobalt Gem Alternative (Store cosmetic), read fresh on every
@@ -348,7 +332,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   // Read at CLICK time, not now: changing the setting takes effect immediately,
   // with no reload.
   brand.addEventListener('click', () => controller.goToTab(getPrefs().openTo));
-  headerLeft.append(menuBtn, brand);
+  headerLeft.append(brand);
 
   const userBox = el('div', { class: 'app-user' });
   const nameSpan = el('span', { class: 'app-user-name', text: displayName });
@@ -426,32 +410,14 @@ async function renderApp(user: AuthUser): Promise<void> {
   // 💡 sits FIRST: it is the only one of the four that is not a destination, so
   // putting it left of the rest keeps the three navigating icons adjacent.
   userBox.append(suggestBtn, bellBtn, settingsBtn, nameSpan);
-  header.append(headerLeft, userBox);
 
-  // --- Sidebar: the slide-out nav drawer (Dashboard / Tasks / Focus / Bookmarks) ---
-  // ORDER IS PRIORITY (Gabe, 8/12): higher up, or further left, means the more
-  // important tab. Focus sits above Bookmarks everywhere it appears, so keep this
-  // list, the landing showcase and the "Open Cobalt to" segment in step.
-  const sidebar = el('aside', { class: 'ws-sidebar' });
-  const NAV_TABS = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'tasks', label: 'Tasks' },
-    { id: 'focus', label: 'Focus' },
-    { id: 'bookmarks', label: 'Bookmarks' },
-    { id: 'store', label: 'Store' },
-  ];
-  const navBtns = new Map<string, HTMLElement>();
+  // --- The main tabs: in the header's centre column, a bottom bar on phones
+  // (src/ui/appTabs.ts; the hamburger drawer they replaced is gone, Gabe 10/2).
   // "Tasks" carries a red count of what's due TODAY (Gabe, 8/10) — the one number
   // worth seeing from any tab. Red, not the bell's gold, because this is a
   // deadline rather than a message. Hidden at zero: an empty badge is noise.
-  const tasksCount = el('span', { class: 'count-badge nav-count' });
-  for (const it of NAV_TABS) {
-    const b = el('button', { class: 'nav-item', text: it.label });
-    if (it.id === 'tasks') b.append(tasksCount);
-    b.addEventListener('click', () => controller.goToTab(it.id)); // sidebar stays open
-    navBtns.set(it.id, b);
-    sidebar.append(b);
-  }
+  const { nav: tabsNav, btns: navBtns, tasksCount } = createAppTabs((id) => controller.goToTab(id));
+  header.append(headerLeft, tabsNav, userBox);
   const paintTasksCount = (tasks: TaskMap): void => {
     const today = todayStr();
     const n = Object.values(tasks).filter((t) => !t.completed && t.dueDate === today).length;
@@ -463,14 +429,13 @@ async function renderApp(user: AuthUser): Promise<void> {
   // Same update stream, independent subscriber: awards Gems for real completions
   // (see gems/gems.ts for the anti-loophole rule and the placeholder award curve).
   data.watchTasks((u) => noteTasksUpdate(u.tasks));
-  // Settings and the bell live in the header, not the drawer, but both still
-  // register so they pick up the "active" highlight when their tab is showing.
+  // Settings and the bell aren't main tabs, but both still register so they pick
+  // up the "active" highlight when their tab is showing.
   navBtns.set('settings', settingsBtn);
   navBtns.set('notifications', bellBtn);
 
   const tabsHost = el('div', { class: 'app' }); // centered content column
-  // Scrim BEFORE the sidebar so the sidebar paints over it even at equal stacking.
-  below.append(scrim, sidebar, tabsHost);
+  below.append(tabsHost);
   root.append(header, below);
 
   // Verify-your-email nudge. Mounted in .app-below, NOT inside .app: the .app

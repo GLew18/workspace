@@ -1,0 +1,69 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>pin to top</title>
+<body>
+  <pre id="out" style="position:fixed;right:0;top:0;width:46%;max-height:100vh;overflow:auto;z-index:9000;margin:0;padding:10px;background:#07132e;color:#dbe6ff;font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap">running</pre>
+  <div id="root" style="width:52%"></div>
+  <script type="module">
+    // PIN TO TOP (10/2): ⋯ → Pin to top puts a task in a Pinned section above
+    // Folders, still in its own group; checking it off unpins it.
+    const say = (t) => { document.getElementById('out').textContent = t; };
+    window.addEventListener('error', (e) => say('ERROR: ' + e.message));
+    await import('/src/ui/theme.css'); await import('/src/ui/components.css');
+    const { TasksView } = await import('/src/tasks/render.ts');
+    const { createSandboxData, SAMPLE_COURSES, sampleSchedule } = await import('/src/landing/sandbox.ts');
+    const R = []; const ok = (n, c, x) => R.push((c ? 'PASS  ' : 'FAIL  ') + n + (x ? '  ' + x : ''));
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const iso = (d) => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const tasks = {};
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(); d.setDate(d.getDate() + i * 4 + 1);
+      tasks['t' + i] = { id:'t'+i, title:'task number ' + i, course:'', dueDate:iso(d), dueTime:'',
+        priority:'normal', completed:false, createdAt:i, translationChecked:true, notes:[], ...(i === 0 ? { folderId:'f1' } : {}) };
+    }
+    const data = await createSandboxData({ tasks, profile: { courses:{list:SAMPLE_COURSES}, schedule:sampleSchedule(), account:{displayName:'Gabe',onboarded:true},
+      taskFolders:{ list:[{ id:'f1', name:'Project', color:'#7db4ff' }] } } });
+    const panel = document.getElementById('root');
+    const tv = new TasksView(data);
+    await tv.mount(panel); await sleep(1800);
+
+    const rowsOf = (id) => [...panel.querySelectorAll(`.task-item[data-task-id="${id}"]`)];
+    const menuPick = async (id, re) => {
+      rowsOf(id)[rowsOf(id).length - 1].querySelector('.act-more').click(); await sleep(250);
+      const rows = [...document.querySelectorAll('.row-menu .more-row')];
+      const labels = rows.map((r) => r.textContent.trim());
+      const hit = rows.find((r) => re.test(r.textContent));
+      if (hit) hit.querySelector('.more-go').click();
+      else document.querySelector('.popup-backdrop, .row-menu-backdrop')?.click();
+      await sleep(500);
+      return labels;
+    };
+
+    ok('no Pinned section before pinning', !panel.querySelector('.task-pinned-label'));
+    const before = await menuPick('t3', /Pin to top/);
+    ok('menu offers Pin to top, first', /^Pin to top/.test(before[0] || ''), JSON.stringify(before));
+    const label = panel.querySelector('.task-pinned-label');
+    ok('Pinned section appears', !!label, label?.textContent);
+    const labels = [...panel.querySelectorAll('.task-folders-label')];
+    ok('Pinned sits above Folders', labels[0] === label && /Folders/.test(labels[1]?.textContent || ''));
+    ok('task shows twice (pinned + its date group)', rowsOf('t3').length === 2);
+    ok('pinned row is first under the label', label?.nextElementSibling?.dataset.taskId === 't3');
+    ok('pinned row grip is inert', rowsOf('t3')[0].querySelector('.task-handle')?.classList.contains('inert'));
+    ok('stored as pinned', (await data.getTasksAll?.() ?? {})['t3']?.pinned === true || tv.map?.t3?.pinned === true);
+
+    const after = await menuPick('t3', /Unpin/);
+    ok('menu now says Unpin', after.some((l) => /^Unpin/.test(l)), JSON.stringify(after));
+    ok('unpinning removes the section', !panel.querySelector('.task-pinned-label'));
+
+    panel.querySelector('.task-folder-head').click(); await sleep(500); // open the folder
+    await menuPick('t0', /Pin to top/); // foldered task
+    ok('foldered task pins too', !!panel.querySelector('.task-pinned-label') && rowsOf('t0').length >= 1);
+    rowsOf('t0')[0].querySelector('.task-cb')?.click();
+    await sleep(600);
+    ok('checking off a pinned task empties Pinned', !panel.querySelector('.task-pinned-label'));
+    const done = await menuPick('t0', /zzz/);
+    ok('checked-off task offers no Pin', !done.some((l) => /Pin to top/.test(l)), JSON.stringify(done));
+
+    say(R.join('\n') + '\n\n' + (R.every((r) => r.startsWith('PASS')) ? 'ALL PASS' : 'SOME FAILED'));
+  </script>
+</body>

@@ -64,27 +64,23 @@ const sceneDashboard: Scene = {
     // it reads on its own; a hand crossing the screen to stop on a row it will not
     // touch is the exact dead beat he keeps striking out. One short hold, then the
     // story starts — the cursor stays where it began and travels on its first real
-    // errand, the hamburger, in the next scene.
+    // errand, the Tasks tab, in the next scene.
     await cur.wait(900);
   },
 };
 
-/** Scene 2 — sidebar → Tasks; the imported variety scrolls past (the Hebrew row
+/** Scene 2 — top bar → Tasks; the imported variety scrolls past (the Hebrew row
  *  visibly translated); Dan shift-selects the two due-today rows and checks
  *  them off in one click (real bulk complete: both rows tick and sink, crossed out). */
 const sceneTasksBulk: Scene = {
   name: 'tasks-bulk-checkoff',
   async run({ shell, cur }) {
-    await cur.click(shell.chrome.menu);
-    await cur.wait(500); // drawer + stagger settle
     await cur.click(shell.navBtn('tasks'));
     await cur.fresh(
       () => [...shell.body.querySelectorAll<HTMLElement>('.task-item[data-task-id="dan_read"]')].find((x) => x.offsetParent !== null),
       'tasks list rendered'
     );
     await cur.wait(350);
-    await cur.click(shell.chrome.menu); // tuck the drawer away for the full list
-    await cur.wait(400);
     // (The extra post-drawer hold died 9/1/26 — it was the ghost of the removed
     // scroll tour, exactly the "cursor parked, nothing happening" beat Gabe cut.)
 
@@ -501,13 +497,9 @@ const scenePremiumAndCourse: Scene = {
     if (scroller.scrollTop > 0) await cur.scrollBy(scroller, -scroller.scrollTop, 700);
 
     // Back to Tasks; tag the task by typing the parse word into its course chip.
-    await cur.click(shell.chrome.menu);
-    await cur.wait(480);
     await cur.click(shell.navBtn('tasks'));
     await cur.waitFor('.task-item[data-task-id="dan_prem"]', shell.body);
     await cur.wait(250);
-    await cur.click(shell.chrome.menu);
-    await cur.wait(380);
     // The row was re-dated to TODAY a moment ago, so it now lives in the Today
     // group — still, never assume: stage it into frame before the chip click.
     await cur.ensureInView(scroller, row(shell, 'dan_prem'));
@@ -648,15 +640,11 @@ const sceneCalendar: Scene = {
 const sceneBookmarks: Scene = {
   name: 'bookmarks-group-shortcut',
   async run({ shell, cur }) {
-    await cur.click(shell.chrome.menu);
-    await cur.wait(480);
     await cur.click(shell.navBtn('bookmarks'));
     await cur.waitFor('.bm-add-btn', shell.body);
     // Park the inherited scroll on entry (shared .app scroller).
     const bmScroller = shell.body.querySelector<HTMLElement>('.app')!;
     if (bmScroller.scrollTop > 0) await cur.scrollBy(bmScroller, -bmScroller.scrollTop, 400);
-    await cur.click(shell.chrome.menu);
-    await cur.wait(380);
 
     const scroller = shell.body.querySelector<HTMLElement>('.app')!;
     const addLink = async (name: string, url: string): Promise<void> => {
@@ -795,13 +783,9 @@ async function dialWheel(cur: GhostCursor, col: HTMLElement, text: string): Prom
 const sceneFocusSetup: Scene = {
   name: 'focus-setup-preset-import-music',
   async run({ shell, cur }) {
-    await cur.click(shell.chrome.menu);
-    await cur.wait(480);
     await cur.click(shell.navBtn('focus'));
     await cur.waitFor('.focus-carousel', shell.body);
     await cur.wait(400);
-    await cur.click(shell.chrome.menu);
-    await cur.wait(360);
     // The shared .app scroller carries the LAST tab's position — every tab
     // entry parks at the top before its first beat (8/17 visibility audit).
     const setupScroller = shell.body.querySelector<HTMLElement>('.app')!;
@@ -1135,11 +1119,8 @@ const sceneFocusSession: Scene = {
     await cur.click(ov.querySelector('.focus-min-btn')!);
     await cur.waitFor('.focus-widget', shell.body);
     await cur.wait(1100); // the payoff: the whole session, folded into a corner
-    await cur.click(shell.chrome.menu);
-    await cur.wait(480);
     await cur.click(shell.navBtn('dashboard'));
     await cur.wait(600);
-    await cur.click(shell.chrome.menu);
     // Park the shared scroller so the loop's final shot opens at the top.
     const homeScroller = shell.body.querySelector<HTMLElement>('.app')!;
     if (homeScroller.scrollTop > 0) await cur.scrollBy(homeScroller, -homeScroller.scrollTop, 400);
@@ -1355,7 +1336,7 @@ export function startHeroDemo(stage: HTMLElement, opts: HeroDemoOpts = {}): Hero
           if (widget) {
             // DAN TAKES THE MINI PLAYER WITH HIM (Gabe, 9/3/26: "Dan's cursor isn't on
             // the pip when he brings it off screen"). The window used to slide off on
-            // its own 0.55s transition while the hand crossed from the hamburger to
+            // its own 0.55s transition while the hand crossed from the tab bar to
             // the right edge, far above it. Now the hand lands on the window's title
             // bar — where a real PiP is grabbed — presses, and drags it out, the two
             // moving as one. The distance clears the window's own width plus its

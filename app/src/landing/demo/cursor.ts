@@ -302,7 +302,7 @@ export class GhostCursor {
   }
 
   /** Wait (REAL time, instant mode included) for a target to settle inside
-   *  the frame — CSS transitions (the sidebar drawer, panel slides) carry
+   *  the frame — CSS transitions (panel slides) carry
    *  elements in over ~300ms that no scripted wait covers in instant mode. */
   private async settleIntoBounds(target: Element): Promise<void> {
     const t0 = performance.now();

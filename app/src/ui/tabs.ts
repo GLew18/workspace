@@ -1,5 +1,5 @@
 // Cobalt: tab panels. Lazy-renders each panel on first view. The visible
-// navigation is the hover side-drawer in main.ts; this just owns the panels and
+// navigation is the top-bar tabs (src/ui/appTabs.ts); this just owns the panels and
 // the goToTab/onChange wiring.
 
 import { el } from '../util/dom';

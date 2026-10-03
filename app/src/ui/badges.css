@@ -1,0 +1,82 @@
+/* Cobalt: badge shine (artwork in store/badgeArt.ts).
+   Intensity climbs with the tier (Gabe, 10/2): bronze gets a faint, slow sweep;
+   silver a brighter one; gold a bright, more frequent one and a warm glow;
+   cobalt a double sweep and a pulsing blue glow. Long rests between passes so
+   a wall of badges doesn't strobe. */
+
+.cobalt-badge {
+  display: block;
+  overflow: visible;
+}
+
+.cobalt-badge .badge-sweep {
+  animation: badge-sweep var(--sweep-dur, 4.2s) ease-in-out infinite;
+  opacity: var(--sweep-op, 0.7);
+}
+.cobalt-badge .badge-sweep-2 {
+  animation-delay: 0.28s;
+}
+
+.badge-bronze { --sweep-dur: 6s; --sweep-op: 0.32; }
+.badge-silver { --sweep-dur: 5s; --sweep-op: 0.55; }
+.badge-gold {
+  --sweep-dur: 3.8s;
+  --sweep-op: 0.85;
+  filter: drop-shadow(0 0 5px rgba(255, 205, 90, 0.35));
+}
+.badge-cobalt {
+  --sweep-dur: 3.2s;
+  --sweep-op: 1;
+  animation: badge-cobalt-glow 2.6s ease-in-out infinite;
+}
+
+@keyframes badge-sweep {
+  0% {
+    transform: translateX(0);
+  }
+  45%,
+  100% {
+    transform: translateX(170px);
+  }
+}
+
+@keyframes badge-cobalt-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 5px rgba(90, 160, 255, 0.4));
+  }
+  50% {
+    filter: drop-shadow(0 0 11px rgba(120, 185, 255, 0.75));
+  }
+}
+
+.cobalt-badge .badge-twinkle {
+  opacity: 0;
+  animation: badge-twinkle 2.8s ease-in-out infinite;
+}
+
+@keyframes badge-twinkle {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.3) rotate(0deg);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1) rotate(45deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cobalt-badge .badge-sweep,
+  .badge-cobalt {
+    animation: none;
+  }
+  .cobalt-badge .badge-sweep {
+    opacity: 0;
+  }
+  .cobalt-badge .badge-twinkle {
+    animation: none;
+    opacity: 0.6;
+  }
+}

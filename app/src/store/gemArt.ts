@@ -54,6 +54,63 @@ function body(id: string, c0: string, c1: string, c2: string): string {
   );
 }
 
+/** The full soccer-ball panel pattern, edge to edge (Gabe, 10/2: the first
+ *  version only drew the middle few panels and left the rim plain white). A
+ *  center pentagon, five pentagons around it squashed toward the rim so the
+ *  ball reads as a sphere, every seam between the white hexagons, and seams
+ *  running off the edge where the clip cuts the outer panels. */
+function soccerPanels(): string {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const at = (r: number, deg: number): [number, number] => [50 + r * Math.cos(rad(deg)), 50 + r * Math.sin(rad(deg))];
+  const pts = (ps: [number, number][]) => ps.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const line = (a: [number, number], b: [number, number]) =>
+    `<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}"/>`;
+  const K = [0, 1, 2, 3, 4];
+  const center = K.map((k) => at(12, -90 + 72 * k));
+  // Outer pentagon k sits out along center vertex k, one corner pointing back
+  // at the middle; its radial depth is compressed (foreshortening).
+  const outer = K.map((k) => {
+    const th = -90 + 72 * k;
+    const c = at(37, th);
+    const u = [Math.cos(rad(th)), Math.sin(rad(th))];
+    return K.map((j): [number, number] => {
+      const ph = rad(th + 180 + 72 * j);
+      const ox = 11 * Math.cos(ph), oy = 11 * Math.sin(ph);
+      const a = ox * u[0] + oy * u[1]; // radial part, squashed
+      const b = -ox * u[1] + oy * u[0]; // tangential part, kept
+      return [c[0] + 0.72 * a * u[0] - b * u[1], c[1] + 0.72 * a * u[1] + b * u[0]];
+    });
+  });
+  const dist = (p: [number, number], q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+  let seams = '';
+  for (const k of K) {
+    const p = outer[k], n = outer[(k + 1) % 5];
+    seams += line(center[k], p[0]); // center corner out to the outer pentagon
+    // Hexagon side between neighbouring outer pentagons: their closest corners.
+    let best: [[number, number], [number, number]] = [p[1], n[1]];
+    for (const a of p.slice(1)) for (const b of n.slice(1)) if (dist(a, b) < dist(best[0], best[1])) best = [a, b];
+    seams += line(best[0], best[1]);
+    // The two far corners keep running off the rim, where the clip cuts them.
+    const c = at(37, -90 + 72 * k);
+    for (const v of [p[2], p[3]]) {
+      const dx = v[0] - c[0], dy = v[1] - c[1], len = Math.hypot(dx, dy);
+      seams += line(v, [v[0] + (dx / len) * 22, v[1] + (dy / len) * 22]);
+    }
+  }
+  return (
+    `<g stroke="#7d868e" stroke-width="1.3" stroke-linecap="round">${seams}</g>` +
+    `<g fill="#1c2126" stroke="#1c2126" stroke-width="1" stroke-linejoin="round">` +
+    `<polygon points="${pts(center)}"/>` +
+    outer.map((o) => `<polygon points="${pts(o)}"/>`).join('') +
+    `</g>` +
+    // Sphere shading over the panels too, so the dark rim pieces curve away.
+    `<defs><radialGradient id="soccer-shade" cx="38%" cy="32%" r="78%">` +
+    `<stop offset="0%" stop-color="#fff" stop-opacity="0.28"/><stop offset="55%" stop-color="#fff" stop-opacity="0"/>` +
+    `<stop offset="100%" stop-color="#000" stop-opacity="0.32"/></radialGradient></defs>` +
+    `<rect x="9" y="9" width="82" height="82" fill="url(#soccer-shade)"/>`
+  );
+}
+
 function item(id: string, name: string, price: number, inner: string): GemAlt {
   return { id, name, price, svg: wrap(id, inner) };
 }
@@ -104,11 +161,7 @@ export const GEM_ALTS: GemAlt[] = [
     'soccer',
     'Soccer Ball',
     60,
-    body('soccer', '#ffffff', '#e7ebee', '#9aa4ab') +
-      `<polygon points="50,36 60,43 56,55 44,55 40,43" fill="#1c2126"/>` +
-      `<polygon points="50,36 44,25 56,25" fill="#1c2126" opacity="0.85"/>` +
-      `<polygon points="30,50 40,43 44,55 36,64" fill="#1c2126" opacity="0.85"/>` +
-      `<polygon points="70,50 60,43 56,55 64,64" fill="#1c2126" opacity="0.85"/>`
+    body('soccer', '#ffffff', '#e7ebee', '#9aa4ab') + soccerPanels()
   ),
   item(
     'bowling',

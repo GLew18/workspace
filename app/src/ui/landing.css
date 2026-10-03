@@ -519,27 +519,12 @@ html[data-kbd] .landing :is(button, a):focus-visible {
   padding: 0 18px;
 }
 .lp-demoshell-body .app-header .ws-mark { font-size: 24px; }
-/* The real app scrolls .app-below; here the TAB HOST (.app) scrolls instead,
-   because the sidebar is a DOM child of .app-below and an absolute sidebar
-   inside the scroller would ride away with the content (the real app dodges
-   this with position:fixed, which inside a frame has nothing safe to fix to). */
+/* The real app scrolls .app-below; here the TAB HOST (.app) scrolls instead.
+   Every scene and smoke assert reads the .app scroller, so that stays as is. */
 .lp-demoshell-body .app-below {
   position: absolute;
   inset: var(--header-h) 0 0 0;
   overflow: hidden;
-}
-.lp-demoshell-body .ws-sidebar {
-  position: absolute; /* real one is fixed; absolute pins it to the shell */
-  top: 0;
-  bottom: 0;
-  width: 200px;
-}
-/* The drawer OVERLAYS here too (main.ts, 9/1 — the padding shove is gone from
-   the real app). Re-anchor its fixed scrim to the shell: it dims the tab host
-   under the open drawer, and the sidebar (z-index 400) paints over it. */
-.lp-demoshell-body .ws-scrim {
-  position: absolute;
-  inset: 0;
 }
 .lp-demoshell-body .app {
   max-width: none;

@@ -114,6 +114,11 @@ interface RowAction {
 const FOLDER_BTN_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 
+/** Pushpin for the ⋯ menu's "Pin to top" and the Pinned section label. Line art in
+ *  currentColor, so it reads as a different thing from the menu's 📌 row toggles. */
+const PIN_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M12 15v6"/></svg>';
+
 /** Trash can for the ⋯ menu's Delete (checked-off tasks only). Line art in
  *  currentColor, like the folder glyph beside it in that menu. */
 const TRASH_SVG =
@@ -603,6 +608,7 @@ export class TasksView {
       return;
     }
     this.refreshCalPop(); // list mode → closes any stray popover
+    this.renderPinned();
     this.renderFolders();
     // Foldered tasks live INSIDE their folder's section — the main due-date
     // groups show everything else. (A task pointing at a deleted folder falls
@@ -1114,6 +1120,20 @@ export class TasksView {
    *  longer exists (orphaned folderId). */
   private liveFolder(t: Task): TaskFolder | undefined {
     return t.folderId ? this.folders.find((f) => f.id === t.folderId) : undefined;
+  }
+
+  /** PINNED (Gabe, 10/2): the ⋯ menu's "Pin to top" tasks, above Folders, sorted
+   *  like everything else. A shortcut, not a move: each task still shows in its own
+   *  folder or date group below. List view only. */
+  private renderPinned(): void {
+    const pinned = Object.values(this.map).filter((t) => t.pinned && !t.completed);
+    if (!pinned.length) return;
+    const label = el('div', { class: 'task-folders-label task-pinned-label' });
+    label.innerHTML = PIN_SVG;
+    label.append('Pinned');
+    this.listEl.append(label);
+    const group: TaskGroup = { key: 'pinned', header: '', tone: 'red', tasks: sortTasks(pinned) };
+    for (const t of group.tasks) this.listEl.append(this.renderTask(t, group));
   }
 
   /** The Folders section: rows above the date groups (list) or above the main
@@ -2158,12 +2178,15 @@ export class TasksView {
     // rule, so dragging it anywhere would be undone by the next repaint. Its grip is
     // kept as an inert, invisible placeholder so the row still lines up with the
     // open rows above it, and it is not a drop target either (dragover below).
+    // Pinned rows span many dates, so a drag there would write one order across real
+    // date groups (the excerpt-card bug below). Their grip stays for alignment, inert.
+    const fixed = task.completed || group.key === 'pinned';
     const handle = el('span', {
-      class: `task-handle${task.completed ? ' inert' : ''}`,
+      class: `task-handle${fixed ? ' inert' : ''}`,
       text: '⋮⋮',
-      title: task.completed ? '' : 'Drag to reorder',
+      title: fixed ? '' : 'Drag to reorder',
     });
-    if (!task.completed) {
+    if (!fixed) {
       handle.addEventListener('pointerdown', () => item.setAttribute('draggable', 'true'));
       handle.addEventListener('pointerup', () => item.removeAttribute('draggable'));
     }
@@ -2576,7 +2599,14 @@ export class TasksView {
     if (bulk) this.clearSelection();
     if (!targets.length) return;
     const now = new Date().toISOString();
-    const next = targets.map((t) => ({ ...t, completed: done, completedAt: done ? now : null }));
+    // Ticking also UNPINS (Gabe, 10/2), so the Pinned section tidies itself and
+    // un-ticking later does not bring a stale pin back.
+    const next = targets.map((t) => ({
+      ...t,
+      completed: done,
+      completedAt: done ? now : null,
+      ...(done ? { pinned: false } : {}),
+    }));
     if (next.length === 1) void this.save(next[0]);
     else void this.data.putTasksBulk(next);
     // NO TOAST (Gabe, 9/26): the row stays, crossed out, and un-ticking it is the
@@ -2947,6 +2977,21 @@ export class TasksView {
     const out: RowAction[] = [];
     const noteCount = task.notes?.length ?? 0;
     const inFolder = this.liveFolder(task);
+
+    // PIN TO TOP (Gabe, 10/2): puts the task in the Pinned section above Folders,
+    // as a shortcut; it stays in its folder/date group too. Menu-only (no build), so
+    // it never gets a row-button 📌 of its own. Offered on open tasks only, since
+    // checking a task off unpins it; a pinned one can always be unpinned.
+    if (!task.completed || task.pinned) {
+      const pin = !task.pinned;
+      out.push({
+        id: 'pintop',
+        label: pin ? 'Pin to top' : 'Unpin',
+        iconHtml: PIN_SVG,
+        auto: false,
+        run: () => this.applyToSelection(task, (t) => ({ ...t, pinned: pin && !t.completed })),
+      });
+    }
 
     // THE GLOBE, for both things the translation row can be (Gabe, 8/21).
     //

@@ -17,7 +17,8 @@ import { DEFAULT_TRANSLATE_FROM } from './util/languages';
 // (Gabe, 8/21). It is deliberately absent from PINNABLE, so it cannot be promoted onto
 // the row by a pin either.
 // 'delete' is a ⋯-menu action like 'readings', never pinnable (see PINNABLE).
-export type PinnedAction = 'translate' | 'readings' | 'attach' | 'folder' | 'duplicate' | 'delete';
+// 'pintop' (pin the TASK to the top of the list) is menu-only for the same reason.
+export type PinnedAction = 'translate' | 'readings' | 'attach' | 'folder' | 'duplicate' | 'delete' | 'pintop';
 export const PINNABLE: PinnedAction[] = ['translate', 'attach', 'folder', 'duplicate'];
 
 export interface AppPrefs {

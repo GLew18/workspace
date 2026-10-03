@@ -32,33 +32,46 @@ export const CHECKOFF_EFFECTS: CheckoffEffect[] = [
   {
     id: 'goldflash',
     name: 'Gold Flash',
-    price: 150,
+    price: 350,
     svg:
       `<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">` +
-      `<rect x="15" y="15" width="70" height="70" rx="14" fill="none" stroke="#e8b93a" stroke-width="4"/>` +
-      `<path d="M32,52 L45,65 L70,35" fill="none" stroke="#ffd25b" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>` +
-      `<g stroke="#ffd25b" stroke-width="3" stroke-linecap="round">` +
-      `<line x1="50" y1="3" x2="50" y2="11"/><line x1="89" y1="19" x2="82" y2="25"/><line x1="11" y1="19" x2="18" y2="25"/>` +
-      `</g></svg>`,
+      // A gold ingot with a crack running through it (10/2 redesign).
+      `<defs><linearGradient id="co-ingot" x1="0" y1="0" x2="0" y2="1">` +
+      `<stop offset="0" stop-color="#f0d48a"/><stop offset="0.5" stop-color="#d2a84c"/><stop offset="1" stop-color="#a97c2a"/></linearGradient></defs>` +
+      `<polygon points="22,30 78,30 90,72 10,72" fill="url(#co-ingot)" stroke="#7a520e" stroke-width="2" stroke-linejoin="round"/>` +
+      `<polygon points="22,30 78,30 74,38 26,38" fill="#fff6d6" opacity="0.55"/>` +
+      `<rect x="30" y="48" width="40" height="4" rx="2" fill="#1d1505" opacity="0.7"/>` +
+      `<rect x="36" y="57" width="28" height="3" rx="1.5" fill="#1d1505" opacity="0.5"/>` +
+      `<path d="M55,30 L50,42 L57,51 L49,62 L53,72" fill="none" stroke="#2a1b02" stroke-width="2.4" stroke-linejoin="round"/>` +
+      `</svg>`,
   },
   {
     id: 'gemburst',
     name: 'Gem Burst',
-    price: 160,
+    price: 200,
     svg:
       `<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">` +
-      `<polygon points="50,38 58,50 50,62 42,50" fill="#7db4ff" transform="rotate(10 50 50)"/>` +
-      `<polygon points="24,22 29,30 24,38 19,30" fill="#9ad8ff"/>` +
-      `<polygon points="76,24 81,32 76,40 71,32" fill="#5a9bef"/>` +
-      `<polygon points="22,66 27,74 22,82 17,74" fill="#5a9bef"/>` +
-      `<polygon points="78,64 83,72 78,80 73,72" fill="#9ad8ff"/>` +
-      `<circle cx="50" cy="50" r="3" fill="#fff" opacity="0.8"/>` +
+      // Faceted gems tumbling down (10/2 redesign: they fall, not burst).
+      [
+        [50, 14, 1.25, 0],
+        [24, 46, 1, -18],
+        [72, 52, 1.05, 14],
+        [44, 74, 0.85, 8],
+      ]
+        .map(
+          ([x, y, k, r]) =>
+            `<g transform="translate(${x} ${y}) rotate(${r}) scale(${k}) translate(-12 -11)">` +
+            `<polygon points="6,1 18,1 23,7 1,7" fill="#a8d6ff"/><polygon points="6,1 18,1 15,7 9,7" fill="#eaf5ff"/>` +
+            `<polygon points="1,7 23,7 12,21" fill="#6aa8f5"/><polygon points="9,7 15,7 12,21" fill="#a8d6ff"/>` +
+            `<polygon points="1,7 9,7 12,21" fill="#2f62c4"/></g>`
+        )
+        .join('') +
       `</svg>`,
   },
   {
     id: 'smokepuff',
     name: 'Smoke Puff',
-    price: 130,
+    price: 90,
     svg:
       `<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">` +
       `<circle cx="42" cy="60" r="16" fill="#b8bec8" opacity="0.5"/>` +
@@ -70,7 +83,7 @@ export const CHECKOFF_EFFECTS: CheckoffEffect[] = [
   {
     id: 'lightsweep',
     name: 'Light Sweep',
-    price: 140,
+    price: 300,
     svg:
       `<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">` +
       `<rect x="10" y="10" width="80" height="80" rx="14" fill="#1c2430"/>` +
@@ -99,7 +112,7 @@ export const CHECKOFF_EFFECTS: CheckoffEffect[] = [
   {
     id: 'ripple',
     name: 'Ripple',
-    price: 110,
+    price: 100,
     svg:
       `<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">` +
       `<circle cx="50" cy="50" r="38" fill="none" stroke="#7db4ff" stroke-width="2.5" opacity="0.3"/>` +

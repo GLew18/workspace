@@ -534,6 +534,7 @@ const FN_GLOBE = FN_SVG('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><pat
 const FN_CLIP = FN_SVG(
   '<path d="M21.4 11.05 12.2 20.2a5.5 5.5 0 0 1-7.8-7.8l9.2-9.15a3.7 3.7 0 0 1 5.2 5.2l-9.2 9.2a1.8 1.8 0 0 1-2.6-2.6l8.5-8.5"/>'
 );
+const FN_PIN = FN_SVG('<path d="M9 4h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M12 15v6"/>'); // the ⋯ menu's Pin to top
 const FN_TARGET = FN_SVG('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.3"/>');
 const FN_MARK = FN_SVG('<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>');
 const FN_KEYS = FN_SVG('<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>');
@@ -551,6 +552,7 @@ const FUNCTIONS: Array<[string, string]> = [
   [FN_CLIP, 'Attachments'],
   [FN_FOLDER, 'Project folders'],
   ['⎘', 'Task duplication'],
+  [FN_PIN, 'Pinned tasks'],
   // Bulk check-off and focus music came out on 9/2/26 (Gabe): neither is a feature
   // of its own — one is what a bulk selection is FOR, the other is part of a focus
   // session — and listing a thing beside the thing that contains it pads the count

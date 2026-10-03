@@ -1,0 +1,77 @@
+/* Badge Lab layout. Shares the page shell in checkoffLab.css. */
+
+.badge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 20px;
+  padding-top: 6px;
+}
+
+.badge-cell {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.badge-cell .cobalt-badge {
+  width: 112px;
+  max-width: 100%;
+  height: auto;
+}
+
+.badge-cell figcaption {
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.badge-ladder {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 20px;
+  padding-top: 6px;
+}
+
+.badge-step {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.badge-step .cobalt-badge {
+  width: 140px;
+  max-width: 100%;
+  height: auto;
+}
+
+.badge-step figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-wrap: balance;
+}
+
+.badge-step figcaption strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.badge-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.badge-small .cobalt-badge {
+  width: 48px;
+  height: auto;
+}

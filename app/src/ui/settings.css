@@ -148,7 +148,7 @@
   cursor: pointer;
   /* inherits the global 0.2s button transition (theme.css) */
 }
-/* Same hover/active as the app's tab-nav sidebar (.nav-item) for continuity. */
+/* Same hover/active as the app's main tabs (.app-tab) for continuity. */
 .settings-side-btn:hover {
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);

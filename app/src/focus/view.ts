@@ -4247,6 +4247,7 @@ export class FocusView {
         ...task,
         completed: todo.done,
         completedAt: todo.done ? now : null,
+        ...(todo.done ? { pinned: false } : {}), // a finished task leaves Pinned
       });
     }
     if (writes.length === 1) await this.data.putTask(writes[0]);
@@ -4548,31 +4549,39 @@ export class FocusView {
       const winH = Math.min(contentH + 70, Math.round((screen.availHeight || 900) * 0.85));
       const pip = await dpip.requestWindow({ width: 300, height: winH });
       // The PiP window is blank — copy the app's stylesheets so the widget renders
-      // with its real theme (colors, ring, buttons, the dark-blue background). Dev
-      // serves CSS as <style data-vite-dev-id> tags; the production build serves it
-      // as ONE <link rel="stylesheet" href="/assets/index-*.css"> that Vite marks
-      // crossorigin. That attribute is the bug: cloning it into the PiP document's
-      // separate browsing context makes Chrome refetch the stylesheet as a CORS
-      // request, and Firebase Hosting sends no Access-Control-Allow-Origin header on
-      // static assets, so the fetch silently fails and the mini player renders with
-      // zero CSS — HTML only, exactly what Gabe saw. Dev never hit this because dev
-      // CSS is inline <style> text, nothing to fetch. Dropping crossorigin before the
-      // clone is appended lets it load as the plain same-origin request it always was
-      // in the main document. Each clone is wrapped so one bad node (a stray
-      // <style> with no cssText, say) can't stop the rest from being copied.
-      for (const node of document.head.querySelectorAll('link[rel="stylesheet"], style')) {
+      // with its real theme (colors, ring, buttons, the dark-blue background).
+      //
+      // Copy the already-parsed RULES as inline <style> text, never re-link the file.
+      // Re-linking made the PiP window download /assets/index-<hash>.css again, and
+      // after any deploy that hashed file no longer exists: Firebase's SPA rewrite
+      // answers it with index.html (200, text/html), Chrome rejects that as a
+      // stylesheet, and the mini player renders with zero CSS. It only hit tabs left
+      // open across a deploy, which is why it looked intermittent (Gabe, 10/2).
+      // The rules are already in memory here, so this needs no network at all.
+      //
+      // Cross-origin sheets (Google Fonts) refuse cssRules access; those fall back
+      // to a link clone, which is safe because their URLs don't change per deploy.
+      for (const sheet of Array.from(document.styleSheets)) {
         try {
-          const clone = node.cloneNode(true) as HTMLLinkElement | HTMLStyleElement;
-          if (clone instanceof HTMLLinkElement) {
-            clone.removeAttribute('crossorigin');
-            // Pin the ABSOLUTE url. The attribute is root-relative ("/assets/..."),
-            // and a PiP document has no url of its own to resolve that against;
-            // node.href is the already-resolved form the main document used.
-            clone.href = (node as HTMLLinkElement).href;
+          let css = '';
+          try {
+            css = Array.from(sheet.cssRules, (r) => r.cssText).join('\n');
+          } catch {
+            const owner = sheet.ownerNode;
+            if (owner instanceof HTMLLinkElement) {
+              const link = pip.document.createElement('link');
+              link.rel = 'stylesheet';
+              link.href = owner.href; // absolute: the PiP document has no base of its own
+              pip.document.head.appendChild(link);
+            }
+            continue;
           }
-          pip.document.head.appendChild(clone);
+          const style = pip.document.createElement('style');
+          if (sheet.media?.mediaText) style.media = sheet.media.mediaText;
+          style.textContent = css;
+          pip.document.head.appendChild(style);
         } catch {
-          /* one bad node shouldn't cost the rest of the theme */
+          /* one bad sheet shouldn't cost the rest of the theme */
         }
       }
       // Belt-and-suspenders: copy any stylesheets attached via the Constructable

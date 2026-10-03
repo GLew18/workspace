@@ -1,14 +1,14 @@
 // Cobalt: the hero demo's miniature app shell.
 //
-// A faithful replica of the signed-in chrome (main.ts renderApp: header,
-// hamburger, slide-out sidebar, tab panels) wrapped in a browser frame, with the
+// A faithful replica of the signed-in chrome (main.ts renderApp: header with
+// the top-bar tabs, tab panels) wrapped in a browser frame, with the
 // REAL views mounted over Dan's sandbox (seed.ts). renderApp itself is all
 // closure-local and tied to auth/scheduling/side effects, so the chrome is
 // replicated here with the SAME classes and the SAME svgs — components.css does
 // the rest, which is what keeps this pixel-identical to the app.
 //
 // Containment: the shell body is position:relative + overflow:hidden, and the
-// header/sidebar (position sticky/fixed in the real app) are re-anchored
+// header (position sticky in the real app) is re-anchored
 // absolute within it via the .lp-demoshell CSS scope. Views that take a sample
 // host get the shell body, so their popups/toasts stay inside the "screen".
 //
@@ -20,6 +20,7 @@
 import type { Data } from '../../db';
 import { el } from '../../util/dom';
 import { createWordmark } from '../../ui/laurel';
+import { createAppTabs } from '../../ui/appTabs';
 import { mountTabs, type TabController } from '../../ui/tabs';
 import { dropSelections } from '../../ui/selbar';
 import { DashboardView } from '../../dashboard/view';
@@ -49,8 +50,6 @@ const PIP_X_SVG =
   '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">' +
   '<path d="M6 6l12 12M18 6L6 18"/></svg>';
 
-const MENU_SVG =
-  '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
 const BULB_SVG =
   '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1v.2h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>';
 const BELL_SVG =
@@ -69,13 +68,10 @@ export interface DemoShell {
   body: HTMLElement;
   data: Data;
   tabs: TabController;
-  /** Open/close the sidebar exactly like the real hamburger does. */
-  setNav(open: boolean): void;
-  navOpen(): boolean;
-  /** The sidebar's nav buttons by tab id (the cursor clicks these). */
+  /** The header's tab buttons by id (the cursor clicks these). */
   navBtn(id: string): HTMLElement;
-  /** The header's hamburger / bell / gear (cursor targets). */
-  chrome: { menu: HTMLElement; bell: HTMLElement; gear: HTMLElement };
+  /** The header's bell / gear (cursor targets). */
+  chrome: { bell: HTMLElement; gear: HTMLElement };
   destroy(): void;
 }
 
@@ -91,12 +87,9 @@ export async function buildDemoShell(): Promise<DemoShell> {
   // --- Header (replica of main.ts renderApp's) ----------------------------
   const header = el('header', { class: 'app-header' });
   const headerLeft = el('div', { class: 'app-header-left' });
-  const menuBtn = el('button', { class: 'icon-btn nav-toggle' });
-  menuBtn.innerHTML = MENU_SVG;
-  menuBtn.addEventListener('click', () => below.classList.toggle('nav-open')); // real toggleNav
   const brand = el('div', { class: 'app-brand' });
   brand.append(createWordmark().el);
-  headerLeft.append(menuBtn, brand);
+  headerLeft.append(brand);
 
   const userBox = el('div', { class: 'app-user' });
   const suggestBtn = el('button', { class: 'icon-btn' });
@@ -106,33 +99,18 @@ export async function buildDemoShell(): Promise<DemoShell> {
   const gearBtn = el('button', { class: 'icon-btn' });
   gearBtn.innerHTML = GEAR_SVG;
   userBox.append(suggestBtn, bellBtn, gearBtn, el('span', { class: 'app-user-name', text: 'Dan' }));
-  header.append(headerLeft, userBox);
-
-  // --- Below: scrim + sidebar + tab panels (replica of renderApp's .app-below).
-  // The drawer OVERLAYS rather than pushes now (main.ts, 9/1), so the shell
-  // carries the same scrim: click the dimmed page to close, exactly like the app.
-  const below = el('div', { class: 'app-below' });
-  const scrim = el('div', { class: 'ws-scrim' });
-  scrim.addEventListener('click', () => below.classList.remove('nav-open'));
-  const sidebar = el('aside', { class: 'ws-sidebar' });
-  const NAV_TABS = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'tasks', label: 'Tasks' },
-    { id: 'focus', label: 'Focus' },
-    { id: 'bookmarks', label: 'Bookmarks' },
-  ];
-  const navBtns = new Map<string, HTMLElement>();
-  const tasksCount = el('span', { class: 'nav-count count-badge' });
+  // The top-bar tabs come from the SAME builder the real header uses, so the
+  // demo's bar can never drift from the app's. Store is in the bar (the app has
+  // it) but has no panel here: visitors can't click the demo and the cursor never
+  // picks it.
+  const { nav, btns: navBtns, tasksCount } = createAppTabs((id) => controller.goToTab(id));
   const n = danDueTodayCount();
   tasksCount.textContent = String(n);
   if (n > 0) tasksCount.classList.add('on');
-  for (const it of NAV_TABS) {
-    const b = el('button', { class: 'nav-item', text: it.label });
-    if (it.id === 'tasks') b.append(tasksCount);
-    b.addEventListener('click', () => controller.goToTab(it.id));
-    navBtns.set(it.id, b);
-    sidebar.append(b);
-  }
+  header.append(headerLeft, nav, userBox);
+
+  // --- Below: the tab panels (replica of renderApp's .app-below).
+  const below = el('div', { class: 'app-below' });
 
   const tabsHost = el('div', { class: 'app' });
 
@@ -171,13 +149,12 @@ export async function buildDemoShell(): Promise<DemoShell> {
       dropSelections();
     }
   );
-  // Settings lives in the header, not the drawer, but still registers so it picks
+  // Settings lives on the gear, not the tab bar, but still registers so it picks
   // up the "active" highlight when its tab is showing — same as main.ts.
   navBtns.set('settings', gearBtn);
   gearBtn.addEventListener('click', () => controller.goToTab('settings'));
 
-  // Scrim BEFORE the sidebar so the sidebar paints over it (main.ts order).
-  below.append(scrim, sidebar, tabsHost);
+  below.append(tabsHost);
   body.append(header, below);
   root.append(body);
 
@@ -220,10 +197,8 @@ export async function buildDemoShell(): Promise<DemoShell> {
     body,
     data,
     tabs: controller,
-    setNav: (open) => below.classList.toggle('nav-open', open),
-    navOpen: () => below.classList.contains('nav-open'),
     navBtn: (id) => navBtns.get(id)!,
-    chrome: { menu: menuBtn, bell: bellBtn, gear: gearBtn },
+    chrome: { bell: bellBtn, gear: gearBtn },
     destroy: () => {
       pipWatch.disconnect();
       // FocusView owns timers + window listeners that outlive the DOM; teardown

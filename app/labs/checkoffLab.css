@@ -1,0 +1,97 @@
+/* Checkoff Animation Lab: page layout only. The rows themselves are styled by
+   the real app CSS (theme.css + components.css + checkoff.css). Single dark
+   look on purpose: it is the app's own theme, which has no light mode. */
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  min-width: 0; /* the app's 360px floor is for the app shell, not this page */
+}
+
+body {
+  background: var(--page-bg-flat, #07132e);
+  background: var(--page-bg);
+  background-attachment: fixed;
+}
+
+.lab {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-block: 32px 48px;
+  padding-inline: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.lab-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.lab-sub {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.lab-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+  gap: 16px;
+}
+
+.lab-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.lab-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lab-icon {
+  width: 28px;
+  height: 28px;
+  flex: none;
+}
+
+.lab-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.lab-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.lab-price {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The app pads a full task list 210px at the bottom (room to scroll the last
+   row up); a one-row demo list needs none. */
+.lab-card .lab-list.task-list {
+  min-width: 0;
+  padding-bottom: 0;
+}
