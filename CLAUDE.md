@@ -24,6 +24,30 @@ npm run build:deploy && firebase deploy --only hosting --project workspace-67029
 
 **The real domain is `cobaltstudy.com`, and it is LIVE** (connected to Firebase Hosting 9/3/26; `www` redirects to it; `authDomain` is `cobaltstudy.com` since 9/4/26). It is what the app displays everywhere a URL is shown. Deploys land on both addresses at once; verify against `https://cobaltstudy.com`, the `.web.app` URL is only a fallback.
 
+## Use the allowlisted scripts — never rebuild these commands inline
+
+`.claude/scripts/` holds five shell scripts for the build and `dist/` chores that come up constantly. **Each one is already allowlisted in `.claude/settings.local.json`. Invoke the script; do not compose an equivalent command yourself.**
+
+| Script | What it does |
+|---|---|
+| `clean-dist-rebuild-deploy.sh` | The main one. `cd app`, wipe `dist/`, `npm run build:deploy` into a log, print the exit code and the last 5 log lines. |
+| `rebuild-dist-music-staging.sh` | Same rebuild with diagnostics: greps the previous log for `EPERM`/`error` first, then verifies `dist/music-lib` file count and that `dist/index.html` exists. Use when a build has been failing. |
+| `remove-locked-dist-dir.sh` | Just `rm -rf dist`, nothing else. |
+| `clear-locked-dist-assets.sh` | Removes only `dist/assets` and `dist/index.html`, **leaving `dist/music-lib` in place.** Use this instead of nuking `dist/` when the code changed but the music did not — it avoids re-staging ~959 MB. |
+| `remove-music-lib-folder.sh` | Removes only `dist/music-lib`. |
+
+Call them with an absolute path, which is what the allow rules match:
+
+```bash
+bash "C:/Users/jonle/Dropbox/Gabriel/AI Projects/Work Wave/.claude/scripts/clean-dist-rebuild-deploy.sh"
+```
+
+**Why this matters, and why a "better" inline version is always worse.** Every one of these is a compound command — `&&`, `;`, `$TEMP`, `rm -rf`. Claude Code statically parses a command to match it against allow rules and cannot verify what a variable or a later chained subcommand will do, so **no settings.json rule can ever suppress a compound command.** The rule matches the *invocation*, not the intent. Writing a fresh `cd app && rm -rf dist && npm run build:deploy ...` interrupts Gabe with a permission dialog even though a working, allowlisted script doing exactly that is sitting in the folder. This has already happened at least once. `rm` is also in Gabe's global **ask** list, which outranks allow, so any inline `rm` prompts regardless of what else is configured.
+
+If one of these scripts is wrong or missing a case, **fix the script** and keep its path. Adding a sixth script means adding a sixth allow rule, which only Gabe can paste into `settings.local.json`.
+
+Not yet covered: the `npm run build:deploy && firebase deploy --only hosting ...` line in the Deploying section above is itself compound and will prompt every time. Worth extracting if it becomes annoying.
+
 ## UI conventions
 
 **Every input looks the same, app-wide (standing rule, Gabe 9/12/26).** Text inputs, textareas, and selects all get one look: the dark surface background, a quiet border, and the accent blue on focus. Never a native/white box, never a one-off color. The canonical recipe (also the app-wide default in `app/src/ui/theme.css`, so any field with no look-class of its own gets it automatically):

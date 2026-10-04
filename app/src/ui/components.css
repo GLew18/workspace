@@ -183,7 +183,7 @@ body.app-mode .app-below {
 .app-tab {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   background: none;
   border: none;
   color: var(--text-dim);
@@ -378,7 +378,7 @@ body.app-mode .app-below {
   }
   .app-tab {
     padding: 9px 11px;
-    gap: 7px;
+    gap: 4px;
   }
 }
 /* Just above the phone bar, icons + words no longer fit beside the wordmark and
@@ -1079,6 +1079,8 @@ body.app-mode .app-below {
   margin-top: 1px;
   border: 2px solid var(--border-strong);
   border-radius: 7px;
+  /* No native button padding: it squeezed the ✓ to ~6px wide (Gabe, 10/3). */
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1095,8 +1097,8 @@ body.app-mode .app-below {
   color: #fff;
 }
 .task-cb svg {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
 }
 
 /* ⋮⋮ drag handle — THE move grip, shared with bookmark cards and the folder
@@ -2137,6 +2139,15 @@ html[data-kbd] :focus-visible {
 .cal-thead {
   border-bottom: 1px solid var(--border);
 }
+/* SAME WIDTH AS THE HOURS (Gabe, 10/3: the day columns drifted right of the
+   hour columns below). The hours sit in a scroller whose 11px scrollbar comes
+   out of THEIR width only, so the header and all-day columns were wider. All
+   three rows now reserve the same gutter, scrolling or not. */
+.cal-thead,
+.cal-tallday {
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+}
 .cal-thead-day {
   font-size: 11px;
   font-weight: 700;
@@ -2178,6 +2189,7 @@ html[data-kbd] :focus-visible {
 .cal-tscroll {
   max-height: 520px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 .cal-tbody {
   height: calc(24 * var(--cal-hour));

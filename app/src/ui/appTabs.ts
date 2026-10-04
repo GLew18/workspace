@@ -22,7 +22,7 @@ export const APP_TABS: AppTabDef[] = [
   { id: 'tasks', label: 'Tasks' },
   { id: 'focus', label: 'Focus' },
   { id: 'bookmarks', label: 'Bookmarks' },
-  { id: 'store', label: 'Store' },
+  { id: 'store', label: 'Shop' },
 ];
 
 // Drawn like the header's toolbar icons: 24 box, 2 stroke, round caps. Left of

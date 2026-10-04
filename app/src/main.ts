@@ -470,7 +470,7 @@ async function renderApp(user: AuthUser): Promise<void> {
       { id: 'tasks', label: 'Tasks', render: (p) => tasksView.mount(p), onShow: () => tasksView.onShow() },
       { id: 'focus', label: 'Focus', render: (p) => void focusView.mount(p) },
       { id: 'bookmarks', label: 'Bookmarks', render: (p) => void new BookmarksView(data).mount(p) },
-      { id: 'store', label: 'Store', render: (p) => void new StoreView(data).mount(p) },
+      { id: 'store', label: 'Shop', render: (p) => void new StoreView(data).mount(p) },
       // Re-mount every visit so unsaved edits revert to the last-saved version.
       { id: 'settings', label: 'Settings', onShow: (p) => void settingsView.mount(p) },
       // Same deal: re-mount so the log is current every time the bell is pressed.

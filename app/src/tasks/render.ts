@@ -612,13 +612,16 @@ export class TasksView {
     this.renderFolders();
     // Foldered tasks live INSIDE their folder's section — the main due-date
     // groups show everything else. (A task pointing at a deleted folder falls
-    // back to the main list rather than vanishing.)
+    // back to the main list rather than vanishing.) Pinned ones show only in
+    // Pinned, once (Gabe, 10/3).
     const loose: TaskMap = {};
+    let pinnedCount = 0;
     for (const [id, t] of Object.entries(this.map)) {
-      if (!this.liveFolder(t) && !this.completingIds.has(id)) loose[id] = t;
+      if (t.pinned && !t.completed) pinnedCount++;
+      else if (!this.liveFolder(t) && !this.completingIds.has(id)) loose[id] = t;
     }
     const groups = groupTasks(loose);
-    if (!groups.length && !this.folders.length) {
+    if (!groups.length && !this.folders.length && !pinnedCount) {
       this.listEl.append(
         el('div', { class: 'empty-state', text: 'No tasks yet. Add one above to get started.' })
       );
@@ -1123,8 +1126,9 @@ export class TasksView {
   }
 
   /** PINNED (Gabe, 10/2): the ⋯ menu's "Pin to top" tasks, above Folders, sorted
-   *  like everything else. A shortcut, not a move: each task still shows in its own
-   *  folder or date group below. List view only. */
+   *  like everything else. A MOVE, not a copy (10/3): the task leaves its folder
+   *  and date group until it is unpinned or checked off. List view only; the
+   *  calendar still shows pinned tasks on their dates. */
   private renderPinned(): void {
     const pinned = Object.values(this.map).filter((t) => t.pinned && !t.completed);
     if (!pinned.length) return;
@@ -1144,7 +1148,9 @@ export class TasksView {
     if (!this.folders.length) return;
     this.listEl.append(el('div', { class: 'task-folders-label', text: 'Folders' }));
     for (const f of this.folders) {
-      const members = folderMembers(f, this.map);
+      // A pinned task shows ONCE, in Pinned (Gabe, 10/3), so the list's folders
+      // leave it out. The calendar has no Pinned section, so its folders keep it.
+      const members = folderMembers(f, this.map).filter((t) => bodyMode === 'cal' || !t.pinned || t.completed);
       // What the head COUNTS is what the body SHOWS: still-open tasks. Counting
       // every member (completed included) made a check-off leave the number
       // frozen — 10 tasks stayed "10 tasks" until a reload purged the completed
@@ -3232,7 +3238,9 @@ export class TasksView {
    *  frame (see components.css), so measuring it instead of assuming the viewport
    *  is what makes one code path correct in both places. */
   private dropdown(anchor: HTMLElement, build: (body: HTMLElement, close: () => void) => void): void {
-    const host = this.sample?.host ?? document.body;
+    // The anchor's own document: a row in the Focus mini player opens its menu there.
+    const doc = anchor.ownerDocument;
+    const host = this.sample?.host ?? doc.body;
     const back = el('div', { class: 'row-menu-back' });
     const menu = el('div', { class: 'row-menu' });
     back.append(menu);
@@ -3246,7 +3254,7 @@ export class TasksView {
     // (backdrop, Esc, picking a row) deregisters it, so nothing goes stale.
     const close = tabScopedOverlay(() => {
       back.remove();
-      document.removeEventListener('keydown', onKey, true);
+      doc.removeEventListener('keydown', onKey, true);
     });
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -3254,7 +3262,7 @@ export class TasksView {
         close();
       }
     };
-    document.addEventListener('keydown', onKey, true);
+    doc.addEventListener('keydown', onKey, true);
     back.addEventListener('click', (e) => {
       if (e.target === back) close();
     });

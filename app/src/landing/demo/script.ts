@@ -372,6 +372,14 @@ const sceneQuickAdd: Scene = {
     // already on the row. No redundant arrow re-set (Gabe, 8/17): manual
     // priority has its own beat in the folder scene.
     await cur.wait(1600); // let the birth read before anything else moves
+
+    // Dan pins the Spanish quiz (Gabe, 10/3): ⋯ → "Pin to top", and the row lifts
+    // into the Pinned section above Folders. Here, not earlier: a Pinned section
+    // above the list would push the quick-add's new row off screen. Not the algebra
+    // test: Focus sorts pinned to-dos first, which would fight scene 10's reorder.
+    await moreMenu({ shell, cur }, 'dan_spanish', /pin to top/i);
+    await cur.waitUntil(async () => !!(await shell.data.getTasksAll())['dan_spanish']?.pinned, 4000, 'spanish quiz pinned');
+    await cur.wait(1000); // the row lands in Pinned: let that read
   },
 };
 

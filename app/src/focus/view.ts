@@ -6,6 +6,7 @@ import { getTaskFolders, saveTaskFolders, makeFolder, normFolder, FOLDERS_EVENT 
 import { makeResizeGrip, restoreSavedHeight } from '../util/resize';
 import { el, textInput, copyTextMetrics, autoWidthToText, enterConfirms, showToast, fadeRemove, escapeCloses } from '../util/dom';
 import { attachColorPicker } from '../ui/colorPicker';
+import { trackPopupOrigin } from '../ui/popup';
 import { makeWheel } from './wheel';
 import { genId } from '../util/ids';
 import { sortTasks, makeTask } from '../tasks/store';
@@ -1046,6 +1047,7 @@ export class FocusView {
     // declared here so removing a todo can refresh its imported-state marks.
     let importUI: { button: HTMLElement; panel: HTMLElement; refresh: () => void } | null = null;
     const drawTodos = () => {
+      this.sortTodosLikeTasks(this.todos);
       todoList.replaceChildren();
       // Selection follows reality: drop ids whose todos left the session.
       this.pruneSel('todo', this.todos.map((t) => t.id));
@@ -1661,6 +1663,49 @@ export class FocusView {
    *  so an imported or duplicated task looks no different from one typed here.
    *  Shared by the Import panel (buildImportUI's addTaskToTodos) and duplicating
    *  a task from inside Focus (taskRow's onDuplicated, above). */
+  /** What the Tasks-tab order of `list` depends on, as one string. Sorted, so a ⋮⋮
+   *  drag (which only moves array slots) leaves it unchanged. */
+  private todoSortSig(list: FocusTodo[]): string {
+    const tasks = this.data.getTasks();
+    return list
+      .map((t) => {
+        const s = t.taskId ? tasks[t.taskId] : undefined;
+        return s
+          ? `${s.id}|${s.priority}|${s.dueDate}|${s.dueTime}|${s.pinned ? 1 : 0}|${s.manualOrder ?? ''}`
+          : `~${t.id}|${t.dueDate ?? ''}|${t.dueTime ?? ''}`;
+      })
+      .sort()
+      .join(',');
+  }
+  private todoSortSeen = new WeakMap<FocusTodo[], string>();
+
+  /**
+   * THE TASKS TAB'S ORDER, IN FOCUS (Gabe, 10/3): pinned first, then due date,
+   * priority and the rest, exactly as sortTasks orders the Tasks tab. Re-sorted
+   * only when something that order depends on changes (a task added, a priority,
+   * date or pin edited), so a hand ⋮⋮ drag holds until then. The session starts
+   * with this array, so it starts in this order. Finished rows still sink at draw
+   * time; that never touches the array.
+   */
+  private sortTodosLikeTasks(list: FocusTodo[]): void {
+    const sig = this.todoSortSig(list);
+    if (this.todoSortSeen.get(list) === sig) return;
+    this.todoSortSeen.set(list, sig);
+    const tasks = this.data.getTasks();
+    const byId = new Map<string, FocusTodo>();
+    const rows: Task[] = list.map((t) => {
+      // An unlinked to-do has no task, so it sorts by what it carries itself.
+      const src = (t.taskId && tasks[t.taskId]) || makeTask({
+        title: t.text, dueDate: t.dueDate ?? '', dueTime: t.dueTime ?? '', timeLabel: '', course: t.course ?? '', priority: 'normal',
+      });
+      const key = t.id;
+      byId.set(key, t);
+      return { ...src, id: key };
+    });
+    const ordered = [...sortTasks(rows.filter((r) => r.pinned)), ...sortTasks(rows.filter((r) => !r.pinned))];
+    list.splice(0, list.length, ...ordered.map((r) => byId.get(r.id)!));
+  }
+
   private makeFocusTodo(t: Task): FocusTodo {
     return {
       id: 'ft_' + genId(),
@@ -2171,6 +2216,15 @@ export class FocusView {
       // the "Import has no bulk selection" bug (Gabe, 8/31).
       const visIds: string[] = [];
 
+      // PINNED FIRST (Gabe, 10/3): a task pinned on the Tasks tab tops the panel,
+      // above everything else, with no heading, and is listed NOWHERE else here
+      // (not in its folder, not in "Individual tasks"), same as the Tasks tab.
+      const pinnedRows = sortTasks(filtered.filter((t) => t.pinned));
+      for (const t of pinnedRows) {
+        importBody.append(buildTaskRow(t, imported.has(t.id)));
+        if (!imported.has(t.id)) visIds.push(t.id);
+      }
+
       // BULK IMPORT — group not-yet-imported tasks by course, one row each.
       // Listed BEFORE Folders (Gabe, 9/27): course is the grouping every task
       // already carries, so it's the more common bulk move; folders are opt-in.
@@ -2206,7 +2260,7 @@ export class FocusView {
         const folderRows = this.taskFolders
           .map((tf) => ({
             tf,
-            members: filtered.filter((t) => t.folderId === tf.id && !imported.has(t.id)),
+            members: filtered.filter((t) => t.folderId === tf.id && !t.pinned && !imported.has(t.id)),
           }))
           .filter((x) => x.members.length);
         if (folderRows.length) {
@@ -2279,9 +2333,10 @@ export class FocusView {
       const inShownFolder = new Set(
         this.taskFolders.filter((tf) => filtered.some((t) => t.folderId === tf.id)).map((tf) => tf.id)
       );
-      const stray = filtered.filter((t) => !t.folderId || !inShownFolder.has(t.folderId));
-      importBody.append(el('div', { class: 'focus-import-section', text: 'Individual tasks' }));
+      const stray = filtered.filter((t) => !t.pinned && (!t.folderId || !inShownFolder.has(t.folderId)));
       const sorted = sortTasks(stray);
+      // No heading over an empty list (everything stray is pinned).
+      if (sorted.length) importBody.append(el('div', { class: 'focus-import-section', text: 'Individual tasks' }));
       // Imported/filtered-out ids fall out of the selection instead of lingering
       // invisibly; everything drawn selectable this pass stays.
       for (const t of sorted) if (!imported.has(t.id)) visIds.push(t.id);
@@ -2350,6 +2405,9 @@ export class FocusView {
   private restore(s: FocusState, keepRunning = false): void {
     this.originalTitle = document.title;
     this.sessionTodos = s.todos;
+    // The saved order is already sorted (and may hold hand drags): don't re-sort it
+    // on the first redraw, only when a task's sort fields change later.
+    this.todoSortSeen.set(this.sessionTodos, this.todoSortSig(this.sessionTodos));
     /**
      * THE TASKS ARE THE TRUTH, THE SAVED SESSION IS A CACHE (Gabe, 8/21). Anything
      * checked off in Tasks while this session was not being persisted — or while
@@ -3526,6 +3584,7 @@ export class FocusView {
     // synchronous pass, so the browser never paints the collapsed state: there
     // is no jump to see. (Restoring later, after a frame, is what looked jumpy
     // when the Finished toggle tried it — hence that one does local surgery.)
+    this.sortTodosLikeTasks(this.sessionTodos);
     const scrolled = this.captureScroll(host);
     host.replaceChildren();
     if (!this.sessionTodos.length) {
@@ -4636,6 +4695,7 @@ export class FocusView {
       }, true);
       pip.addEventListener('pointerdown', () => { delete pip.document.documentElement.dataset.kbd; }, true);
       this.pipWindow = pip;
+      trackPopupOrigin(pip.document); // a row's popups open in the mini player, not the tab behind it
       // Re-home the clock + ring into the PiP window's event loop. The main tab is
       // about to be backgrounded (that's the point of the mini player), and Chrome
       // throttles hidden tabs' timers/rAF — the mini would freeze and lurch.

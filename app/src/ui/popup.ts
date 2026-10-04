@@ -60,6 +60,24 @@ export function closeAllPopups(): void {
 }
 
 /**
+ * WHICH WINDOW A POPUP OPENS IN (Gabe, 10/3). The Focus mini player is a separate
+ * window, and a popup opened from one of its rows was mounting on the MAIN tab's
+ * <body>, out of sight. Every window registered here reports its own clicks, so a
+ * popup lands in whichever window the user last pressed in.
+ */
+let lastDoc: Document = document;
+export function trackPopupOrigin(doc: Document): void {
+  doc.addEventListener('pointerdown', () => { lastDoc = doc; }, true);
+}
+trackPopupOrigin(document);
+
+/** The document the user last pressed in, or the main one once that window closes. */
+export function popupDoc(): Document {
+  const win = lastDoc.defaultView;
+  return win && !win.closed ? lastDoc : document;
+}
+
+/**
  * @param host  where to mount. Defaults to <body>; the landing page's live demo
  *              passes its own device frame so the card stays inside the mock.
  */
@@ -84,7 +102,8 @@ export function openPopup(
   // Still called, for the stacked-popup guard inside enterConfirms.
   enterConfirms(backdrop, () => null);
   backdrop.append(box);
-  (host ?? document.body).append(backdrop);
+  const doc = host?.ownerDocument ?? popupDoc();
+  (host ?? doc.body).append(backdrop);
   const close = tabScopedOverlay(() => fadeRemove(backdrop));
   backdrop.addEventListener('click', (e) => {
     if (e.target === backdrop) close();
@@ -95,11 +114,11 @@ export function openPopup(
   // behind to fire on the NEXT Escape press.
   const onEsc = (e: KeyboardEvent) => {
     if (!backdrop.isConnected) {
-      document.removeEventListener('keydown', onEsc);
+      doc.removeEventListener('keydown', onEsc);
       return;
     }
     if (e.key === 'Escape') close();
   };
-  document.addEventListener('keydown', onEsc);
+  doc.addEventListener('keydown', onEsc);
   build(body, close);
 }

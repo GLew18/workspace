@@ -46,7 +46,7 @@
     ok('Pinned section appears', !!label, label?.textContent);
     const labels = [...panel.querySelectorAll('.task-folders-label')];
     ok('Pinned sits above Folders', labels[0] === label && /Folders/.test(labels[1]?.textContent || ''));
-    ok('task shows twice (pinned + its date group)', rowsOf('t3').length === 2);
+    ok('task shows ONCE (only in Pinned)', rowsOf('t3').length === 1, String(rowsOf('t3').length));
     ok('pinned row is first under the label', label?.nextElementSibling?.dataset.taskId === 't3');
     ok('pinned row grip is inert', rowsOf('t3')[0].querySelector('.task-handle')?.classList.contains('inert'));
     ok('stored as pinned', (await data.getTasksAll?.() ?? {})['t3']?.pinned === true || tv.map?.t3?.pinned === true);
@@ -57,12 +57,40 @@
 
     panel.querySelector('.task-folder-head').click(); await sleep(500); // open the folder
     await menuPick('t0', /Pin to top/); // foldered task
-    ok('foldered task pins too', !!panel.querySelector('.task-pinned-label') && rowsOf('t0').length >= 1);
+    ok('foldered task pins too, and leaves its folder', !!panel.querySelector('.task-pinned-label') && rowsOf('t0').length === 1 && !rowsOf('t0')[0].closest('.task-folder'), String(rowsOf('t0').length));
     rowsOf('t0')[0].querySelector('.task-cb')?.click();
     await sleep(600);
     ok('checking off a pinned task empties Pinned', !panel.querySelector('.task-pinned-label'));
+    ok('checked-off task is back in its folder', !!rowsOf('t0')[0]?.closest('.task-folder'));
     const done = await menuPick('t0', /zzz/);
     ok('checked-off task offers no Pin', !done.some((l) => /Pin to top/.test(l)), JSON.stringify(done));
+
+    // FOCUS IMPORT (10/3): pinned tasks top the Import panel, above Bulk import,
+    // and are not repeated under Individual tasks.
+    const { FocusView } = await import('/src/focus/view.ts');
+    await import('/src/ui/focus.css');
+    await data.putTask({ ...(await data.getTasksAll())['t5'], pinned: true });
+    const fhost = document.createElement('div'); fhost.style.width = '52%'; document.body.append(fhost);
+    const fv = new FocusView(data);
+    await fv.mount(fhost); await sleep(1500);
+    fhost.querySelector('.focus-import').click(); await sleep(1200);
+    const body = fhost.querySelector('.focus-import-body');
+    const first = body?.firstElementChild;
+    ok('Focus import: pinned task is the first row', first?.classList.contains('focus-import-task') && /task number 5/.test(first.textContent), first?.className + ' | ' + first?.textContent?.slice(0, 40));
+    const n5 = [...body.querySelectorAll('.focus-import-task')].filter((r) => /task number 5/.test(r.textContent)).length;
+    ok('Focus import: pinned task listed once', n5 === 1, String(n5));
+
+    // FOCUS LIST ORDER (10/3): the assembled list follows the Tasks tab's order,
+    // pinned first, whatever order things were imported in, and re-sorts on edits.
+    const importRow = (id) => [...fhost.querySelectorAll('.focus-import-task')].find((r) => r.textContent.includes('task number ' + id.slice(1)));
+    for (const id of ['t4', 't2', 't1', 't5']) { importRow(id)?.querySelector('.focus-import-add')?.click(); await sleep(300); }
+    await sleep(500);
+    const order = () => [...fhost.querySelectorAll('.focus-todo-list .task-item[data-task-id]')].map((r) => r.dataset.taskId).join(',');
+    ok('Focus list: pinned first, then by date', order() === 't5,t1,t2,t4', order());
+    const all = await data.getTasksAll();
+    await data.putTask({ ...all['t4'], dueDate: all['t1'].dueDate, priority: 'high' });
+    await sleep(1200);
+    ok('Focus list: re-sorts when a priority/date changes', order() === 't5,t4,t1,t2', order());
 
     say(R.join('\n') + '\n\n' + (R.every((r) => r.startsWith('PASS')) ? 'ALL PASS' : 'SOME FAILED'));
   </script>

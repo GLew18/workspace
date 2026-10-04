@@ -29,8 +29,9 @@ export interface Task {
    * lightbulb can tell a task finished today from one finished days ago.
    */
   archived?: boolean;
-  /** PINNED TO THE TOP (Gabe, 10/2): shown in the Pinned section above Folders AND
-   *  still in its own folder/date group. Cleared the moment the task is checked off. */
+  /** PINNED TO THE TOP (Gabe, 10/2): shown ONLY in the Pinned section above Folders
+   *  (and first in Focus's Import panel), never also in its folder/date group (10/3).
+   *  Cleared the moment the task is checked off. */
   pinned?: boolean;
   priority: Priority;
   addedAt: string; // ISO

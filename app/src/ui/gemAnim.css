@@ -54,7 +54,82 @@
   transform-origin: center;
 }
 
+/* ---- Visible motion for every animated item (Gabe, 10/3: Gold Coin's glint
+   was so faint nobody would see it; the Crystal Ball's swirl is the bar). ---- */
+
+/* A bright glint band crossing the item, then a short rest. */
+@keyframes gem-sweep-anim {
+  0% { transform: translateX(-40px); }
+  55%, 100% { transform: translateX(130px); }
+}
+.gem-sweep {
+  animation: gem-sweep-anim 2.6s ease-in-out infinite;
+}
+
+/* One mirror tile catching the light. */
+@keyframes gem-flash-anim {
+  0%, 30%, 100% { opacity: 0; }
+  12% { opacity: 0.95; }
+}
+.gem-flash {
+  opacity: 0;
+  animation: gem-flash-anim 2.4s ease-out infinite;
+}
+
+/* A four-point sparkle that turns and swells. */
+@keyframes gem-sparkle-anim {
+  0%, 100% { transform: scale(0.5) rotate(0deg); opacity: 0.35; }
+  50% { transform: scale(1.2) rotate(45deg); opacity: 1; }
+}
+.gem-sparkle {
+  animation: gem-sparkle-anim 1.8s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* The Moon's phases: a shadow slides across, full to new to full. */
+@keyframes gem-phase-anim {
+  0% { transform: translateX(-92px); }
+  100% { transform: translateX(92px); }
+}
+.gem-phase {
+  animation: gem-phase-anim 7s linear infinite;
+}
+
+/* Earth's clouds drifting past. */
+@keyframes gem-drift-anim {
+  0% { transform: translateX(-60px); }
+  100% { transform: translateX(60px); }
+}
+.gem-drift {
+  animation: gem-drift-anim 14s linear infinite;
+}
+
+/* A glint running around Saturn's ring (ring perimeter is about 244). */
+@keyframes gem-ring-glint-anim {
+  to { stroke-dashoffset: -244; }
+}
+.gem-ring-glint {
+  animation: gem-ring-glint-anim 2.6s linear infinite;
+}
+
+/* The Sun's two ray sets flickering against each other. */
+@keyframes gem-flicker-anim {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.gem-flicker {
+  animation: gem-flicker-anim 1.2s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .gem-sweep,
+  .gem-flash,
+  .gem-sparkle,
+  .gem-phase,
+  .gem-drift,
+  .gem-ring-glint,
+  .gem-flicker,
   .gem-spin,
   .gem-shimmer,
   .gem-twinkle,
