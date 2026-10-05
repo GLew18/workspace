@@ -7,6 +7,7 @@
 // its slot by having content behind it (a translation, an attachment, a folder),
 // or the student pins it there. See rowActions / openMoreMenu.
 
+import { currentAccentHex } from '../store/accents';
 import type { Task, TaskMap, Priority, ParsedTask, TaskFolder } from '../types';
 import { isSpentCompleted, type Data, type TasksUpdate } from '../db';
 import { el, textInput, copyTextMetrics, autoWidthToText, showToast } from '../util/dom';
@@ -44,7 +45,6 @@ import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
 import { parseDateTime, isPastDate, PAST_DATE_MSG, isPastTime, PAST_TIME_MSG } from './parser';
 import { shiftSelect } from '../util/select';
 import { detectAttachmentType, normalizeUrl, openAttachment, openAll, openAllInWindow } from './attachments';
-import { playCompleteChime } from './complete';
 import { confirmDanger } from '../ui/confirm';
 import { selectionBar, type SelBar } from '../ui/selbar';
 import {
@@ -1223,7 +1223,7 @@ export class TasksView {
       attachColorPicker(colorIn, {
         // A folder made before colors (or with junk stored) opens on the accent,
         // not on an invalid value a picker would silently turn black.
-        value: () => (/^#[0-9a-f]{6}$/i.test(f.color) ? f.color : '#7db4ff'),
+        value: () => (/^#[0-9a-f]{6}$/i.test(f.color) ? f.color : currentAccentHex()),
         onChange: (hex) => {
           f.color = hex;
           head.querySelector('.task-folder-ico')?.setAttribute('fill', hex);
@@ -1469,8 +1469,8 @@ export class TasksView {
       }
       // "+ New folder" row: name box + a color well. The well DEFAULTS to the
       // task's course color but is freely editable (in-app picker card).
-      const courseColor = task.course ? getCourseColor(task.course) : '#7db4ff';
-      let newColor = /^#[0-9a-f]{6}$/i.test(courseColor) ? courseColor : '#7db4ff';
+      const courseColor = task.course ? getCourseColor(task.course) : currentAccentHex();
+      let newColor = /^#[0-9a-f]{6}$/i.test(courseColor) ? courseColor : currentAccentHex();
       const colorIn = el('button', { type: 'button', class: 'folder-pick-color', title: 'Folder color' });
       attachColorPicker(colorIn, {
         value: () => newColor,
@@ -2126,21 +2126,31 @@ export class TasksView {
     const cb = el('button', { class: `task-cb${(emb ? emb.checked : task.completed) ? ' checked' : ''}` });
     cb.innerHTML = CHECK_SVG;
     const wasComplete = emb ? emb.checked : task.completed;
+    // EVERY ROW A MULTI-CHECKOFF TICKS gets the flourish (Gabe, 10/4), not just
+    // the clicked one. Ticking a selected row ticks the whole selection (here and
+    // in Focus alike), so the unticked selected rows in this same list are exactly
+    // the ones about to flip.
+    const celebrate = (): void => {
+      const list = item.closest('.task-list, .focus-todo-list, .focus-overlay-todos');
+      const rows =
+        item.classList.contains('selected') && list
+          ? [...list.querySelectorAll<HTMLElement>('.task-item.selected:not(.completed)')]
+          : [item];
+      for (const row of rows) {
+        playCheckoffEffect(row, task); // Store cosmetic, if any is equipped
+        // so a Gems award a moment later knows where to spew from
+        if (row.dataset.taskId) registerCheckoffOrigin(row.dataset.taskId, row);
+      }
+    };
     if (emb) {
       const onCheck = emb.onCheck;
       cb.addEventListener('click', () => {
-        if (!wasComplete) {
-          playCheckoffEffect(item, task); // Store cosmetic, if any is equipped
-          registerCheckoffOrigin(task.id, item); // so a Gems award a moment later knows where to spew from
-        }
+        if (!wasComplete) celebrate();
         onCheck();
       });
     } else {
       cb.addEventListener('click', () => {
-        if (!wasComplete) {
-          playCheckoffEffect(item, task);
-          registerCheckoffOrigin(task.id, item);
-        }
+        if (!wasComplete) celebrate();
         this.toggleDone(task);
       });
     }
@@ -2617,7 +2627,8 @@ export class TasksView {
     else void this.data.putTasksBulk(next);
     // NO TOAST (Gabe, 9/26): the row stays, crossed out, and un-ticking it is the
     // undo, so a timed "completed · Undo" toast offered nothing the row doesn't.
-    if (done) playCompleteChime(); // ONE chime for a batch, not N overlapping ones
+    // NO SOUND either (Gabe, 10/4): the check-off chime and its setting were
+    // removed outright: "they're just annoying. They don't add any real value."
   }
 
   // --- inline edits (double-click) ----------------------------------------

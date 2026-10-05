@@ -846,23 +846,6 @@ export class SettingsView {
       )
     );
 
-    // --- Sound. Lives on the TASKS tab (Gabe, 8/15), not Focus, because the only
-    // sound it governs is the task check-off chime. The Focus tab owns the END
-    // SOUND, which is a different, deliberately-chosen sound with its own switch.
-    sec.append(el('div', { class: 'settings-group-label', text: '🔉 Sound' }));
-    sec.append(
-      this.prefRow(
-        'Check-off sound',
-        'The short chime when you check a task off.',
-        // Reads AND writes the draft, like every other pref row here. Reading the
-        // live cache instead would show a stale value against unsaved edits.
-        this.prefSwitch(this.draft.prefs.sound.system, (on) => {
-          this.draft.prefs.sound.system = on;
-          void this.savePrefs();
-        })
-      )
-    );
-
     // --- Languages. Which languages a task title may be translated FROM. See
     // prefs.ts translateFrom for why this is an allowlist and not a blocklist.
     sec.append(el('div', { class: 'settings-group-label', text: '🌐 Languages' }));

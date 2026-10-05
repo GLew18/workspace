@@ -1,5 +1,6 @@
 // Cobalt: Focus sessions (spec §8). Single-shot deep-work countdown tied to tasks.
 
+import { currentAccentHex } from '../store/accents';
 import type { Data } from '../db';
 import type { Task, TaskMap, TaskFolder, Priority } from '../types';
 import { getTaskFolders, saveTaskFolders, makeFolder, normFolder, FOLDERS_EVENT } from '../tasks/folders';
@@ -97,6 +98,8 @@ import { formatMetaDate, formatShortDate, formatTimeOfDay } from '../util/dates'
 import { recordManualLabelForTask } from '../schoology/extension';
 import { getPrefs } from '../prefs';
 import { sendNotification, normalizeNotifySettings } from '../notify/notify';
+import { getEquippedRing, onCosmeticsChange } from '../store/cosmetics';
+import { ringMarkup } from '../store/ringSkins';
 import {
   type FocusTodo,
   type FocusState,
@@ -356,6 +359,8 @@ export class FocusView {
   private widget: HTMLElement | null = null;
   private pipWindow: Window | null = null; // the detached Document-Picture-in-Picture mini player, if open
   private ringEl: SVGCircleElement | null = null;
+  /** A ring skin's extra pieces that track the arc's progress (see paintRingSkin). */
+  private ringFollow: SVGCircleElement[] = [];
   private ringWrap: HTMLElement | null = null;
   private timeText: HTMLElement | null = null;
   private endTimeEl: HTMLElement | null = null; // "⏰ Ends 2:34 PM" line beneath the ring
@@ -389,6 +394,8 @@ export class FocusView {
     // mount-time subscription left those sessions deaf to Tasks-tab edits —
     // titles/courses edited in Tasks silently didn't reach a running session.
     this.ensureTaskWatch();
+    // A ring skin equipped in the Shop shows on a running session's ring at once.
+    if (!sample) onCosmeticsChange(() => this.paintRingSkin());
     void this.refreshFolders(); // shared folder list, needed even without a mount
     // Folders written anywhere (Tasks tab, or another focus screen) → re-read.
     window.addEventListener(FOLDERS_EVENT, () => {
@@ -1558,7 +1565,7 @@ export class FocusView {
     attachColorPicker(colorIn, {
       // A folder made before colors (or with junk stored) opens on the accent, not
       // on an invalid value a picker would silently turn black.
-      value: () => (/^#[0-9a-f]{6}$/i.test(folder.color) ? folder.color : '#7db4ff'),
+      value: () => (/^#[0-9a-f]{6}$/i.test(folder.color) ? folder.color : currentAccentHex()),
       onChange: (hex) => {
         folder.color = hex;
         head.querySelector('.focus-folder-ico')?.setAttribute('fill', hex);
@@ -1881,8 +1888,8 @@ export class FocusView {
     // "+ New folder" row: color well (defaults to the todo's course color, freely
     // editable) + name box — the same creation flow as the Tasks tab's picker,
     // and it creates a REAL shared folder.
-    const courseColor = todo.course ? getCourseColor(todo.course) : '#7db4ff';
-    let newColor = /^#[0-9a-f]{6}$/i.test(courseColor) ? courseColor : '#7db4ff';
+    const courseColor = todo.course ? getCourseColor(todo.course) : currentAccentHex();
+    let newColor = /^#[0-9a-f]{6}$/i.test(courseColor) ? courseColor : currentAccentHex();
     const colorIn = el('button', { type: 'button', class: 'folder-pick-color', title: 'Folder color' });
     attachColorPicker(colorIn, {
       value: () => newColor,
@@ -2216,15 +2223,6 @@ export class FocusView {
       // the "Import has no bulk selection" bug (Gabe, 8/31).
       const visIds: string[] = [];
 
-      // PINNED FIRST (Gabe, 10/3): a task pinned on the Tasks tab tops the panel,
-      // above everything else, with no heading, and is listed NOWHERE else here
-      // (not in its folder, not in "Individual tasks"), same as the Tasks tab.
-      const pinnedRows = sortTasks(filtered.filter((t) => t.pinned));
-      for (const t of pinnedRows) {
-        importBody.append(buildTaskRow(t, imported.has(t.id)));
-        if (!imported.has(t.id)) visIds.push(t.id);
-      }
-
       // BULK IMPORT — group not-yet-imported tasks by course, one row each.
       // Listed BEFORE Folders (Gabe, 9/27): course is the grouping every task
       // already carries, so it's the more common bulk move; folders are opt-in.
@@ -2334,8 +2332,12 @@ export class FocusView {
         this.taskFolders.filter((tf) => filtered.some((t) => t.folderId === tf.id)).map((tf) => tf.id)
       );
       const stray = filtered.filter((t) => !t.pinned && (!t.folderId || !inShownFolder.has(t.folderId)));
-      const sorted = sortTasks(stray);
-      // No heading over an empty list (everything stray is pinned).
+      // PINNED FIRST, INSIDE this section (Gabe, 10/4): a pin overrides every other
+      // order and tops "Individual tasks", not a section of its own above Bulk
+      // import. Several pins sort among themselves by the usual rules. A pinned
+      // task is listed only here, never in its folder, same as the Tasks tab.
+      const sorted = [...sortTasks(filtered.filter((t) => t.pinned)), ...sortTasks(stray)];
+      // No heading over an empty list.
       if (sorted.length) importBody.append(el('div', { class: 'focus-import-section', text: 'Individual tasks' }));
       // Imported/filtered-out ids fall out of the selection instead of lingering
       // invisibly; everything drawn selectable this pass stays.
@@ -3039,16 +3041,8 @@ export class FocusView {
    *  (only one shows at a time, so they share this.ringEl/ringWrap/timeText). */
   private buildRing(): HTMLElement {
     const ringWrap = el('div', { class: 'focus-ring-wrap' });
-    ringWrap.innerHTML = `
-      <svg class="focus-ring" viewBox="0 0 280 280">
-        <circle cx="140" cy="140" r="${RING_R}" class="ring-bg"/>
-        <circle cx="140" cy="140" r="${RING_R}" class="ring-fg"
-          stroke-dasharray="${RING_C}" stroke-dashoffset="0"
-          transform="rotate(-90 140 140)"/>
-        <circle cx="140" cy="${140 - RING_R}" r="6" class="ring-dot"/>
-      </svg>`;
-    this.ringEl = ringWrap.querySelector<SVGCircleElement>('.ring-fg');
     this.ringWrap = ringWrap;
+    this.paintRingSkin();
     this.timeText = el('div', { class: 'focus-time', text: this.clock(this.currentRemaining()) });
     ringWrap.append(this.timeText);
     this.startRingAnimation(); // drive the arc continuously (smoother than per-second)
@@ -3056,6 +3050,21 @@ export class FocusView {
     // tick that may never come (see syncUrgent).
     this.syncUrgent(this.paused ? this.pausedRemainingSec ?? 0 : this.currentRemaining());
     return ringWrap;
+  }
+
+  /** Draws the ring in the equipped Shop skin (store/ringSkins.ts; none = the
+   *  standard ring), keeping the timer text. Also re-run when the skin changes
+   *  mid-session, so equipping one in the Shop shows on the mini widget at once. */
+  private paintRingSkin(): void {
+    const wrap = this.ringWrap;
+    if (!wrap) return;
+    const skin = this.sample ? undefined : getEquippedRing();
+    if (wrap.dataset.skin === (skin ?? '') && wrap.querySelector('.focus-ring')) return;
+    wrap.dataset.skin = skin ?? '';
+    wrap.querySelector('.focus-ring')?.remove();
+    wrap.insertAdjacentHTML('afterbegin', `<svg class="focus-ring" viewBox="0 0 280 280">${ringMarkup(skin, RING_R, RING_C)}</svg>`);
+    this.ringEl = wrap.querySelector<SVGCircleElement>('.ring-fg');
+    this.ringFollow = [...wrap.querySelectorAll<SVGCircleElement>('.ring-follow')];
   }
 
   /** Cancel the ring animation in whichever window owns it (see stopTicker). */
@@ -3081,7 +3090,9 @@ export class FocusView {
         ? this.pausedRemainingSec ?? 0
         : Math.max(0, (this.endTimeMs - Date.now()) / 1000);
       const frac = this.totalSeconds > 0 ? remaining / this.totalSeconds : 0;
-      this.ringEl.style.strokeDashoffset = String(RING_C * (1 - frac));
+      const offset = String(RING_C * (1 - frac));
+      this.ringEl.style.strokeDashoffset = offset;
+      for (const f of this.ringFollow) f.style.strokeDashoffset = offset; // skin parts that track the arc
       if (remaining > 0) this.ringRaf = this.ringWin.requestAnimationFrame(step);
     };
     this.ringRaf = this.ringWin.requestAnimationFrame(step);
@@ -3615,9 +3626,12 @@ export class FocusView {
         this.drawOverlayTodos(host);
         this.persist();
       };
+      // A finished row keeps an INERT, invisible grip (Gabe, 10/4), exactly like the
+      // Tasks tab's (.task-handle.inert), so its checkbox and title stay lined up
+      // with the open rows above instead of sliding left into the grip's space.
       const grip = draggable
         ? el('span', { class: 'task-handle focus-todo-handle', text: '⋮⋮', title: 'Drag to reorder' })
-        : undefined;
+        : el('span', { class: 'task-handle focus-todo-handle inert', text: '⋮⋮' });
       const taskRow = this.taskRow(todo, this.sessionTodos, {
         handle: grip,
         onCheck: check,
@@ -3628,7 +3642,7 @@ export class FocusView {
       });
       if (taskRow) {
         this.wireTodoSelect(taskRow, visIds, todo.id, () => this.drawOverlayTodos(host));
-        if (grip) {
+        if (draggable) {
           this.makeTodoDraggable(taskRow, grip, i, todo.folderId || '', this.sessionTodos, () => {
             this.drawOverlayTodos(host);
             this.persist();
@@ -3666,6 +3680,8 @@ export class FocusView {
           this.persist();
         });
         row.append(handle);
+      } else {
+        row.append(el('span', { class: 'focus-todo-handle inert', text: '⋮⋮' })); // alignment only, see grip above
       }
 
       const cb = el('button', { class: `task-cb${todo.done ? ' checked' : ''}` });

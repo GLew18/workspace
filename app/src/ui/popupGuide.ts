@@ -15,6 +15,7 @@
 // so the two guide systems look like one product.
 
 import { el } from '../util/dom';
+import { currentAccentHex } from '../store/accents';
 
 // ---- palette: Chrome's dark theme, lifted from the screenshot ----------------
 const CBG = '#202124'; // browser chrome background
@@ -26,7 +27,8 @@ const DIM = '#9aa0a6';
 const BLUE = '#a8c7fa'; // Chrome's toggle-on blue
 const OFFP = '#5f6368'; // toggle-off pill
 const WARN = '#f28b82'; // the "not secure" warning red
-const GOLD = '#7db4ff'; // Cobalt's instructional overlay color only
+/** Cobalt's instructional overlay color: the accent in force (Gabe, 10/4). */
+const gold = (): string => currentAccentHex();
 
 // Timing classes: .c cursor glide, .r click ripple, .pu pulse, and the toggle
 // pair .tk/.tp (knob slides right, pill turns Chrome-blue at the click beat).
@@ -53,12 +55,12 @@ const B = (x: number, y: number, w: number, h: number, f: string, rx = 8, ex = '
   `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${f}" ${ex}/>`;
 
 const cursor = (x0: number, y0: number, x1: number, y1: number): string =>
-  `<circle class="r" cx="${x1 + 2}" cy="${y1 + 2}" r="11" fill="${GOLD}"/>` +
+  `<circle class="r" cx="${x1 + 2}" cy="${y1 + 2}" r="11" fill="${gold()}"/>` +
   `<g class="c" style="--x0:${x0}px;--y0:${y0}px;--x1:${x1}px;--y1:${y1}px">` +
   `<path d="M0 0 L0 15 L4.2 11.6 L7.2 18 L9.8 16.8 L6.9 10.6 L11.5 10.2 Z" fill="#fff" stroke="#0b142b" stroke-width="1.2"/></g>`;
 
 const hl = (x: number, y: number, w: number, h: number): string =>
-  `<rect class="pu" x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="none" stroke="${GOLD}" stroke-width="2"/>`;
+  `<rect class="pu" x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="none" stroke="${gold()}" stroke-width="2"/>`;
 
 /** Chrome's toggle. 'on' static blue, 'off' static gray, 'turnsOn' flips at the
  *  click beat (pill recolors, knob slides). */

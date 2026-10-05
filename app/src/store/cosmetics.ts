@@ -10,6 +10,7 @@ import type { Data } from '../db';
 import type { Task } from '../types';
 import { spendGems } from '../gems/gems';
 import { playCheckoffById } from './checkoffEffects';
+import { applyAccent } from './accents';
 
 const PROFILE_KEY = 'cosmetics';
 
@@ -17,6 +18,10 @@ interface CosmeticsRecord {
   owned: string[];
   equippedGem?: string;
   equippedCheckoff?: string;
+  /** Focus ring skin (store/ringSkins.ts). undefined = the standard ring. */
+  equippedRing?: string;
+  /** Accent color (store/accents.ts). undefined = Cobalt blue. */
+  equippedAccent?: string;
 }
 
 let data: Data | null = null;
@@ -32,6 +37,7 @@ export async function initCosmetics(d: Data): Promise<void> {
   data = d;
   const stored = await d.getProfile<CosmeticsRecord>(PROFILE_KEY);
   record = stored ?? { owned: [] };
+  applyAccent(record.equippedAccent);
 }
 
 async function persist(): Promise<void> {
@@ -47,6 +53,25 @@ export function getEquippedGem(): string | undefined {
 }
 export function getEquippedCheckoff(): string | undefined {
   return record.equippedCheckoff;
+}
+export function getEquippedRing(): string | undefined {
+  return record.equippedRing;
+}
+export function getEquippedAccent(): string | undefined {
+  return record.equippedAccent;
+}
+
+/** Equip/unequip a Focus ring skin. undefined = the standard ring. */
+export async function equipRing(id: string | undefined): Promise<void> {
+  record = { ...record, equippedRing: id };
+  await persist();
+}
+
+/** Equip/unequip an accent color, applied app-wide at once. undefined = Cobalt blue. */
+export async function equipAccent(id: string | undefined): Promise<void> {
+  record = { ...record, equippedAccent: id };
+  applyAccent(id);
+  await persist();
 }
 
 /** Buys an item with Gems if not already owned. Returns false only when the
@@ -78,18 +103,17 @@ export async function equipCheckoff(id: string | undefined): Promise<void> {
  * Called from the one shared checkbox click handler (tasks/render.ts
  * renderTask), which is the single code path for both the Tasks tab and any
  * embedded task row (including Focus's — see "Focus rows = real Tasks rows",
- * 9/26). Gated the same way Gems are (Task.source !== 'manual'): the effect is
- * part of the same real-homework incentive, so a hand-typed task doesn't get
- * the celebration either.
+ * 9/26). Plays on EVERY task, hand-typed ones included (Gabe, 10/4). Gems
+ * stay gated to imported work; the animation is not.
  *
  * NOT wired into Focus's separate pre-session checklist (FocusTodo rows,
  * mirrored via FocusView.syncLinkedTasks) — that path has no single DOM row to
  * animate over. Gems still award there correctly (they run off the data
  * stream, not this), only the flourish is skipped on that one surface.
  */
-export function playCheckoffEffect(row: HTMLElement, task: Task): void {
-  if (task.source === 'manual') return;
+export function playCheckoffEffect(row: HTMLElement, _task: Task): void {
   const id = record.equippedCheckoff;
   if (!id) return;
-  playCheckoffById(id, row); // the effects themselves: store/checkoffEffects.ts
+  // afterMove: the row re-draws at the bottom of its day first; play THERE.
+  playCheckoffById(id, row, { afterMove: true }); // the effects themselves: store/checkoffEffects.ts
 }

@@ -241,3 +241,35 @@ export async function createSandboxData(
 /** The try-it sample's course list + schedule builder, exported so the Dan demo
  *  seed can stay a SUPERSET of it (see the registry note on createSandboxData). */
 export { SAMPLE_COURSES, sampleSchedule };
+
+/** The Gamification snapshot's own world (Gabe, 10/4): four Schoology-imported
+ *  assignments, because only imported work earns Gems, over the same course
+ *  list as the try-it sample (see the registry note on createSandboxData). */
+export async function createGamifySandbox(): Promise<Data> {
+  const today = todayStr();
+  const tomorrow = addDays(today, 1);
+  const SCH = 'https://heschel.schoology.com';
+  const base = {
+    source: 'schoology-ical' as const,
+    completed: false,
+    completedAt: null,
+    addedAt: new Date().toISOString(),
+    timeLabel: '',
+    translationChecked: true,
+    schoologyUrl: SCH,
+    notes: [],
+  };
+  const list: Task[] = [
+    { ...base, id: 'gam_lab', title: 'Lab report: enzyme activity', course: 'Science', dueDate: today, dueTime: '15:00', priority: 'high' },
+    // Just checked off: the one the frozen confetti plays on (landing/view.ts).
+    { ...base, id: 'gam_pset', title: 'Problem set 14', course: 'Math', dueDate: today, dueTime: '23:59', priority: 'normal', completed: true, completedAt: new Date().toISOString() },
+    { ...base, id: 'gam_read', title: 'Read Ch. 8 & annotate', course: 'English', dueDate: tomorrow, dueTime: '08:00', priority: 'normal' },
+    { ...base, id: 'gam_dbq', title: 'DBQ outline: the New Deal', course: 'Social Studies', dueDate: tomorrow, dueTime: '23:59', priority: 'low' },
+  ];
+  const tasks: Record<string, Task> = {};
+  for (const t of list) tasks[t.id] = t;
+  return createSandboxData({
+    tasks,
+    profile: { courses: { list: SAMPLE_COURSES }, account: { displayName: 'Dan', onboarded: true } },
+  });
+}

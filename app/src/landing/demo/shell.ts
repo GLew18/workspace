@@ -98,7 +98,7 @@ export async function buildDemoShell(): Promise<DemoShell> {
   bellBtn.innerHTML = BELL_SVG;
   const gearBtn = el('button', { class: 'icon-btn' });
   gearBtn.innerHTML = GEAR_SVG;
-  userBox.append(suggestBtn, bellBtn, gearBtn, el('span', { class: 'app-user-name', text: 'Dan' }));
+  userBox.append(suggestBtn, bellBtn, gearBtn); // no name, as in the app (10/4)
   // The top-bar tabs come from the SAME builder the real header uses, so the
   // demo's bar can never drift from the app's. Store is in the bar (the app has
   // it) but has no panel here: visitors can't click the demo and the cursor never

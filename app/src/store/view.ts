@@ -22,12 +22,18 @@ import {
   purchaseItem,
   equipGem,
   equipCheckoff,
+  getEquippedRing,
+  getEquippedAccent,
+  equipRing,
+  equipAccent,
   onCosmeticsChange,
 } from '../store/cosmetics';
 import { STONE_SVG, createWordmark } from '../ui/laurel';
 import { GEM_ALTS, type GemAlt } from './gemArt';
 import { CHECKOFF_EFFECTS, type CheckoffEffect } from './checkoffArt';
 import { playCheckoffById } from './checkoffEffects';
+import { RING_SKINS, ringMarkup } from './ringSkins';
+import { ACCENTS, COBALT_BLUE } from './accents';
 
 const NONE_CHECKOFF_SVG =
   `<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">` +
@@ -43,6 +49,8 @@ const ARROW_SVG =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 
 const PER_PAGE = 3;
+
+type CarouselKey = 'gem' | 'checkoff' | 'ring' | 'accent';
 
 interface CardOpts {
   icon: string;
@@ -64,7 +72,7 @@ export class StoreView {
   /** Which page of three each carousel is on. Kept on the instance because every
    *  balance or equip change repaints the whole screen, and buying something must
    *  not throw you back to page one. Undefined = open on the equipped item. */
-  private pages: Record<'gem' | 'checkoff', number | undefined> = { gem: undefined, checkoff: undefined };
+  private pages: Record<CarouselKey, number | undefined> = { gem: undefined, checkoff: undefined, ring: undefined, accent: undefined };
 
   constructor(data: Data) {
     this.data = data;
@@ -102,6 +110,8 @@ export class StoreView {
 
     wrap.append(this.gemSection(balance));
     wrap.append(this.checkoffSection(balance));
+    wrap.append(this.ringSection(balance));
+    wrap.append(this.accentSection(balance));
 
     panel.append(wrap);
   }
@@ -113,7 +123,7 @@ export class StoreView {
     const items: CardOpts[] = [
       {
         icon: STONE_SVG,
-        name: 'Default',
+        name: 'Gem', // the standard stone (Gabe, 10/4: "Gem", not "Default")
         price: 0,
         owned: true,
         equipped: !equipped,
@@ -218,6 +228,99 @@ export class StoreView {
     return list;
   }
 
+  // --- Focus Ring Skins and Accent Colors (Gabe, 10/4) ------------------------
+  // First drafted as two sub-rows under one "Miscellaneous" header; each is now
+  // a full section with its own header, like the two above (Gabe, 10/4).
+
+  private ringSection(balance: number): HTMLElement {
+    return this.section('Focus Ring Skins', this.carousel('ring', this.ringItems(balance)));
+  }
+
+  private accentSection(balance: number): HTMLElement {
+    return this.section('Accent Colors', this.carousel('accent', this.accentItems(balance)));
+  }
+
+  private ringItems(balance: number): CardOpts[] {
+    const equipped = getEquippedRing();
+    const card = (id: string | undefined, name: string, price: number): CardOpts => {
+      const owned = !id || isOwned(id);
+      return {
+        icon: '', // the preview below IS the ring; a second, smaller one only repeated it
+        name,
+        price,
+        owned,
+        equipped: equipped === id,
+        canAfford: balance >= price,
+        preview: () => this.ringPreview(id),
+        onBuyOrEquip: async () => {
+          if (owned) void equipRing(id);
+          else if (id && (await purchaseItem(id, price))) void equipRing(id);
+        },
+      };
+    };
+    return [card(undefined, 'Standard', 0), ...RING_SKINS.map((s) => card(s.id, s.name, s.price))];
+  }
+
+  /** A ring skin, drawn at about two-thirds done like a session in progress. */
+  private ringSvg(skin: string | undefined): string {
+    const R = 130;
+    const circ = 2 * Math.PI * R;
+    const svg = `<svg class="focus-ring" viewBox="0 0 280 280">${ringMarkup(skin, R, circ)}</svg>`;
+    return svg.replace(/stroke-dashoffset="0"/g, `stroke-dashoffset="${(circ * 0.33).toFixed(2)}"`);
+  }
+
+  /** What it looks like in use: the ring on the Focus session's own background,
+   *  with a time in the middle. */
+  private ringPreview(skin: string | undefined): HTMLElement {
+    const box = el('div', { class: 'store-preview store-preview-ring' });
+    const wrap = el('div', { class: 'focus-ring-wrap' });
+    wrap.innerHTML = this.ringSvg(skin);
+    wrap.append(el('div', { class: 'focus-time', text: '16:40' }));
+    box.append(wrap);
+    return box;
+  }
+
+  private accentItems(balance: number): CardOpts[] {
+    const equipped = getEquippedAccent();
+    const card = (id: string | undefined, name: string, price: number, hex: string, rgb: string, on: string): CardOpts => {
+      const owned = !id || isOwned(id);
+      return {
+        icon:
+          `<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">` +
+          `<circle cx="50" cy="50" r="38" fill="${hex}"/>` +
+          `<ellipse cx="38" cy="34" rx="15" ry="9" fill="#fff" opacity="0.3"/></svg>`,
+        name,
+        price,
+        owned,
+        equipped: equipped === id,
+        canAfford: balance >= price,
+        preview: () => this.accentPreview(hex, rgb, on),
+        onBuyOrEquip: async () => {
+          if (owned) void equipAccent(id);
+          else if (id && (await purchaseItem(id, price))) void equipAccent(id);
+        },
+      };
+    };
+    return [
+      card(undefined, 'Cobalt Blue', 0, COBALT_BLUE, '125, 180, 255', '#071433'),
+      ...ACCENTS.map((a) => card(a.id, a.name, a.price, a.hex, a.rgb, a.on)),
+    ];
+  }
+
+  /** A few real-looking controls painted in this accent: a filled button, a
+   *  switch that's on, and a selected chip. */
+  private accentPreview(hex: string, rgb: string, on: string): HTMLElement {
+    const box = el('div', { class: 'store-preview store-preview-accent' });
+    box.style.setProperty('--pa', hex);
+    box.style.setProperty('--pa-rgb', rgb);
+    box.style.setProperty('--pa-on', on);
+    box.innerHTML =
+      `<span class="pa-btn">Start</span>` +
+      `<span class="pa-switch" aria-hidden="true"><span></span></span>` +
+      `<span class="pa-chip">Selected</span>`;
+    return box;
+  }
+
   // --- shared chrome ---------------------------------------------------------
 
   private section(title: string, body: HTMLElement): HTMLElement {
@@ -227,7 +330,7 @@ export class StoreView {
   }
 
   /** Three cards in view, arrows either side; → steps toward pricier items. */
-  private carousel(key: 'gem' | 'checkoff', items: CardOpts[]): HTMLElement {
+  private carousel(key: CarouselKey, items: CardOpts[]): HTMLElement {
     const last = Math.max(0, Math.ceil(items.length / PER_PAGE) - 1);
     if (this.pages[key] === undefined) {
       const eq = items.findIndex((it) => it.equipped);

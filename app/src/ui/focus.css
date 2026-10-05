@@ -130,9 +130,9 @@
   right: 0;
   height: 34px;
   transform: translateY(-50%);
-  border-top: 1px solid rgba(125, 180, 255, 0.5);
-  border-bottom: 1px solid rgba(125, 180, 255, 0.5);
-  background: rgba(125, 180, 255, 0.06);
+  border-top: 1px solid rgba(var(--accent-rgb), 0.5);
+  border-bottom: 1px solid rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.06);
   pointer-events: none;
 }
 .focus-custom,
@@ -455,7 +455,7 @@
   border-radius: 8px;
 }
 .focus-import-bulk {
-  background: rgba(125, 180, 255, 0.05);
+  background: rgba(var(--accent-rgb), 0.05);
 }
 .focus-import-bulk-label {
   flex: 1;
@@ -563,7 +563,7 @@
 }
 .focus-import-add:hover {
   border-color: var(--accent);
-  background: rgba(125, 180, 255, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 /* Imported already — a red minus, not a static checkmark (Gabe, 9/27). It's a
    real undo, not just a status mark: one click pulls that task back out of the
@@ -883,7 +883,7 @@
   background: rgba(255, 255, 255, 0.06);
 }
 .focus-songwin-row.active {
-  background: rgba(125, 180, 255, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
   color: var(--accent);
 }
 .focus-songwin-emoji {
@@ -926,7 +926,7 @@
   /* Same dark-blue gradient as the rest of the app (theme.css body), so the focus
      takeover reads as the same app — plus a faint gold glow behind the ring. */
   background:
-    radial-gradient(820px 560px at 50% 16%, rgba(125, 180, 255, 0.07), transparent 60%),
+    radial-gradient(820px 560px at 50% 16%, rgba(var(--accent-rgb), 0.07), transparent 60%),
     linear-gradient(165deg, #0e2457 0%, #091a43 50%, #07132e 100%);
 }
 
@@ -1148,10 +1148,10 @@
 }
 .focus-extend-row.add .focus-extend-btn {
   color: var(--accent);
-  border-color: rgba(125, 180, 255, 0.35);
+  border-color: rgba(var(--accent-rgb), 0.35);
 }
 .focus-extend-row.add .focus-extend-btn:hover {
-  background: rgba(125, 180, 255, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
   border-color: var(--accent);
 }
 .focus-extend-row.trim .focus-extend-btn {
@@ -1205,11 +1205,11 @@
    End Session .danger button so the two controls match. Same in BOTH the overlay and
    the mini widget (shared base rule — no per-screen override). */
 .focus-ctrl.primary {
-  border-color: rgba(125, 180, 255, 0.5);
+  border-color: rgba(var(--accent-rgb), 0.5);
   color: var(--accent);
 }
 .focus-ctrl.primary:hover {
-  background: rgba(125, 180, 255, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 /* .focus-ctrl.gold deleted 9/9/26 (skin audit): its one caller, the extend/trim
    dialog's Add button, moved onto bm-btn-primary (see focus/view.ts
@@ -1401,6 +1401,11 @@
 }
 .focus-todo-handle:hover {
   opacity: 1;
+}
+/* A finished row's grip: holds its space so the row lines up, never shown. */
+.focus-todo-handle.inert {
+  visibility: hidden;
+  pointer-events: none;
 }
 .focus-todo-handle:active {
   cursor: grabbing;
@@ -1781,7 +1786,7 @@ body:has(.focus-overlay, .focus-widget) .row-menu-back {
   background: rgba(255, 255, 255, 0.06);
 }
 .focus-menu-track.active {
-  background: rgba(125, 180, 255, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
   color: var(--accent);
   font-weight: 600;
 }
@@ -1890,7 +1895,7 @@ body:has(.focus-overlay, .focus-widget) .row-menu-back {
   gap: 14px;
   /* Same dark-blue hue as the overlay/app, so it reads as a shrunk-down takeover. */
   background: linear-gradient(165deg, #0e2457 0%, #091a43 55%, #07132e 100%);
-  border: 1px solid rgba(125, 180, 255, 0.35);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
   border-radius: 16px;
   padding: 34px 16px 18px; /* top room for the maximize button */
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);

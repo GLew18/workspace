@@ -155,7 +155,7 @@
 }
 .settings-side-btn.active {
   color: var(--accent);
-  background: rgba(125, 180, 255, 0.16);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 .settings-side-btn svg {
   width: 19px;
@@ -489,7 +489,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: rgba(125, 180, 255, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
   /* 1px on purpose: tiny chips look chunky at 2px (2px is for the BIG pills). */
   border: 1px dashed var(--accent);
   border-radius: 999px;
@@ -500,7 +500,7 @@
   cursor: pointer;
 }
 .parse-rec:hover {
-  background: rgba(125, 180, 255, 0.18);
+  background: rgba(var(--accent-rgb), 0.18);
 }
 .parse-rec-plus {
   font-weight: 700;
@@ -733,7 +733,7 @@
   background: rgba(255, 255, 255, 0.06);
 }
 .playlist-song.on {
-  background: rgba(125, 180, 255, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 .playlist-song-check {
   flex: none;
@@ -873,7 +873,7 @@
 }
 .sound-row.selected {
   border-color: var(--accent);
-  background: rgba(125, 180, 255, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 .sound-pick {
   flex: 1;
@@ -930,7 +930,7 @@
 }
 .sound-preview:hover {
   border-color: var(--accent);
-  background: rgba(125, 180, 255, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 .sound-preview svg {
   display: block;
@@ -994,8 +994,8 @@
 }
 .notify-toggle.on {
   color: var(--accent);
-  border-color: rgba(125, 180, 255, 0.5);
-  background: rgba(125, 180, 255, 0.07);
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.07);
 }
 .notify-sublabel {
   margin: 14px 0 6px;
@@ -1119,10 +1119,10 @@
 .ntypes.disabled { opacity: 0.4; }
 .ntypes.disabled .nswitch { pointer-events: none; }
 .ncard { border-radius: 12px; background: var(--surface2); border: 1px solid var(--border); overflow: hidden; transition: border-color 0.22s ease, background 0.22s ease; }
-.ncard.open { border-color: rgba(125, 180, 255,0.4); background: rgba(125, 180, 255,0.06); }
+.ncard.open { border-color: rgba(var(--accent-rgb), 0.4); background: rgba(var(--accent-rgb), 0.06); }
 .ncard-bar { display: flex; align-items: flex-start; gap: 12px; padding: 14px 15px; }
 .ncard-ico { flex: none; width: 30px; height: 30px; border-radius: 8px; background: var(--surface); display: grid; place-items: center; color: var(--text-dim); margin-top: 1px; transition: color 0.22s ease, background 0.22s ease; }
-.ncard.open .ncard-ico { color: var(--accent); background: rgba(125, 180, 255,0.14); }
+.ncard.open .ncard-ico { color: var(--accent); background: rgba(var(--accent-rgb), 0.14); }
 .ncard-main { flex: 1; min-width: 0; }
 .ncard-title { font-size: 13.5px; font-weight: 600; }
 .ncard-desc { font-size: 12px; color: var(--text-dim); margin-top: 3px; line-height: 1.45; }
@@ -1149,11 +1149,11 @@
      matches onboarding's .onb-help; only the space after it grew. */
   display: block; width: 100%; text-align: center; margin: 0 0 22px;
   padding: 10px 14px; border-radius: 10px; cursor: pointer;
-  background: rgba(125, 180, 255,0.10); border: 1px solid rgba(125, 180, 255,0.35);
+  background: rgba(var(--accent-rgb), 0.10); border: 1px solid rgba(var(--accent-rgb), 0.35);
   color: var(--accent); font-family: inherit; font-size: 13px; font-weight: 600;
   transition: background 0.18s ease, border-color 0.18s ease;
 }
-.notify-howto:hover { background: rgba(125, 180, 255,0.18); border-color: var(--accent); }
+.notify-howto:hover { background: rgba(var(--accent-rgb), 0.18); border-color: var(--accent); }
 
 /* Channel grid — [🔔 Popup] [✉ Gmail], on the master row and every notification card.
    A button is gold when its channel is on, dim otherwise. */
@@ -1167,7 +1167,7 @@
 }
 .nchan-ico { display: inline-flex; }
 .nchan-btn:hover { color: var(--text); border-color: var(--text-dim); }
-.nchan-btn[aria-pressed="true"] { background: rgba(125, 180, 255,0.14); border-color: var(--accent); color: var(--accent); }
+.nchan-btn[aria-pressed="true"] { background: rgba(var(--accent-rgb), 0.14); border-color: var(--accent); color: var(--accent); }
 
 /* (The Tasks/Focus subheaders reuse .settings-group-label, like every other tab.) */
 
@@ -1662,8 +1662,8 @@ a.settings-credits-lic:hover { color: var(--accent); border-color: var(--accent)
   align-items: center;
   gap: 7px;
   padding: 5px 6px 5px 11px;
-  background: rgba(125, 180, 255, 0.1);
-  border: 1px solid rgba(125, 180, 255, 0.32);
+  background: rgba(var(--accent-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-rgb), 0.32);
   border-radius: 999px;
   font-size: 12.5px;
   line-height: 1;

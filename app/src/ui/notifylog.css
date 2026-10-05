@@ -90,7 +90,7 @@
 }
 .nlog-row:hover {
   background: rgba(28, 39, 65, 0.7);
-  border-color: rgba(125, 180, 255, 0.35);
+  border-color: rgba(var(--accent-rgb), 0.35);
 }
 .nlog-time {
   flex: none;
@@ -144,8 +144,8 @@
 }
 .nlog-route.is-popup {
   color: var(--accent);
-  background: rgba(125, 180, 255, 0.12);
-  border: 1px solid rgba(125, 180, 255, 0.35);
+  background: rgba(var(--accent-rgb), 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
 }
 .nlog-route.is-email {
   color: #8cc6ee;
@@ -167,7 +167,7 @@
   display: grid;
   place-items: center;
   font-size: 30px;
-  background: radial-gradient(circle, rgba(125, 180, 255, 0.16), transparent 70%);
+  background: radial-gradient(circle, rgba(var(--accent-rgb), 0.16), transparent 70%);
   opacity: 0.75;
 }
 .nlog-empty-title {

@@ -37,6 +37,13 @@
   pointer-events: none;
   transition: none !important;
 }
+/* The real checkbox under the stand-in, hidden for the effect so the two never
+   stack brighter than the row (Gabe, 10/4). No transition, so it comes back in
+   the same frame the stand-in leaves. */
+.task-cb.gems-cb-hidden {
+  visibility: hidden !important;
+  transition: none !important;
+}
 /* The row a row effect is playing on: its opacity is driven frame by frame
    (--gems-fade), graying out gradually to the finished look as the effect
    plays instead of snapping there when it ends (Gabe, 10/3). */
@@ -555,7 +562,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  border: 2.5px solid #7db4ff;
+  border: 2.5px solid var(--accent); /* the accent in force (Gabe, 10/4) */
   animation: gems-ripple-anim 0.7s ease-out forwards;
 }
 @keyframes gems-ripple-anim {
@@ -572,7 +579,7 @@
   top: 0;
   border-radius: 50%;
   border: 1.5px solid rgba(159, 208, 255, 0.85);
-  background: radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.85) 0 14%, rgba(125, 180, 255, 0.16) 30%, rgba(125, 180, 255, 0.05) 70%);
+  background: radial-gradient(circle at 34% 30%, rgba(255, 255, 255, 0.85) 0 14%, rgba(var(--accent-rgb), 0.16) 30%, rgba(var(--accent-rgb), 0.05) 70%);
   pointer-events: none;
 }
 
@@ -582,4 +589,23 @@
   border-radius: 3px;
   background: rgba(255, 226, 77, 0.58);
   pointer-events: none;
+}
+
+/* ---- Confetti, frozen mid-burst (landing Gamification screen, 10/4) ---- */
+
+.gems-still {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+}
+.gems-still-burst {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+.gems-still-piece {
+  animation: none;
+  opacity: 0.76; /* 80% of the live piece's 0.95 (Gabe, 10/4) */
 }

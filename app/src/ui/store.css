@@ -212,3 +212,71 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---- Focus Ring Skins and Accent Colors (Gabe, 10/4) ---- */
+/* The ring as it looks in a session: on the session's own deep-blue background. */
+.store-preview-ring {
+  display: flex;
+  justify-content: center;
+  padding: 10px 6px;
+  border-radius: 10px;
+  background: linear-gradient(165deg, #0e2457 0%, #091a43 55%, #07132e 100%);
+  border: 1px solid var(--border);
+}
+.store-preview-ring .focus-ring-wrap,
+.store-preview-ring .focus-ring {
+  width: 112px;
+  height: 112px;
+}
+.store-preview-ring .focus-time {
+  font-size: 22px;
+}
+/* A few controls painted in the accent on offer (the card sets --pa*). */
+.store-preview-accent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 14px 6px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.store-preview-accent .pa-btn {
+  padding: 5px 12px;
+  border-radius: 8px;
+  background: var(--pa);
+  color: var(--pa-on);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 0 14px rgba(var(--pa-rgb), 0.35);
+}
+.store-preview-accent .pa-switch {
+  width: 30px;
+  height: 17px;
+  border-radius: 999px;
+  background: var(--pa);
+  position: relative;
+}
+.store-preview-accent .pa-switch span {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--pa-on);
+}
+.store-preview-accent .pa-chip {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--pa);
+  background: rgba(var(--pa-rgb), 0.14);
+  border: 1px solid rgba(var(--pa-rgb), 0.45);
+}
+/* Ring cards carry no icon: their preview is the ring itself. */
+.store-card-icon:empty {
+  display: none;
+}

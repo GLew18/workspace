@@ -12,12 +12,17 @@
 // pitch explicit.
 
 import { el } from '../util/dom';
-import { createWordmark } from '../ui/laurel';
+import { createWordmark, STONE_SVG } from '../ui/laurel';
 import type { Data } from '../db';
-import { createSandbox } from './sandbox';
+import { createSandbox, createGamifySandbox } from './sandbox';
 import { buildFocusDemo } from './focusDemo';
 import { TasksView } from '../tasks/render';
-import { BookmarksView } from '../bookmarks/view';
+import { BookmarksView, registerLocalFavicons } from '../bookmarks/view';
+import { LANDING_FAVICONS } from './favicons';
+import { gemAltById } from '../store/gemArt';
+import { accentById } from '../store/accents';
+import { drawConfettiStill } from '../store/checkoffEffects';
+import { createAppTabs } from '../ui/appTabs';
 import { priorityDef } from '../tasks/priorities';
 import type { Priority } from '../types';
 
@@ -39,6 +44,7 @@ const NAV_LINKS: Array<{ id: string; label: string }> = [
   { id: 'video', label: 'Video demo' },
   { id: 'play', label: 'Try it' },
   { id: 'yours', label: 'Make it yours' },
+  { id: 'gamify', label: 'Gamification' },
   { id: 'compare', label: 'Why Cobalt' },
   { id: 'caps', label: 'Capabilities' },
   { id: 'demo', label: 'Full demo film' },
@@ -110,29 +116,47 @@ function navBar(opts: LandingOpts, root: HTMLElement): HTMLElement {
  *  middle band of the viewport gets `.active`. The observer dies naturally with
  *  the DOM (no window-level listeners), same as setupReveal below. */
 function setupNav(nav: HTMLElement, root: HTMLElement): void {
-  if (!('IntersectionObserver' in window)) return;
   const links = [...nav.querySelectorAll<HTMLElement>('.lp-nav-link')];
   // The owned sections are watched too, and report as their owner (SECTION_OWNER).
   const watched = [...NAV_LINKS.map((l) => l.id), ...Object.keys(SECTION_OWNER)];
-  const sections = watched.map((id) => root.querySelector(`#${id}`)).filter((s): s is Element => !!s);
-  if (!sections.length) return;
-  // Track every section's intersection state so we can tell "scrolled above all
-  // tracked sections" (hero text) apart from "moved to another section" — in the
-  // former case no tab should stay lit.
-  const inBand = new Set<string>();
-  const activeIO = new IntersectionObserver(
-    (entries) => {
-      for (const e of entries) {
-        const owner = SECTION_OWNER[e.target.id] ?? e.target.id;
-        if (e.isIntersecting) inBand.add(e.target.id);
-        else inBand.delete(e.target.id);
-        if (e.isIntersecting) links.forEach((b) => b.classList.toggle('active', b.dataset.target === owner));
-      }
-      if (!inBand.size) links.forEach((b) => b.classList.remove('active'));
-    },
-    { rootMargin: '-40% 0px -55% 0px', threshold: 0 }
-  );
-  sections.forEach((s) => activeIO.observe(s));
+  // MEASURED ON EVERY SCROLL, not an observer band (Gabe, 10/4: "Why Cobalt" was
+  // lit while he was reading Gamification). The old observer only changed the
+  // link when a section ENTERED a thin band, so a section leaving it could leave
+  // the wrong link lit. Now: the section under a line 40% down the screen is the
+  // active one. Above the first section (the hero) nothing is lit, and so too
+  // once the line has run well past the last one (the closing card, the footer).
+  let ticking = false;
+  const paint = (): void => {
+    ticking = false;
+    if (!root.isConnected && root.dataset.mounted) {
+      // The landing was torn down (signed in): stop listening.
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+      return;
+    }
+    if (root.isConnected) root.dataset.mounted = '1';
+    const line = window.innerHeight * 0.4;
+    let owner: string | null = null;
+    let bestTop = -Infinity;
+    for (const id of watched) {
+      const sec = root.querySelector<HTMLElement>(`#${id}`);
+      if (!sec || !sec.offsetParent) continue; // missing or hidden (the unreleased film)
+      const r = sec.getBoundingClientRect();
+      if (r.top > line || r.top < bestTop) continue;
+      if (r.bottom < line - 160) continue; // well past it: a gap or a later, unwatched block
+      bestTop = r.top;
+      owner = SECTION_OWNER[id] ?? id;
+    }
+    links.forEach((b) => b.classList.toggle('active', b.dataset.target === owner));
+  };
+  const onScroll = (): void => {
+    if (ticking) return;
+    ticking = true;
+    window.setTimeout(paint, 50);
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll);
+  window.setTimeout(paint, 0);
 }
 // #endregion
 
@@ -198,8 +222,11 @@ const CLOUD: Array<[string, number]> = [
   ['edit', 3], ['group', 3], ['sort', 3], ['customize', 3], ['knock out', 3],
   ['attach links to', 3], ['file into project folders', 3], ['see a month view of', 3],
   ['pull into focus sessions', 3], ['turn one typed line into', 3], ['rename', 3], ['track', 3],
-  ['set reminders for', 2], ['reorder by hand', 2], ['range-select', 2], ['pin', 2],
+  ['set reminders for', 2], ['reorder by hand', 2], ['range-select', 2],
   ['conquer', 2],
+  // Gamification and pinning (Gabe, 10/4). 'pin' was here at 2; it grows into the
+  // phrase the ⋯ menu actually says.
+  ['gamify', 4], ['earn Gems from', 4], ['pin to the top', 3], ['celebrate finishing', 3],
 ];
 
 // Deterministic palette + font mix for the cloud — chosen to feel like a classic
@@ -379,6 +406,9 @@ export function renderLanding(opts: LandingOpts): HTMLElement {
   // the page is ever inserted, and each beat starts the moment it is. Reduced
   // motion skips it, and the elements simply render as they always did.
   if (!reducedMotion()) root.classList.add('rise-on');
+  // Every sample bookmark (the Try-it card and Dan's demo) shows its real icon
+  // even where outside images are blocked. See landing/favicons.ts.
+  registerLocalFavicons(LANDING_FAVICONS);
 
   const nav = navBar(opts, root);
   root.append(nav);
@@ -394,6 +424,7 @@ export function renderLanding(opts: LandingOpts): HTMLElement {
     demoSection(root),
     featuresSection(seeSandbox),
     setupsSection(),
+    gamifySection(),
     compareSection(),
     capabilitiesSection(),
     finalCtaSection(opts),
@@ -410,6 +441,45 @@ export function renderLanding(opts: LandingOpts): HTMLElement {
 // No "WELCOME TO Cobalt" (Gabe, 8/13): real landing pages lead with what the
 // product does, not its name — the nav above already carries the wordmark. The
 // headline IS the motto.
+/** The verb that cycles in the headline (Gabe, 10/4: "X your Schoology
+ *  workflow", Schoology named outright because Cobalt is a Schoology product). REVOLUTIONIZE leads because it covers both halves of the pitch;
+ *  then the easier-and-organized words, and the fun ones (Gems, the Shop,
+ *  check-off effects). Automate and Enjoy came out (Gabe, 10/4): Cobalt does not
+ *  automate anything, and "Enjoy your Schoology workflow" read oddly. Each word
+ *  holds for 3 seconds (Gabe, 10/4). */
+const HERO_WORDS = ['Revolutionize', 'Streamline', 'Organize', 'Simplify', 'Improve', 'Gamify', 'Supercharge'];
+const HERO_WORD_MS = 3000;
+
+/** "<Word> / your Schoology workflow". The verb gets its own line, so a shorter or
+ *  longer word never shifts the rest of the sentence. Every word is stacked in
+ *  one grid cell, so the line is always as wide as the longest one and the
+ *  centering never jumps; only the current word is shown. Screen readers get
+ *  the first sentence once, never a ticker. Reduced motion keeps the first word. */
+function heroTitle(): HTMLElement {
+  const h1 = el('h1', { class: 'lp-hero-title', 'aria-label': `${HERO_WORDS[0]} your Schoology workflow` });
+  const rot = el('span', { class: 'lp-hero-rotor', 'aria-hidden': 'true' });
+  const words = HERO_WORDS.map((w, i) =>
+    el('span', { class: `lp-hero-word lp-hero-accent${i === 0 ? ' on' : ''}`, text: w })
+  );
+  rot.append(...words);
+  h1.append(rot, el('span', { class: 'lp-hero-rest', 'aria-hidden': 'true', text: 'your Schoology workflow' }));
+  if (!reducedMotion()) {
+    let i = 0;
+    const timer = window.setInterval(() => {
+      if (!h1.isConnected) return window.clearInterval(timer); // the landing was torn down
+      if (document.hidden) return; // no catching up in a burst when the tab returns
+      // The old word rises well clear BEFORE the next one comes up from below
+      // (Gabe, 10/4), so the two never cross.
+      words[i].classList.replace('on', 'off');
+      const prev = words[i];
+      window.setTimeout(() => prev.classList.remove('off'), 1100);
+      i = (i + 1) % words.length;
+      words[i].classList.add('on');
+    }, HERO_WORD_MS);
+  }
+  return h1;
+}
+
 function heroSection(opts: LandingOpts): HTMLElement {
   const sec = el('section', { class: 'lp-hero' });
   // The Raycast shape (Gabe, 8/17): the motto alone owns the first screen,
@@ -423,21 +493,11 @@ function heroSection(opts: LandingOpts): HTMLElement {
   const inner = el('div', { class: 'lp-hero-inner' });
 
   inner.append(
-    // "Schoology" carries the accent (Gabe, 8/13), so the one word the visitor is
-    // scanning for is the one that reads first. Built from children rather than a
-    // text attr because `el`'s `text` sets textContent and would erase the span.
-    rise(
-      el('h1', { class: 'lp-hero-title' }, [
-        'Your ',
-        el('span', { class: 'lp-hero-accent', text: 'Schoology assignments' }),
-        ', revolutionized',
-      ]),
-      1
-    ),
+    rise(heroTitle(), 1),
     rise(
       el('p', {
         class: 'lp-tagline',
-        text: 'Cobalt pulls every assignment out of Schoology into one organized list, while adding helpful functions to streamline homework completion.',
+        text: 'Cobalt provides helpful functions to streamline homework completion while gamifying the process through cosmetics and rewards.',
       }),
       2
     )
@@ -743,43 +803,30 @@ function demoSection(root: HTMLElement): HTMLElement {
 }
 // #endregion
 
-// #region See it in action (scroll-stacked live previews) -----------------------
-/** Each feature gets its own card, sticky-pinned as you scroll past it, so the
- *  next card slides up and covers it completely — no click required to see
- *  what Focus or Bookmarks do (Gabe, 9/5/26: clicking a tab was friction;
- *  scrolling past a card that reveals itself is not). The tab names live on
- *  the cards themselves, bottom-left of the copy column, where the old tab
- *  row's job (saying which feature you are looking at) is done by the card
- *  that is on top. No nav row: it was a second thing to look at. */
+// #region See it in action (an endless, arrow-driven carousel) --------------------
+/** The three live previews side by side in one strip, one at a time, moved by the
+ *  arrows (Gabe, 10/4). It replaces the scroll-pinned card stack of 9/5: scrolling
+ *  the page now goes straight past, with no pause while cards rise into place.
+ *  ENDLESS: right from the last card lands on the first and left from the first
+ *  lands on the last, by moving the card that just left round to the far end of
+ *  the strip, so every step is the same one-card slide. The cards are moved, never
+ *  rebuilt, so a preview keeps whatever a visitor did in it. */
+const CAR_MS = 650;
+
 function featuresSection(sandbox: Promise<Data>): HTMLElement {
   const sec = el('section', { class: 'lp-section lp-features lp-reveal', id: 'play' });
-
-  // The heading holds its place while the deck runs (Gabe, 9/6/26: "it stays in
-  // view as the cards go up"). All of the how — and why the first attempt at it
-  // looked wrong — lives on .lp-features .lp-stack-head in landing.css; there is
-  // nothing to do here but give it its own box to be pinned.
-  // Plural copy: there are three samples down there, not one.
-  const head = el('div', { class: 'lp-stack-head' });
-  head.append(
+  sec.append(
     el('h2', { class: 'lp-h2', text: 'See it in action' }),
-    el('p', { class: 'lp-sub', text: 'Real, playable samples. Just keep scrolling.' })
+    el('p', { class: 'lp-sub', text: 'Real, playable samples. Use the arrows to see each one.' })
   );
-  // The rail is the heading's leash: it decides WHERE ON THE PAGE the heading
-  // lets go. See .lp-stack-head-rail in landing.css for why it exists; its one
-  // number is measured below.
-  const rail = el('div', { class: 'lp-stack-head-rail' });
-  rail.append(head);
-  sec.append(rail);
 
-  const track = el('div', { class: 'lp-stack-track' });
+  const viewport = el('div', { class: 'lp-car-viewport' });
+  const track = el('div', { class: 'lp-car-track' });
+  const mounts: Array<() => void> = [];
 
-  FEATURES.forEach((f) => {
-    // Cards are DIRECT children of the track, not wrapped: a sticky element is
-    // caged by its parent, so a per-card wrapper meant each card got shoved off
-    // the moment the next one arrived and the two never overlapped at all (the
-    // visual auditor measured 0px of overlap at every scroll sample, 9/5/26).
-    // Sharing one parent lets card 1 stay pinned while card 2 rides up over it.
-    const card = el('div', { class: 'lp-stack-card lp-reveal' });
+  FEATURES.forEach((f, i) => {
+    const card = el('div', { class: 'lp-stack-card lp-car-slide' });
+    card.dataset.index = String(i);
     const row = el('div', { class: 'lp-split lp-split-reverse' });
     const text = el('div', { class: 'lp-split-text' });
     const label = el('div', { class: 'lp-stack-label' });
@@ -794,90 +841,112 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
     row.append(text, scaleToFit(frame.frame, 620)); // copy LEFT, frame RIGHT
     card.append(row);
     track.append(card);
-
-    // Mount the real preview once the card is close enough to matter (a generous
-    // margin so it's ready well before the sticky card settles into place), then
-    // never again — same one-shot-then-cache shape the old click-driven panels used.
-    let mounted = false;
-    const mountIO = new IntersectionObserver(
-      (entries) => {
-        if (mounted || !entries.some((e) => e.isIntersecting)) return;
-        mounted = true;
-        mountIO.disconnect();
-        if (f.kind === 'focus') {
-          frame.body.append(buildFocusDemo());
+    mounts.push(() => {
+      if (f.kind === 'focus') {
+        frame.body.append(buildFocusDemo());
+        frame.body.classList.remove('loading');
+        return;
+      }
+      sandbox
+        .then((data) => {
+          if (f.kind === 'tasks') new TasksView(data, { host: frame.body }).mount(frame.body);
+          else void new BookmarksView(data, { host: frame.body }).mount(frame.body);
           frame.body.classList.remove('loading');
-        } else {
-          sandbox
-            .then((data) => {
-              if (f.kind === 'tasks') new TasksView(data, { host: frame.body }).mount(frame.body);
-              else void new BookmarksView(data, { host: frame.body }).mount(frame.body);
-              frame.body.classList.remove('loading');
-            })
-            .catch(() => {
-              frame.body.append(el('div', { class: 'lp-frame-err', text: 'Preview unavailable' }));
-              frame.body.classList.remove('loading');
-            });
-        }
-      },
-      { rootMargin: '600px 0px 600px 0px', threshold: 0 }
-    );
-    mountIO.observe(card);
+        })
+        .catch(() => {
+          frame.body.append(el('div', { class: 'lp-frame-err', text: 'Preview unavailable' }));
+          frame.body.classList.remove('loading');
+        });
+    });
+  });
+  viewport.append(track);
+
+  // Mount all three once the section is near, so a card is ready before it slides in.
+  const mountIO = new IntersectionObserver(
+    (entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      mountIO.disconnect();
+      mounts.forEach((m) => m());
+    },
+    { rootMargin: '600px 0px 600px 0px', threshold: 0 }
+  );
+  mountIO.observe(sec);
+
+  const arrow = (dir: 'prev' | 'next'): HTMLButtonElement => {
+    const b = el('button', {
+      class: `lp-car-arrow ${dir}`,
+      type: 'button',
+      'aria-label': dir === 'next' ? 'Next sample' : 'Previous sample',
+    }) as HTMLButtonElement;
+    b.innerHTML =
+      `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+      `<path d="${dir === 'next' ? 'M9 5l7 7-7 7' : 'M15 5l-7 7 7 7'}"/></svg>`;
+    return b;
+  };
+  const prev = arrow('prev');
+  const next = arrow('next');
+  const dots = el('div', { class: 'lp-car-dots' });
+  const dotBtns = FEATURES.map((f, i) => {
+    const d = el('button', { class: 'lp-car-dot', type: 'button', 'aria-label': f.label });
+    d.addEventListener('click', () => goTo(i));
+    dots.append(d);
+    return d;
   });
 
-  sec.append(track);
-  pinHeadingToDeck(sec, head, track);
-  return sec;
-}
-
-/** Make the heading let go of the screen at the EXACT scroll position the deck
- *  does, so the two leave together as one object sitting at one place on the page
- *  (Gabe, 9/7/26: "it should stick in one place... like a 3D element in After
- *  Effects — the camera moves, it stays on its own locus").
- *
- *  Before this, the heading outlasted the cards by roughly 700px of scroll: every
- *  card shares one pin offset and one container, so all three unpin together, and
- *  the heading, leashed to the whole section instead, stayed behind alone while
- *  the deck slid up underneath it. That lone stretch is what read as "it has its
- *  own background" and "at the end it scrolls too".
- *
- *  A sticky element lets go when its bottom edge reaches the bottom of its
- *  containing block, so moving that bottom edge up is the whole fix. The rail is
- *  an inert, invisible box that gives the heading a SHORTER containing block than
- *  the section; this sets where the rail ends. Everything it reads is a settled
- *  layout value, and it never touches the cards' own pin offset, which is a
- *  declared constant precisely because a measured one made them twitch (9/6/26).
- */
-function pinHeadingToDeck(sec: HTMLElement, head: HTMLElement, track: HTMLElement): void {
-  const apply = () => {
-    const last = track.lastElementChild as HTMLElement | null;
-    if (!last) return;
-    // Below 980px, and under prefers-reduced-motion, nothing is pinned — the CSS
-    // takes the rail out of the equation there, so there is nothing to solve for.
-    if (getComputedStyle(last).position !== 'sticky') return;
-    const cardTop = parseFloat(getComputedStyle(last).top) || 0;
-    const headTop = parseFloat(getComputedStyle(head).top) || 0;
-    // Everything below the point the deck lets go of: the track's own dwell
-    // padding plus the section's bottom padding. A sticky box is held inside its
-    // containing block's CONTENT box, not its padding box, so the track's
-    // padding-bottom counts here — measured, not assumed, because that dwell is
-    // 28vh on a desktop and 2vh on a phone.
-    const dwell = parseFloat(getComputedStyle(track).paddingBottom) || 0;
-    const tail = sec.offsetHeight - (track.offsetTop + track.offsetHeight) + dwell;
-    const bottom = tail + cardTop + last.offsetHeight - headTop - head.offsetHeight;
-    sec.style.setProperty('--stack-head-rail-bottom', `${Math.max(0, Math.round(bottom))}px`);
+  const shown = (): number => Number((track.firstElementChild as HTMLElement | null)?.dataset.index ?? 0);
+  const paintDots = (): void => dotBtns.forEach((d, i) => d.classList.toggle('on', i === shown()));
+  let busy = false;
+  const step = (dir: 1 | -1): void => {
+    if (busy) return;
+    const smooth = !reducedMotion();
+    if (dir === 1) {
+      // Slide one card left, then move the card that left round to the far end.
+      const finish = (): void => {
+        track.style.transition = 'none';
+        track.append(track.firstElementChild!);
+        track.style.transform = 'translateX(0)';
+        busy = false;
+        paintDots();
+      };
+      if (!smooth) return finish();
+      busy = true;
+      track.style.transition = `transform ${CAR_MS}ms cubic-bezier(0.65, 0, 0.35, 1)`;
+      track.style.transform = 'translateX(-100%)';
+      window.setTimeout(finish, CAR_MS + 20);
+    } else {
+      // Bring the far-end card round to the front first, off screen, then slide it in.
+      track.style.transition = 'none';
+      track.prepend(track.lastElementChild!);
+      paintDots();
+      if (!smooth) return;
+      busy = true;
+      track.style.transform = 'translateX(-100%)';
+      void track.offsetWidth; // commit the off-screen start before animating
+      track.style.transition = `transform ${CAR_MS}ms cubic-bezier(0.65, 0, 0.35, 1)`;
+      track.style.transform = 'translateX(0)';
+      window.setTimeout(() => {
+        // Settle explicitly, so the strip can never be left mid-slide.
+        track.style.transition = 'none';
+        track.style.transform = 'translateX(0)';
+        busy = false;
+      }, CAR_MS + 20);
+    }
   };
-  // Called before the section is in the document, so the first pass is a no-op and
-  // the CSS fallback holds until one of these lands.
-  apply();
-  requestAnimationFrame(apply);
-  setTimeout(apply, 0);
-  setTimeout(apply, 400); // webfont swap / preview mount can change the card's height
-  window.addEventListener('load', apply);
-  // Re-solve when the card's height changes (window resize, a font landing, the
-  // previews finishing their mount). Scrolling never re-runs this.
-  new ResizeObserver(apply).observe(track);
-  window.addEventListener('resize', apply);
+  // Three cards: any other card is exactly one step away in one direction.
+  const goTo = (i: number): void => {
+    const n = FEATURES.length;
+    const cur = shown();
+    if (i === cur) return;
+    step(((i - cur + n) % n) === 1 ? 1 : -1);
+  };
+  prev.addEventListener('click', () => step(-1));
+  next.addEventListener('click', () => step(1));
+  paintDots();
+
+  const car = el('div', { class: 'lp-car' });
+  car.append(prev, viewport, next);
+  sec.append(car, dots);
+  return sec;
 }
 
 function bulletList(items: string[]): HTMLElement {
@@ -949,6 +1018,7 @@ function setupsSection(): HTMLElement {
   sec.append(grid);
   return sec;
 }
+
 
 function setupCard(s: StudentSetup, index: number): HTMLElement {
   const card = el('div', { class: 'lp-setup-card lp-reveal' });
@@ -1076,6 +1146,263 @@ function staticTaskRow(t: ShowTask, s: StudentSetup): HTMLElement {
   info.append(bottom);
   row.append(info);
   return row;
+}
+// #endregion
+
+// #region Gamification (Gabe, 10/4) -------------------------------------------------
+// ONE screen, not a row of separate cards: the REAL Tasks tab (TasksView over its
+// own sandbox) wearing a Shop gem and a Shop accent, with captions on either side
+// pointing at each thing. A PICTURE, not a toy (Gabe, 10/4): "See it in action"
+// is the interactive one, and clicking here broke the tabs. One check-off is
+// frozen mid-Confetti instead, with the Gems toast it pays out.
+const GAM_GEM = 'goldcoin';
+const GAM_ACCENT = 'accent-emerald';
+/** The frame's design width; .lp-gam-frame in landing.css must match. */
+const GAM_W = 860;
+/** The first award of the day (gems/gems.ts: 10 a task). */
+const GAM_FIRST_AWARD = 10;
+
+// The header's icons, as drawn in the real app (main.ts) and the demo's replica.
+const GAM_BULB =
+  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1v.2h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>';
+const GAM_BELL =
+  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>';
+const GAM_GEAR =
+  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.22" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+
+interface GamCallout {
+  side: 'left' | 'right';
+  title: string;
+  text: string;
+  /** What the caption points at, looked up fresh on every layout (rows re-render). */
+  target: (frame: HTMLElement) => Element | null;
+  /** Which edge of the target the line lands on, so it never covers the thing. */
+  edge: 'left' | 'right' | 'bottom';
+}
+
+const GAM_CALLOUTS: GamCallout[] = [
+  {
+    side: 'left',
+    title: 'Gem cosmetics',
+    text: 'Swap the gem in the Cobalt logo, from a donut to the Milky Way.',
+    target: (f) => f.querySelector('.app-brand .ws-mon'),
+    edge: 'bottom',
+  },
+  {
+    side: 'left',
+    title: 'Check-off animations',
+    text: 'Pick the one that plays every time you check a box.',
+    target: (f) => f.querySelector('.lp-gam-struck .task-cb') ?? f.querySelector('.task-item:not(.completed) .task-cb'),
+    edge: 'left',
+  },
+  {
+    side: 'right',
+    title: 'Accent colors',
+    text: 'Repaint Cobalt’s controls in a color of your own.',
+    target: (f) => f.querySelector('.quick-add-btn'),
+    edge: 'right',
+  },
+];
+
+function gamifySection(): HTMLElement {
+  const sec = el('section', { class: 'lp-section lp-gam-sec lp-reveal', id: 'gamify' });
+  sec.append(
+    el('h2', { class: 'lp-h2', text: 'Cosmetics' }),
+    el('p', {
+      class: 'lp-sub',
+      text: 'Every Schoology assignment you check off earns Gems, and finishing early earns more. Spend them in the Shop on cosmetics for the whole app.',
+    })
+  );
+
+  // --- The screen: real header chrome + the real Tasks tab -------------------
+  const frame = el('div', { class: 'lp-frame lp-gam-frame' });
+  const accent = accentById(GAM_ACCENT);
+  if (accent) {
+    // Scoped to this screen only: the page around it stays Cobalt blue.
+    frame.style.setProperty('--accent', accent.hex);
+    frame.style.setProperty('--accent-rgb', accent.rgb);
+    frame.style.setProperty('--glow-rgb', accent.rgb);
+    frame.style.setProperty('--gold-glow', `rgba(${accent.rgb}, 0.3)`);
+    frame.style.setProperty('--on-accent', accent.on);
+    // theme.css builds these from the accent ONCE, at the page root, so a screen
+    // that re-colors only itself has to restate them or they stay Cobalt blue
+    // (Gabe, 10/4: the List toggle and the ↻ were). The app re-colors at the root,
+    // where they follow on their own.
+    frame.style.setProperty('--gold', accent.hex);
+    frame.style.setProperty('--sel-outline', accent.hex);
+    frame.style.setProperty('--toast-border', `1px solid rgba(${accent.rgb}, 0.35)`);
+  }
+  const header = el('header', { class: 'app-header' });
+  const left = el('div', { class: 'app-header-left' });
+  const brand = el('div', { class: 'app-brand' });
+  brand.append(createWordmark(gemAltById(GAM_GEM)?.svg).el);
+  left.append(brand);
+  const { nav, btns, tasksCount } = createAppTabs(() => {});
+  btns.get('tasks')?.classList.add('active');
+  tasksCount.textContent = '1'; // due today and unfinished, as main.ts counts it
+  tasksCount.classList.add('on');
+  const user = el('div', { class: 'app-user' });
+  for (const svg of [GAM_BULB, GAM_BELL, GAM_GEAR]) {
+    const b = el('button', { class: 'icon-btn' });
+    b.innerHTML = svg;
+    user.append(b);
+  }
+  header.append(left, nav, user);
+  frame.setAttribute('inert', ''); // a picture of the app, nothing in it clicks
+  const body = el('div', { class: 'lp-frame-body lp-gam-body loading' });
+  body.append(el('div', { class: 'lp-frame-loading', text: 'Loading preview…' }));
+  frame.append(header, body);
+
+  // --- Captions + the lines that point from each one to its target -----------
+  const stage = el('div', { class: 'lp-gam-stage' });
+  const colL = el('div', { class: 'lp-gam-col left' });
+  const colR = el('div', { class: 'lp-gam-col right' });
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const lines = document.createElementNS(svgNS, 'svg');
+  lines.setAttribute('class', 'lp-gam-lines');
+  lines.setAttribute('aria-hidden', 'true');
+  const callouts = GAM_CALLOUTS.map((c, i) => {
+    const node = el('div', { class: `lp-gam-callout ${c.side}` });
+    node.append(
+      el('span', { class: 'lp-gam-num', text: String(i + 1) }),
+      el('div', { class: 'lp-gam-callout-title', text: c.title }),
+      el('p', { class: 'lp-gam-callout-text', text: c.text })
+    );
+    (c.side === 'left' ? colL : colR).append(node);
+    return { c, node, i };
+  });
+  stage.append(colL, scaleToFit(frame, GAM_W), colR, lines);
+  sec.append(stage);
+
+  /** Place each caption level with what it points at, then draw the lines. On a
+   *  narrow screen the captions stack under the screen instead, and only the
+   *  numbered pins on the targets remain. */
+  const layout = (): void => {
+    const sr = stage.getBoundingClientRect();
+    if (!sr.width) return;
+    drawStill();
+    const wide = getComputedStyle(stage).getPropertyValue('--gam-wide').trim() === '1';
+    lines.setAttribute('viewBox', `0 0 ${sr.width.toFixed(1)} ${sr.height.toFixed(1)}`);
+    lines.setAttribute('width', sr.width.toFixed(1));
+    lines.setAttribute('height', sr.height.toFixed(1));
+    const pts = callouts.map(({ c }) => {
+      const t = c.target(frame);
+      if (!t) return null;
+      const r = t.getBoundingClientRect();
+      if (!r.width) return null;
+      const cx = r.left + r.width / 2 - sr.left;
+      const cy = r.top + r.height / 2 - sr.top;
+      // `p` is where the line lands (just off the chosen edge); `pin` is the
+      // numbered marker's spot on narrow screens (the target's top-right corner).
+      const p =
+        c.edge === 'left'
+          ? { x: r.left - sr.left - 4, y: cy }
+          : c.edge === 'right'
+            ? { x: r.right - sr.left + 4, y: cy }
+            : { x: cx, y: r.bottom - sr.top + 4 };
+      return { ...p, pin: { x: r.right - sr.left + 2, y: r.top - sr.top - 2 } };
+    });
+    if (wide) {
+      for (const side of ['left', 'right'] as const) {
+        const mine = callouts.filter((x) => x.c.side === side && pts[x.i]);
+        mine.sort((a, b) => pts[a.i]!.y - pts[b.i]!.y);
+        let minTop = 0;
+        for (const x of mine) {
+          const h = x.node.offsetHeight;
+          const top = Math.max(minTop, pts[x.i]!.y - 20);
+          x.node.style.top = `${top}px`;
+          minTop = top + h + 18;
+        }
+      }
+    } else {
+      for (const x of callouts) x.node.style.top = '';
+    }
+    let svg = '';
+    callouts.forEach(({ c, node, i }) => {
+      const p = pts[i];
+      if (!p) return;
+      if (wide) {
+        const nr = node.getBoundingClientRect();
+        const ax = c.side === 'left' ? nr.right - sr.left + 10 : nr.left - sr.left - 10;
+        const ay = nr.top - sr.top + 20;
+        const mx = (ax + p.x) / 2;
+        // A bottom edge is approached from below, a side edge from the side.
+        const c2 = c.edge === 'bottom' ? `${p.x.toFixed(1)} ${(p.y + 40).toFixed(1)}` : `${mx.toFixed(1)} ${p.y.toFixed(1)}`;
+        svg += `<path class="lp-gam-line" d="M${ax.toFixed(1)} ${ay.toFixed(1)} C${mx.toFixed(1)} ${ay.toFixed(1)} ${c2} ${p.x.toFixed(1)} ${p.y.toFixed(1)}"/>`;
+        svg += `<circle class="lp-gam-dot" cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="3"/>`;
+        svg += `<circle class="lp-gam-end" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5"/>`;
+      } else {
+        svg += `<circle class="lp-gam-pin" cx="${p.pin.x.toFixed(1)}" cy="${p.pin.y.toFixed(1)}" r="8"/>`;
+        svg += `<text class="lp-gam-pin-num" x="${p.pin.x.toFixed(1)}" y="${(p.pin.y + 3.5).toFixed(1)}">${i + 1}</text>`;
+      }
+    });
+    lines.innerHTML = svg;
+  };
+  let queued = 0;
+  const relayout = (): void => {
+    if (queued) return;
+    queued = window.setTimeout(() => {
+      queued = 0;
+      layout();
+    }, 16);
+  };
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(relayout);
+    ro.observe(stage);
+    ro.observe(frame);
+  }
+  new MutationObserver(relayout).observe(body, { childList: true, subtree: true });
+  body.addEventListener('scroll', relayout, true); // the task list scrolls inside the screen
+  window.addEventListener('resize', relayout);
+  void document.fonts?.ready.then(relayout);
+
+  // --- One check-off, frozen mid-burst ----------------------------------------
+  // On the task the sandbox seeds as just finished (crossed off at the bottom of
+  // its day, where the app puts it). Redrawn only if that row moved (fonts
+  // landing), so the burst keeps its shape.
+  let still: HTMLElement | null = null;
+  let stillAt = '';
+  const drawStill = (): void => {
+    const row =
+      body.querySelector<HTMLElement>('.lp-gam-struck') ?? body.querySelector<HTMLElement>('.task-item.completed');
+    if (!row || !row.offsetWidth) return;
+    row.classList.add('lp-gam-struck');
+    const at = `${row.offsetTop},${row.offsetLeft},${row.offsetWidth},${body.offsetTop}`;
+    if (still && at === stillAt) return;
+    still?.remove();
+    stillAt = at;
+    still = drawConfettiStill(row, frame);
+  };
+
+  void createGamifySandbox()
+    .then((data) => {
+      body.replaceChildren();
+      new TasksView(data, { host: body }).mount(body);
+      body.classList.remove('loading');
+      gamGemsToast(frame, GAM_FIRST_AWARD);
+      relayout();
+      window.setTimeout(relayout, 400);
+    })
+    .catch(() => {
+      body.replaceChildren(el('div', { class: 'lp-frame-err', text: 'Preview unavailable' }));
+      body.classList.remove('loading');
+    });
+
+  return sec;
+}
+
+/** The app's Gems toast (gems/gems.ts showGemsToast), contained to the screen
+ *  and held on, as the strike's payout. */
+function gamGemsToast(frame: HTMLElement, amount: number): void {
+  const icon = el('span', { class: 'gems-toast-icon' });
+  icon.innerHTML = STONE_SVG;
+  const t = el('div', { class: 'toast gems-toast' }, [
+    el('span', { class: 'gems-toast-plus', text: '+' }),
+    icon,
+    el('span', { class: 'gems-toast-amount', text: String(amount) }),
+  ]);
+  t.classList.add('show');
+  frame.append(t);
 }
 // #endregion
 

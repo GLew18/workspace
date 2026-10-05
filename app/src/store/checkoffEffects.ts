@@ -20,8 +20,61 @@
 /** Plays checkoff effect `id` over `row`. Unknown ids do nothing. A new effect
  *  needs a case here and a catalog entry in checkoffArt.ts; the test page picks
  *  it up from the catalog on its next build. */
-export function playCheckoffById(id: string, row: HTMLElement): void {
+export function playCheckoffById(id: string, row: HTMLElement, opts: { afterMove?: boolean } = {}): void {
   if (reducedMotion()) return;
+  if (opts.afterMove) return afterRowMoves(row, (live) => playNow(id, live));
+  playNow(id, row);
+}
+
+/**
+ * PLAY WHERE THE TASK LANDS (Gabe, 10/4). Ticking a task re-draws its list, and
+ * the finished row moves to the bottom of its day; an effect anchored to the row
+ * it was clicked on fired where the task no longer was. This waits for that
+ * re-draw (it lands within a frame or two, so the timing does not change) and
+ * hands over the row as it now stands. The search stays inside the same list, so
+ * a copy of the task in another view (Focus mirrors into Tasks) is never picked.
+ * No re-draw within 400ms (a row that doesn't move) plays on the original.
+ */
+function afterRowMoves(row: HTMLElement, go: (live: HTMLElement) => void): void {
+  const id = row.dataset.taskId;
+  const root =
+    row.closest<HTMLElement>('.task-list, .focus-todo-list, .focus-overlay-todos') ?? row.ownerDocument.body;
+  const before = row.getBoundingClientRect();
+  const live = (): HTMLElement | null => {
+    if (!id) return row.isConnected ? row : null;
+    const scope: ParentNode = root.isConnected ? root : row.ownerDocument;
+    let best: HTMLElement | null = null;
+    let bestD = Infinity;
+    for (const el of scope.querySelectorAll<HTMLElement>(`.task-item[data-task-id="${CSS.escape(id)}"]`)) {
+      const r = el.getBoundingClientRect();
+      if (!r.width) continue;
+      const d = Math.abs(r.top - before.top);
+      if (d < bestD) {
+        best = el;
+        bestD = d;
+      }
+    }
+    return best;
+  };
+  let done = false;
+  const finish = (): void => {
+    if (done) return;
+    done = true;
+    mo.disconnect();
+    window.clearTimeout(timer);
+    const target = live();
+    if (target) go(target);
+  };
+  // Settled = the clicked row was replaced by a fresh one (a list re-draw), or
+  // the same row was moved.
+  const mo = new MutationObserver(() => {
+    if (!row.isConnected ? live() : Math.abs(row.getBoundingClientRect().top - before.top) > 1) finish();
+  });
+  mo.observe(root.isConnected ? root : row.ownerDocument.body, { childList: true, subtree: true });
+  const timer = window.setTimeout(finish, 400);
+}
+
+function playNow(id: string, row: HTMLElement): void {
   switch (id) {
     case 'ripple':
       return playRipple(row);
@@ -68,6 +121,24 @@ function checkboxOf(row: HTMLElement): HTMLElement {
 
 const centerOf = (r: DOMRect): P => [r.left + r.width / 2, r.top + r.height / 2];
 
+/** Appends effect layers to the row's own document, ABOVE whatever layer the row
+ *  sits on (Gabe, 10/4). The layers' z-indexes (500 to 503, checkoff.css) clear
+ *  the Tasks tab, but a running Focus session is a z-index 2000 overlay: there the
+ *  effect drew BEHIND it, so the real checkbox (hidden for the effect) and its
+ *  stand-in were both unseen until the effect ended. Lifting by the highest
+ *  z-index among the row's ancestors puts them on top anywhere, and the row's
+ *  own document is what makes it work in the Picture-in-Picture window too. */
+function mountFx(row: HTMLElement, ...els: HTMLElement[]): void {
+  const win = row.ownerDocument.defaultView ?? window;
+  let floor = 0;
+  for (let n = row.parentElement; n; n = n.parentElement) {
+    const z = parseInt(win.getComputedStyle(n).zIndex, 10);
+    if (z > floor) floor = z;
+  }
+  row.ownerDocument.body.append(...els);
+  if (floor) for (const e of els) e.style.zIndex = String(floor + (parseInt(win.getComputedStyle(e).zIndex, 10) || 0));
+}
+
 /** A zero-size fixed anchor at the CENTER of `anchorEl`, appended to <body> so
  *  particles can fly past the row's bounds, auto-removed after `life` ms. */
 function burstAnchor(anchorEl: HTMLElement, className: string, life: number): HTMLElement {
@@ -75,7 +146,7 @@ function burstAnchor(anchorEl: HTMLElement, className: string, life: number): HT
   const burst = document.createElement('div');
   burst.className = className;
   burst.style.cssText = `left:${x.toFixed(1)}px;top:${y.toFixed(1)}px;`;
-  document.body.append(burst);
+  mountFx(anchorEl, burst);
   setTimeout(() => burst.remove(), life);
   return burst;
 }
@@ -172,16 +243,15 @@ const DONE_DIM = 0.5;
 /** 1 → DONE_DIM as `k` goes 0 → 1: the row graying out gradually. */
 const dimAt = (k: number) => 1 - (1 - DONE_DIM) * clamp01(k);
 
-/** How long the checkbox stand-in takes to hand over to the real checkbox. */
-const HANDOFF = 220;
-
 interface StageOpts {
   clip?: boolean;
   holdStrike?: boolean;
   /** The row's opacity at `ms`. Defaults to graying out across the whole
    *  effect, so it lands on the finished look exactly as the effect ends. */
   fade?: (ms: number) => number;
-  /** The checkbox stand-in's opacity at `ms`. Defaults to `fade`. */
+  /** The checkbox stand-in's opacity at `ms`. Defaults to `fade`, the row's
+   *  own; override ONLY while a cover hides the row (the checkbox then matches
+   *  the cover, which is what the eye reads as "the task"). */
   boxFade?: (ms: number) => number;
 }
 
@@ -201,9 +271,12 @@ interface StageOpts {
  *   for the browser's real one at the end. Now it IS the browser's line: a
  *   copy of the title inside the row, text invisible, revealed by a clip, so
  *   it sits at the exact pixel and dims exactly as the real one does.
- * - The checkbox stand-in lives outside the row, so even at the same opacity
- *   it blends slightly differently from the real checkbox. It now cross-fades
- *   into the real one over the last HANDOFF ms instead of vanishing.
+ * - The checkbox stand-in REPLACES the real checkbox for the whole effect
+ *   (the real one is hidden under it, Gabe, 10/4). It used to sit on top of
+ *   the visible real one, so the two stacked brighter than the row and then
+ *   dropped again when the stand-in faded out: a fade that paused and resumed.
+ *   Now the box shows at exactly the row's opacity, and the swap back to the
+ *   real one at the end happens at that same opacity in a single frame.
  */
 function rowStage(row: HTMLElement, dur: number, opts: StageOpts, frame: (ms: number, s: Stage) => void): void {
   const track = rowTracker(row);
@@ -218,7 +291,7 @@ function rowStage(row: HTMLElement, dur: number, opts: StageOpts, frame: (ms: nu
   standin.className = 'task-cb checked gems-cb-standin';
   standin.innerHTML = cbSrc === row ? '' : cbSrc.innerHTML;
   if (cbSrc === row) standin.hidden = true;
-  document.body.append(layer, free, standin);
+  mountFx(row, layer, free, standin);
 
   // The strikethrough copy, living inside whichever row node is current.
   let strikeCopy: HTMLElement | null = null;
@@ -265,6 +338,7 @@ function rowStage(row: HTMLElement, dur: number, opts: StageOpts, frame: (ms: nu
   const release = () => {
     held?.classList.remove('gems-row-hold', 'gems-strike-hold');
     held?.style.removeProperty('--gems-fade');
+    held?.querySelector('.gems-cb-hidden')?.classList.remove('gems-cb-hidden');
   };
 
   let now = 0;
@@ -277,8 +351,8 @@ function rowStage(row: HTMLElement, dur: number, opts: StageOpts, frame: (ms: nu
     cur.classList.add('gems-row-hold');
     cur.style.setProperty('--gems-fade', fade(now).toFixed(3));
     cur.classList.toggle('gems-strike-hold', s.strikeHeld);
-    const handoff = clamp01((now - (dur - HANDOFF)) / HANDOFF);
-    standin.style.opacity = (boxFade(now) * (1 - handoff)).toFixed(3);
+    if (!standin.hidden) cur.querySelector('.task-cb')?.classList.add('gems-cb-hidden');
+    standin.style.opacity = boxFade(now).toFixed(3);
     s.row = cur;
     s.rect = rect;
     s.cb = checkboxOf(cur).getBoundingClientRect();
@@ -374,7 +448,7 @@ function playLightSweep(row: HTMLElement): void {
   const BAND = 90;
   let band: HTMLElement | null = null;
   // The row grays out in step with the light crossing it.
-  rowStage(row, 900, { clip: true, holdStrike: true, fade: (ms) => dimAt(easeInOut(ms / 900)) }, (ms, s) => {
+  rowStage(row, 900, { clip: true, holdStrike: true, fade: (ms) => dimAt(ms / 900) }, (ms, s) => {
     if (!band) {
       band = document.createElement('div');
       band.className = 'gems-sweep-band';
@@ -472,8 +546,10 @@ function playGoldBreak(row: HTMLElement): void {
   let broken = false;
 
   // The row grays out at once under the gold, so it's already finished when
-  // the pieces fall away; the checkbox on top dims as the ingot breaks.
-  const goldOpts: StageOpts = { fade: () => DONE_DIM, boxFade: (ms) => dimAt((ms - SHATTER) / 250) };
+  // the pieces fall away. The checkbox matches what you see (Gabe, 10/4): full
+  // strength over the gold, then the finished dim the instant it breaks. One
+  // step, no second fade.
+  const goldOpts: StageOpts = { fade: () => DONE_DIM, boxFade: (ms) => (ms < SHATTER ? 1 : DONE_DIM) };
   rowStage(row, SHATTER + 950, goldOpts, (ms, s) => {
     if (!ingot) {
       ingot = makeIngot();
@@ -877,7 +953,7 @@ function playBlackHole(row: HTMLElement): void {
 
   // The real row stays hidden while the cover is eaten (so nothing shows
   // through), and is back in its finished gray the moment the hole goes off.
-  const opts: StageOpts = { fade: (ms) => (ms < COLLAPSE ? 0 : DONE_DIM), boxFade: (ms) => dimAt((ms - COLLAPSE) / 400) };
+  const opts: StageOpts = { fade: (ms) => (ms < COLLAPSE ? 0 : DONE_DIM), boxFade: (ms) => (ms < COLLAPSE ? 1 : DONE_DIM) };
   rowStage(row, END, opts, (ms, s) => {
     const [hx, hy] = centerOf(s.cb);
     if (!cover) {
@@ -1092,6 +1168,41 @@ function playConfetti(row: HTMLElement): void {
     piece.style.animationDelay = `${Math.round(Math.random() * 60)}ms`;
     burst.append(piece);
   }
+}
+
+/**
+ * CONFETTI, FROZEN MID-BURST (Gabe, 10/4): the landing's Gamification screen is
+ * a picture, not a toy, so it shows one check-off caught partway through
+ * playConfetti: the same pieces, colors and spread, each about 60% of the way
+ * out. Drawn into `host` in its own unscaled pixels, so a screen shrunk with a
+ * CSS transform still lines up. Returns the layer, to remove on a redraw.
+ */
+export function drawConfettiStill(row: HTMLElement, host: HTMLElement): HTMLElement {
+  const hr = host.getBoundingClientRect();
+  const k = hr.width / (host.offsetWidth || hr.width || 1);
+  const cb = checkboxOf(row).getBoundingClientRect();
+  const cx = (cb.left + cb.width / 2 - hr.left) / k;
+  const cy = (cb.top + cb.height / 2 - hr.top) / k;
+  const still = document.createElement('div');
+  still.className = 'gems-still';
+  const burst = document.createElement('div');
+  burst.className = 'gems-still-burst';
+  burst.style.cssText = `left:${cx.toFixed(1)}px;top:${cy.toFixed(1)}px;`;
+  const AT = 0.6; // how far along each piece is
+  for (let i = 0; i < 16; i++) {
+    const piece = document.createElement('span');
+    piece.className = 'gems-confetti-piece gems-still-piece';
+    const rad = ((i / 16) * 360 - 180 + rand(-10, 10)) * (Math.PI / 180);
+    const dist = 40 + Math.random() * 55;
+    const dx = Math.cos(rad) * dist * AT;
+    const dy = (Math.sin(rad) * dist - 18) * AT;
+    piece.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) rotate(${Math.round((Math.random() * 480 - 240) * AT)}deg)`;
+    piece.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+    burst.append(piece);
+  }
+  still.append(burst);
+  host.append(still);
+  return still;
 }
 
 /** A sparkler: a fountain of hot sparks sprays up out of the checkbox and

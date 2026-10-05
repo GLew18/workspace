@@ -13,6 +13,7 @@
 // (Schoology auto-filled from your courses), and an optional companion extension
 // for shortcuts that fire even when Cobalt isn't focused.
 
+import { currentAccentHex } from '../store/accents';
 import type { Data } from '../db';
 import { selectionBar, type SelBar } from '../ui/selbar';
 import { el, textInput, enterConfirms, showToast, fadeRemove, escapeCloses } from '../util/dom';
@@ -99,6 +100,14 @@ function hostOf(url: string): string {
   }
 }
 
+/** Bundled icons by hostname, checked before any icon service. Only the landing
+ *  registers any (landing/favicons.ts), so it shows real favicons even where
+ *  outside images are blocked; the app itself never fills this. */
+const LOCAL_FAVICONS: Record<string, string> = {};
+export function registerLocalFavicons(map: Record<string, string>): void {
+  Object.assign(LOCAL_FAVICONS, map);
+}
+
 /** Best-guess favicon URL: Google Docs sub-products → overrides → per-host DDG for
  *  Google product subdomains → Google s2 service. Exported for tests. */
 export function getFaviconUrl(url: string): string {
@@ -108,8 +117,10 @@ export function getFaviconUrl(url: string): string {
       if (u.pathname.includes('/spreadsheets')) return 'https://ssl.gstatic.com/docs/spreadsheets/favicon3.ico';
       if (u.pathname.includes('/presentation')) return 'https://ssl.gstatic.com/docs/presentations/images/favicon5.ico';
       if (u.pathname.includes('/forms')) return 'https://ssl.gstatic.com/docs/forms/device_home/android_128dp/ic_lanceur_forms_v2_128dp.png';
-      return 'https://ssl.gstatic.com/docs/documents/images/kix-favicon7.ico';
+      return LOCAL_FAVICONS['docs.google.com'] ?? 'https://ssl.gstatic.com/docs/documents/images/kix-favicon7.ico';
     }
+    const local = LOCAL_FAVICONS[u.hostname.replace(/^www\./, '')];
+    if (local) return local;
     if (FAVICON_OVERRIDES[u.hostname]) return FAVICON_OVERRIDES[u.hostname];
     // Google products live on subdomains of google.com, and the s2 service keys on
     // the DOMAIN — every *.google.com product gets the generic "G" from it (that's
@@ -140,6 +151,9 @@ function attachFaviconLadder(img: HTMLImageElement, iconBox: HTMLElement, bm: Bo
   // If the default already IS the DDG service (google.com subdomains), a failure
   // should fall straight through to s2 — retrying the identical URL is pointless.
   if (img.src.includes('icons.duckduckgo.com')) img.dataset.triedDdg = '1';
+  // A bundled icon (landing/favicons.ts) is final: no swapping it for a service
+  // the page may not be allowed to reach.
+  if (img.src.startsWith('data:')) img.dataset.triedDdg = '1';
   img.onload = () => {
     if (img.naturalWidth <= 16 && img.naturalHeight <= 16 && !img.dataset.triedDdg) {
       try {
@@ -216,9 +230,14 @@ export class BookmarksView {
     this.state = await this.load();
     // Single source of truth for the focused-tab fallback dispatcher: it reads the
     // live list and yields once the companion extension is detected.
-    installInAppDispatcher(() => this.state.list as ShortcutBookmark[]);
-    // Push the current shortcuts to the extension (full replace) and probe install.
-    void syncShortcutsToExtension(this.state.list as ShortcutBookmark[]);
+    // NEVER in sample mode (Gabe, 10/4): the landing demo's list is Dan's, and
+    // pushing it replaced the visitor's REAL extension shortcuts with his, so the
+    // demo's own on-camera Alt+Shift+D then opened Desmos in their browser.
+    if (!this.sample) {
+      installInAppDispatcher(() => this.state.list as ShortcutBookmark[]);
+      // Push the current shortcuts to the extension (full replace) and probe install.
+      void syncShortcutsToExtension(this.state.list as ShortcutBookmark[]);
+    }
     void detectExtension();
 
     const page = el('div', { class: 'bm-page' });
@@ -388,6 +407,11 @@ export class BookmarksView {
         sc.title = off ? 'A keyboard shortcut belongs to one link — clear the selection to set one' : sc.dataset.title || sc.title;
       }
     }
+  }
+
+  /** Hand the shortcut list to the extension, never from a sample (see mount). */
+  private syncShortcuts(): void {
+    if (!this.sample) void syncShortcutsToExtension(this.state.list as ShortcutBookmark[]);
   }
 
   private clearSelection(): void {
@@ -736,12 +760,12 @@ export class BookmarksView {
           host: this.sample?.host,
           onSaved: (combo) => {
             bm.shortcut = combo;
-            void this.save().then(() => syncShortcutsToExtension(this.state.list as ShortcutBookmark[]));
+            void this.save().then(() => this.syncShortcuts());
             paintShortcut();
           },
           onCleared: () => {
             delete bm.shortcut;
-            void this.save().then(() => syncShortcutsToExtension(this.state.list as ShortcutBookmark[]));
+            void this.save().then(() => this.syncShortcuts());
             paintShortcut();
           },
         });
@@ -853,7 +877,7 @@ export class BookmarksView {
           let editColor = g.color; // the well's live pick; written back to the group on Save
           const colorEdit = el('button', { type: 'button', class: 'folder-pick-color', title: 'Group color' });
           attachColorPicker(colorEdit, {
-            value: () => (/^#[0-9a-f]{6}$/i.test(editColor) ? editColor : '#7db4ff'),
+            value: () => (/^#[0-9a-f]{6}$/i.test(editColor) ? editColor : currentAccentHex()),
             onChange: (hex) => (editColor = hex),
             host: () => this.sample?.host,
           });
@@ -933,7 +957,7 @@ export class BookmarksView {
       }
 
       // "+ New group": colour well, then the name box. Enter creates and assigns.
-      let newColor = '#7db4ff';
+      let newColor = currentAccentHex();
       const colorInp = el('button', { type: 'button', class: 'folder-pick-color', title: 'Group color' });
       attachColorPicker(colorInp, {
         value: () => newColor,
@@ -948,7 +972,7 @@ export class BookmarksView {
           nameInp.classList.add('invalid');
           return;
         }
-        const g: BookmarkGroup = { id: 'grp_' + genId(), name: nm, color: newColor || '#7db4ff' };
+        const g: BookmarkGroup = { id: 'grp_' + genId(), name: nm, color: newColor || currentAccentHex() };
         this.state.groups.push(g);
         void pick(g.id); // creating auto-assigns and closes, same as clicking a row
       };
@@ -1039,7 +1063,7 @@ export class BookmarksView {
         this.state.list.push(bm);
       }
       await this.save();
-      if (shouldSync) void syncShortcutsToExtension(this.state.list as ShortcutBookmark[]);
+      if (shouldSync) this.syncShortcuts();
       close();
       this.renderGrid();
     });
@@ -1081,7 +1105,7 @@ export class BookmarksView {
               this.state.list = this.state.list.filter((b) => !ids.has(b.id));
               this.clearSelection();
               await this.save();
-              if (hadShortcut) void syncShortcutsToExtension(this.state.list as ShortcutBookmark[]);
+              if (hadShortcut) this.syncShortcuts();
               this.renderGrid();
             })();
           },

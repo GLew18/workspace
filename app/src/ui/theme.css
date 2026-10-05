@@ -11,6 +11,10 @@
      rebalanced: against the three backgrounds it sits at 8.16 / 6.99 / 7.60,
      where the gold was 8.27 / 7.08 / 7.70. */
   --accent: #7db4ff;
+  /* --accent's channels, for every translucent accent tint. A Shop accent color
+     (store/accents.ts) overrides --accent, --accent-rgb and --on-accent together;
+     nothing else may hard-code the blue or it stays blue when the accent changes. */
+  --accent-rgb: 125, 180, 255;
   --gold: var(--accent); /* legacy alias: every var(--gold) is the accent */
   /* THE hover glow, one definition shared by every button that glows (Gabe,
      8/12). Blur does the work instead of spread: the old `0 0 0 3px` ring was a
@@ -19,7 +23,7 @@
      overridden, so a button glows in its OWN hue (the violet premium ones do)
      without inventing its own softness. Used at the usage site, not baked into a
      composite token, so a per-element --glow-rgb actually takes effect. */
-  --glow-rgb: 125, 180, 255;
+  --glow-rgb: var(--accent-rgb);
   --glow-blur: 18px;
   --glow-spread: 2px;
   --glow-alpha: 0.34;
@@ -76,7 +80,7 @@
   --toast-h: 46px;
   --toast-radius: 12px;
   --toast-bg: var(--surface);
-  --toast-border: 1px solid rgba(125, 180, 255, 0.35);
+  --toast-border: 1px solid rgba(var(--accent-rgb), 0.35);
   --toast-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   --radius: 14px;
   --red: #ef4444;
@@ -352,7 +356,7 @@ a {
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #a5cdff; /* accent, one step brighter, matching button hover behavior */
+  background-color: color-mix(in srgb, var(--accent), #fff 30%); /* accent, one step brighter (#a5cdff for Cobalt blue), so it follows a Shop accent */
 }
 ::-webkit-scrollbar-corner {
   background: transparent;

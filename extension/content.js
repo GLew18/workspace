@@ -152,6 +152,10 @@
     'keydown',
     (e) => {
       if (e.defaultPrevented) return;
+      // Real key presses only (Gabe, 10/4). A page can fake a keydown, and the
+      // landing demo does (it types Alt+Shift+D on camera): a faked press must
+      // never open a tab in the visitor's browser.
+      if (!e.isTrusted) return;
       if (isTypingTarget(e.target)) return; // never hijack typing
       if (isCobaltOwnTab()) return; // Cobalt tab: let the in-app dispatcher fire
 

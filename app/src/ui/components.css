@@ -39,14 +39,14 @@
   top: 0;
   z-index: 500;
   height: var(--header-h);
-  /* THREE COLUMNS, THE MIDDLE TRULY CENTRED (Gabe, 10/2): wordmark | tabs | icons.
-     Equal 1fr side columns are what keep the tabs on the page's centre line even
-     though the icon cluster is wider than the wordmark; a flex row with
-     space-between would centre them between the two groups instead, and they'd
-     drift whenever the name or the bell count changed width. minmax(0, …) lets a
-     side shrink (the name truncates) rather than shove the tabs over. */
+  /* wordmark | tabs | icons, with the tabs centred BETWEEN the two groups, so the
+     gap from the wordmark to the tabs always equals the gap from the tabs to the
+     icons (Gabe, 10/4). This replaced centring the tabs on the page (10/2), which
+     left the left gap wider because the icons outweigh the wordmark. The account
+     name came out of the bar at the same time, so the right group has a fixed
+     width and the tabs never drift. */
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 16px;
   padding: 0px 28px;
@@ -90,8 +90,8 @@
 }
 .icon-btn.active {
   color: var(--text);
-  background: rgba(125, 180, 255, 0.16);
-  border-color: rgba(125, 180, 255, 0.3);
+  background: rgba(var(--accent-rgb), 0.16);
+  border-color: rgba(var(--accent-rgb), 0.3);
 }
 
 /* ---- Below-header area: the content. ---- */
@@ -203,7 +203,7 @@ body.app-mode .app-below {
    on reads at a glance rather than by a faint background alone. */
 .app-tab.active {
   color: var(--accent);
-  background: rgba(125, 180, 255, 0.16);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 /* Icon left of the label on desktop (Gabe, 10/2: he liked the phone bar's icons
    enough to want them up here too). Same drawings as the phone bar, a size down. */
@@ -297,6 +297,42 @@ body.app-mode .app-below {
   font-variant-numeric: tabular-nums; /* digits keep one width, so it never jitters */
   flex: none;
 }
+/* CROSS-PLATFORM CENTERING (Gabe, 10/4: the Tasks "5" still sat off on Windows
+   AND on the Mac). Every padding constant above was tuned against the font's
+   ascent/descent, and Chrome reads those from different tables on Windows and
+   macOS (and rounds them), so a value right on one OS is wrong on the other.
+   `text-box: trim-both cap alphabetic` cuts the line box down to exactly cap
+   height → baseline, which is precisely a digit's ink. Centering THAT box needs
+   no font metric at all: the top padding is (circle − 1cap) / 2. Flex items are
+   never trimmed (only block containers are), hence inline-block here. Browsers
+   without text-box (Firefox) keep the tuned flex rule above. The doubled class
+   only raises specificity past the per-badge padding and `.on` display rules. */
+@supports (text-box: trim-both cap alphabetic) {
+  .count-badge.count-badge.count-badge {
+    display: inline-block;
+    text-box: trim-both cap alphabetic;
+    padding-top: calc((var(--badge-size) - 1cap) / 2);
+    padding-bottom: 0;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .count-badge.count-badge.nav-count:not(.on),
+  .count-badge.count-badge.bell-dot:not(.on) {
+    display: none;
+  }
+  /* Level with the word "Tasks" (Gabe, 10/4). The old `top: 1px` nudge was tuned
+     to the label's untrimmed line box, whose baseline moves with the OS's font
+     metrics. Trimming the label to cap height and padding it back to one line
+     (1lh) keeps the tab the same height but puts the letters' middle exactly at
+     the row's middle, where flex already centers the badge, on any OS. */
+  .app-tab-label {
+    text-box: trim-both cap alphabetic;
+    padding-block: calc((1lh - 1cap) / 2);
+  }
+  .count-badge.count-badge.nav-count {
+    top: 0;
+  }
+}
 
 .nav-count {
   display: none; /* .on flips it back to the badge's inline-flex */
@@ -357,24 +393,20 @@ body.app-mode .app-below {
 .app-user .icon-btn {
   flex: none;
 }
-/* Capped and truncated: a long name may never push the centred tabs over. */
-.app-user-name {
-  margin-left: 22px;
-  min-width: 0;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.app-header > .app-tabs {
+  justify-self: center;
 }
-/* ---- LAPTOP WIDTHS: make room for the tabs before anything collides. The name
-   goes first (it is the one non-control up here; the account is in Settings). */
+/* The 💡 glyph sits 9px inside its 38px button ((38 - 20) / 2), while the
+   wordmark's box ends at its last letter. Pulling the icon group 9px out of its
+   column makes the VISIBLE gaps equal: wordmark to tabs = tabs to 💡. */
+.app-header > .app-user {
+  margin-left: -9px;
+}
+/* ---- LAPTOP WIDTHS: make room for the tabs before anything collides. */
 @media (max-width: 1080px) {
   .app-header {
     padding: 0 18px;
     column-gap: 10px;
-  }
-  .app-user-name {
-    display: none;
   }
   .app-tab {
     padding: 9px 11px;
@@ -456,19 +488,14 @@ body.app-mode .app-below {
    had any narrow-width handling at all — 28px of padding either side and a 22px
    margin on the name, at every width from a phone to a monitor.
 
-   Three savings, cheapest first: the side padding halves, the icons close up from
-   4px to 2px, and the name goes. The name is the one thing here that is decoration
-   rather than a control — the account it names is in Settings, one press away
-   behind the gear it was crowding off the screen. */
+   The side padding halves and the icons close up from 4px to 2px. (The account
+   name that also hid here is gone from the bar entirely since 10/4.) */
 @media (max-width: 460px) {
   .app-header {
     padding: 0 12px;
   }
   .app-user {
     gap: 2px;
-  }
-  .app-user-name {
-    display: none;
   }
 }
 .app-user button {
@@ -496,8 +523,8 @@ body.app-mode .app-below {
   border-color: transparent;
 }
 .app-user .icon-btn.active {
-  background: rgba(125, 180, 255, 0.16);
-  border-color: rgba(125, 180, 255, 0.3);
+  background: rgba(var(--accent-rgb), 0.16);
+  border-color: rgba(var(--accent-rgb), 0.3);
 }
 
 /* 🔔 unread badge — rides the bell's top-right corner. Hidden at zero (never a
@@ -698,15 +725,15 @@ body.app-mode .app-below {
   justify-content: center;
   font-size: 14px;
   line-height: 1;
-  background: rgba(125, 180, 255, 0.08);
-  border: 1px solid rgba(125, 180, 255, 0.3);
+  background: rgba(var(--accent-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
   border-radius: 999px;
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease;
 }
 .tasks-tips-btn:hover {
-  background: rgba(125, 180, 255, 0.16);
-  border-color: rgba(125, 180, 255, 0.5);
+  background: rgba(var(--accent-rgb), 0.16);
+  border-color: rgba(var(--accent-rgb), 0.5);
 }
 /* The tips themselves. A heading you can skim and a sentence you only read if the
    heading was the one you wanted — four paragraphs of equal weight would be a wall
@@ -739,15 +766,15 @@ body.app-mode .app-below {
   font-size: 15px;
   line-height: 1;
   color: var(--gold);
-  background: rgba(125, 180, 255, 0.08);
-  border: 1px solid rgba(125, 180, 255, 0.3);
+  background: rgba(var(--accent-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
   border-radius: 999px;
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
 }
 .tasks-refresh-btn:hover {
-  background: rgba(125, 180, 255, 0.16);
-  border-color: rgba(125, 180, 255, 0.5);
+  background: rgba(var(--accent-rgb), 0.16);
+  border-color: rgba(var(--accent-rgb), 0.5);
 }
 .tasks-refresh-btn:disabled {
   opacity: 0.6;
@@ -1802,7 +1829,7 @@ body.app-mode .app-below {
   width: 64px;
   height: 5px;
   border-radius: 999px;
-  background: rgba(125, 180, 255, 0.45); /* visible accent, not a faint gray sliver */
+  background: rgba(var(--accent-rgb), 0.45); /* visible accent, not a faint gray sliver */
   transition: background 0.15s ease, width 0.15s ease;
 }
 .ws-resize-grip:hover .ws-resize-grip-pill {
@@ -1826,7 +1853,7 @@ body.app-mode .app-below {
   width: 5px;
   height: 54px;
   border-radius: 999px;
-  background: rgba(125, 180, 255, 0.45);
+  background: rgba(var(--accent-rgb), 0.45);
   transition: background 0.15s ease, height 0.15s ease;
 }
 .ws-resize-grip-x:hover .ws-resize-grip-x-pill {
@@ -2216,7 +2243,7 @@ html[data-kbd] :focus-visible {
 }
 .cal-tallday-cell.today,
 .cal-tcol.today {
-  background: rgba(125, 180, 255, 0.05);
+  background: rgba(var(--accent-rgb), 0.05);
 }
 .cal-tchip {
   position: absolute;
@@ -2678,8 +2705,8 @@ body:has(.selbar:not([hidden])) .toast {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: rgba(125, 180, 255, 0.1);
-  border: 1px solid rgba(125, 180, 255, 0.35);
+  background: rgba(var(--accent-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
   border-radius: 12px;
   padding: 11px 14px;
   font-size: 13.5px;

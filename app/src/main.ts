@@ -35,6 +35,7 @@ import './ui/onboarding.css';
 import './ui/plus.css';
 import './ui/store.css';
 import './ui/checkoff.css';
+import './ui/ringSkins.css';
 import './ui/gemAnim.css';
 import './ui/gemsToast.css';
 import { openPlusScreen, closePlusScreen } from './plus/view';
@@ -335,12 +336,10 @@ async function renderApp(user: AuthUser): Promise<void> {
   headerLeft.append(brand);
 
   const userBox = el('div', { class: 'app-user' });
-  const nameSpan = el('span', { class: 'app-user-name', text: displayName });
   const settingsView = new SettingsView(data, {
     displayName,
     email: user.email,
     onNameChange: (n) => {
-      nameSpan.textContent = n;
       dashboardView.setName(n); // keep the greeting in sync
     },
     // Settings' side tabs are the app's second path level (/settings/courses).
@@ -409,7 +408,9 @@ async function renderApp(user: AuthUser): Promise<void> {
   // the left, with the name reading as the label at the end of the cluster.
   // 💡 sits FIRST: it is the only one of the four that is not a destination, so
   // putting it left of the rest keeps the three navigating icons adjacent.
-  userBox.append(suggestBtn, bellBtn, settingsBtn, nameSpan);
+  // No account name up here (Gabe, 10/4): it did nothing, and its width threw the
+  // gaps either side of the tabs out of balance. The account is in Settings.
+  userBox.append(suggestBtn, bellBtn, settingsBtn);
 
   // --- The main tabs: in the header's centre column, a bottom bar on phones
   // (src/ui/appTabs.ts; the hamburger drawer they replaced is gone, Gabe 10/2).

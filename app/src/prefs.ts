@@ -89,16 +89,9 @@ export interface AppPrefs {
      *  Empty is a legitimate value: it turns translation off. */
     translateFrom: string[];
   };
-  sound: {
-    /** The app's incidental sounds: today that means the two-note chime when a task
-     *  is checked off. OFF by default since 9/8/26 (Gabe: "it's pretty annoying,
-     *  especially kids are going to be using this in school"), and it stays a
-     *  switch in Settings ▸ Tasks for anyone who wants it. Deliberately does NOT cover the sounds the
-     *  student asked for on purpose (the focus end cue, which has its own switch,
-     *  and music), because those are the point rather than background feedback
-     *  (Gabe, 8/15). Any future incidental sound belongs behind this same flag. */
-    system: boolean;
-  };
+  // (No `sound` group any more: the check-off chime, the only sound it governed,
+  // was removed with its setting on 10/4 (Gabe: "they're just annoying"). A
+  // saved `sound` key in old prefs is simply ignored on read.)
   focus: {
     /** Persisted; the M:SS vs minutes-only display option is phased. */
     showSeconds: boolean;
@@ -160,7 +153,6 @@ export const DEFAULT_PREFS: AppPrefs = {
   sync: { auto: true, intervalMins: 30, onOpen: true },
   importPrefs: { assignments: true, assessments: true, quizzes: true, windowDays: 30 },
   tasks: { allowEdit: true, pinnedActions: [], translateFrom: [...DEFAULT_TRANSLATE_FROM] },
-  sound: { system: false }, // check-off chime OFF by default, see the note on the type
   focus: { showSeconds: true, keepAwake: true, autoStartMusic: true, resumeAfterReload: false, timeAccountability: false, linkTasks: true },
   calendar: {
     defaultScreen: 'list',
@@ -219,9 +211,6 @@ export function normalizePrefs(raw: unknown): AppPrefs {
         // every caller the same live array as DEFAULT_PREFS, so one in-place edit
         // anywhere would silently rewrite the defaults for the whole session.
         : [...d.tasks.translateFrom],
-    },
-    sound: {
-      system: bool(r.sound?.system, d.sound.system),
     },
     focus: {
       showSeconds: bool(r.focus?.showSeconds, d.focus.showSeconds),

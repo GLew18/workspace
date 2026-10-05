@@ -42,24 +42,25 @@
   border-bottom: 1px solid var(--border);
 }
 .lp-nav-brand { background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: center; }
-/* 22px, up from 19px (Gabe, 8/13). Only the SIZE moves: .ws-mark scales the whole
+/* 30px, up from 22px (Gabe, 10/4, after Suno's bar): the wordmark should clearly
+   outweigh the links beside it. Only the SIZE moves: .ws-mark scales the whole
    lockup off its font-size, so the C + gem + balt proportions stay exact. */
-.lp-nav .ws-mark { font-size: 22px; }
-/* TRUE page-center (Gabe, 8/17): margin:auto only centered the links between
-   the unequal brand and action clusters, which read as off-center. */
+.lp-nav .ws-mark { font-size: 30px; }
+/* BESIDE THE WORDMARK, not page-centered (Gabe, 10/4, Suno's bar): the links read
+   as part of the brand cluster on the left, and the two buttons own the right.
+   This replaces the absolute true-center placement of 8/17. */
 .lp-nav-links {
   display: flex;
   gap: 2px;
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  margin-left: 26px;
+  margin-right: auto;
 }
 .lp-nav-link {
   background: none;
   border: none;
   color: var(--text-dim);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   padding: 7px 11px;
   border-radius: 999px;
@@ -93,9 +94,10 @@
 .lp-nav-cta:hover { filter: brightness(1.08); }
 
 /* Every id'd element clears the fixed nav when scrolled/linked to. 72px, up from 64px,
-   because the bar itself grew to ~60px with the larger wordmark (Gabe, 8/13). */
+   because the bar itself grew to ~60px with the larger wordmark (Gabe, 8/13).
+   80px since the 30px wordmark (10/4). */
 .landing section[id],
-.landing [id='video'] { scroll-margin-top: 72px; }
+.landing [id='video'] { scroll-margin-top: 80px; }
 
 /* 1080, up from 940: the centered link row grew a tab (8/17) and absolute
    centering must never slide under the right-edge CTAs. */
@@ -331,6 +333,35 @@
 /* The one word the visitor is scanning for. */
 .lp-hero-accent {
   color: var(--accent);
+}
+/* The cycling verb (Gabe, 10/4). All the words share one grid cell, so the line
+   is always the longest word's width and nothing around it moves; the current
+   word rises in, the last one rises out. */
+.lp-hero-rotor {
+  display: grid;
+  justify-items: center;
+}
+/* Longer travel, slower move (Gabe, 10/4): each word starts well below and leaves
+   well above, and the next one waits until the last is mostly gone, so they never
+   cross. Opacity keeps its 0.5s; only the movement slowed. */
+.lp-hero-word {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transform: translateY(0.6em);
+  transition: opacity 0.5s ease, transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.lp-hero-word.on {
+  opacity: 1;
+  transform: none;
+  transition-delay: 0.35s; /* the outgoing word clears first */
+}
+.lp-hero-word.off {
+  opacity: 0;
+  transform: translateY(-1.1em);
+  transition-timing-function: ease, cubic-bezier(0.55, 0, 0.75, 0.4);
+}
+.lp-hero-rest {
+  display: block;
 }
 .lp-tagline {
   /* 22px under, not 60 (Gabe, 9/2/26): with the actions' own 20px on top, the
@@ -1863,6 +1894,9 @@ html[data-kbd] .landing :is(button, a):focus-visible {
      nothing on the page is centred on a phone except the nav row itself. */
   .lp-hero, .lp-hero-top, .lp-hero-inner { align-items: flex-start; text-align: left; }
   .lp-hero-title { font-size: clamp(30px, 9.4vw, 40px); }
+  .lp-hero-rotor { justify-items: start; } /* the left-aligned hero's verb sits left too */
+  /* The 30px desktop wordmark would push the two buttons off a 360px screen. */
+  .lp-nav .ws-mark { font-size: 24px; }
   .lp-tagline { font-size: 14.5px; margin: 14px 0 18px; }
   .lp-hero-actions { flex-wrap: wrap; justify-content: flex-start; gap: 10px; }
   .lp-cta { font-size: 15px; padding: 12px 26px; }
@@ -2149,4 +2183,215 @@ html[data-kbd] .landing :is(button, a):focus-visible {
     display: block;
   }
   .lp-features .lp-stack-head .lp-sub { margin-bottom: 30px; }
+}
+
+/* ---------------- Gamification (Gabe, 10/4) ----------------
+   One real Tasks screen wearing a Shop gem + accent, captions either side, a
+   line from each caption to what it names (drawn by landing/view.ts layout()).
+   --gam-wide tells that code which layout the CSS chose. */
+.lp-gam-stage {
+  --gam-wide: 1;
+  position: relative;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 860px) 210px;
+  justify-content: center;
+  column-gap: 40px;
+  margin-top: 10px;
+  text-align: left;
+}
+.lp-gam-col {
+  position: relative; /* captions are placed level with their targets */
+}
+.lp-gam-callout {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+.lp-gam-callout.left { text-align: right; }
+.lp-gam-num {
+  display: none; /* the pins carry the numbers only on narrow screens */
+}
+.lp-gam-callout-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.lp-gam-callout-text {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.lp-gam-lines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 2;
+}
+.lp-gam-line {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.45);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+.lp-gam-dot {
+  fill: rgba(255, 255, 255, 0.7);
+}
+.lp-gam-end {
+  fill: #fff;
+}
+.lp-gam-pin {
+  fill: #fff;
+  stroke: rgba(9, 19, 46, 0.6);
+  stroke-width: 2;
+}
+.lp-gam-pin-num {
+  font: 700 11px Inter, system-ui, sans-serif;
+  fill: #07132e;
+  text-anchor: middle;
+}
+/* The screen: the real header and Tasks tab, contained. */
+.lp-frame.lp-gam-frame {
+  width: 860px;
+  height: 520px;
+  position: relative;
+  --header-h: 60px;
+}
+.lp-gam-frame .app-header {
+  position: static;
+  flex: none;
+  padding: 0 18px;
+}
+.lp-gam-frame .app-header .ws-mark { font-size: 24px; }
+/* Words-only tabs, as the real bar does below 900px: at 860 wide the icons
+   pushed the bulb onto the Shop tab. */
+.lp-gam-frame .app-tab-ico { display: none; }
+.lp-gam-body {
+  text-align: left;
+  background: linear-gradient(165deg, #0e2457 0%, #091a43 50%, #07132e 100%);
+}
+.lp-frame.lp-gam-frame .tasks-header { display: flex; }
+.lp-frame.lp-gam-frame .quick-add { display: block; }
+.lp-gam-frame > .toast {
+  position: absolute;
+  bottom: 16px;
+  z-index: 3;
+}
+/* Narrow: captions stack under the screen as a numbered list, pins stay. */
+@media (max-width: 1240px) {
+  .lp-gam-stage {
+    --gam-wide: 0;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 22px;
+  }
+  .lp-gam-stage > .lp-fit { order: -1; }
+  .lp-gam-col {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+  .lp-gam-callout {
+    position: static;
+    text-align: left !important;
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    column-gap: 10px;
+  }
+  .lp-gam-callout > :not(.lp-gam-num) { grid-column: 2; }
+  .lp-gam-num {
+    display: grid;
+    place-items: center;
+    grid-row: 1 / span 3;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    color: #07132e;
+    font-size: 11px;
+    font-weight: 700;
+  }
+}
+@media (max-width: 640px) {
+  .lp-gam-col { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---------------- See it in action: endless arrow carousel (Gabe, 10/4) ----------------
+   Replaces the scroll-pinned card stack (the .lp-stack-* rules above still style
+   each card's look; everything about pinning is switched off here). The track is
+   one row of full-width cards; view.ts slides it one card at a time. */
+.lp-car {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 18px;
+  text-align: left;
+}
+.lp-car-viewport {
+  overflow: hidden;
+  border-radius: 24px;
+  min-width: 0;
+}
+.lp-car-track {
+  display: flex;
+  will-change: transform;
+}
+.lp-car .lp-stack-card.lp-car-slide {
+  position: relative;
+  top: auto;
+  flex: 0 0 100%;
+  min-width: 0;
+  margin: 0;
+  box-shadow: none; /* the viewport clips it; a cut-off shadow reads as a seam */
+}
+.lp-car-arrow {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+.lp-car-arrow:hover {
+  background: rgba(var(--accent-rgb), 0.16);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.lp-car-arrow:active { transform: scale(0.94); }
+.lp-car-dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+.lp-car-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border-radius: 999px;
+  border: none;
+  background: rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  transition: width 0.3s ease, background 0.3s ease;
+}
+.lp-car-dot.on {
+  width: 22px;
+  background: var(--accent);
+}
+/* Phones: the arrows sit under the card, either side of the dots' row, so the
+   card keeps the full width. */
+@media (max-width: 640px) {
+  .lp-car {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    row-gap: 14px;
+  }
+  .lp-car-viewport { grid-column: 1 / -1; grid-row: 1; }
+  .lp-car-arrow.prev { grid-row: 2; justify-self: start; }
+  .lp-car-arrow.next { grid-row: 2; justify-self: end; }
+  .lp-car-arrow { width: 42px; height: 42px; }
+  .lp-car .lp-stack-card.lp-car-slide { max-height: none; }
 }

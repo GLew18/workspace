@@ -19,6 +19,7 @@
 // stream followed by 'change' on dismiss.
 
 import { el } from '../util/dom';
+import { currentAccentHex } from '../store/accents';
 
 export interface ColorPickerOpts {
   /** Read the CURRENT color (fresh on every open); anything not #rrggbb falls back to the accent. */
@@ -34,7 +35,8 @@ export interface ColorPickerOpts {
 }
 
 const HEX_RE = /^#?([0-9a-f]{6})$/i;
-const FALLBACK = '#7db4ff'; // the accent: what junk or legacy values open as
+/** What junk or legacy values open as: the accent in force (Gabe, 10/4). */
+const fallback = (): string => currentAccentHex();
 
 // ---------------------------------------------------------------- HSV <-> hex
 // Inline on purpose (no deps). h in [0,360), s and v in [0,1].
@@ -86,7 +88,7 @@ const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 /** Coerce whatever the site stored into a #rrggbb the picker can open on. */
 function normalize(color: string): string {
   const rgb = hexToRgb(color);
-  return rgb ? rgbToHex(...rgb) : FALLBACK;
+  return rgb ? rgbToHex(...rgb) : fallback();
 }
 
 // -------------------------------------------------------------------- attach
@@ -129,7 +131,7 @@ export function attachColorPicker(swatch: HTMLElement, opts: ColorPickerOpts): v
     // which matches how the native square behaves after a reopen.
     let [h, s, v] = (() => {
       const rgb = hexToRgb(opts.value());
-      return rgbToHsv(...(rgb ?? hexToRgb(FALLBACK)!));
+      return rgbToHsv(...(rgb ?? hexToRgb(fallback())!));
     })();
 
     const sq = el('div', { class: 'cp-sq' });

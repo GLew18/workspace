@@ -98,10 +98,15 @@ function fmt12h(hhmm) {
   const ampm = h >= 12 ? 'PM' : 'AM';
   return `${h % 12 || 12}:${pad(m)} ${ampm}`;
 }
+// Same rounding as the client's leadLabel (src/notify/notify.ts). This one used
+// to print raw remaining time ("in 70.25 hours") (Gabe, 10/4).
 function leadLabel(mins) {
+  mins = Math.round(mins);
   if (mins < 60) return `${mins} minutes`;
-  const h = mins / 60;
-  return `${h} hour${h === 1 ? '' : 's'}`;
+  const h = Math.round(mins / 60);
+  if (h < 48) return `${h} hour${h === 1 ? '' : 's'}`;
+  const d = Math.round(h / 24);
+  return `${d} day${d === 1 ? '' : 's'}`;
 }
 
 /** Due-soon body honoring the appearance toggles — mirrors notify.ts reminderBody.
@@ -322,7 +327,7 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
         // `undefined` here would stringify to "undefined" and miss the match.
         fire(
           `rem|${t.id}|${t.dueDate}|${dueTime}|${lead}`,
-          `Due soon — ${t.title}`,
+          `Due soon: ${t.title}`, // the client's exact title (Gabe, 10/4)
           reminderBody(t, remaining, a, off === 0, untimed),
           view.dueSoon
         );

@@ -738,14 +738,26 @@ const sceneBookmarks: Scene = {
     const keysBox = await cur.waitFor<HTMLElement>('.bm-keys-box', shell.body);
     await cur.click(keysBox); // focuses the box — the recorder requires it
     await cur.wait(350);
+    // THE KEYS LEAVE FROM A HIDDEN TEXT FIELD, NOT THE BOX (Gabe, 10/4). The Cobalt
+    // extension reads key presses on every page it runs on and skips only typing
+    // fields; pressed on the bare box, this Alt+Shift+D reached a visitor's
+    // extension and opened THEIR saved shortcut (Desmos, in Gabe's Chrome). The
+    // recorder only needs the box focused, not to be the event's target, and a
+    // dispatched event never moves focus, so it records exactly as before.
+    const keySink = document.createElement('textarea');
+    keySink.setAttribute('aria-hidden', 'true');
+    keySink.tabIndex = -1;
+    keySink.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
+    shell.body.append(keySink);
     // A real keyboard lands the combo one key at a time, and the recorder's
     // building label ("Alt + …") narrates each step — show that.
-    cur.pressKey(keysBox, 'Alt', { alt: true });
+    cur.pressKey(keySink, 'Alt', { alt: true });
     await cur.wait(260);
-    cur.pressKey(keysBox, 'Shift', { alt: true, shift: true });
+    cur.pressKey(keySink, 'Shift', { alt: true, shift: true });
     await cur.wait(260);
-    cur.pressKey(keysBox, 'd', { alt: true, shift: true });
+    cur.pressKey(keySink, 'd', { alt: true, shift: true });
     await cur.wait(500);
+    keySink.remove();
     const saveBtn = [...shell.body.querySelectorAll<HTMLElement>('.bm-backdrop button')].find((b) => /^save$/i.test(b.textContent ?? ''));
     expect(saveBtn, 'shortcut modal has no Save');
     await cur.click(saveBtn!);

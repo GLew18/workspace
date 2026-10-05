@@ -182,7 +182,14 @@ export function noteTasksUpdate(tasks: TaskMap): void {
       const origin = checkoffOrigins.get(id);
       if (origin) {
         checkoffOrigins.delete(id);
-        playGemsSpew(origin);
+        // From where the row LANDED (Gabe, 10/4): the check-off re-draws the list
+        // and moves the finished row, so look it up again once that has happened.
+        window.setTimeout(() => {
+          const now = origin.isConnected
+            ? origin
+            : document.querySelector<HTMLElement>(`.task-item[data-task-id="${CSS.escape(id)}"]`);
+          if (now) playGemsSpew(now);
+        }, 0);
       }
     }
   } else if (blockedRecheck > 0) {

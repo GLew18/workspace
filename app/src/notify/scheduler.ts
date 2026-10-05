@@ -95,6 +95,7 @@ export interface SchedulerOpts {
 export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {}): () => void {
   let settings: NotifySettings = normalizeNotifySettings(null);
   let settingsLoaded = false; // never deliver against the defaults — wait for the real read
+  let ledgerLoaded = false; // nor before the shared sent-ledger read (see evaluate)
   let tasks: TaskMap = {};
   let stopped = false;
 
@@ -158,6 +159,10 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
     // flight) — a default-channel send would consume the ledger and permanently
     // eat the reminder the user's actual channels should have delivered.
     if (!settingsLoaded) return;
+    // Nor before the SHARED ledger is in (Gabe, 10/4: two "Due soon" for one task).
+    // The settings read often landed first, so opening the app re-fired a reminder
+    // the server had already sent while it was closed.
+    if (!ledgerLoaded) return;
 
     const today = todayStr();
     const now = Date.now();
@@ -347,8 +352,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
   // the two run blind to each other and every reminder arrives twice, once from
   // whichever tab is open and once from the server.
   //
-  // `settingsLoaded` already blocks every send until the settings read lands, and
-  // this read is issued alongside it, so nothing can fire before the ledger is in.
+  // `ledgerLoaded` blocks every send until this read settles.
   void data
     .getNotifySent()
     .then((seed) => {
@@ -357,7 +361,13 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
     })
     .catch(() => {
       /* offline / rules — fall back to the local ledger, i.e. today's behavior */
+    })
+    .finally(() => {
+      ledgerLoaded = true;
+      evaluate();
     });
+  // A read that never answers (offline start) must not silence reminders forever.
+  window.setTimeout(() => (ledgerLoaded = true), 10_000);
 
   // Settings: one initial read, then push-updates from the Settings Save.
   void data.getProfile('notifications').then((s) => {

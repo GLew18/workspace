@@ -1,0 +1,143 @@
+/* Cobalt: Focus ring skins (markup in store/ringSkins.ts, sold in the Shop).
+   Every rule is scoped to .focus-ring so a skin can only ever restyle the ring.
+   The standard ring's own look lives in focus.css. */
+
+/* ---- Neon: a colored tube with a hot white core ---- */
+.focus-ring [style*='--neon'] .ring-bg {
+  stroke: color-mix(in srgb, var(--neon) 14%, transparent);
+}
+.focus-ring [style*='--neon'] .ring-fg {
+  stroke: var(--neon);
+  stroke-width: 9;
+  filter: drop-shadow(0 0 4px var(--neon)) drop-shadow(0 0 12px var(--neon));
+}
+.focus-ring .ring-neon-core {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+.focus-ring [style*='--neon'] .ring-dot {
+  fill: #ffffff;
+  filter: drop-shadow(0 0 4px var(--neon)) drop-shadow(0 0 10px var(--neon));
+}
+
+/* ---- Gold and Gem-Studded: a warm metallic glow ---- */
+.focus-ring:has(.ring-studs) .ring-bg {
+  stroke: rgba(227, 180, 68, 0.16);
+  stroke-width: 14;
+}
+.focus-ring .ring-studs.dim {
+  opacity: 0.22;
+  filter: grayscale(0.7);
+}
+.focus-ring .ring-studs.lit {
+  filter: drop-shadow(0 0 3px rgba(255, 220, 140, 0.8));
+}
+.focus-ring .ring-mask-arc {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 18;
+  stroke-linecap: round;
+}
+
+/* ---- Ocean: rolling waves and rising bubbles inside the ring ---- */
+.focus-ring .ring-wave-path {
+  fill: var(--sea);
+}
+.focus-ring .ring-wave {
+  animation: ring-wave 3.2s linear infinite;
+}
+.focus-ring .ring-wave.back {
+  opacity: 0.55;
+  animation-duration: 4.6s;
+  animation-direction: reverse;
+}
+@keyframes ring-wave {
+  to { transform: translateX(40px); }
+}
+.focus-ring .ring-bubble {
+  fill: rgba(200, 245, 255, 0.18);
+  stroke: rgba(220, 250, 255, 0.55);
+  stroke-width: 0.8;
+  animation: ring-bubble 5s ease-in infinite;
+}
+@keyframes ring-bubble {
+  0% { transform: translateY(0); opacity: 0; }
+  12% { opacity: 1; }
+  100% { transform: translateY(-190px); opacity: 0; }
+}
+.focus-ring .ring-pearl {
+  fill: #f4fbff;
+  filter: drop-shadow(0 0 6px rgba(127, 245, 230, 0.8));
+}
+
+/* ---- Outer Space: twinkling stars and a ringed planet ---- */
+.focus-ring .ring-star {
+  fill: #ffffff;
+  opacity: 0.75;
+}
+.focus-ring .ring-star.tw {
+  animation: ring-twinkle 2.6s ease-in-out infinite;
+}
+@keyframes ring-twinkle {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 1; }
+}
+.focus-ring .ring-planet {
+  filter: drop-shadow(0 0 6px rgba(255, 179, 90, 0.7));
+}
+
+/* ---- Rainbow: the spectrum, slowly cycling ---- */
+.focus-ring .ring-rainbow {
+  animation: ring-hue 8s linear infinite;
+}
+@keyframes ring-hue {
+  to { filter: hue-rotate(360deg); }
+}
+
+/* ---- Ember: sparks drifting up through a low glow ---- */
+.focus-ring .ring-ember-spark {
+  fill: #ffc46a;
+  filter: drop-shadow(0 0 2px #ff7a2a);
+  animation: ring-ember 3.2s ease-out infinite;
+}
+@keyframes ring-ember {
+  0% { transform: translate(0, 0); opacity: 0; }
+  15% { opacity: 1; }
+  60% { transform: translate(6px, -110px); opacity: 0.8; }
+  100% { transform: translate(-4px, -190px); opacity: 0; }
+}
+.focus-ring .ring-ember-dot {
+  fill: #fff3b0;
+  filter: drop-shadow(0 0 6px #ff7a2a);
+}
+
+/* Gradient skins (Aurora, Gold, Gem-Studded, Ocean, Outer Space) glow in white
+   rather than the accent, which would fight their own colors. */
+.focus-ring .ring-fg[style*='url('] {
+  filter: drop-shadow(0 0 7px rgba(255, 255, 255, 0.28));
+}
+
+/* THE LAST FIVE MINUTES STAYS RED ON EVERY SKIN: it's a signal, not decoration.
+   Inline gradient strokes need !important to give way. */
+.focus-ring-wrap.urgent .focus-ring .ring-fg {
+  stroke: var(--focus-red) !important;
+  filter: drop-shadow(0 0 8px rgba(var(--focus-red-rgb), 0.4)) !important;
+}
+/* Rainbow's hue cycle would tint that red too, so it stops for the last five. */
+.focus-ring-wrap.urgent .focus-ring .ring-rainbow {
+  animation: none;
+  filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .focus-ring .ring-wave,
+  .focus-ring .ring-bubble,
+  .focus-ring .ring-star.tw,
+  .focus-ring .ring-rainbow,
+  .focus-ring .ring-ember-spark {
+    animation: none;
+  }
+}

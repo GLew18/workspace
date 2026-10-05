@@ -37,6 +37,7 @@
 // by openNotifyGuides() in settings/view.ts.
 
 import { cobaltIconSvg, CHROME_LOGO_INNER } from '../ui/appIcon';
+import { currentAccentHex, currentAccentRgb } from '../store/accents';
 
 export interface GuideStep {
   caption: string;
@@ -59,7 +60,8 @@ type GuideOS = 'mac' | 'windows';
 
 // ---------------------------------------------------------------------------
 // Palette (app accents; navy mockup surfaces match the preview stages).
-const GOLD = '#7db4ff';
+/** The guides' highlight color: the accent in force (Gabe, 10/4). */
+const gold = (): string => currentAccentHex();
 const GREEN = '#27ae60';
 const RED = '#ef4444';
 const BG = '#0d1936';
@@ -74,7 +76,7 @@ const DIM = 'rgba(255,255,255,0.55)';
 // <style> is DOCUMENT-scoped while the scene is mounted, so every selector is
 // prefixed with the scene's own .gdsvg root — the short class names can never
 // leak onto app elements. (Keyframe names kC/kR/… are unique to these scenes.)
-const SCENE_CSS = `
+const sceneCss = (): string => `
   .gdsvg .c{animation:kC 6s ease-in-out infinite}
   @keyframes kC{0%,18%{transform:translate(var(--x0),var(--y0))}42%,100%{transform:translate(var(--x1),var(--y1))}}
   .gdsvg .r{opacity:0;transform-box:fill-box;transform-origin:center;animation:kR 6s infinite}
@@ -88,9 +90,9 @@ const SCENE_CSS = `
   .gdsvg .tko{animation:kKo 6s infinite}
   @keyframes kKo{0%,54%{transform:translateX(0)}60%,100%{transform:translateX(-13px)}}
   .gdsvg .tp{animation:kP 6s infinite}
-  @keyframes kP{0%,54%{fill:${PANEL2}}60%,100%{fill:${GOLD}}}
+  @keyframes kP{0%,54%{fill:${PANEL2}}60%,100%{fill:${gold()}}}
   .gdsvg .tpo{animation:kPo 6s infinite}
-  @keyframes kPo{0%,54%{fill:${GOLD}}60%,100%{fill:${PANEL2}}}
+  @keyframes kPo{0%,54%{fill:${gold()}}60%,100%{fill:${PANEL2}}}
   .gdsvg .pu{animation:kU 1.8s ease-in-out infinite}
   @keyframes kU{0%,100%{opacity:.35}50%{opacity:1}}
   /* TWO-CLICK scenes (the macOS Chrome page + Focus slides, 8/31): the cursor
@@ -139,7 +141,7 @@ const SCENE_CSS = `
 // Mini-DSL — every helper returns an SVG fragment string.
 
 const scene = (inner: string): string =>
-  `<svg class="gdsvg" viewBox="0 0 460 260" xmlns="http://www.w3.org/2000/svg" role="img"><style>${SCENE_CSS}</style>` +
+  `<svg class="gdsvg" viewBox="0 0 460 260" xmlns="http://www.w3.org/2000/svg" role="img"><style>${sceneCss()}</style>` +
   `<rect width="460" height="260" rx="12" fill="${BG}"/>${inner}</svg>`;
 
 const txt = (x: number, y: number, size: number, fill: string, content: string, weight = 500, anchor = 'start'): string =>
@@ -150,24 +152,24 @@ const box = (x: number, y: number, w: number, h: number, fill: string, rx = 8, e
 
 /** Animated cursor: waits at (x0,y0), glides to (x1,y1), then a gold click-ripple. */
 const cursor = (x0: number, y0: number, x1: number, y1: number): string =>
-  `<circle class="r" cx="${x1 + 2}" cy="${y1 + 2}" r="11" fill="${GOLD}"/>` +
+  `<circle class="r" cx="${x1 + 2}" cy="${y1 + 2}" r="11" fill="${gold()}"/>` +
   `<g class="c" style="--x0:${x0}px;--y0:${y0}px;--x1:${x1}px;--y1:${y1}px">` +
   `<path d="M0 0 L0 15 L4.2 11.6 L7.2 18 L9.8 16.8 L6.9 10.6 L11.5 10.2 Z" fill="#fff" stroke="#0b142b" stroke-width="1.2"/></g>`;
 
 /** Two-click cursor: waits at (x0,y0), clicks at (x1,y1), then again at (x2,y2).
  *  Pair state changes with af1/bf1 (first click) and af2/bf2 (second). */
 const cursor2 = (x0: number, y0: number, x1: number, y1: number, x2: number, y2: number): string =>
-  `<circle class="r1" cx="${x1 + 2}" cy="${y1 + 2}" r="11" fill="${GOLD}"/>` +
-  `<circle class="r2" cx="${x2 + 2}" cy="${y2 + 2}" r="11" fill="${GOLD}"/>` +
+  `<circle class="r1" cx="${x1 + 2}" cy="${y1 + 2}" r="11" fill="${gold()}"/>` +
+  `<circle class="r2" cx="${x2 + 2}" cy="${y2 + 2}" r="11" fill="${gold()}"/>` +
   `<g class="c2" style="--x0:${x0}px;--y0:${y0}px;--x1:${x1}px;--y1:${y1}px;--x2:${x2}px;--y2:${y2}px">` +
   `<path d="M0 0 L0 15 L4.2 11.6 L7.2 18 L9.8 16.8 L6.9 10.6 L11.5 10.2 Z" fill="#fff" stroke="#0b142b" stroke-width="1.2"/></g>`;
 
 /** Three-click cursor: waits at (x0,y0), then clicks (x1,y1), (x2,y2), (x3,y3).
  *  Pair state changes with fa/ga, fb/gb, fc/gc. */
 const cursor3 = (x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, x3: number, y3: number): string =>
-  `<circle class="q1" cx="${x1 + 2}" cy="${y1 + 2}" r="11" fill="${GOLD}"/>` +
-  `<circle class="q2" cx="${x2 + 2}" cy="${y2 + 2}" r="11" fill="${GOLD}"/>` +
-  `<circle class="q3" cx="${x3 + 2}" cy="${y3 + 2}" r="11" fill="${GOLD}"/>` +
+  `<circle class="q1" cx="${x1 + 2}" cy="${y1 + 2}" r="11" fill="${gold()}"/>` +
+  `<circle class="q2" cx="${x2 + 2}" cy="${y2 + 2}" r="11" fill="${gold()}"/>` +
+  `<circle class="q3" cx="${x3 + 2}" cy="${y3 + 2}" r="11" fill="${gold()}"/>` +
   `<g class="c3" style="--x0:${x0}px;--y0:${y0}px;--x1:${x1}px;--y1:${y1}px;--x2:${x2}px;--y2:${y2}px;--x3:${x3}px;--y3:${y3}px">` +
   `<path d="M0 0 L0 15 L4.2 11.6 L7.2 18 L9.8 16.8 L6.9 10.6 L11.5 10.2 Z" fill="#fff" stroke="#0b142b" stroke-width="1.2"/></g>`;
 
@@ -175,10 +177,10 @@ const cursor3 = (x0: number, y0: number, x1: number, y1: number, x2: number, y2:
 const toggle = (x: number, y: number, mode: 'on' | 'off' | 'turnsOn' | 'turnsOff'): string => {
   const pill = (cls: string, fill: string): string => `<rect class="${cls}" x="${x}" y="${y}" width="32" height="18" rx="9" fill="${fill}"/>`;
   const knob = (cls: string, cx: number): string => `<circle class="${cls}" cx="${cx}" cy="${y + 9}" r="7" fill="#fff"/>`;
-  if (mode === 'on') return pill('', GOLD) + knob('', x + 23);
+  if (mode === 'on') return pill('', gold()) + knob('', x + 23);
   if (mode === 'off') return pill('', PANEL2) + knob('', x + 9);
   if (mode === 'turnsOn') return pill('tp', PANEL2) + knob('tk', x + 9);
-  return pill('tpo', GOLD) + knob('tko', x + 23);
+  return pill('tpo', gold()) + knob('tko', x + 23);
 };
 
 /** "On"/"Off" state label + toggle, Windows-style (the word sits left of the pill).
@@ -195,7 +197,7 @@ const onOffToggle = (x: number, y: number, mode: 'on' | 'off' | 'turnsOn' | 'tur
 /** A checkbox. checks/unchecks animate at the click moment. */
 const checkbox = (x: number, y: number, mode: 'checks' | 'unchecks' | 'on' | 'off'): string => {
   const empty = box(x, y, 15, 15, PANEL2, 4, `stroke="${LINE}"`);
-  const filled = box(x, y, 15, 15, GOLD, 4) + `<path d="M${x + 3.5} ${y + 8} l3 3 l5.5 -6" stroke="#071433" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+  const filled = box(x, y, 15, 15, gold(), 4) + `<path d="M${x + 3.5} ${y + 8} l3 3 l5.5 -6" stroke="#071433" stroke-width="2" fill="none" stroke-linecap="round"/>`;
   if (mode === 'off') return empty;
   if (mode === 'on') return empty + filled;
   if (mode === 'checks') return empty + `<g class="af">${filled}</g>`;
@@ -207,14 +209,14 @@ const checkbox = (x: number, y: number, mode: 'checks' | 'unchecks' | 'on' | 'of
  *  class means the box starts TICKED and unticks at that click. */
 const checkbox2 = (x: number, y: number, cls = 'af2'): string =>
   box(x, y, 15, 15, PANEL2, 4, `stroke="${LINE}"`) +
-  `<g class="${cls}">${box(x, y, 15, 15, GOLD, 4)}<path d="M${x + 3.5} ${y + 8} l3 3 l5.5 -6" stroke="#071433" stroke-width="2" fill="none" stroke-linecap="round"/></g>`;
+  `<g class="${cls}">${box(x, y, 15, 15, gold(), 4)}<path d="M${x + 3.5} ${y + 8} l3 3 l5.5 -6" stroke="#071433" stroke-width="2" fill="none" stroke-linecap="round"/></g>`;
 
 /** A radio button. mode: sel | un | selects (fills at the click) | was (empties). */
 const radio = (x: number, y: number, mode: 'sel' | 'un' | 'selects' | 'was'): string => {
   const ring = `<circle cx="${x}" cy="${y}" r="6" fill="none" stroke="${LINE}" stroke-width="1.6"/>`;
   if (mode === 'un') return ring;
-  if (mode === 'sel') return ring + `<circle cx="${x}" cy="${y}" r="3.4" fill="${GOLD}"/>`;
-  if (mode === 'selects') return ring + `<circle class="af" cx="${x}" cy="${y}" r="3.4" fill="${GOLD}"/>`;
+  if (mode === 'sel') return ring + `<circle cx="${x}" cy="${y}" r="3.4" fill="${gold()}"/>`;
+  if (mode === 'selects') return ring + `<circle class="af" cx="${x}" cy="${y}" r="3.4" fill="${gold()}"/>`;
   return ring + `<circle class="bf" cx="${x}" cy="${y}" r="3.4" fill="${DIM}"/>`;
 };
 
@@ -270,7 +272,7 @@ const rowIco = (y: number, icon: string, label: string, control: string, sub = '
 
 /** Pulsing highlight rectangle (draws the eye). Gold by default; the duplicate-
  *  Chrome scenes pass RED so the trap row reads as danger, not decoration (8/31). */
-const hl = (x: number, y: number, w: number, h: number, color = GOLD): string =>
+const hl = (x: number, y: number, w: number, h: number, color = gold()): string =>
   `<rect class="pu" x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="none" stroke="${color}" stroke-width="2"/>`;
 
 /** Pulsing gold arrow from (x1,y1) to (x2,y2). */
@@ -281,7 +283,7 @@ const arrow = (x1: number, y1: number, x2: number, y2: number): string => {
   const h2x = x2 - 9 * Math.cos(ang + 0.44);
   const h2y = y2 - 9 * Math.sin(ang + 0.44);
   return (
-    `<g class="pu" stroke="${GOLD}" stroke-width="2.4" fill="none" stroke-linecap="round">` +
+    `<g class="pu" stroke="${gold()}" stroke-width="2.4" fill="none" stroke-linecap="round">` +
     `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>` +
     `<path d="M${h1x} ${h1y} L${x2} ${y2} L${h2x} ${h2y}"/></g>`
   );
@@ -377,15 +379,15 @@ const chanBtn = (x: number, y: number, label: string, state: 'on' | 'off' | 'tur
     return (
       `<rect class="bf" x="${x}" y="${y}" width="${w}" height="22" rx="8" fill="${PANEL2}" stroke="${LINE}"/>` +
       `<g class="bf">${txt(x + w / 2, y + 15, 10, DIM, label, 600, 'middle')}</g>` +
-      `<g class="af"><rect x="${x}" y="${y}" width="${w}" height="22" rx="8" fill="rgba(125, 180, 255,0.14)" stroke="${GOLD}"/>` +
-      txt(x + w / 2, y + 15, 10, GOLD, label, 700, 'middle') +
+      `<g class="af"><rect x="${x}" y="${y}" width="${w}" height="22" rx="8" fill="rgba(${currentAccentRgb()},0.14)" stroke="${gold()}"/>` +
+      txt(x + w / 2, y + 15, 10, gold(), label, 700, 'middle') +
       `</g>`
     );
   }
   const on = state === 'on';
   return (
-    `<rect x="${x}" y="${y}" width="${w}" height="22" rx="8" fill="${on ? 'rgba(125, 180, 255,0.14)' : PANEL2}" stroke="${on ? GOLD : LINE}"/>` +
-    txt(x + w / 2, y + 15, 10, on ? GOLD : DIM, label, on ? 700 : 600, 'middle')
+    `<rect x="${x}" y="${y}" width="${w}" height="22" rx="8" fill="${on ? 'rgba(${currentAccentRgb()},0.14)' : PANEL2}" stroke="${on ? gold() : LINE}"/>` +
+    txt(x + w / 2, y + 15, 10, on ? gold() : DIM, label, on ? 700 : 600, 'middle')
   );
 };
 
@@ -427,7 +429,7 @@ const cobaltSwitchesGuide = (os: GuideOS): Guide => ({
     steps: [
       {
         caption:
-          'Each alert only pops up while its 🔔 Popup button is GOLD. Open Settings ▸ Notifications and check the alert you’re missing. Grey means it never fires.',
+          'Each alert only pops up while its 🔔 Popup button is gold(). Open Settings ▸ Notifications and check the alert you’re missing. Grey means it never fires.',
         svg: scene(
           box(30, 40, 400, 60, PANEL, 10) +
             txt(46, 65, 12.5, TXT, 'Due-soon reminders', 650) +
@@ -599,7 +601,7 @@ const WIN_DND_GUIDE: Guide = {
             `<g class="af1">` +
             box(230, 16, 214, 196, PANEL, 12) +
             txt(246, 38, 11.5, TXT, 'Notifications', 650) +
-            `<g class="bf2">${box(362, 24, 26, 20, GOLD, 7)}${icoDnd(368, 27, '#071433')}</g>` +
+            `<g class="bf2">${box(362, 24, 26, 20, gold(), 7)}${icoDnd(368, 27, '#071433')}</g>` +
             `<g class="af2">${box(362, 24, 26, 20, PANEL2, 7)}${icoBell(368, 27)}</g>` +
             box(394, 24, 42, 20, PANEL2, 7) +
             txt(415, 37, 8, DIM, 'Clear all', 500, 'middle') +
@@ -613,7 +615,7 @@ const WIN_DND_GUIDE: Guide = {
             txt(256, 84, 8.5, DIM, 'You’ll only see banners for priority') +
             txt(256, 95, 8.5, DIM, 'notifications and alarms.') +
             `</g>` +
-            txt(256, 120, 9.5, GOLD, 'Notification settings') +
+            txt(256, 120, 9.5, gold(), 'Notification settings') +
             box(244, 130, 186, 42, PANEL2, 8) +
             txt(256, 146, 9.5, TXT, '⏰ Due soon: Science lab') +
             txt(256, 160, 8.5, DIM, 'Cobalt · missed while DND was on') +
@@ -829,7 +831,7 @@ const edgeCasesGuide = (os: GuideOS): Guide => ({
           'Notification permission is PER BROWSER PROFILE. If you allowed Cobalt on your school profile, your personal profile is still blocked. Sign into the profile you actually use and allow it there too.',
         svg: scene(
           box(60, 60, 150, 130, PANEL, 12) +
-            `<circle cx="135" cy="105" r="24" fill="${GOLD}"/>` +
+            `<circle cx="135" cy="105" r="24" fill="${gold()}"/>` +
             txt(135, 112, 16, '#071433', 'G', 800, 'middle') +
             txt(135, 150, 10.5, TXT, 'School profile', 600, 'middle') +
             txt(135, 168, 10, GREEN, '🔔 Allowed ✓', 650, 'middle') +
@@ -1058,7 +1060,7 @@ const MAC_FOCUS_GUIDE: Guide = {
           txt(30, 29, 10, DIM, 'Chrome   File   Edit   View') +
           // THE MOON, lit while the Focus runs — a filled pill, the way macOS
           // shows an active menu-bar item. It goes quiet at the second click.
-          `<g class="bf2">${box(178, 16.5, 28, 17, GOLD, 8)}${icoMoon(185, 17.5, '#071433')}</g>` +
+          `<g class="bf2">${box(178, 16.5, 28, 17, gold(), 8)}${icoMoon(185, 17.5, '#071433')}</g>` +
           `<g class="af2">${box(178, 16.5, 28, 17, PANEL, 8)}${icoMoon(185, 17.5)}</g>` +
           txt(392, 29.5, 9, TXT, 'Sun Sep 6', 500, 'end') +
           txt(436, 29.5, 9, TXT, '4:30 PM', 500, 'end') +
@@ -1074,7 +1076,7 @@ const MAC_FOCUS_GUIDE: Guide = {
           `<rect x="150" y="77" width="180" height="1" fill="${LINE}"/>` +
           // THE ROW THE STUDENT CLICKS. Active = a filled disc with the moon
           // knocked out of it, exactly how the running Focus is marked.
-          `<g class="bf2"><circle cx="163" cy="90" r="9" fill="#fff"/>${icoMoon(157, 84, GOLD)}</g>` +
+          `<g class="bf2"><circle cx="163" cy="90" r="9" fill="#fff"/>${icoMoon(157, 84, gold())}</g>` +
           `<g class="af2"><circle cx="163" cy="90" r="9" fill="${PANEL2}"/>${icoMoon(157, 84)}</g>` +
           txt(178, 93, 9, TXT, 'Do Not Disturb', 600) +
           // The duration block belongs to the running Focus, so its highlight
@@ -1132,8 +1134,8 @@ const MAC_FOCUS_GUIDE: Guide = {
           box(134, 172, 44, 34, PANEL, 8, `stroke="${LINE}"`) +
           txt(156, 187, 11, TXT, '+', 700, 'middle') +
           txt(156, 200, 7, DIM, 'Add', 500, 'middle') +
-          `<g class="af2">${box(186, 172, 118, 34, PANEL, 8, `stroke="${GOLD}"`)}${chromeLogo(194, 179, 20)}${txt(220, 193, 9, TXT, 'Google Chrome')}</g>` +
-          box(316, 210, 44, 20, GOLD, 7) +
+          `<g class="af2">${box(186, 172, 118, 34, PANEL, 8, `stroke="${gold()}"`)}${chromeLogo(194, 179, 20)}${txt(220, 193, 9, TXT, 'Google Chrome')}</g>` +
+          box(316, 210, 44, 20, gold(), 7) +
           txt(338, 223.5, 8.5, '#071433', 'Done', 650, 'middle') +
           `</g>` +
           cursor2(200, 238, 396, 136, 154, 186)
