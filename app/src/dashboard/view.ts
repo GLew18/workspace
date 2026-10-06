@@ -5,12 +5,29 @@
 import type { Data } from '../db';
 import type { ScheduleItem } from '../types';
 import { el, textInput } from '../util/dom';
-import { todayStr, addDays, scheduleMonday } from '../util/dates';
+import { todayStr, addDays, scheduleMonday, formatWallClock } from '../util/dates';
 import { getPrefs, PREFS_EVENT } from '../prefs';
 import { quoteOfDay, type Quote } from '../quotes';
 import { openAttachment, normalizeUrl } from '../tasks/attachments';
 import { isAssessmentTask } from '../tasks/store';
 import { TasksView } from '../tasks/render';
+import { addCourse, getCourses, matchByParseWords } from '../courses/registry';
+import { nextCourseColor } from '../courses/colors';
+import type { CourseConfig } from '../types';
+import { confirmDanger } from '../ui/confirm';
+import {
+  type ScheduleBlock,
+  type ScheduleFeed,
+  currentCourses,
+  dayOf,
+  dayToShow,
+  getFeed,
+  isGoogleCalendarIcalUrl,
+  loadBlocks,
+  readCache,
+  refreshFeed,
+  saveFeed,
+} from '../schedule/feed';
 
 
 // The landing preview shows ONE fixed, hand-picked pair — it's a showcase, not a
@@ -101,6 +118,16 @@ export class DashboardView {
   private scheduleLink: ScheduleLink | null = null;
   /** True while the "paste a link" form is open, so a repaint keeps it open. */
   private linkFormOpen = false;
+  /** The connected Google Calendar schedule (schedule/feed.ts), or null. When set,
+   *  the card is "Current Schedule": the real day, block by block (Gabe, 10/5/26). */
+  private feed: ScheduleFeed | null = null;
+  private feedBlocks: ScheduleBlock[] | null = null;
+  private feedError = '';
+  /** The form's own error line, kept across repaints. */
+  private linkFormError = '';
+  private linkFormBusy = false;
+  /** Repaints the card once a minute so "now" moves on its own. */
+  private tick = 0;
   private greetingEl: HTMLElement | null = null;
   private sample: boolean; // landing preview → external links (schedule) are inert
   private panelEl: HTMLElement | null = null; // kept so a prefs change can re-render
@@ -277,11 +304,24 @@ export class DashboardView {
   // can prep ahead. See scheduleMonday() in util/dates.
 
   private async refreshSchedule(): Promise<void> {
-    const [stored, link] = await Promise.all([
+    const [stored, link, feed] = await Promise.all([
       this.data.getProfile<{ list: ScheduleItem[] }>('schedule'),
       this.data.getProfile<ScheduleLink>(SCHEDULE_LINK_KEY),
+      this.sample ? Promise.resolve(null) : getFeed(this.data),
     ]);
     this.scheduleLink = link?.url ? link : null;
+    this.feed = feed;
+    if (feed) {
+      // Paint from the cache at once; loadBlocks refetches only when it is stale.
+      this.feedBlocks = readCache(feed.url)?.blocks ?? this.feedBlocks;
+      void loadBlocks(feed.url).then((r) => {
+        if (this.feed?.url !== feed.url) return; // disconnected meanwhile
+        this.feedBlocks = r.blocks;
+        this.feedError = r.error;
+        this.renderSchedule(this.scheduleWeek ?? []);
+      });
+      this.startTick();
+    }
     const items = stored?.list ?? [];
     const monday = scheduleMonday();
     const weekEnd = addDays(monday, 5); // Mon…Sat window catches any weekday-dated post
@@ -300,6 +340,10 @@ export class DashboardView {
    *  run synchronously from the cache on mount, with no await in front of it. */
   private renderSchedule(week: ScheduleItem[]): void {
     this.scheduleBox.replaceChildren();
+    if (this.feed) {
+      this.renderCurrentSchedule();
+      return;
+    }
     // No refresh icon (Gabe, 9/12): the quick link below is a manual paste, not a
     // Schoology sync, so there is nothing here for a refresh to re-pull.
     const header = el('div', { class: 'dash-schedule-header' });
@@ -342,7 +386,7 @@ export class DashboardView {
   }
 
   private buildLinkAddBtn(): HTMLElement {
-    const btn = el('button', { class: 'dash-schedule-add', text: '+ Add schedule' });
+    const btn = el('button', { class: 'dash-schedule-add', text: '+ Connect your schedule' });
     btn.addEventListener('click', () => {
       this.linkFormOpen = true;
       this.renderSchedule(this.scheduleWeek ?? []);
@@ -356,12 +400,20 @@ export class DashboardView {
     const form = el('div', { class: 'dash-schedule-link-form' });
     const input = textInput({
       class: 'dash-schedule-link-input',
-      placeholder: 'Paste the link to your schedule page',
+      placeholder: 'Paste your Google Calendar secret address, or any schedule page',
       'aria-label': 'Schedule link',
     });
     const save = el('button', { class: 'dash-schedule-link-save', text: 'Save' });
     const cancel = el('button', { class: 'dash-schedule-link-cancel', text: 'Cancel' });
+    const err = el('div', { class: 'dash-schedule-link-err', text: this.linkFormError });
     const submit = () => {
+      if (this.linkFormBusy) return;
+      // A Google Calendar feed becomes the live Current Schedule; anything else is
+      // the old one-click quick link to a schedule page.
+      if (isGoogleCalendarIcalUrl(input.value)) {
+        void this.connectFeed(input.value);
+        return;
+      }
       const url = normalizeUrl(input.value);
       if (!url) return;
       this.linkFormOpen = false;
@@ -369,6 +421,7 @@ export class DashboardView {
     };
     const close = () => {
       this.linkFormOpen = false;
+      this.linkFormError = '';
       this.renderSchedule(this.scheduleWeek ?? []);
     };
     save.addEventListener('click', submit);
@@ -379,8 +432,166 @@ export class DashboardView {
         submit();
       } else if (e.key === 'Escape') close();
     });
-    form.append(input, el('div', { class: 'dash-schedule-link-btns' }, [save, cancel]));
+    if (this.linkFormBusy) {
+      save.textContent = 'Connecting…';
+      save.setAttribute('disabled', '');
+    }
+    const help = el('div', {
+      class: 'dash-schedule-link-help',
+      text: 'Google Calendar: Settings → your calendar → Integrate calendar → copy "Secret address in iCal format".',
+    });
+    form.append(input, help, err, el('div', { class: 'dash-schedule-link-btns' }, [save, cancel]));
     return form;
+  }
+
+  /** Validate a pasted Google Calendar address by actually reading it, then save. */
+  private async connectFeed(raw: string): Promise<void> {
+    this.linkFormBusy = true;
+    this.linkFormError = '';
+    this.renderSchedule(this.scheduleWeek ?? []);
+    try {
+      const blocks = await refreshFeed(raw);
+      await saveFeed(this.data, raw);
+      this.linkFormOpen = false;
+      this.feed = await getFeed(this.data);
+      this.feedBlocks = blocks;
+      this.feedError = '';
+      this.startTick();
+    } catch (e) {
+      this.linkFormError = e instanceof Error ? e.message : 'Couldn’t read that calendar.';
+    }
+    this.linkFormBusy = false;
+    this.renderSchedule(this.scheduleWeek ?? []);
+  }
+
+  private startTick(): void {
+    if (this.tick) return;
+    this.tick = window.setInterval(() => {
+      if (this.feed && this.scheduleBox?.isConnected) this.renderSchedule(this.scheduleWeek ?? []);
+    }, 60_000);
+  }
+
+  // --- Current Schedule (the connected Google Calendar feed) --------------
+
+  /** A block's color: its course's color for a class, one neutral gray for
+   *  everything that is not a course (Gabe, 10/5). The schedule's course names
+   *  ("Accelerated Biology") need not equal the student's own ("Biology"), so an
+   *  exact match is tried first, then containment either way, then the student's
+   *  parse words. */
+  private matchCourse(name: string): CourseConfig | undefined {
+    const lower = name.toLowerCase();
+    const courses = getCourses();
+    const byWord = matchByParseWords(name);
+    return (
+      courses.find((c) => c.name.toLowerCase() === lower) ??
+      courses.find(
+        (c) => c.name.length >= 3 && (lower.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(lower))
+      ) ??
+      (byWord ? courses.find((c) => c.name === byWord) : undefined)
+    );
+  }
+
+  private blockColor(b: ScheduleBlock): string {
+    if (!b.isClass) return 'var(--sched-neutral)';
+    const hit = this.matchCourse(b.name);
+    if (hit) return hit.color;
+    // Not one of the student's courses yet: a steady color of its own (from the
+    // name), so it never reads as the gray of a non-class block.
+    let h = 0;
+    for (const ch of b.name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return `hsl(${h % 360} 65% 62%)`;
+  }
+
+  private renderCurrentSchedule(): void {
+    const now = Date.now();
+    const shown = this.feedBlocks ? dayToShow(this.feedBlocks, now) : null;
+
+    const header = el('div', { class: 'dash-schedule-header' });
+    header.append(el('span', { text: 'Current Schedule' }));
+    const right = el('div', { class: 'dash-sched-head-right' });
+    if (shown && shown.date !== dayOf(now)) {
+      const d = new Date(shown.date + 'T12:00:00');
+      const tomorrow = dayOf(now + 86_400_000) === shown.date;
+      right.append(
+        el('span', {
+          class: 'dash-sched-day',
+          text: tomorrow ? 'Tomorrow' : d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }),
+        })
+      );
+    }
+    const x = el('button', { class: 'dash-schedule-link-x', text: '✕', title: 'Disconnect schedule' });
+    x.addEventListener('click', () =>
+      confirmDanger(
+        'Disconnect your schedule? Reconnecting means pasting the secret address again.',
+        () => {
+          this.feed = null;
+          this.feedBlocks = null;
+          void saveFeed(this.data, null);
+          this.renderSchedule(this.scheduleWeek ?? []);
+        },
+        'Disconnect'
+      )
+    );
+    right.append(x);
+    header.append(right);
+    this.scheduleBox.append(header);
+
+    if (!shown) {
+      this.scheduleBox.append(
+        el('div', {
+          class: 'dash-sched-empty',
+          text:
+            this.feedBlocks === null
+              ? this.feedError || 'Loading your schedule…'
+              : 'Nothing on your schedule in the next few weeks.',
+        })
+      );
+      return;
+    }
+
+    const list = el('div', { class: 'dash-sched-list' });
+    for (const b of shown.blocks) {
+      const isNow = b.start <= now && now < b.end;
+      const past = b.end <= now;
+      const row = el('div', {
+        class: `dash-sched-row${b.isClass ? '' : ' misc'}${isNow ? ' now' : ''}${past ? ' past' : ''}`,
+      });
+      row.style.setProperty('--c', this.blockColor(b));
+      row.append(el('span', { class: 'dash-sched-time', text: formatWallClock(b.start) }));
+      row.append(el('span', { class: 'dash-sched-bar' }));
+      const main = el('div', { class: 'dash-sched-main' });
+      main.append(el('div', { class: 'dash-sched-name', text: b.name }));
+      const meta = [b.period, b.detail, b.room && (/^\d/.test(b.room) ? `Room ${b.room}` : b.room), b.teachers.join(', ')].filter(Boolean).join(' · ');
+      if (meta) main.append(el('div', { class: 'dash-sched-meta', text: meta }));
+      row.append(main);
+      if (isNow) {
+        const left = Math.max(1, Math.round((b.end - now) / 60_000));
+        row.append(el('span', { class: 'dash-sched-now', text: `${left} min left` }));
+      }
+      list.append(row);
+    }
+    this.scheduleBox.append(list);
+
+    // Schedule courses Cobalt doesn't know yet: one click adds them all, each in a
+    // color nothing else is wearing, so the schedule and the task list match.
+    const missing = currentCourses(this.feedBlocks ?? []).filter((n) => !this.matchCourse(n));
+    if (missing.length) {
+      const add = el('button', {
+        class: 'dash-schedule-add',
+        text: `+ Add ${missing.length} course${missing.length === 1 ? '' : 's'} from your schedule`,
+        title: missing.join(', '),
+      });
+      add.addEventListener('click', () => {
+        add.setAttribute('disabled', '');
+        void (async () => {
+          for (const name of missing) {
+            await addCourse(name, nextCourseColor(getCourses().map((c) => c.color)));
+          }
+          this.renderSchedule(this.scheduleWeek ?? []);
+        })();
+      });
+      this.scheduleBox.append(add);
+    }
   }
 
   /** Write (or clear, with null) the quick link and repaint the card from cache. */

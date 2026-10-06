@@ -656,6 +656,11 @@ function safeSchoologyIcalUrl(raw) {
     const u = new URL(String(raw || '').trim().replace(/^webcal:/i, 'https:'));
     if (u.protocol !== 'https:') return null;
     const host = u.hostname.toLowerCase();
+    // The student's Google Calendar schedule (src/schedule/feed.ts, 10/5/26):
+    // only Google's own iCal feed paths, secret or public, nothing else on the host.
+    if (host === 'calendar.google.com') {
+      return /^\/calendar\/ical\/[^/]+\/(private-[0-9a-f]+|public)\/basic\.ics$/i.test(u.pathname) ? u.toString() : null;
+    }
     if (host !== 'schoology.com' && !host.endsWith('.schoology.com')) return null;
     if (!/\/calendar\/feed\//i.test(u.pathname)) return null;
     return u.toString();

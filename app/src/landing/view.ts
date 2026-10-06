@@ -629,10 +629,6 @@ const FUNCTIONS: Array<[string, string]> = [
   [FN_PENCIL, 'Quick-add parsing'],
 ];
 
-/** The gap between pills, and between one set and the next. Must match the `gap`
- *  on .lp-fn-track / .lp-fn-set in landing.css, because the shift below counts it. */
-const FN_GAP = 18; // matches .lp-fn-track / .lp-fn-set gap
-const FN_DESIGN_W = 1316; // .lp-fn-viewport's width in landing.css: the 1360px column minus 2 × 22px gutters
 /** Pixels per second the strip drifts. 20, down from 42 (Gabe, 9/2/26): a logo wall
  *  should read as barely moving, and at 42 the pills went past faster than they
  *  could be read. Speed is what is fixed here, never duration — the strip grows
@@ -692,12 +688,10 @@ function functionsSection(): HTMLElement {
   const first = buildSet(false);
   track.append(first);
   viewport.append(track);
-  // SCALED, NOT REFLOWED (Gabe, 9/5/26, against Linear's logo strip): the strip is
-  // laid out at the page column's full width and then shrinks as one picture when
-  // the column is narrower, exactly like the device frames. So a phone shows the
-  // same five-or-six pills a desktop does, only smaller, rather than two big ones.
-  // FN_DESIGN_W is the .lp-section column: 1360px minus the two 22px gutters.
-  sec.append(scaleToFit(viewport, FN_DESIGN_W));
+  // TEXT, NOT A PICTURE (Gabe, 10/5): the strip fills the column and its pills
+  // shrink gently with the text sizes (landing.css), instead of shrinking as one
+  // picture like the rigid blocks; at that scale the words were unreadable.
+  sec.append(viewport);
 
   // Measured, then topped up. Runs again on resize: dragging a window from a laptop
   // width to a second monitor is exactly the case that was broken.
@@ -705,6 +699,7 @@ function functionsSection(): HTMLElement {
   const fit = (): void => {
     const setW = first.getBoundingClientRect().width;
     if (!setW) return; // not laid out yet (hidden section) — the observer refires
+    const FN_GAP = parseFloat(getComputedStyle(track).columnGap) || 18; // 1em, scales with the text
     track.style.setProperty('--lp-fn-shift', `${setW + FN_GAP}px`);
     track.style.setProperty('--lp-fn-dur', `${(setW + FN_GAP) / FN_SPEED}s`);
     // The strip is inside the page column now (Gabe, 9/3/26), so cover THAT width
@@ -945,7 +940,7 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
 
   const car = el('div', { class: 'lp-car' });
   car.append(prev, viewport, next);
-  sec.append(car, dots);
+  sec.append(rigid(car, BLOCK_W), dots);
   return sec;
 }
 
@@ -988,7 +983,21 @@ function scaleToFit(target: HTMLElement, designWidth: number): HTMLElement {
   const ro = new ResizeObserver(apply);
   ro.observe(wrap);
   ro.observe(target); // content height changes too (loading → mounted view)
+  window.setTimeout(apply, 0);
   return wrap;
+}
+
+/** The landing's content column at full width: 1360px minus 2 × 22px gutters. */
+const BLOCK_W = 1316;
+
+/** RIGID BLOCKS (Gabe, 10/5): a visual block is laid out at its desktop width,
+ *  always, and only ever shrinks as one picture, like the hero demo. Nothing in
+ *  it re-flows, stacks or drops on a narrow screen. Prose (headings, subtitles,
+ *  the hero, the nav) is not wrapped in this and stays readable. */
+function rigid(target: HTMLElement, designWidth: number): HTMLElement {
+  target.style.width = `${designWidth}px`;
+  target.style.maxWidth = 'none';
+  return scaleToFit(target, designWidth);
 }
 
 function deviceFrame(): { frame: HTMLElement; body: HTMLElement } {
@@ -1015,7 +1024,7 @@ function setupsSection(): HTMLElement {
 
   const grid = el('div', { class: 'lp-setups' });
   STUDENT_SETUPS.forEach((s, i) => grid.append(setupCard(s, i)));
-  sec.append(grid);
+  sec.append(rigid(grid, BLOCK_W));
   return sec;
 }
 
@@ -1264,7 +1273,6 @@ function gamifySection(): HTMLElement {
   const callouts = GAM_CALLOUTS.map((c, i) => {
     const node = el('div', { class: `lp-gam-callout ${c.side}` });
     node.append(
-      el('span', { class: 'lp-gam-num', text: String(i + 1) }),
       el('div', { class: 'lp-gam-callout-title', text: c.title }),
       el('p', { class: 'lp-gam-callout-text', text: c.text })
     );
@@ -1272,69 +1280,60 @@ function gamifySection(): HTMLElement {
     return { c, node, i };
   });
   stage.append(colL, scaleToFit(frame, GAM_W), colR, lines);
-  sec.append(stage);
+  sec.append(rigid(stage, BLOCK_W));
 
-  /** Place each caption level with what it points at, then draw the lines. On a
-   *  narrow screen the captions stack under the screen instead, and only the
-   *  numbered pins on the targets remain. */
+  /** Place each caption level with what it points at, then draw the lines. */
   const layout = (): void => {
     const sr = stage.getBoundingClientRect();
     if (!sr.width) return;
     drawStill();
-    const wide = getComputedStyle(stage).getPropertyValue('--gam-wide').trim() === '1';
-    lines.setAttribute('viewBox', `0 0 ${sr.width.toFixed(1)} ${sr.height.toFixed(1)}`);
-    lines.setAttribute('width', sr.width.toFixed(1));
-    lines.setAttribute('height', sr.height.toFixed(1));
+    // The whole stage may be scaled down (rigid); work in its own pixels.
+    const k = sr.width / (stage.offsetWidth || sr.width);
+    const W = stage.offsetWidth;
+    const H = stage.offsetHeight;
+    lines.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    lines.setAttribute('width', String(W));
+    lines.setAttribute('height', String(H));
     const pts = callouts.map(({ c }) => {
       const t = c.target(frame);
       if (!t) return null;
       const r = t.getBoundingClientRect();
       if (!r.width) return null;
-      const cx = r.left + r.width / 2 - sr.left;
-      const cy = r.top + r.height / 2 - sr.top;
-      // `p` is where the line lands (just off the chosen edge); `pin` is the
-      // numbered marker's spot on narrow screens (the target's top-right corner).
-      const p =
-        c.edge === 'left'
-          ? { x: r.left - sr.left - 4, y: cy }
-          : c.edge === 'right'
-            ? { x: r.right - sr.left + 4, y: cy }
-            : { x: cx, y: r.bottom - sr.top + 4 };
-      return { ...p, pin: { x: r.right - sr.left + 2, y: r.top - sr.top - 2 } };
+      const left = (r.left - sr.left) / k;
+      const right = (r.right - sr.left) / k;
+      const cx = (left + right) / 2;
+      const cy = ((r.top + r.bottom) / 2 - sr.top) / k;
+      // Where the line lands: just off the chosen edge, so it never covers the target.
+      return c.edge === 'left'
+        ? { x: left - 4, y: cy }
+        : c.edge === 'right'
+          ? { x: right + 4, y: cy }
+          : { x: cx, y: (r.bottom - sr.top) / k + 4 };
     });
-    if (wide) {
-      for (const side of ['left', 'right'] as const) {
-        const mine = callouts.filter((x) => x.c.side === side && pts[x.i]);
-        mine.sort((a, b) => pts[a.i]!.y - pts[b.i]!.y);
-        let minTop = 0;
-        for (const x of mine) {
-          const h = x.node.offsetHeight;
-          const top = Math.max(minTop, pts[x.i]!.y - 20);
-          x.node.style.top = `${top}px`;
-          minTop = top + h + 18;
-        }
+    for (const side of ['left', 'right'] as const) {
+      const mine = callouts.filter((x) => x.c.side === side && pts[x.i]);
+      mine.sort((a, b) => pts[a.i]!.y - pts[b.i]!.y);
+      let minTop = 0;
+      for (const x of mine) {
+        const h = x.node.offsetHeight;
+        const top = Math.max(minTop, pts[x.i]!.y - 20);
+        x.node.style.top = `${top}px`;
+        minTop = top + h + 18;
       }
-    } else {
-      for (const x of callouts) x.node.style.top = '';
     }
     let svg = '';
     callouts.forEach(({ c, node, i }) => {
       const p = pts[i];
       if (!p) return;
-      if (wide) {
-        const nr = node.getBoundingClientRect();
-        const ax = c.side === 'left' ? nr.right - sr.left + 10 : nr.left - sr.left - 10;
-        const ay = nr.top - sr.top + 20;
-        const mx = (ax + p.x) / 2;
-        // A bottom edge is approached from below, a side edge from the side.
-        const c2 = c.edge === 'bottom' ? `${p.x.toFixed(1)} ${(p.y + 40).toFixed(1)}` : `${mx.toFixed(1)} ${p.y.toFixed(1)}`;
-        svg += `<path class="lp-gam-line" d="M${ax.toFixed(1)} ${ay.toFixed(1)} C${mx.toFixed(1)} ${ay.toFixed(1)} ${c2} ${p.x.toFixed(1)} ${p.y.toFixed(1)}"/>`;
-        svg += `<circle class="lp-gam-dot" cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="3"/>`;
-        svg += `<circle class="lp-gam-end" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5"/>`;
-      } else {
-        svg += `<circle class="lp-gam-pin" cx="${p.pin.x.toFixed(1)}" cy="${p.pin.y.toFixed(1)}" r="8"/>`;
-        svg += `<text class="lp-gam-pin-num" x="${p.pin.x.toFixed(1)}" y="${(p.pin.y + 3.5).toFixed(1)}">${i + 1}</text>`;
-      }
+      const nr = node.getBoundingClientRect();
+      const ax = c.side === 'left' ? (nr.right - sr.left) / k + 10 : (nr.left - sr.left) / k - 10;
+      const ay = (nr.top - sr.top) / k + 20;
+      const mx = (ax + p.x) / 2;
+      // A bottom edge is approached from below, a side edge from the side.
+      const c2 = c.edge === 'bottom' ? `${p.x.toFixed(1)} ${(p.y + 40).toFixed(1)}` : `${mx.toFixed(1)} ${p.y.toFixed(1)}`;
+      svg += `<path class="lp-gam-line" d="M${ax.toFixed(1)} ${ay.toFixed(1)} C${mx.toFixed(1)} ${ay.toFixed(1)} ${c2} ${p.x.toFixed(1)} ${p.y.toFixed(1)}"/>`;
+      svg += `<circle class="lp-gam-dot" cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="3"/>`;
+      svg += `<circle class="lp-gam-end" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5"/>`;
     });
     lines.innerHTML = svg;
   };
@@ -1432,7 +1431,7 @@ function compareSection(): HTMLElement {
     grid.append(row);
   });
 
-  sec.append(grid);
+  sec.append(rigid(grid, 1030)); // .lp-vs max-width
   // The disarming line: Cobalt is a companion, not a replacement. Pre-empts the
   // "is this allowed?" question from parents and school in one sentence.
   sec.append(
@@ -1458,7 +1457,7 @@ function capabilitiesSection(): HTMLElement {
     span.style.fontFamily = CLOUD_FONTS[(i * 5) % CLOUD_FONTS.length];
     cloud.append(span);
   });
-  sec.append(cloud);
+  sec.append(rigid(cloud, 1050)); // .lp-cloud max-width
 
   const caption = el('p', { class: 'lp-caps-caption' });
   caption.append(

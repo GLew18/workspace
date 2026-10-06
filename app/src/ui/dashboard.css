@@ -307,3 +307,104 @@
 .dash-schedule-link-cancel:hover {
   color: var(--text);
 }
+
+/* ===== Current Schedule (dashboard/view.ts renderCurrentSchedule) =====
+   The student's real day from their Google Calendar feed (schedule/feed.ts):
+   one row per block, a color bar in the course's color, and ONE neutral gray for
+   every block that is not a course (Tefillah, Lunch, Mincha…) (Gabe, 10/5/26). */
+.dash-schedule {
+  --sched-neutral: #8a8f9c;
+}
+.dash-sched-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dash-sched-day {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.dash-sched-empty {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.dash-sched-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dash-sched-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+}
+.dash-sched-row.past {
+  opacity: 0.45;
+}
+.dash-sched-row.now {
+  border-color: var(--c);
+  box-shadow: 0 0 0 1px var(--c) inset;
+}
+.dash-sched-time {
+  flex: none;
+  width: 66px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.dash-sched-bar {
+  flex: none;
+  align-self: stretch;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--c);
+}
+.dash-sched-main {
+  flex: 1;
+  min-width: 0;
+}
+.dash-sched-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-sched-row.misc .dash-sched-name {
+  font-weight: 500;
+  color: var(--text-dim);
+}
+.dash-sched-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-sched-now {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--c);
+  white-space: nowrap;
+}
+.dash-schedule-link-help {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.dash-schedule-link-err {
+  font-size: 12.5px;
+  color: #ef4444;
+}
+.dash-schedule-link-err:empty {
+  display: none;
+}

@@ -78,6 +78,13 @@ export default defineConfig({
         secure: true,
         rewrite: (path) => path.replace(/^\/sgy/, ''),
       },
+      // The student's Google Calendar schedule feed (src/schedule/feed.ts).
+      '/gcal': {
+        target: 'https://calendar.google.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/gcal/, ''),
+      },
     },
   },
   build: {

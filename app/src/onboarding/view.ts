@@ -11,6 +11,9 @@
 //                button becomes Continue. There is deliberately NO skip: a
 //                student who skips forgets, opens an empty app, and concludes
 //                the product is bad. The connection IS the product.
+//   3b. SCHEDULE: the student's Google Calendar schedule (secret iCal address),
+//                which feeds the dashboard's Current Schedule card AND names their
+//                courses. Skippable: not every school publishes one (10/5/26).
 //   4. COURSES:  the Settings ▸ Courses editor, verbatim (same classes, from
 //                settings.css), because onboarding is where courses are BORN
 //                and Settings is where they're edited later.
@@ -45,6 +48,16 @@ import { buildLanguagePicker } from '../settings/languagePicker';
 import { normalizePrefs } from '../prefs';
 import { signOut } from '../auth'; // TEMPORARY: powers the "‹ Landing page" escape hatch
 import type { CourseConfig, Task } from '../types';
+import {
+  currentCourses,
+  dayToShow,
+  isGoogleCalendarIcalUrl,
+  parseScheduleIcs,
+  fetchScheduleIcs,
+  refreshFeed,
+  saveFeed,
+} from '../schedule/feed';
+import { formatWallClock } from '../util/dates';
 
 interface OnboardingOpts {
   data: Data;
@@ -109,6 +122,10 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
     // schedule. It had not. Presenting a guess as a finding is the one thing this
     // screen must never do.
     courses: [] as CourseConfig[],
+    /** Where the course list came from, for the courses screen's subtitle. */
+    coursesFrom: '' as '' | 'schoology' | 'schedule',
+    /** The Google Calendar schedule address, once it has been read successfully. */
+    schedule: '',
     // Real assignment titles pulled from the student's own feed, shown flying in
     // during the scan. Empty feed means an empty animation, honestly.
     found: [] as string[],
@@ -145,7 +162,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
   // Per-screen bar targets. The LAST entry is 92, not 100, ON PURPOSE: arriving
   // at the setup screen must not complete the bar. The payoff pushes it to 100
   // so finishing and the reward land as one moment.
-  const PCT = [14, 28, 42, 56, 70, 84, 92];
+  const PCT = [12, 24, 36, 48, 60, 72, 84, 92];
   // Seeded from PCT[0], not a hand-typed number: the bar RATCHETS (Math.max below),
   // so a seed above the first target would make screen 1 open already overshot and
   // the deck would silently be one screen's worth of progress ahead of itself.
@@ -411,7 +428,10 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
           // extension: the calendar feed carries none. No extension, or nothing
           // scraped, means the courses screen stays empty rather than inventing.
           void discoverCourses().then((found) => {
-            if (found.length) draft.courses = found;
+            if (!found.length) return;
+            const have = new Set(found.map((c) => c.name.toLowerCase()));
+            draft.courses = [...found, ...draft.courses.filter((c) => !have.has(c.name.toLowerCase()))];
+            draft.coursesFrom = 'schoology';
           });
 
           setTimeout(() => {
@@ -424,6 +444,128 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
             btn.disabled = false;
             btn.textContent = 'Continue';
           }, 350 + titles.length * 230 + 250);
+        })();
+      };
+      btn.addEventListener('click', submit);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') submit();
+      });
+      input.addEventListener('input', () => (err.textContent = ''));
+    },
+  });
+
+  // ------------------------------------------------------------ 3b · schedule
+  // The student's timetable, from their own Google Calendar (schedule/feed.ts).
+  // The calendar is private, so the student pastes its "secret address"; the
+  // address is read for real before it is accepted, and the next school day is
+  // shown back as proof. Skippable, unlike Schoology: not every school publishes
+  // a schedule calendar, and Cobalt works without it.
+  SCREENS.push({
+    build(host) {
+      const sc = pane(host);
+      const h1 = el('h1', { class: 'rise' });
+      h1.append('Add your ', el('span', { class: 'g', text: 'schedule' }));
+      const sub = el('p', {
+        class: 'onb-sub rise d1',
+        text: 'If your school puts your classes on Google Calendar, Cobalt shows your day on the dashboard: every period, room and teacher.',
+      });
+      sc.append(h1, sub);
+
+      const steps = el('ol', { class: 'onb-steps rise d2' });
+      for (const t of [
+        'Open Google Calendar with your school account.',
+        'Settings, then your own calendar (your school email) on the left.',
+        'Scroll to Integrate calendar.',
+        'Copy "Secret address in iCal format" and paste it below.',
+      ]) {
+        steps.append(el('li', { text: t }));
+      }
+      const open = el('a', {
+        class: 'onb-help',
+        href: 'https://calendar.google.com/calendar/r/settings',
+        target: '_blank',
+        rel: 'noopener',
+        text: 'Open Google Calendar settings →',
+      });
+
+      const fieldWrap = el('div', { class: 'rise d2', style: 'width:100%;max-width:420px;margin-top:14px' });
+      const input = textInput({
+        class: 'onb-field',
+        placeholder: 'https://calendar.google.com/calendar/ical/…/basic.ics',
+        value: draft.schedule,
+      });
+      const err = el('div', { class: 'onb-err' });
+      const preview = el('div', { class: 'onb-sched' });
+      fieldWrap.append(open, input, err);
+      sc.append(steps, fieldWrap, preview);
+
+      const btn = cta(draft.schedule ? 'Continue' : 'Connect');
+      const skip = el('button', { class: 'onb-skip', type: 'button', text: 'Skip, my school doesn’t use this' });
+      sc.append(btn, skip);
+      skip.addEventListener('click', () => go(index + 1));
+
+      /** The next school day, as proof the address works. */
+      const showDay = (blocks: ReturnType<typeof parseScheduleIcs>): void => {
+        const day = dayToShow(blocks);
+        preview.replaceChildren();
+        if (!day) return;
+        for (const b of day.blocks.filter((x) => x.isClass).slice(0, 5)) {
+          const row = el('div', { class: 'onb-sched-row' });
+          row.append(
+            el('span', { class: 'onb-sched-time', text: formatWallClock(b.start) }),
+            el('span', { class: 'onb-sched-name', text: b.name }),
+            el('span', { class: 'onb-sched-room', text: b.room })
+          );
+          preview.append(row);
+        }
+      };
+
+      const submit = (): void => {
+        if (draft.schedule) {
+          go(index + 1);
+          return;
+        }
+        const v = input.value.trim();
+        if (!isGoogleCalendarIcalUrl(v)) {
+          err.textContent = 'That isn’t a Google Calendar secret address. It starts with https://calendar.google.com/calendar/ical/';
+          input.focus();
+          return;
+        }
+        const mine = index;
+        btn.disabled = true;
+        btn.textContent = 'Reading…';
+        void (async () => {
+          try {
+            const blocks = parseScheduleIcs(await fetchScheduleIcs(v));
+            void refreshFeed(v).catch(() => {}); // warm the dashboard's cache
+            if (index !== mine) return;
+            draft.schedule = v;
+            // The schedule names every course exactly: add any the list lacks.
+            const have = new Set(draft.courses.map((c) => c.name.toLowerCase()));
+            for (const name of currentCourses(blocks)) {
+              if (have.has(name.toLowerCase())) continue;
+              draft.courses.push({
+                id: 'course_onb_' + Math.random().toString(36).slice(2, 9),
+                name,
+                color: nextCourseColor(draft.courses.map((x) => x.color)),
+                parseWords: [],
+              });
+              have.add(name.toLowerCase());
+              if (!draft.coursesFrom) draft.coursesFrom = 'schedule';
+            }
+            fieldWrap.style.display = 'none';
+            steps.style.display = 'none';
+            sub.textContent = 'Connected. Here’s your next school day:';
+            showDay(blocks);
+            btn.disabled = false;
+            btn.textContent = 'Continue';
+            skip.remove();
+          } catch (e) {
+            if (index !== mine) return;
+            err.textContent = e instanceof Error ? e.message : 'Couldn’t read that calendar.';
+            btn.disabled = false;
+            btn.textContent = 'Connect';
+          }
         })();
       };
       btn.addEventListener('click', submit);
@@ -451,7 +593,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
         el('p', {
           class: 'onb-sub rise d1',
           text: discovered
-            ? 'Pulled from Schoology. Fix anything that looks wrong, and add what’s missing.'
+            ? `Pulled from ${draft.coursesFrom === 'schedule' ? 'your schedule' : 'Schoology'}. Fix anything that looks wrong, and add what’s missing.`
             : 'Your feed carries no course names, so add them here. Change them any time in Settings.',
         })
       );
@@ -786,6 +928,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
             const url = draft.ical.replace(/^webcal:\/\//i, 'https://');
             await data.setProfile('schoology', { icalUrl: url, lastSyncAt: null });
           }
+          if (draft.schedule) await saveFeed(data, draft.schedule);
         }
 
         let added = 0;

@@ -1172,3 +1172,60 @@
   padding: 16px;
   gap: 12px;
 }
+
+/* ---- 3b · schedule (onboarding/view.ts): Google Calendar secret address ---- */
+a.onb-help {
+  text-decoration: none;
+  box-sizing: border-box;
+}
+.onb-steps {
+  margin: 18px 0 0;
+  padding-left: 20px;
+  max-width: 420px;
+  width: 100%;
+  text-align: left;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+.onb-sched {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 420px;
+  margin-top: 16px;
+}
+.onb-sched:empty {
+  display: none;
+}
+.onb-sched-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 13.5px;
+  text-align: left;
+}
+.onb-sched-time {
+  flex: none;
+  width: 64px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.onb-sched-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.onb-sched-room {
+  flex: none;
+  color: var(--text-dim);
+}

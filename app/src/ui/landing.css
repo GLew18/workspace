@@ -781,8 +781,12 @@ html[data-kbd] .landing :is(button, a):focus-visible {
   padding: 78px 22px;
   text-align: center;
 }
+/* TEXT SCALES GENTLY (Gabe, 10/5): the rigid blocks shrink as pictures, to about
+   a quarter on a phone; prose shrinks too, but only to about 60-70% and never
+   below a legible floor. Each size runs in a straight line from its floor at a
+   375px screen to its full size at 1360px: clamp(floor, a + b·vw, full). */
 .lp-h2 {
-  font-size: clamp(26px, 4vw, 38px);
+  font-size: clamp(22px, 15.9px + 1.624vw, 38px);
   font-weight: 700;
   margin: 0 0 8px;
   letter-spacing: -0.01em;
@@ -791,7 +795,7 @@ html[data-kbd] .landing :is(button, a):focus-visible {
 .lp-sub {
   margin: 0 0 30px;
   color: var(--text-dim);
-  font-size: 15px;
+  font-size: clamp(12.5px, 11.55px + 0.254vw, 15px);
 }
 /* (.lp-tag eyebrows removed 8/13 per Gabe: the little uppercase section labels
    looked odd — the h2s carry each section on their own.) */
@@ -1584,7 +1588,7 @@ html[data-kbd] .landing :is(button, a):focus-visible {
 .lp-caps-caption {
   margin: 34px auto 0;
   max-width: 42ch;
-  font-size: 16px;
+  font-size: clamp(12.5px, 11.17px + 0.355vw, 16px);
   color: rgba(255, 255, 255, 0.8);
   line-height: 1.5;
 }
@@ -1655,9 +1659,6 @@ html[data-kbd] .landing :is(button, a):focus-visible {
    than loose ones) still fit meta + pill + all buttons on one line. */
 .lp-setup-body .task-test-badge { font-size: 9.5px; padding: 1px 4px; }
 
-@media (max-width: 980px) {
-  .lp-setups { grid-template-columns: 1fr; max-width: 520px; }
-}
 
 /* ---------------- Cobalt vs Schoology ---------------- */
 /* Two self-contained columns, no criteria column (Gabe, 8/13). Row-based markup
@@ -1714,7 +1715,7 @@ html[data-kbd] .landing :is(button, a):focus-visible {
 .lp-vs-foot {
   max-width: 1030px;
   margin: 14px auto 0;
-  font-size: 12.5px;
+  font-size: clamp(11px, 10.43px + 0.152vw, 12.5px);
   color: var(--text-dim);
 }
 
@@ -1728,10 +1729,6 @@ html[data-kbd] .landing :is(button, a):focus-visible {
   color: var(--text-dim);
 }
 
-@media (max-width: 640px) {
-  .lp-vs-cell { padding: 10px 10px; font-size: 12px; gap: 7px; }
-  .lp-vs-no, .lp-vs-yes { width: 15px; height: 15px; font-size: 9px; }
-}
 
 /* ---------------- Footer ---------------- */
 .lp-footer {
@@ -1849,26 +1846,13 @@ html[data-kbd] .landing :is(button, a):focus-visible {
 .lp-legal strong { color: var(--text); }
 
 /* ---------------- Responsive ---------------- */
+/* RIGID BLOCKS (Gabe, 10/5): the carousel, Endless personalization, Cosmetics,
+   Cobalt vs Schoology, the word cloud and the marquee never re-flow on a narrow
+   screen. Each keeps its desktop layout and shrinks as one picture (scaleToFit
+   in view.ts), like the hero demo. Only prose (headings, subtitles, the hero,
+   the nav) still adapts below. Do not add narrow-width rules for those blocks. */
 @media (max-width: 980px) {
-  .lp-split,
-  .lp-split-reverse {
-    grid-template-columns: 1fr;
-    gap: 26px;
-    justify-items: center;
-  }
-  /* Always read copy first, then the frame, regardless of DOM order. The
-     fixed-anchor padding is desktop-only (stacked copy needs no offset). */
-  .lp-split-text { order: -1; text-align: center; }
-  .lp-split-text .lp-bullets li { justify-content: center; }
   .lp-h2-left { text-align: center; }
-  /* No frame height override: the scale-to-fit wrapper shrinks the whole frame
-     proportionally, so its inner layout stays identical at every width. */
-
-  /* Stacked copy-then-frame is taller than the side-by-side desktop card, so
-     each cell needs more scroll room for the sticky hand-off to read cleanly. */
-  .lp-stack-card + .lp-stack-card { margin-top: 36vh; }
-  .lp-stack-card { padding: 28px 22px; }
-  .lp-stack-label { align-self: center; padding-top: 18px; }
 }
 /* ---------------- Phones (Gabe, 9/5/26, against Linear's landing) ----------------
    Everything gets proportionally SMALLER as the viewport shrinks, instead of
@@ -1911,51 +1895,7 @@ html[data-kbd] .landing :is(button, a):focus-visible {
      the pull-up only ever drove the demo into the chips. */
   .lp-stage-glow { margin-top: 0; padding-bottom: 56px; }
 
-  .lp-sub { font-size: 14px; margin-bottom: 22px; }
-  .lp-lead { font-size: 14px; line-height: 1.45; }
-  .lp-split-text .lp-lead { margin-bottom: 10px; } /* beats .lp-split-text .lp-lead's 16px (same specificity, later) */
-  .lp-split-title { font-size: 17px; margin-bottom: 6px; }
-  .lp-bullets { gap: 6px; }
-  .lp-bullets li { font-size: 13px; }
-  /* The phone nav is ~53px, so the band and the cards under it both come up. */
-  .lp-features .lp-stack-head { top: 54px; height: 64px; }
-  .lp-stack-track { margin-top: 64px; }
-  /* CARD CAP (Gabe, 9/8/26: cards were reading as near-full-screen — 687-690px
-     measured on a 390x844 phone). Three things shrink together: the split's
-     copy-then-frame gap, a shorter design height on the frame itself (a real
-     crop, like Linear's screenshots — the app inside still scrolls, it just
-     shows less before it does), and tighter card padding. Net effect measured
-     ~480-520px on a 390x844 phone, i.e. the 55-65vh band Gabe asked for. */
-  .lp-features .lp-stack-card .lp-split { gap: 14px; }
-  .lp-features .lp-stack-card .lp-frame { height: 420px; }
-  /* CSS SAFETY NET (Gabe, 9/8/26 fix pass): the 55-65vh card height above is
-     measured with scaleToFit's transform applied. If that ResizeObserver is
-     ever late or fails to fire, the frame renders at its full 620px design
-     width unscaled inside this narrow column and the card blows past 90vh.
-     This caps the card itself so that failure mode can't happen, regardless
-     of whether the JS has run yet. */
-  /* The cap has a PIXEL FLOOR (9/9/26 audit): on a 360x780 phone 65vh is 507px
-     and the first card's real content measured 517px, so the tab label under
-     the frame was cut off. 580px clears every card at 360px wide (517/498/493
-     measured) while the vh term still keeps tall screens proportional. */
-  .lp-stack-card { top: 126px; padding: 16px 14px 16px; border-radius: 18px; max-height: max(65vh, 580px); overflow: hidden; }
-  /* Left-aligned copy, not centred (overrides the 980px tablet rule above,
-     which still centres a stacked split at that width). */
-  .lp-features .lp-stack-card .lp-split-text { text-align: left; }
-  .lp-features .lp-stack-card .lp-bullets li { justify-content: flex-start; }
-  .lp-stack-label { align-self: flex-start; padding-top: 10px; font-size: 12.5px; }
-  /* Shorter cards need less scroll between one landing and the next arriving
-     (36vh at 980px was tuned for the taller pre-cap card). */
-  .lp-stack-card + .lp-stack-card { margin-top: 28vh; }
-  /* THE DWELL AFTER THE LAST CARD (Gabe, 9/6/26: "the gap between the bottom
-     card and Endless personalization is way too great"). 28vh of it is fine on a
-     desktop window; on a phone it lands on top of the next section's own 78px of
-     padding and reads as a dead screen. 2vh leaves a beat and lets the two
-     sections' own 60px paddings set the distance, so this boundary reads like
-     every other section boundary on the page: ~137px from the last card to the
-     next heading, against the page's standard 120px, and 314px before. */
-  .lp-stack-track { padding-bottom: 2vh; }
-  .lp-vs-cell { padding: 10px 12px; font-size: 12.5px; gap: 8px; }
+  .lp-sub { margin-bottom: 22px; }
   /* The marquee's and the closing card's phone sizes are at the END of this
      file, after their base rules: written here they lose the cascade to those
      later, equal-specificity rules and never apply (found by the visual
@@ -1998,7 +1938,7 @@ html[data-kbd] .landing :is(button, a):focus-visible {
    even though the strip beneath it does not. */
 .lp-fn-title {
   margin: 0 0 20px; /* the section supplies the column now */
-  font-size: 18px;
+  font-size: clamp(13.5px, 11.79px + 0.457vw, 18px); /* gentle text scaling, see .lp-h2 */
   font-weight: 600;
   color: var(--text-dim);
 }
@@ -2007,10 +1947,10 @@ html[data-kbd] .landing :is(button, a):focus-visible {
    moving gradient, and any opaque stand-in would show as two vertical bands. */
 .lp-fn-viewport {
   overflow: hidden;
-  /* A FIXED design width, scaled to fit (view.ts scaleToFit, FN_DESIGN_W): the
-     page column at full size. Narrower windows shrink the whole strip as one
-     picture, so the number of pills on screen never changes (Gabe, 9/5/26). */
-  width: 1316px;
+  /* TEXT, NOT A PICTURE (Gabe, 10/5): the strip is mostly words, so it follows the
+     gentle text scaling (see .lp-h2) instead of shrinking with the rigid blocks.
+     The pills are sized in em off .lp-fn-item's font-size, so they shrink with it. */
+  width: 100%;
   /* A LONG fade, not a lip at the very edge (Gabe, 9/2/26: it should start sooner
      and end later, gradually). 18% of the strip on each side is spent arriving and
      leaving, so a pill is already dimming well before it reaches the edge instead
@@ -2020,8 +1960,9 @@ html[data-kbd] .landing :is(button, a):focus-visible {
 }
 .lp-fn-track {
   display: flex;
-  gap: 18px; /* = FN_GAP in view.ts */
+  gap: 1em; /* 18px at full size; view.ts reads the real value */
   width: max-content;
+  font-size: clamp(12.5px, 10.41px + 0.558vw, 18px); /* = .lp-fn-item's, so 1em gaps track the pills */
   /* Distance and duration are MEASURED and published by functionsSection() — one
      set plus one gap, at a constant 42px/s however many copies it took to cover the
      window. The fallbacks only ever apply for the frame before that runs. */
@@ -2031,7 +1972,7 @@ html[data-kbd] .landing :is(button, a):focus-visible {
    cursor like Linear's, not stop.) */
 .lp-fn-set {
   display: flex;
-  gap: 18px; /* = FN_GAP in view.ts */
+  gap: 1em;
 }
 /* One set plus one gap — see the note in functionsSection(). NOT a percentage of
    the track: the number of copies varies with the window width, so -50% would mean
@@ -2045,14 +1986,14 @@ html[data-kbd] .landing :is(button, a):focus-visible {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 0.667em;
   /* BIGGER (Gabe, 9/3/26): sized so five or six pills fill the column at a time,
-     up from eight or nine at 14px. */
-  padding: 15px 26px;
+     up from eight or nine at 14px. In em since 10/5 (15px 26px at full size). */
+  padding: 0.833em 1.444em;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.04);
-  font-size: 18px;
+  font-size: clamp(12.5px, 10.41px + 0.558vw, 18px);
   font-weight: 600;
   color: rgba(255, 255, 255, 0.86);
   white-space: nowrap;
@@ -2065,15 +2006,15 @@ html[data-kbd] .landing :is(button, a):focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  font-size: 21px;
+  width: 1.048em; /* 22px of its own 21px font */
+  height: 1.048em;
+  font-size: 1.167em; /* 21px of the pill's 18px */
   line-height: 1;
 }
 .lp-fn-ico svg {
   display: block;
-  width: 20px;
-  height: 20px;
+  width: 0.952em; /* 20px of the icon's 21px */
+  height: 0.952em;
 }
 /* No motion: the strip becomes a static, centred, wrapping list. The duplicate set
    is dropped rather than left running off the edge, because with the animation off
@@ -2137,22 +2078,9 @@ html[data-kbd] .landing :is(button, a):focus-visible {
    phone block, and an equal-specificity rule loses to whichever comes last.
    Move these up and they silently stop applying. */
 @media (max-width: 640px) {
-  /* REVERTED (Gabe, 9/8/26): the strip used to scale as one picture (see
-     .lp-fn-viewport), which is what produced the "confetti" — 6 tiny,
-     barely-legible pills on screen at once, scaled down to ~0.27x. Turning
-     scaling OFF here (scaleToFit checks --fit-off on the target itself, in
-     view.ts) and sizing the pills for real means the strip goes back to
-     being an ordinary marquee: real font size, and however many pills of
-     that real size fit the screen is how many show — which the min-width
-     below pins at two or three, never more. */
+  /* The strip scales as one picture again (Gabe, 10/5), reversing the 9/8/26
+     real-size phone marquee: every block on the landing stays rigid. */
   .lp-fn { padding-top: 32px; padding-bottom: 32px; }
-  .lp-fn-viewport { width: 100%; --fit-off: 1; }
-  .lp-fn-item {
-    min-width: clamp(190px, 42vw, 280px);
-    justify-content: center;
-    padding: 11px 16px;
-    font-size: clamp(13.5px, 3.6vw, 16px);
-  }
   .lp-final-card { padding: 38px 20px 42px; border-radius: 18px; }
   /* Consolidated from the old 700px footer breakpoint (Gabe: "consolidate
      duplicates"). Nothing between 640 and 700px needed it on its own. */
@@ -2188,9 +2116,8 @@ html[data-kbd] .landing :is(button, a):focus-visible {
 /* ---------------- Gamification (Gabe, 10/4) ----------------
    One real Tasks screen wearing a Shop gem + accent, captions either side, a
    line from each caption to what it names (drawn by landing/view.ts layout()).
-   --gam-wide tells that code which layout the CSS chose. */
+   Rigid: on a narrow screen the whole stage shrinks, captions included. */
 .lp-gam-stage {
-  --gam-wide: 1;
   position: relative;
   display: grid;
   grid-template-columns: 210px minmax(0, 860px) 210px;
@@ -2208,9 +2135,6 @@ html[data-kbd] .landing :is(button, a):focus-visible {
   right: 0;
 }
 .lp-gam-callout.left { text-align: right; }
-.lp-gam-num {
-  display: none; /* the pins carry the numbers only on narrow screens */
-}
 .lp-gam-callout-title {
   font-size: 16px;
   font-weight: 700;
@@ -2241,16 +2165,6 @@ html[data-kbd] .landing :is(button, a):focus-visible {
 .lp-gam-end {
   fill: #fff;
 }
-.lp-gam-pin {
-  fill: #fff;
-  stroke: rgba(9, 19, 46, 0.6);
-  stroke-width: 2;
-}
-.lp-gam-pin-num {
-  font: 700 11px Inter, system-ui, sans-serif;
-  fill: #07132e;
-  text-anchor: middle;
-}
 /* The screen: the real header and Tasks tab, contained. */
 .lp-frame.lp-gam-frame {
   width: 860px;
@@ -2278,44 +2192,6 @@ html[data-kbd] .landing :is(button, a):focus-visible {
   bottom: 16px;
   z-index: 3;
 }
-/* Narrow: captions stack under the screen as a numbered list, pins stay. */
-@media (max-width: 1240px) {
-  .lp-gam-stage {
-    --gam-wide: 0;
-    grid-template-columns: minmax(0, 1fr);
-    row-gap: 22px;
-  }
-  .lp-gam-stage > .lp-fit { order: -1; }
-  .lp-gam-col {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-  }
-  .lp-gam-callout {
-    position: static;
-    text-align: left !important;
-    display: grid;
-    grid-template-columns: 22px 1fr;
-    column-gap: 10px;
-  }
-  .lp-gam-callout > :not(.lp-gam-num) { grid-column: 2; }
-  .lp-gam-num {
-    display: grid;
-    place-items: center;
-    grid-row: 1 / span 3;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: #fff;
-    color: #07132e;
-    font-size: 11px;
-    font-weight: 700;
-  }
-}
-@media (max-width: 640px) {
-  .lp-gam-col { grid-template-columns: minmax(0, 1fr); }
-}
-
 /* ---------------- See it in action: endless arrow carousel (Gabe, 10/4) ----------------
    Replaces the scroll-pinned card stack (the .lp-stack-* rules above still style
    each card's look; everything about pinning is switched off here). The track is
@@ -2381,17 +2257,4 @@ html[data-kbd] .landing :is(button, a):focus-visible {
 .lp-car-dot.on {
   width: 22px;
   background: var(--accent);
-}
-/* Phones: the arrows sit under the card, either side of the dots' row, so the
-   card keeps the full width. */
-@media (max-width: 640px) {
-  .lp-car {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    row-gap: 14px;
-  }
-  .lp-car-viewport { grid-column: 1 / -1; grid-row: 1; }
-  .lp-car-arrow.prev { grid-row: 2; justify-self: start; }
-  .lp-car-arrow.next { grid-row: 2; justify-self: end; }
-  .lp-car-arrow { width: 42px; height: 42px; }
-  .lp-car .lp-stack-card.lp-car-slide { max-height: none; }
 }
