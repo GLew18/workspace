@@ -6,7 +6,8 @@
 //
 //   1. WELCOME:  the app mark, the wordmark, one button.
 //   2. IMPORT:   what the product actually does, shown rather than described.
-//   3. CONNECT:  the Schoology mark + the iCal link. Pressing Connect plays the
+//   3. CONNECT:  the Schoology mark, the extension pitch (recommended route,
+//                auto-connects when installed) + the iCal link. Pressing Connect plays the
 //                scan animation IN PLACE (it is not a separate slide), then the
 //                button becomes Continue. There is deliberately NO skip: a
 //                student who skips forgets, opens an empty app, and concludes
@@ -40,7 +41,7 @@ import { replaceCourses, getCourseColor } from '../courses/registry';
 import { recommendedSet } from '../courses/recommend';
 import { nextCourseColor } from '../courses/colors';
 import { BADGE_ASSESSMENT_RE, isSchoologyIcalUrl, parseIcal, taskEvents } from '../schoology/ical';
-import { detectSchoologyExtension, requestSgyData } from '../schoology/extension';
+import { detectSchoologyExtension, requestSgyData, EXTENSION_STORE_URL } from '../schoology/extension';
 import { todayStr } from '../util/dates';
 import { genId } from '../util/ids';
 import { openIcalGuide } from './icalGuide';
@@ -124,6 +125,8 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
     courses: [] as CourseConfig[],
     /** Where the course list came from, for the courses screen's subtitle. */
     coursesFrom: '' as '' | 'schoology' | 'schedule',
+    /** Connected through the extension's own assignment list (no feed link). */
+    extConnected: false,
     /** The Google Calendar schedule address, once it has been read successfully. */
     schedule: '',
     // Real assignment titles pulled from the student's own feed, shown flying in
@@ -307,12 +310,41 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       h1.append('Connect ', el('span', { class: 'g', text: 'Schoology' }));
       const sub = el('p', {
         class: 'onb-sub rise d2',
-        text: 'Paste your calendar link and every assignment imports itself, automatically, forever.',
+        text: 'Two ways in. The extension does all of it on its own; the link does the basics.',
       });
+
+      // THE PITCH (Gabe, 10/6/26): the extension is the lowest-friction route that
+      // stays inside the rules. Install once, sign in to Schoology as usual, and it
+      // syncs assignments AND real course names every 30 minutes in the background,
+      // reading only the student's own pages (never a password, never a cookie).
+      // The pasted link is the no-install fallback: assignments only, no courses.
+      // Until the Web Store listing exists (EXTENSION_STORE_URL blank) the button is
+      // an honest "coming soon", and the paste route below carries the step.
+      const route = el('div', { class: 'onb-route rise d2' });
+      const routeHead = el('div', { class: 'onb-route-head' });
+      routeHead.append(
+        el('span', { class: 'onb-route-title', text: 'Install the Cobalt extension' }),
+        el('span', { class: 'onb-route-badge', text: 'Recommended' })
+      );
+      const routeText = el('p', {
+        class: 'onb-route-text',
+        text: 'Assignments, real course names, and a refresh every 30 minutes without opening Schoology. It reads only your own pages and never sees your password.',
+      });
+      const routeBtn = el('button', { class: 'onb-route-btn', type: 'button', text: 'Get the extension' });
+      const routeStatus = el('div', { class: 'onb-route-status' });
+      if (EXTENSION_STORE_URL) {
+        routeBtn.addEventListener('click', () => window.open(EXTENSION_STORE_URL, '_blank', 'noopener'));
+      } else {
+        routeBtn.disabled = true;
+        routeBtn.textContent = 'Coming to the Chrome Web Store';
+      }
+      route.append(routeHead, routeText, routeBtn, routeStatus);
+
+      const divider = el('div', { class: 'onb-route-or rise d2', text: 'or paste your calendar link' });
 
       const fieldWrap = el('div', {
         class: 'rise d2',
-        style: 'width:100%;max-width:420px;margin-top:22px',
+        style: 'width:100%;max-width:420px;margin-top:4px',
       });
       // The animated walkthrough (icalGuide.ts): Schoology-accurate slides of the
       // REAL route (your name → Settings → scroll → copy). It replaced a text
@@ -338,7 +370,57 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       fieldWrap.append(helpBtn, input, err);
 
       const btn = cta('Connect');
-      sc.append(visual, h1, sub, fieldWrap, btn);
+      sc.append(visual, h1, sub, route, divider, fieldWrap, btn);
+
+      // Extension already installed? Then the student pastes nothing: the extension
+      // knows their feed URL (it reads it off their Schoology settings page), so it
+      // is pulled in and connected automatically. Polled every 2s while this screen
+      // is showing, so installing it mid-step flips the card without a reload.
+      // An installed extension that has not scraped yet (never opened Schoology
+      // since install) says so, and the paste route stays open underneath.
+      let extHandled = false;
+      const mineScreen = index;
+      const pollExt = async (): Promise<void> => {
+        if (extHandled || index !== mineScreen || draft.connected) return;
+        if (!(await detectSchoologyExtension())) return;
+        if (extHandled) return;
+        extHandled = true;
+        route.classList.add('found');
+        routeBtn.style.display = 'none';
+        routeStatus.textContent = 'Extension found. Reading your account…';
+        const payload = await requestSgyData(true);
+        if (index !== mineScreen || draft.connected) return;
+        if (payload?.assignments?.length) {
+          // The extension's own assignment list IS the connection: no link needed.
+          // The feed URL is still kept when it was found, so a phone (no extension)
+          // can read the same account later.
+          const today = todayStr();
+          const upcoming = payload.assignments.filter((a) => a.date >= today);
+          draft.ical = payload.icalUrl ?? '';
+          draft.extConnected = true;
+          routeStatus.textContent = 'Extension found. Connected.';
+          reveal(
+            upcoming.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6).map((a) => a.title),
+            upcoming.length
+          );
+        } else if (payload?.icalUrl) {
+          input.value = payload.icalUrl;
+          routeStatus.textContent = 'Extension found. Connecting…';
+          submit();
+        } else {
+          routeStatus.textContent =
+            'Extension found. Open Schoology once so it can read your account, or paste the link below.';
+          extHandled = false; // try again on the next tick, the scrape may land
+        }
+      };
+      const extTimer = window.setInterval(() => {
+        if (index !== mineScreen || draft.connected) {
+          window.clearInterval(extTimer);
+          return;
+        }
+        void pollExt();
+      }, 2000);
+      void pollExt();
 
       // TEMPORARY (Gabe, 8/9): a way past the connect step while the rest of
       // onboarding is being built, so testing later screens doesn't require a
@@ -374,8 +456,6 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
           input.select();
           return;
         }
-        const mine = index; // only touch this screen if the student is still on it
-        const alive = (): boolean => index === mine;
         btn.disabled = true;
         btn.textContent = 'Connecting…';
         sub.textContent = 'Reading your calendar feed…';
@@ -412,40 +492,51 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
 
           // The link works. Commit it to the draft and reveal what was found.
           draft.ical = v;
-          draft.connected = true;
-          draft.found = titles;
-          draft.foundCount = total;
-          fieldWrap.style.display = 'none';
-          stage.classList.add('scanning');
-          titles.forEach((t, i) =>
-            setTimeout(() => {
-              if (!alive()) return;
-              chips.append(el('span', { class: 'onb-chip', text: t }));
-            }, 350 + i * 230)
-          );
-
-          // Real course names, when they exist at all, come from the companion
-          // extension: the calendar feed carries none. No extension, or nothing
-          // scraped, means the courses screen stays empty rather than inventing.
-          void discoverCourses().then((found) => {
-            if (!found.length) return;
-            const have = new Set(found.map((c) => c.name.toLowerCase()));
-            draft.courses = [...found, ...draft.courses.filter((c) => !have.has(c.name.toLowerCase()))];
-            draft.coursesFrom = 'schoology';
-          });
-
-          setTimeout(() => {
-            if (!alive()) return;
-            stage.classList.remove('scanning');
-            stage.classList.add('done');
-            sub.textContent = total
-              ? `Connected. Found ${total} upcoming assignment${total === 1 ? '' : 's'}.`
-              : 'Connected. No upcoming assignments yet, new ones will import automatically.';
-            btn.disabled = false;
-            btn.textContent = 'Continue';
-          }, 350 + titles.length * 230 + 250);
+          reveal(titles, total);
         })();
       };
+
+      // The shared payoff for BOTH routes: the field and the pitch fold away, the
+      // Schoology mark sweeps, the real titles fly in, and Connect becomes Continue.
+      const mine = index; // only touch this screen if the student is still on it
+      const alive = (): boolean => index === mine;
+      function reveal(titles: string[], total: number): void {
+        draft.connected = true;
+        draft.found = titles;
+        draft.foundCount = total;
+        fieldWrap.style.display = 'none';
+        route.style.display = 'none';
+        divider.style.display = 'none';
+        btn.disabled = true;
+        stage.classList.add('scanning');
+        titles.forEach((t, i) =>
+          setTimeout(() => {
+            if (!alive()) return;
+            chips.append(el('span', { class: 'onb-chip', text: t }));
+          }, 350 + i * 230)
+        );
+
+        // Real course names, when they exist at all, come from the companion
+        // extension: the calendar feed carries none. No extension, or nothing
+        // scraped, means the courses screen stays empty rather than inventing.
+        void discoverCourses().then((found) => {
+          if (!found.length) return;
+          const have = new Set(found.map((c) => c.name.toLowerCase()));
+          draft.courses = [...found, ...draft.courses.filter((c) => !have.has(c.name.toLowerCase()))];
+          draft.coursesFrom = 'schoology';
+        });
+
+        setTimeout(() => {
+          if (!alive()) return;
+          stage.classList.remove('scanning');
+          stage.classList.add('done');
+          sub.textContent = total
+            ? `Connected. Found ${total} upcoming assignment${total === 1 ? '' : 's'}.`
+            : 'Connected. No upcoming assignments yet, new ones will import automatically.';
+          btn.disabled = false;
+          btn.textContent = 'Continue';
+        }, 350 + titles.length * 230 + 250);
+      }
       btn.addEventListener('click', submit);
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') submit();
@@ -933,7 +1024,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
 
         let added = 0;
         let failed = false;
-        if (draft.ical) {
+        if (draft.ical || draft.extConnected) {
           try {
             added = (await runSync(data)).added;
           } catch {
@@ -958,7 +1049,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
         let subText: string;
         if (failed) subText = 'Couldn’t reach Schoology. Your link is saved, retry from Settings.';
         else if (added > 0) subText = `${added} assignment${added === 1 ? '' : 's'} imported, sorted into your courses.`;
-        else if (draft.ical) subText = 'Connected. New assignments will import automatically.';
+        else if (draft.ical || draft.extConnected) subText = 'Connected. New assignments will import automatically.';
         else subText = 'Your courses are saved and ready.';
         sc.append(el('p', { class: 'onb-sub', text: subText }));
 

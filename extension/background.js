@@ -118,7 +118,24 @@ function sgyMerge(prev, next) {
   const courses = new Map();
   for (const c of Array.isArray(prev.courses) ? prev.courses : []) if (c && c.id) courses.set(c.id, c);
   for (const c of Array.isArray(next.courses) ? next.courses : []) if (c && c.id) courses.set(c.id, c);
-  return {
+  // Assignments: the fresh list is AUTHORITATIVE inside its coverage window (an
+  // assignment absent from it was deleted at the source and must not linger from
+  // an older scrape), while anything an older scrape saw OUTSIDE that window is
+  // kept until a scrape covers those dates again.
+  const nextList = Array.isArray(next.assignments) ? next.assignments : [];
+  const cov = next.coverage && typeof next.coverage === 'object' ? next.coverage : null;
+  const assignments = new Map();
+  if (nextList.length) {
+    for (const a of Array.isArray(prev.assignments) ? prev.assignments : []) {
+      if (!a || !a.id) continue;
+      const inside = cov && typeof a.date === 'string' && a.date >= cov.from && a.date <= cov.to;
+      if (!inside) assignments.set(a.id, a);
+    }
+    for (const a of nextList) if (a && a.id) assignments.set(a.id, a);
+  } else {
+    for (const a of Array.isArray(prev.assignments) ? prev.assignments : []) if (a && a.id) assignments.set(a.id, a);
+  }
+  const out = {
     host: next.host || prev.host || '',
     // Keep a previously-found feed URL when this scrape happened not to see it.
     icalUrl: next.icalUrl || prev.icalUrl || undefined,
@@ -127,6 +144,11 @@ function sgyMerge(prev, next) {
     scrapedAt: next.scrapedAt || Date.now(),
     diag: next.diag || prev.diag,
   };
+  if (assignments.size) {
+    out.assignments = [...assignments.values()];
+    out.coverage = (nextList.length && cov) || prev.coverage || undefined;
+  }
+  return out;
 }
 
 /** Shape-check a payload from a content script before it reaches storage. */

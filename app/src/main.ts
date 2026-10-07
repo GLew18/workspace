@@ -535,7 +535,9 @@ async function renderApp(user: AuthUser): Promise<void> {
     // "linked" without ever pasting a URL.
     await pullSchoologyLabels();
     const sgy = await data.getProfile<SchoologySettings>('schoology');
-    if (sgy?.icalUrl) {
+    // "Linked" is either a feed URL or the extension itself: with it installed the
+    // assignments come straight from its scrape, no link needed (sync.ts).
+    if (sgy?.icalUrl || (await detectSchoologyExtension())) {
       try {
         await runSync(data);
       } catch {

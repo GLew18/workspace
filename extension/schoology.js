@@ -22,7 +22,11 @@
 //   SgyCourse  = { id, name }                      // id from /course/<id>
 //   SgyPayload = { host, icalUrl?, courses: SgyCourse[],
 //                  labels: { [assignmentId]: courseName },
+//                  assignments?: SgyAssignment[], coverage?: { from, to },
 //                  scrapedAt, diag? }
+//   SgyAssignment = { id, title, description, url, date, time, kind, course }
+//                  (the import source when the extension is installed; see
+//                  apiHarvest — the feed is only the no-extension fallback)
 //
 // Testability: the extractors are PURE (Document/HTML-string in, data out) and
 // exposed on globalThis.__wsSgy so they can be unit-tested against fixture HTML
@@ -384,6 +388,57 @@
     return id != null && /^\d+$/.test(String(id)) ? String(id) : null;
   }
 
+  /** Schoology's API dates are "YYYY-MM-DD HH:MM:SS" in the school's time zone.
+   *  -> { date: 'YYYY-MM-DD', time: 'HH:MM' | '' } ('' when all-day or unparseable). */
+  function splitApiDate(start, allDay) {
+    const m = String(start || '').match(/^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+    if (!m) return null;
+    const isAllDay = allDay === 1 || allDay === '1' || allDay === true;
+    return { date: m[1], time: !isAllDay && m[2] ? m[2] + ':' + m[3] : '' };
+  }
+
+  /** Assignment descriptions arrive as HTML; the app stores plain text (the iCal
+   *  feed already hands it over flattened, so both sources must agree). */
+  function htmlToText(html) {
+    const s = String(html || '');
+    if (!s) return '';
+    try {
+      if (typeof DOMParser !== 'undefined') {
+        const doc = new DOMParser().parseFromString(s.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n'), 'text/html');
+        return (doc.body ? doc.body.textContent : '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+      }
+    } catch (_e) {
+      /* fall through to the regex strip */
+    }
+    return s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  /** One task-worthy API event -> the SgyAssignment the app imports directly
+   *  (mirrors IcalEvent in app/src/schoology/ical.ts field for field, plus the
+   *  course the section lookup resolved). null when it cannot be a task. */
+  function assignmentFromEvent(e, host, course) {
+    const id = assignmentIdFromEvent(e, host);
+    const when = splitApiDate(e && e.start, e && e.all_day);
+    const title = String((e && e.title) || '').trim();
+    if (!id || !when || !title) return null;
+    const isAssignment = !!e && e.type === 'assignment';
+    // Same link the iCal feed carries (no trailing /info), so a task imported from
+    // the feed on a phone and re-read from the API here never looks "changed".
+    const url =
+      repairSchoologyUrl(String(e && e.web_url ? e.web_url : ''), host) ||
+      'https://' + host + (isAssignment ? '/assignment/' : '/event/') + id;
+    return {
+      id,
+      title,
+      description: htmlToText(e && e.description),
+      url: url.replace(/^http:\/\//i, 'https://').replace(/\/info\/?$/i, ''),
+      date: when.date,
+      time: when.time,
+      kind: isAssignment ? 'assignment' : 'assessment',
+      course: course || '',
+    };
+  }
+
   /** Schoology wraps list responses ({ event: [...] }); tolerate bare arrays too. */
   function apiList(json, key) {
     if (Array.isArray(json)) return json;
@@ -407,6 +462,9 @@
     courseNameFromApi,
     assignmentIdFromEvent,
     apiList,
+    splitApiDate,
+    htmlToText,
+    assignmentFromEvent,
   };
 
   // ========================= impure scrape pipeline =========================
@@ -489,35 +547,58 @@
    * this useful to someone who mostly lives on their phone: they can go weeks
    * between desktop visits and still have accurate courses.
    */
+  //
+  // THE ASSIGNMENTS THEMSELVES ride along too (Gabe, 10/6/26). The events call
+  // already returns every title, due date and description, so the app no longer
+  // needs the iCal feed at all when the extension is installed: `assignments` is
+  // the import source and `labels` stays as the course join for feed-imported
+  // tasks (phones, no-extension accounts). The window is the app's largest import
+  // horizon (Settings ▸ Tasks ▸ Import, 60 days) and `coverage` tells the app
+  // which dates this list is authoritative for, so an assignment missing from it
+  // is "deleted at the source" only inside that window.
+  const API_WINDOW_DAYS = 60;
+  const API_PAGE_LIMIT = 200; // Schoology's documented maximum per page
+  const API_MAX_PAGES = 5;
+
   async function apiHarvest(diag) {
     const labels = {};
     const courses = [];
+    const assignments = [];
     const host = location.hostname;
     const who = await discoverUserId();
-    diag.api = { uid: who.from, events: 0, kept: 0, sections: 0, labels: 0 };
+    diag.api = { uid: who.from, events: 0, kept: 0, sections: 0, labels: 0, assignments: 0 };
+    const now = new Date();
+    const end = new Date(now.getTime() + API_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const coverage = { from: ymd(now), to: ymd(end) };
     if (!who.id) {
       diag.api.error = 'no-user-id';
-      return { labels, courses };
+      return { labels, courses, assignments, coverage };
     }
 
-    const now = new Date();
-    const end = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-    const events = apiList(
-      await fetchJson(
-        '/v1/users/' + who.id + '/events?start_date=' + ymd(now) + '&end_date=' + ymd(end) + '&limit=100'
-      ),
-      'event'
-    );
+    // Paged: a heavy term can exceed one page, and a truncated list would read as
+    // mass deletion on the app side.
+    const events = [];
+    let next =
+      '/v1/users/' + who.id + '/events?start_date=' + coverage.from + '&end_date=' + coverage.to + '&limit=' + API_PAGE_LIMIT;
+    for (let page = 0; next && page < API_MAX_PAGES; page++) {
+      if (page) await sleep(FETCH_SPACING_MS);
+      const json = await fetchJson(next);
+      const list = apiList(json, 'event');
+      events.push(...list);
+      const link = json && json.links && typeof json.links.next === 'string' ? json.links.next : '';
+      next = link && list.length ? link.replace(/^https?:\/\/[^/]+/i, '') : '';
+    }
     diag.api.events = events.length;
     if (!events.length) {
       diag.api.error = 'no-events';
-      return { labels, courses };
+      return { labels, courses, assignments, coverage };
     }
 
     // Group the keepers by the realm that owns them, so each section/course is
     // resolved ONCE no matter how many assignments it has.
     const bySection = new Map();
     const byCourse = new Map();
+    const kept = []; // [event, realmKey]
     for (const e of events) {
       if (!isTaskEvent(e)) continue;
       const aid = assignmentIdFromEvent(e, host);
@@ -528,18 +609,24 @@
       if (sid) {
         if (!bySection.has(sid)) bySection.set(sid, []);
         bySection.get(sid).push(aid);
+        kept.push([e, 's' + sid]);
       } else if (cid) {
         if (!byCourse.has(cid)) byCourse.set(cid, []);
         byCourse.get(cid).push(aid);
+        kept.push([e, 'c' + cid]);
+      } else {
+        kept.push([e, '']);
       }
     }
 
     const seenCourse = new Set();
-    const resolve = async (path, id, aids) => {
+    const realmName = new Map(); // 's<id>' | 'c<id>' -> course name
+    const resolve = async (prefix, path, id, aids) => {
       await sleep(FETCH_SPACING_MS);
       const name = courseNameFromApi(await fetchJson(path + id));
       diag.api.sections++;
       if (!name) return;
+      realmName.set(prefix + id, name);
       if (!seenCourse.has(id)) {
         seenCourse.add(id);
         courses.push({ id, name });
@@ -549,10 +636,21 @@
         diag.api.labels++;
       }
     };
-    for (const [sid, aids] of bySection) await resolve('/v1/sections/', sid, aids);
-    for (const [cid, aids] of byCourse) await resolve('/v1/courses/', cid, aids);
+    for (const [sid, aids] of bySection) await resolve('s', '/v1/sections/', sid, aids);
+    for (const [cid, aids] of byCourse) await resolve('c', '/v1/courses/', cid, aids);
 
-    return { labels, courses };
+    // One entry per assignment id, latest date wins (mirrors the app's collapse).
+    const byId = new Map();
+    for (const [e, realm] of kept) {
+      const a = assignmentFromEvent(e, host, realm ? realmName.get(realm) || '' : '');
+      if (!a) continue;
+      const prev = byId.get(a.id);
+      if (!prev || a.date > prev.date) byId.set(a.id, a);
+    }
+    assignments.push(...byId.values());
+    diag.api.assignments = assignments.length;
+
+    return { labels, courses, assignments, coverage };
   }
 
   // ============================== the sync badge =============================
@@ -749,6 +847,10 @@
       // ---- PRIMARY: Schoology's own API (structured, no selectors to break) ----
       const api = await apiHarvest(diag);
       Object.assign(payload.labels, api.labels);
+      if (api.assignments.length) {
+        payload.assignments = api.assignments;
+        payload.coverage = api.coverage;
+      }
       const apiWorked = Object.keys(api.labels).length > 0;
 
       // ---- courses: API first, then live DOM + the /courses page for the rest ----

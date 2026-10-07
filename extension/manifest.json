@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Cobalt Premium",
   "description": "Premium companion for Cobalt: global link shortcuts from any tab, real course names from Schoology, and Open all launching into named Chrome tab groups.",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "minimum_chrome_version": "102",
   "permissions": ["storage", "tabs", "tabGroups", "scripting", "alarms"],
   "host_permissions": ["<all_urls>"],

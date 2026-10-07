@@ -43,6 +43,11 @@ export interface Task {
   details?: string;
   schoologyUrl?: string;
   schoologyEventId?: string;
+  /** Which Schoology source last wrote this task's text: the extension's API read
+   *  ('ext') or the iCal feed ('feed'). The two flatten instructions and links
+   *  slightly differently, so sync.ts only lets the feed rewrite those fields on a
+   *  task the extension wrote when the extension is not the current source. */
+  importedVia?: 'ext' | 'feed';
   // Edit-protection flags: once a user manually edits a field, imports won't overwrite it.
   _manualTitle?: boolean;
   _manualDueDate?: boolean;

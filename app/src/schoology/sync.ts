@@ -1,8 +1,9 @@
 // Cobalt: Schoology import orchestration (client-side, on-demand).
 //
-// Runs on app open and when Settings is saved. In production the same
-// parse/classify pipeline moves into a scheduled Cloud Function for the 30-min
-// background sync — this module is the shared core, not throwaway.
+// Runs on app open and when Settings is saved. Two sources feed it (see the
+// Sources region): the companion extension's scrape when installed (assignments
+// with true courses, refreshed every 30 min in the background) and the iCal feed
+// as the no-extension fallback.
 //
 // Import rules:
 //   • FUTURE only — assignments due today or later (no past backlog).
@@ -25,7 +26,13 @@ import type { Data } from '../db';
 import type { Task, ScheduleItem, SchoologySettings } from '../types';
 import { parseIcal, taskEvents, scheduleEvents, type IcalEvent } from './ical';
 import { classifyBatch } from './classify';
-import { loadLabels, labelFor } from './extension';
+import {
+  loadLabels,
+  labelFor,
+  detectSchoologyExtension,
+  requestSgyData,
+  type SgyPayload,
+} from './extension';
 import { extractLinks } from '../tasks/attachments';
 import { clearTranslation, clearDetailsTranslation } from '../tasks/store';
 import { getTaskFolders, patchTaskFolder } from '../tasks/folders';
@@ -145,6 +152,47 @@ export async function fetchIcal(url: string): Promise<string> {
 }
 // #endregion
 
+// #region Sources — the extension's assignment list, shaped like feed events
+// TWO SOURCES, ONE PIPELINE (Gabe, 10/6/26). With the companion extension
+// installed, the assignments come straight off Schoology's own API (title, due
+// date, instructions AND the true course), read on the student's machine inside
+// their own session. The iCal feed is the no-extension fallback and, when both
+// exist, fills in whatever lies beyond the extension's coverage window. Both are
+// flattened to IcalEvent so everything below (dedup, ledger, alterations,
+// deletions, folders) is written once. Task ids stay 'ical_assign_<id>' for both,
+// which is what lets a phone (feed only) and a laptop (extension) agree on the
+// same task.
+type SourceEvent = IcalEvent & { course?: string; via: 'ext' | 'feed' };
+
+function eventsFromSgy(payload: SgyPayload): SourceEvent[] {
+  return (payload.assignments ?? []).map((a) => ({
+    via: 'ext' as const,
+    uid: 'sgy-' + a.id,
+    id: a.id,
+    assignmentId: a.id,
+    summary: a.title,
+    description: a.description,
+    url: a.url,
+    date: a.date,
+    hasTime: !!a.time,
+    time: a.time,
+    kind: a.kind,
+    course: a.course,
+  }));
+}
+
+/** The extension's latest scrape, or null when it is absent or has no
+ *  assignments. Never throws. */
+async function extensionSource(given?: SgyPayload | null): Promise<SgyPayload | null> {
+  try {
+    const p = given === undefined ? ((await detectSchoologyExtension()) ? await requestSgyData() : null) : given;
+    return p && p.assignments && p.assignments.length && p.coverage ? p : null;
+  } catch {
+    return null;
+  }
+}
+// #endregion
+
 // #region Builders — stable dedup key + new-task factory
 /** Stable logical id for dedup: assignment id when present, else normalized title. */
 function logicalKey(e: IcalEvent): string {
@@ -153,7 +201,7 @@ function logicalKey(e: IcalEvent): string {
 }
 
 /** Build a fresh imported task from an event + its classified course. */
-function newTask(key: string, e: IcalEvent, course: string): Task {
+function newTask(key: string, e: SourceEvent, course: string): Task {
   const t: Task = {
     id: 'ical_' + key,
     title: e.summary,
@@ -162,6 +210,7 @@ function newTask(key: string, e: IcalEvent, course: string): Task {
     timeLabel: '',
     course,
     source: 'schoology-ical',
+    importedVia: e.via,
     completed: false,
     completedAt: null,
     priority: 'normal',
@@ -199,15 +248,45 @@ export interface SyncOptions {
    *  Settings "Save & sync" keep the default, ledger-respecting behavior — an
    *  automatic sync silently un-deleting a task would be its own kind of bug. */
   force?: boolean;
+  /** The extension's payload when the caller already holds it (onboarding does).
+   *  `null` means "do not ask the extension"; omitted means ask it. */
+  sgy?: SgyPayload | null;
 }
 
-/** Full import pass. Returns counts; throws only on fetch/parse failure. */
+/** Full import pass. Returns counts; throws only when NO source can be read:
+ *  no feed link and no extension data, or the feed failed with no extension
+ *  data to fall back on. */
 export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncResult> {
   const settings = await data.getProfile<SchoologySettings>('schoology');
-  if (!settings?.icalUrl) throw new Error('No Schoology link configured.');
+  const sgy = await extensionSource(opts.sgy);
+  if (!settings?.icalUrl && !sgy) throw new Error('No Schoology link configured.');
 
-  const ics = await fetchIcal(settings.icalUrl);
-  const events = parseIcal(ics);
+  // --- gather: feed (when linked) + extension (when installed) ---------------
+  // The feed is the only source of schedule posts and of anything past the
+  // extension's window, so it is still read when a link exists; a feed failure
+  // is fatal only when the extension cannot carry the sync alone.
+  let feedEvents: IcalEvent[] = [];
+  let feedRead = false;
+  if (settings?.icalUrl) {
+    try {
+      feedEvents = parseIcal(await fetchIcal(settings.icalUrl));
+      feedRead = true;
+    } catch (err) {
+      if (!sgy) throw err;
+    }
+  }
+  const events = feedEvents;
+  // Extension entries win over the feed's for the same assignment: they carry
+  // the true course and come from the record itself rather than a calendar copy.
+  const sourceTasks = new Map<string, SourceEvent>();
+  for (const e of taskEvents(feedEvents)) {
+    const key = logicalKey(e);
+    const prev = sourceTasks.get(key);
+    if (!prev || e.date > prev.date) sourceTasks.set(key, { ...e, via: 'feed' });
+  }
+  if (sgy) {
+    for (const e of eventsFromSgy(sgy)) sourceTasks.set(logicalKey(e), e);
+  }
   const today = todayStr();
 
   // Settings ▸ Tasks ▸ Import: which event types come in, and how far ahead.
@@ -219,14 +298,12 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
     return /\bquiz(zes)?\b/i.test(e.summary) ? imp.quizzes : imp.assessments;
   };
 
-  // --- collapse to one event per logical item, keeping the LATEST day ---
-  const byKey = new Map<string, IcalEvent>();
-  for (const e of taskEvents(events)) {
+  // --- one event per logical item (latest day, see the gather above), windowed ---
+  const byKey = new Map<string, SourceEvent>();
+  for (const [key, e] of sourceTasks) {
     if (e.date < today || e.date > horizon) continue; // future only, inside the window
     if (!allowed(e)) continue;
-    const key = logicalKey(e);
-    const prev = byKey.get(key);
-    if (!prev || e.date > prev.date) byKey.set(key, e);
+    byKey.set(key, e);
   }
 
   // --- only import keys we've never imported before (or, forced: keys that
@@ -234,7 +311,7 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
   const ledger = (await data.getProfile<SeenLedger>('imported')) || { keys: [] };
   const seen = new Set(ledger.keys);
   const existing = await data.getTasksAll(); // also reused by the alterations pass below
-  const fresh: { key: string; e: IcalEvent }[] = [];
+  const fresh: { key: string; e: SourceEvent }[] = [];
   for (const [key, e] of byKey) {
     const isNew = opts.force ? !existing['ical_' + key] : !seen.has(key);
     if (isNew) fresh.push({ key, e });
@@ -247,8 +324,11 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
   // FIRST, and the heuristic engine only handles what has no true label yet.
   // Because the labels live in the cloud rather than in the extension, a phone —
   // where extensions cannot run — gets the exact same course names.
+  // An extension-sourced event already names its course (read from the
+  // assignment's own section record), which outranks even the stored label map.
   const labels = await loadLabels(data);
-  const trueCourse = (e: IcalEvent): string => (e.assignmentId ? labelFor(labels, e.assignmentId) : '');
+  const trueCourse = (e: SourceEvent): string =>
+    e.course || (e.assignmentId ? labelFor(labels, e.assignmentId) : '');
 
   // Classify (incl. the AI call) only the items with no ground-truth label — this
   // also shrinks the batch the classifier ever sees.
@@ -366,7 +446,13 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
       if (cur.dueDate !== e.date) delete next.manualOrder;
       changed = true;
     }
-    if ((cur.details ?? '') !== e.description) {
+    // Instructions and the link are flattened slightly differently by the two
+    // sources, so the feed may not rewrite them on a task the extension wrote:
+    // otherwise a phone (feed) and a laptop (extension) would flip them back and
+    // forth and raise a false ✱ on every sync. Title and due date are identical
+    // across sources and carry from either.
+    const weakFieldsOk = e.via === 'ext' || cur.importedVia !== 'ext';
+    if (weakFieldsOk && (cur.details ?? '') !== e.description) {
       remember('details', cur.details ?? '');
       if (e.description) next.details = e.description;
       else delete next.details; // delete, not undefined — Firebase rejects undefined fields
@@ -389,7 +475,7 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
         changes.add(fresh.length === 1 ? 'an attachment' : 'attachments');
       }
     }
-    if ((cur.schoologyUrl ?? '') !== e.url) {
+    if (weakFieldsOk && (cur.schoologyUrl ?? '') !== e.url) {
       remember('schoologyUrl', cur.schoologyUrl ?? '');
       if (e.url) next.schoologyUrl = e.url;
       else delete next.schoologyUrl;
@@ -397,6 +483,7 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
       changed = true;
     }
     if (changed) {
+      if (e.via === 'ext') next.importedVia = 'ext';
       next.feedUpdated = [...changes]; // surfaces the ✱ "updated" badge on the task row
       // Never store an empty ghost. Today every branch that sets `changed` also
       // calls remember(), so this is always populated here; the check is what keeps
@@ -416,11 +503,21 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
   // incomplete schoology-ical imports are candidates: completed work stays as a
   // record even if the source assignment disappears later, and nothing the
   // student typed themselves is ever touched.
-  const allFeedKeys = new Set(taskEvents(events).map(logicalKey));
+  //
+  // With the extension as a source, "absent" only counts where that source could
+  // have seen it: inside its coverage window. A feed that was read covers every
+  // date; a feed that was not read (no link, or it failed and the extension carried
+  // the sync) covers none, so a task outside the extension's window is left alone.
+  const allSourceKeys = new Set(sourceTasks.keys());
+  const covered = (t: Task): boolean => {
+    if (feedRead) return true;
+    const c = sgy?.coverage;
+    return !!c && t.dueDate >= c.from && t.dueDate <= c.to;
+  };
   const gone = Object.entries(existing)
-    .filter(([, t]) => t.source === 'schoology-ical' && !t.completed)
+    .filter(([, t]) => t.source === 'schoology-ical' && !t.completed && covered(t))
     .map(([id]) => id)
-    .filter((id) => !allFeedKeys.has(id.slice('ical_'.length)));
+    .filter((id) => !allSourceKeys.has(id.slice('ical_'.length)));
   if (gone.length) {
     await data.removeTasksBulk(gone);
     // Drop their keys from the ledger too: the SOURCE deleted these, not the
@@ -434,22 +531,28 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
   await data.setProfile('imported', { keys: [...seen] });
 
   // --- schedule (dashboard card): collapse to latest day per title ---
-  const schedByTitle = new Map<string, IcalEvent>();
-  for (const e of scheduleEvents(events)) {
-    const prev = schedByTitle.get(e.summary);
-    if (!prev || e.date > prev.date) schedByTitle.set(e.summary, e);
+  // Feed only: schedule posts are calendar events, not assignments, so the
+  // extension's list never carries them. Left untouched when the feed was not read.
+  let scheduleCount = 0;
+  if (feedRead) {
+    const schedByTitle = new Map<string, IcalEvent>();
+    for (const e of scheduleEvents(events)) {
+      const prev = schedByTitle.get(e.summary);
+      if (!prev || e.date > prev.date) schedByTitle.set(e.summary, e);
+    }
+    const schedule: ScheduleItem[] = [...schedByTitle.values()].map((e) => ({
+      id: e.id,
+      title: e.summary,
+      date: e.date,
+      url: e.url,
+    }));
+    await data.setProfile('schedule', { list: schedule });
+    scheduleCount = schedule.length;
   }
-  const schedule: ScheduleItem[] = [...schedByTitle.values()].map((e) => ({
-    id: e.id,
-    title: e.summary,
-    date: e.date,
-    url: e.url,
-  }));
-  await data.setProfile('schedule', { list: schedule });
 
   // --- sync state ---
   await data.setProfile('schoology', {
-    ...settings,
+    ...(settings ?? { icalUrl: '' }),
     lastSyncAt: new Date().toISOString(),
     lastSyncCount: byKey.size,
   } satisfies SchoologySettings);
@@ -463,7 +566,7 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
     updated: altered.length,
     removed: gone.length,
     total: byKey.size,
-    scheduleCount: schedule.length,
+    scheduleCount,
   };
 }
 // #endregion

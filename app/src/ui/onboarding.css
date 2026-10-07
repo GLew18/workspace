@@ -966,6 +966,92 @@
   text-decoration: underline;
 }
 
+/* ---- Connect screen: the extension route card (Gabe, 10/6/26). The recommended
+   path sits above the paste field as one quiet surface card; the badge and the
+   button carry the accent, nothing else competes with Connect below. ---- */
+.onb-route {
+  width: 100%;
+  max-width: 420px;
+  margin-top: 22px;
+  padding: 14px 16px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  transition: border-color 0.2s ease;
+}
+.onb-route.found {
+  border-color: var(--accent);
+}
+.onb-route-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.onb-route-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+.onb-route-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: rgba(125, 180, 255, 0.12);
+  border: 1px solid rgba(125, 180, 255, 0.35);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.onb-route-text {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.onb-route-btn {
+  margin-top: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  background: rgba(125, 180, 255, 0.1);
+  border: 1px solid rgba(125, 180, 255, 0.35);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+.onb-route-btn:hover:not(:disabled) {
+  background: rgba(125, 180, 255, 0.18);
+  border-color: var(--accent);
+}
+.onb-route-btn:disabled {
+  cursor: default;
+  color: var(--text-dim);
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--border);
+}
+.onb-route-status {
+  font-size: 12.5px;
+  color: var(--accent);
+  margin-top: 8px;
+}
+.onb-route-status:empty {
+  display: none;
+}
+.onb-route-or {
+  margin: 14px 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+}
+
 /* ---- The guide button, restyled to match Settings' fix-it guides (.notify-howto).
    Both open an animated walkthrough of something the student cannot find, so they
    were two different-looking controls doing one job. The play disc and the slide

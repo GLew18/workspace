@@ -39,11 +39,27 @@ export interface SgyCourse {
   id: string; // Schoology section id from /course/<id>
   name: string;
 }
+/** One assignment read straight off Schoology's own API by the extension. The
+ *  import source when the extension is installed (Gabe, 10/6/26): same fields as
+ *  an IcalEvent so sync.ts runs ONE pipeline over either source, plus the course
+ *  the extension resolved from the assignment's own section record. */
+export interface SgyAssignment {
+  id: string; // the /assignment/<id> join key
+  title: string;
+  description: string; // plain text (the extension flattens Schoology's HTML)
+  url: string;
+  date: string; // 'YYYY-MM-DD'
+  time: string; // 'HH:MM' or '' for all-day
+  kind: 'assignment' | 'assessment';
+  course: string; // '' when the section lookup failed
+}
 export interface SgyPayload {
   host: string; // e.g. heschel.schoology.com
   icalUrl?: string; // personal iCal feed URL, when the scrape discovered it
   courses: SgyCourse[];
   labels: Record<string, string>; // assignmentId -> courseName (exact ground truth)
+  assignments?: SgyAssignment[]; // the student's upcoming work, when the API pass ran
+  coverage?: { from: string; to: string }; // dates `assignments` is authoritative for
   scrapedAt: number;
   diag?: Record<string, unknown>; // which scrape strategies matched — troubleshooting only
 }
@@ -62,6 +78,12 @@ export interface ApplyResult {
 // #endregion
 
 // #region Constants
+/** Where a student installs the companion extension. EMPTY until it is published
+ *  to the Chrome Web Store (same gate as EXTENSION_ID in bookmarks/shortcuts.ts):
+ *  onboarding shows the install route as "coming soon" while this is blank, and
+ *  turns it into a real button the moment the listing URL is pasted here. */
+export const EXTENSION_STORE_URL = '';
+
 /** Profile key for the label store. Cloud data (see header) — never localStorage. */
 const LABELS_PROFILE_KEY = 'courseLabels';
 
@@ -153,6 +175,46 @@ function coercePayload(raw: unknown): SgyPayload | null {
     labels,
     scrapedAt: typeof p.scrapedAt === 'number' ? p.scrapedAt : Date.now(),
   };
+  // Assignments: rebuilt field by field like everything else. Only accepted
+  // together with a well-formed coverage window, because without one the sync
+  // could not tell "missing from this list" apart from "outside its reach".
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const MAX_ASSIGNMENTS = 2000;
+  const MAX_TEXT = 20000;
+  const cov = p.coverage;
+  if (
+    Array.isArray(p.assignments) &&
+    cov &&
+    typeof cov.from === 'string' &&
+    typeof cov.to === 'string' &&
+    DATE_RE.test(cov.from) &&
+    DATE_RE.test(cov.to) &&
+    cov.from <= cov.to
+  ) {
+    const list: SgyAssignment[] = [];
+    for (const a of p.assignments) {
+      if (list.length >= MAX_ASSIGNMENTS) break;
+      if (!a || typeof a !== 'object') continue;
+      const id = typeof a.id === 'string' ? a.id : '';
+      const title = typeof a.title === 'string' ? a.title.trim() : '';
+      const date = typeof a.date === 'string' ? a.date : '';
+      if (!isValidAssignmentId(id) || !title || !DATE_RE.test(date)) continue;
+      const time = typeof a.time === 'string' && /^\d{2}:\d{2}$/.test(a.time) ? a.time : '';
+      const url = typeof a.url === 'string' && /^https:\/\//i.test(a.url) ? a.url.slice(0, 2000) : '';
+      list.push({
+        id,
+        title: title.slice(0, 500),
+        description: typeof a.description === 'string' ? a.description.slice(0, MAX_TEXT) : '',
+        url,
+        date,
+        time,
+        kind: a.kind === 'assessment' ? 'assessment' : 'assignment',
+        course: typeof a.course === 'string' ? a.course.trim().slice(0, MAX_NAME) : '',
+      });
+    }
+    out.assignments = list;
+    out.coverage = { from: cov.from, to: cov.to };
+  }
   // Optional fields only when present — a stored `undefined` would poison later
   // writes (RTDB rejects undefined; this codebase deletes keys instead).
   // icalUrl is re-validated HERE as well as in the extension: it gets written into
