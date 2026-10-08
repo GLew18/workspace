@@ -31,8 +31,10 @@ import {
   labelFor,
   detectSchoologyExtension,
   requestSgyData,
+  applySgyPayload,
   type SgyPayload,
 } from './extension';
+import { getSgyApiState, fetchSgyApiPayload } from './api';
 import { extractLinks } from '../tasks/attachments';
 import { clearTranslation, clearDetailsTranslation } from '../tasks/store';
 import { getTaskFolders, patchTaskFolder } from '../tasks/folders';
@@ -181,6 +183,26 @@ function eventsFromSgy(payload: SgyPayload): SourceEvent[] {
   }));
 }
 
+/** THE REAL SCHOOLOGY CONNECTION (Gabe, 10/7/26), when the account has one: the
+ *  server reads the same API the extension reads, so it is used in the extension's
+ *  place and outranks it. Its courses and labels are folded in first (real course
+ *  names seeded, already-imported tasks re-coursed). Null when not connected, when
+ *  the read fails, or when it came back empty; the sync then falls back to the
+ *  extension and the feed exactly as before. An empty list is NOT trusted, for the
+ *  same reason the extension's is not: inside the coverage window "missing" means
+ *  "deleted", and one bad read must not wipe a student's tasks. Never throws. */
+async function apiSource(data: Data): Promise<SgyPayload | null> {
+  try {
+    if (!(await getSgyApiState(data))?.connected) return null;
+    const p = await fetchSgyApiPayload();
+    if (!p || !p.coverage || !p.assignments || !p.assignments.length) return null;
+    await applySgyPayload(data, p);
+    return p;
+  } catch {
+    return null;
+  }
+}
+
 /** The extension's latest scrape, or null when it is absent or has no
  *  assignments. Never throws. */
 async function extensionSource(given?: SgyPayload | null): Promise<SgyPayload | null> {
@@ -258,7 +280,10 @@ export interface SyncOptions {
  *  data to fall back on. */
 export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncResult> {
   const settings = await data.getProfile<SchoologySettings>('schoology');
-  const sgy = await extensionSource(opts.sgy);
+  // A caller-supplied payload (onboarding) is used as given; otherwise the real
+  // Schoology connection first, then the extension.
+  const sgy =
+    opts.sgy !== undefined ? await extensionSource(opts.sgy) : (await apiSource(data)) ?? (await extensionSource());
   if (!settings?.icalUrl && !sgy) throw new Error('No Schoology link configured.');
 
   // --- gather: feed (when linked) + extension (when installed) ---------------

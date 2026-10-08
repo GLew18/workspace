@@ -124,7 +124,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
     const r = resolve(ch);
     if (!r.popup && !r.gmail) return;
     if (alreadySent(key)) return;
-    markSent(key, todayStr());
+    const claim = markSent(key, todayStr());
     // `name` is the bare task title. When several of these fire at once the
     // burst grouper lists the NAMES under one heading, so the per-item
     // "Due soon:" prefix never shows up inside the combined body.
@@ -135,7 +135,12 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
     // which is exactly the case Gabe described. The agenda and tomorrow digests fire
     // on the clock, and a new assignment arrives from Schoology rather than from the
     // student, so neither is a creation or an edit of theirs.
-    sendNotification(title, body, { popup: r.popup, gmail: r.gmail, name, onClick: opts.onClick, fromEdit });
+    const send = (): void =>
+      sendNotification(title, body, { popup: r.popup, gmail: r.gmail, name, onClick: opts.onClick, fromEdit });
+    // Only the winner of the shared claim sends. A failed claim (offline) still
+    // sends from this device: a possible duplicate beats a lost reminder.
+    if (claim) void claim.then((won) => won && send(), send);
+    else send();
   };
 
   // New-assignment tracking: `seen` is seeded from the first task snapshot so
@@ -357,7 +362,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
     .getNotifySent()
     .then((seed) => {
       if (stopped) return;
-      attachLedger(seed, (key, day) => void data.markNotifySent(key, day).catch(() => {}));
+      attachLedger(seed, (key, day) => data.claimNotifySent(key, day));
     })
     .catch(() => {
       /* offline / rules — fall back to the local ledger, i.e. today's behavior */

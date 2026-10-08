@@ -39,6 +39,11 @@ class MemoryBackend implements Backend {
   async getAll<T>(c: Collection): Promise<Record<string, T>> {
     return { ...this.cache[c] } as Record<string, T>;
   }
+  async claim<T>(c: Collection, id: string, value: T): Promise<boolean> {
+    if (id in this.cache[c]) return false;
+    await this.set(c, id, value);
+    return true;
+  }
 }
 
 /** Fill in any collections the seed omitted so the cache always has all of them. */

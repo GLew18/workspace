@@ -42,6 +42,13 @@ import { recommendedSet } from '../courses/recommend';
 import { nextCourseColor } from '../courses/colors';
 import { BADGE_ASSESSMENT_RE, isSchoologyIcalUrl, parseIcal, taskEvents } from '../schoology/ical';
 import { detectSchoologyExtension, requestSgyData, EXTENSION_STORE_URL } from '../schoology/extension';
+import {
+  sgyApiFlag,
+  startSchoologyConnect,
+  finishSchoologyConnectIfReturning,
+  fetchSgyApiPayload,
+  sgyErrorText,
+} from '../schoology/api';
 import { todayStr } from '../util/dates';
 import { genId } from '../util/ids';
 import { openIcalGuide } from './icalGuide';
@@ -127,6 +134,8 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
     coursesFrom: '' as '' | 'schoology' | 'schedule',
     /** Connected through the extension's own assignment list (no feed link). */
     extConnected: false,
+    /** Connected through Schoology's own approve screen (the real API). */
+    apiConnected: false,
     /** The Google Calendar schedule address, once it has been read successfully. */
     schedule: '',
     // Real assignment titles pulled from the student's own feed, shown flying in
@@ -174,6 +183,13 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
 
   type Screen = { build: (host: HTMLElement) => void; enter?: (host: HTMLElement) => void };
   const SCREENS: Screen[] = [];
+
+  // BACK FROM SCHOOLOGY'S APPROVE SCREEN (?sgy=return). The redirect reloaded the
+  // page, so the deck restarts; this sends it straight back to the Connect screen,
+  // which finishes the connection and plays the reveal. Nothing typed before
+  // Connect is lost: the screens ahead of it take no input.
+  let sgyResumePending = new URLSearchParams(location.search).get('sgy') === 'return';
+  let connectAt = 0;
 
   function go(i: number): void {
     if (i < 0 || i >= SCREENS.length) return;
@@ -291,6 +307,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
   // The scan plays IN PLACE rather than on its own slide: pressing Connect hides
   // the link field, sweeps the Schoology mark, flies assignment chips in, then
   // turns the same button into Continue.
+  connectAt = SCREENS.length;
   SCREENS.push({
     build(host) {
       const sc = pane(host);
@@ -370,7 +387,68 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       fieldWrap.append(helpBtn, input, err);
 
       const btn = cta('Connect');
-      sc.append(visual, h1, sub, route, divider, fieldWrap, btn);
+
+      // CONNECT WITH SCHOOLOGY (Gabe, 10/7/26): the real connection, through the
+      // school's own Schoology approve screen. Leads the screen when it is on. Behind
+      // the same flag as Settings (?sgyapi=1) until PowerSchool publishes the app,
+      // because before that Schoology refuses every account outside Cobalt's own
+      // developer sandbox. A return from Schoology always shows it, so the
+      // connection can finish even if the flag was set on another device.
+      const apiOn = sgyApiFlag() || sgyResumePending;
+      const apiCard = el('div', { class: 'onb-route rise d2' });
+      // The other two routes fold behind one quiet link while this card leads: all
+      // three stacked overflow the deck and push Continue off a laptop screen.
+      const apiOr = el('button', { class: 'onb-skip rise d2', type: 'button', text: 'Use the extension or a calendar link instead' });
+      const apiHead = el('div', { class: 'onb-route-head' });
+      apiHead.append(
+        el('span', { class: 'onb-route-title', text: 'Connect with Schoology' }),
+        el('span', { class: 'onb-route-badge', text: 'Fastest' })
+      );
+      const apiText = el('p', {
+        class: 'onb-route-text',
+        text: 'Type your school’s Schoology address, sign in there, and approve Cobalt. Your assignments and real course names come in right away. Read-only: no grades, no password.',
+      });
+      const hostInput = textInput({
+        class: 'onb-field',
+        placeholder: 'yourschool.schoology.com',
+        value: '',
+      });
+      hostInput.style.marginTop = '10px';
+      const apiBtn = el('button', { class: 'onb-route-btn', type: 'button', text: 'Connect with Schoology' }) as HTMLButtonElement;
+      const apiStatus = el('div', { class: 'onb-route-status' });
+      apiCard.append(apiHead, apiText, hostInput, apiBtn, apiStatus);
+      const startApi = (): void => {
+        if (!hostInput.value.trim()) {
+          apiStatus.textContent = 'Type your school’s Schoology address first, like yourschool.schoology.com.';
+          hostInput.focus();
+          return;
+        }
+        apiBtn.disabled = true;
+        apiStatus.textContent = 'Opening Schoology…';
+        // Leaves the page on success; Schoology sends the student back here.
+        startSchoologyConnect(hostInput.value).catch((e) => {
+          apiBtn.disabled = false;
+          apiStatus.textContent = sgyErrorText(e);
+        });
+      };
+      apiBtn.addEventListener('click', startApi);
+      hostInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') startApi();
+      });
+
+      // Back-navigation after connecting keeps the original layout, whose button
+      // already reads Continue (see submit's draft.connected branch).
+      if (apiOn && !draft.connected) {
+        sub.textContent = 'Sign in to Schoology once and Cobalt brings in everything.';
+        for (const n of [route, divider, fieldWrap, btn]) n.style.display = 'none';
+        apiOr.addEventListener('click', () => {
+          for (const n of [route, divider, fieldWrap, btn]) n.style.display = '';
+          apiOr.style.display = 'none';
+        });
+        sc.append(visual, h1, sub, apiCard, apiOr, route, divider, fieldWrap, btn);
+      } else {
+        sc.append(visual, h1, sub, route, divider, fieldWrap, btn);
+      }
 
       // Extension already installed? Then the student pastes nothing: the extension
       // knows their feed URL (it reads it off their Schoology settings page), so it
@@ -507,6 +585,9 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
         fieldWrap.style.display = 'none';
         route.style.display = 'none';
         divider.style.display = 'none';
+        apiCard.style.display = 'none';
+        apiOr.style.display = 'none';
+        btn.style.display = ''; // folded away while the Schoology card led; it becomes Continue
         btn.disabled = true;
         stage.classList.add('scanning');
         titles.forEach((t, i) =>
@@ -542,6 +623,42 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
         if (e.key === 'Enter') submit();
       });
       input.addEventListener('input', () => (err.textContent = ''));
+
+      // Finishing a Schoology approval (see sgyResumePending above). Same payoff as
+      // the other two routes: real titles fly in, and the courses screen is filled
+      // from the student's real sections instead of left empty.
+      if (sgyResumePending) {
+        sgyResumePending = false;
+        apiBtn.disabled = true;
+        apiStatus.textContent = 'Finishing the connection…';
+        void (async () => {
+          try {
+            const st = await finishSchoologyConnectIfReturning();
+            if (!st) throw new Error('That Schoology connection expired. Try connecting again.');
+            if (alive()) apiStatus.textContent = 'Connected. Reading your assignments…';
+            const p = await fetchSgyApiPayload();
+            if (!alive()) return;
+            const names = [...new Set((p?.courses ?? []).map((c) => c.name.trim()).filter(Boolean))];
+            if (names.length) {
+              draft.courses = names.map((name) => ({ id: 'course_' + genId(), name, color: getCourseColor(name), parseWords: [] }));
+              draft.coursesFrom = 'schoology';
+            }
+            draft.apiConnected = true;
+            const today = todayStr();
+            const upcoming = (p?.assignments ?? [])
+              .filter((a) => a.date >= today)
+              .sort((a, b) => a.date.localeCompare(b.date));
+            reveal(
+              upcoming.slice(0, 6).map((a) => a.title),
+              upcoming.length
+            );
+          } catch (e) {
+            if (!alive()) return;
+            apiBtn.disabled = false;
+            apiStatus.textContent = sgyErrorText(e);
+          }
+        })();
+      }
     },
   });
 
@@ -1024,7 +1141,9 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
 
         let added = 0;
         let failed = false;
-        if (draft.ical || draft.extConnected) {
+        // A Schoology connection with nothing upcoming has nothing to import, and the
+        // sync would read that as "no source" and report a failure that isn't one.
+        if (draft.ical || draft.extConnected || (draft.apiConnected && draft.foundCount > 0)) {
           try {
             added = (await runSync(data)).added;
           } catch {
@@ -1108,5 +1227,5 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
     },
   });
 
-  go(0);
+  go(sgyResumePending ? connectAt : 0);
 }

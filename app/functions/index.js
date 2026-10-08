@@ -40,6 +40,9 @@ const LEDGER_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 // no exact moment for a cron run to miss and no grace period to need.)
 const MAX_LEAD_DAYS = 3; // leads go up to 72h → scan tasks due today..today+3
 const MAIL_COLLECTION = 'mail'; // watched by the Trigger Email extension
+// Cobalt's one public address (Gabe, 10/7): suggestions land here, and every email
+// Cobalt sends names it as Reply-To, so a reply never reaches a personal inbox.
+const HELP_EMAIL = 'help@cobaltstudy.com';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const pad = (n) => String(n).padStart(2, '0');
@@ -142,7 +145,7 @@ function mailDoc(to, subject, body) {
     `<p style="margin:0;color:#4a5568">${esc(body)}</p>` +
     `<p style="margin:18px 0 0;font-size:12px;color:#94a3b8">Sent by Cobalt · manage in Settings ▸ Notifications</p>` +
     `</div>`;
-  return { to: [to], message: { subject, text: body, html } };
+  return { to: [to], replyTo: HELP_EMAIL, message: { subject, text: body, html } };
 }
 
 /**
@@ -279,9 +282,8 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
       const popup = canPopup && !!(ch && ch.popup);
       const gmail = canGmail && !!(ch && ch.gmail);
       if (!popup && !gmail) return;
-      if (ledger[key] || updates[key]) return;
-      updates[key] = { at: Date.now(), title, body, popup, gmail };
-      sends.push({ title, body, popup, gmail });
+      if (ledger[key] || sends.some((x) => x.key === key)) return;
+      sends.push({ key, title, body, popup, gmail });
     };
 
     // --- 1. due-soon reminders. THE SAME RULE AS THE CLIENT (src/notify/scheduler.ts):
@@ -360,6 +362,17 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
 
     // --- deliver — each send only on the channels it resolved to -----------------
     for (const s of sends) {
+      // CLAIM FIRST (Gabe, 10/7: one email arrived four times). The ledger read
+      // above is a snapshot; an open tab may have claimed this key since. A
+      // transaction commits only if the key is still empty, so exactly one sender
+      // (this function, or any tab or device) ever sends a given notification.
+      const entry = { at: Date.now(), title: s.title, body: s.body, popup: s.popup, gmail: s.gmail };
+      const claimed = await db
+        .ref(`users/${uid}/notifySent/${s.key}`)
+        .transaction((cur) => (cur === null ? entry : undefined))
+        .then((r) => r.committed)
+        .catch(() => false);
+      if (!claimed) continue;
       if (s.popup) {
         // PUSH: a DATA message so the SW controls the icon + click target.
         for (const token of tokens) {
@@ -521,6 +534,7 @@ function authMailDoc(to, kind, link) {
     `</div></div>`;
   return {
     to: [to],
+    replyTo: HELP_EMAIL,
     message: {
       subject,
       text,
@@ -731,7 +745,7 @@ exports.fetchSchoologyIcal = onCall({ region: 'us-central1' }, async (req) => {
 //
 // Auth is still REQUIRED even though identity is discarded — otherwise there is no
 // key to rate-limit on at all, and the endpoint is an open mailer.
-const SUGGEST_TO = 'gabriel.lewinsohn@gmail.com'; // where the box delivers
+const SUGGEST_TO = HELP_EMAIL; // where the box delivers
 const SUGGEST_MAX_CHARS = 2000;
 const SUGGEST_MIN_GAP_MS = 5 * 60_000; // one per person per 5 minutes (Gabe, 8/13)
 const SUGGEST_DAILY_CAP = 5; // and no more than this per person per day
@@ -997,5 +1011,442 @@ exports.translateTitles = onCall({ region: 'us-central1' }, async (req) => {
       error: String((err && err.message) || 'translate failed'),
     };
   }
+});
+// #endregion
+
+// #region Schoology API (OAuth) — connect, fetch, disconnect -----------------------
+//
+// The real Schoology integration (Gabe, 10/7/26: developer sandbox approved, app
+// "Cobalt" created). Three-legged OAuth 1.0 against api.schoology.com, so each
+// student authorizes their OWN account on their school's Schoology page and Cobalt
+// never sees a password.
+//
+// FLOW
+//   1. sgyConnectStart (callable, signed in): get a request token, park it at
+//      sgyPrivate/pending/<token> with the caller's uid, hand back the school's
+//      authorize URL. The browser navigates there (full redirect, never a popup:
+//      popups die in the iMessage/Instagram in-app browsers).
+//   2. Schoology sends the browser back to <origin>/?sgy=return&oauth_token=<token>.
+//   3. sgyConnectFinish (callable, signed in): the SAME uid must be the one that
+//      started it. Exchanges for the access token, reads /users/me, stores the token
+//      at sgyPrivate/tokens/<uid> and a public marker at users/<uid>/profile/sgyApi.
+//
+// WHY THE FINISH STEP IS A SIGNED-IN CALL AND ONE-SHOT. Schoology speaks OAuth 1.0
+// without a verifier, so an approved request token is all it takes to claim the
+// access. Binding the exchange to the uid that started the flow stops a student's
+// Schoology landing in someone else's Cobalt account, and burning the pending entry
+// on the FIRST finish attempt (success or not) means an attacker who started a flow
+// cannot poll for a victim's approval: their own early attempt destroys the token.
+//
+// TOKENS NEVER REACH THE CLIENT. sgyPrivate/ has no rule in firebase.rules.json, so
+// RTDB denies every client read and write; only this admin SDK touches it.
+//
+// DATA STAYS IN THE US (Schoology developer terms): the RTDB instance is the
+// default us-central1 one and every function here runs in us-central1.
+
+const { defineSecret } = require('firebase-functions/params');
+const SGY_KEY = defineSecret('SCHOOLOGY_CONSUMER_KEY');
+const SGY_SECRET = defineSecret('SCHOOLOGY_CONSUMER_SECRET');
+const SGY_API = 'https://api.schoology.com/v1';
+const SGY_PENDING_TTL_MS = 15 * 60_000;
+const SGY_WINDOW_DAYS = 60; // matches the largest import horizon (Settings ▸ Tasks ▸ Import)
+const SGY_PAGE_LIMIT = 200;
+const SGY_MAX_PAGES = 5;
+const SGY_SPACING_MS = 120; // Schoology allows 50 requests / 5 s per user
+const SGY_TIMEOUT_MS = 15_000;
+
+/** Origins Schoology may send the student back to. Anything else is refused, so the
+ *  connect flow cannot be turned into an open redirect. */
+function sgyReturnOrigin(raw) {
+  try {
+    const u = new URL(String(raw || ''));
+    const ok =
+      (u.protocol === 'https:' &&
+        ['cobaltstudy.com', 'www.cobaltstudy.com', 'workspace-67029.web.app', 'workspace-67029.firebaseapp.com'].includes(
+          u.hostname
+        )) ||
+      (u.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(u.hostname));
+    return ok ? u.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The school's Schoology host, e.g. heschel.schoology.com. Accepts a pasted URL. */
+function sgyHost(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  const host = s.replace(/^[a-z]+:\/\//, '').split(/[/?#]/)[0];
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.schoology\.com$/.test(host) || host === 'schoology.com' ? host : null;
+}
+
+// RFC 3986 percent-encoding, which OAuth 1.0 requires (encodeURIComponent leaves
+// !'()* alone).
+const oEnc = (s) => encodeURIComponent(String(s)).replace(/[!'()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+
+/** HMAC-SHA1 OAuth 1.0 Authorization header for one request. Query parameters are
+ *  part of the signature, so every page URL is signed on its own. */
+function sgyAuthHeader(method, url, token, tokenSecret) {
+  const crypto = require('crypto');
+  const u = new URL(url);
+  const oauth = {
+    oauth_consumer_key: SGY_KEY.value(),
+    oauth_nonce: crypto.randomBytes(16).toString('hex'),
+    oauth_signature_method: 'HMAC-SHA1',
+    oauth_timestamp: String(Math.floor(Date.now() / 1000)),
+    oauth_version: '1.0',
+  };
+  if (token) oauth.oauth_token = token;
+  const pairs = Object.entries(oauth);
+  for (const [k, v] of u.searchParams) pairs.push([k, v]);
+  const norm = pairs
+    .map(([k, v]) => [oEnc(k), oEnc(v)])
+    .sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : 1) : a[0] < b[0] ? -1 : 1))
+    .map(([k, v]) => k + '=' + v)
+    .join('&');
+  const base = [method.toUpperCase(), oEnc(u.origin + u.pathname), oEnc(norm)].join('&');
+  const sig = crypto
+    .createHmac('sha1', oEnc(SGY_SECRET.value()) + '&' + oEnc(tokenSecret || ''))
+    .update(base)
+    .digest('base64');
+  return (
+    'OAuth realm="Schoology API", ' +
+    Object.entries({ ...oauth, oauth_signature: sig })
+      .map(([k, v]) => `${k}="${oEnc(v)}"`)
+      .join(', ')
+  );
+}
+
+/** A signed GET. Redirects are followed BY HAND: /users/me answers 303, and a
+ *  signature is only valid for the URL it was made for, so each hop is re-signed. */
+async function sgyRequest(url, token, tokenSecret, accept = 'application/json') {
+  let next = url;
+  for (let hop = 0; hop < 4; hop++) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), SGY_TIMEOUT_MS);
+    let res;
+    try {
+      res = await fetch(next, {
+        redirect: 'manual',
+        signal: ctl.signal,
+        headers: { Authorization: sgyAuthHeader('GET', next, token, tokenSecret), Accept: accept },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+      next = new URL(res.headers.get('location'), next).toString();
+      continue;
+    }
+    return res;
+  }
+  throw new Error('too many redirects');
+}
+
+class SgyAuthError extends Error {}
+
+async function sgyJson(path, tok) {
+  const url = /^https:\/\//.test(path) ? path : SGY_API + path;
+  const res = await sgyRequest(url, tok.token, tok.secret);
+  if (!res.ok) {
+    // What Schoology actually said, for diagnosing refusals. Path only, never tokens.
+    const body = await res.text().catch(() => '');
+    console.warn('sgy GET', new URL(res.url || url).pathname, res.status, body.slice(0, 300));
+  }
+  if (res.status === 401 || res.status === 403) throw new SgyAuthError('schoology ' + res.status);
+  if (!res.ok) return null;
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+const sgySleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Today (or today + n) as YYYY-MM-DD in the school's time zone, not the server's UTC. */
+function sgyYmd(offsetDays = 0) {
+  const d = new Date(Date.now() + offsetDays * 86_400_000);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+}
+
+// ---- event → assignment, ported from extension/schoology.js (apiHarvest) so a task
+// imported by the extension and by this server is byte-for-byte the same task. ----
+const SGY_GRADED_RE = /\b(quiz|quizzes|test|exam|exams|midterm|final|finals|project)\b/i;
+const sgyIsTaskEvent = (e) =>
+  !!e && typeof e === 'object' && (e.type === 'assignment' || (e.type === 'event' && SGY_GRADED_RE.test(String(e.title || ''))));
+
+function sgyRepairUrl(url, host) {
+  if (typeof url !== 'string' || !url) return '';
+  let out = url;
+  const m = url.match(/[?&]destination=([^&]+)/i);
+  if (m) {
+    try {
+      out = decodeURIComponent(m[1]);
+    } catch {
+      out = m[1];
+    }
+    if (!/^https?:\/\//i.test(out)) out = 'https://' + (host || 'app.schoology.com') + '/' + out.replace(/^\/+/, '');
+  }
+  if (host) out = out.replace(/^https?:\/\/[^/]+/i, 'https://' + host);
+  return out;
+}
+
+function sgyAssignmentId(e, host) {
+  const m = sgyRepairUrl(String((e && e.web_url) || ''), host).match(/\/assignment\/(\d+)/);
+  if (m) return m[1];
+  const id = e && (e.id || e.assignment_id);
+  return id != null && /^\d+$/.test(String(id)) ? String(id) : null;
+}
+
+function sgySplitDate(start, allDay) {
+  const m = String(start || '').match(/^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (!m) return null;
+  const isAllDay = allDay === 1 || allDay === '1' || allDay === true;
+  return { date: m[1], time: !isAllDay && m[2] ? m[2] + ':' + m[3] : '' };
+}
+
+const SGY_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };
+function sgyHtmlToText(html) {
+  const s = String(html || '');
+  if (!s) return '';
+  return s
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&(#\d+|#x[0-9a-f]+|[a-z]+);/gi, (all, code) => {
+      if (code[0] === '#') {
+        const n = code[1].toLowerCase() === 'x' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+        return Number.isFinite(n) ? String.fromCodePoint(n) : all;
+      }
+      return SGY_ENTITIES[code.toLowerCase()] ?? all;
+    })
+    .replace(/ /g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function sgyAssignmentFromEvent(e, host, course) {
+  const id = sgyAssignmentId(e, host);
+  const when = sgySplitDate(e && e.start, e && e.all_day);
+  const title = String((e && e.title) || '').trim();
+  if (!id || !when || !title) return null;
+  const isAssignment = e.type === 'assignment';
+  const url =
+    sgyRepairUrl(String(e.web_url || ''), host) || 'https://' + host + (isAssignment ? '/assignment/' : '/event/') + id;
+  return {
+    id,
+    title,
+    description: sgyHtmlToText(e.description),
+    url: url.replace(/^http:\/\//i, 'https://').replace(/\/info\/?$/i, ''),
+    date: when.date,
+    time: when.time,
+    kind: isAssignment ? 'assignment' : 'assessment',
+    course: course || '',
+  };
+}
+
+const sgyList = (json, key) =>
+  Array.isArray(json) ? json : json && Array.isArray(json[key]) ? json[key] : json && Array.isArray(json[key + 's']) ? json[key + 's'] : [];
+
+/** The token was revoked or expired (Schoology issues them for 90 days): forget it and
+ *  tell the app, so it shows "Reconnect" instead of silently importing nothing. */
+async function sgyForget(uid, reason) {
+  const db = admin.database();
+  await db.ref(`sgyPrivate/tokens/${uid}`).remove();
+  await db.ref(`users/${uid}/profile/sgyApi`).update({ connected: false, expired: reason === 'expired' });
+}
+
+exports.sgyConnectStart = onCall({ region: 'us-central1', secrets: [SGY_KEY, SGY_SECRET] }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const host = sgyHost(req.data && req.data.host);
+  if (!host) throw new HttpsError('invalid-argument', 'Enter your school’s Schoology address, like yourschool.schoology.com.');
+  const origin = sgyReturnOrigin(req.data && req.data.returnTo);
+  if (!origin) throw new HttpsError('invalid-argument', 'Unrecognized return address.');
+
+  let res;
+  try {
+    res = await sgyRequest(SGY_API + '/oauth/request_token', null, null, '*/*');
+  } catch (err) {
+    console.error('sgy request_token network', err && err.message);
+    throw new HttpsError('unavailable', 'Couldn’t reach Schoology. Try again in a moment.');
+  }
+  const body = await res.text();
+  const p = new URLSearchParams(body);
+  const token = p.get('oauth_token');
+  const secret = p.get('oauth_token_secret');
+  if (!res.ok || !token || !secret) {
+    console.error('sgy request_token failed', res.status, body.slice(0, 300));
+    throw new HttpsError('internal', 'Schoology refused the connection request.');
+  }
+
+  const db = admin.database();
+  // Replace this user's previous abandoned attempt so the pending node can't grow
+  // forever. A direct pointer per uid, not a query: a query on pending/ needs an
+  // ".indexOn" in the rules and crashed without one (10/7/26).
+  const prev = (await db.ref(`sgyPrivate/pendingByUid/${req.auth.uid}`).get()).val();
+  const writes = {};
+  if (typeof prev === 'string' && prev && prev !== token) writes[`pending/${prev}`] = null;
+  writes[`pending/${token}`] = { uid: req.auth.uid, secret, host, at: Date.now() };
+  writes[`pendingByUid/${req.auth.uid}`] = token;
+  await db.ref('sgyPrivate').update(writes);
+
+  const callback = origin + '/?sgy=return';
+  const url =
+    'https://' + host + '/oauth/authorize?oauth_token=' + oEnc(token) + '&oauth_callback=' + oEnc(callback);
+  return { url };
+});
+
+exports.sgyConnectFinish = onCall({ region: 'us-central1', secrets: [SGY_KEY, SGY_SECRET] }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const token = String((req.data && req.data.token) || '');
+  if (!/^[A-Za-z0-9._-]{8,200}$/.test(token)) throw new HttpsError('invalid-argument', 'Bad connection token.');
+  const db = admin.database();
+  const ref = db.ref(`sgyPrivate/pending/${token}`);
+  const snap = await ref.get();
+  const pending = snap.val();
+  // ONE-SHOT: burned before anything else, whatever happens next (see header).
+  await ref.remove();
+  if (pending && pending.uid) await db.ref(`sgyPrivate/pendingByUid/${pending.uid}`).remove();
+  if (!pending || pending.uid !== req.auth.uid || Date.now() - pending.at > SGY_PENDING_TTL_MS) {
+    throw new HttpsError('failed-precondition', 'That Schoology connection expired. Try connecting again.');
+  }
+
+  const verifier = String((req.data && req.data.verifier) || '');
+  const accessUrl = SGY_API + '/oauth/access_token' + (verifier ? '?oauth_verifier=' + oEnc(verifier) : '');
+  let res;
+  try {
+    res = await sgyRequest(accessUrl, token, pending.secret, '*/*');
+  } catch (err) {
+    console.error('sgy access_token network', err && err.message);
+    throw new HttpsError('unavailable', 'Couldn’t reach Schoology. Try again in a moment.');
+  }
+  const body = await res.text();
+  const p = new URLSearchParams(body);
+  const tok = { token: p.get('oauth_token'), secret: p.get('oauth_token_secret') };
+  if (!res.ok || !tok.token || !tok.secret) {
+    console.error('sgy access_token failed', res.status, body.slice(0, 300));
+    throw new HttpsError('permission-denied', 'Schoology didn’t approve the connection. Try again.');
+  }
+
+  // WHO IS THIS. /users/me first; /app-user-info is the lookup Schoology documents
+  // for apps specifically, tried when the first is refused (10/7/26: /users/me
+  // answered 401 for a freshly approved token).
+  let me = null;
+  let sgyUid = '';
+  try {
+    me = await sgyJson('/users/me', tok);
+  } catch (err) {
+    console.error('sgy users/me failed', err && err.message);
+  }
+  if (me && (me.uid || me.id)) sgyUid = String(me.uid || me.id);
+  if (!/^\d+$/.test(sgyUid)) {
+    try {
+      const info = await sgyJson('/app-user-info', tok);
+      if (info && info.api_uid != null) sgyUid = String(info.api_uid);
+      if (/^\d+$/.test(sgyUid)) me = await sgyJson('/users/' + sgyUid, tok).catch(() => null);
+    } catch (err) {
+      console.error('sgy app-user-info failed', err && err.message);
+    }
+  }
+  if (!/^\d+$/.test(sgyUid)) throw new HttpsError('internal', 'Connected, but Schoology didn’t say who you are. Try again.');
+  const name = me ? [me.name_first, me.name_last].filter((s) => typeof s === 'string' && s.trim()).join(' ').trim() : '';
+
+  const now = new Date().toISOString();
+  await db.ref(`sgyPrivate/tokens/${req.auth.uid}`).set({
+    token: tok.token,
+    secret: tok.secret,
+    sgyUid,
+    host: pending.host,
+    connectedAt: now,
+  });
+  const marker = { connected: true, expired: false, host: pending.host, name, connectedAt: now };
+  await db.ref(`users/${req.auth.uid}/profile/sgyApi`).set(marker);
+  return marker;
+});
+
+exports.sgyFetch = onCall(
+  { region: 'us-central1', secrets: [SGY_KEY, SGY_SECRET], timeoutSeconds: 120 },
+  async (req) => {
+    if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+    const uid = req.auth.uid;
+    const tok = (await admin.database().ref(`sgyPrivate/tokens/${uid}`).get()).val();
+    if (!tok || !tok.token) throw new HttpsError('failed-precondition', 'Schoology isn’t connected.');
+    const host = tok.host;
+    const coverage = { from: sgyYmd(0), to: sgyYmd(SGY_WINDOW_DAYS) };
+
+    try {
+      // Paged: a heavy term can exceed one page, and a truncated list would read as
+      // mass deletion on the app side.
+      const events = [];
+      let next =
+        `/users/${tok.sgyUid}/events?start_date=${coverage.from}&end_date=${coverage.to}&limit=${SGY_PAGE_LIMIT}`;
+      for (let page = 0; next && page < SGY_MAX_PAGES; page++) {
+        if (page) await sgySleep(SGY_SPACING_MS);
+        const json = await sgyJson(next, tok);
+        if (json === null && page === 0) throw new HttpsError('unavailable', 'Schoology didn’t return your assignments.');
+        const list = sgyList(json, 'event');
+        events.push(...list);
+        const link = json && json.links && typeof json.links.next === 'string' ? json.links.next : '';
+        next = link && list.length ? link : '';
+      }
+
+      // Resolve each section/course ONCE, however many assignments it has.
+      const realms = new Map(); // 's<id>' | 'c<id>' -> { path, aids[] }
+      const kept = [];
+      for (const e of events) {
+        if (!sgyIsTaskEvent(e)) continue;
+        const aid = sgyAssignmentId(e, host);
+        if (!aid) continue;
+        const realm =
+          e.section_id != null ? 's' + e.section_id : e.course_id != null ? 'c' + e.course_id : '';
+        if (realm && !realms.has(realm)) {
+          realms.set(realm, { path: (realm[0] === 's' ? '/sections/' : '/courses/') + realm.slice(1), aids: [] });
+        }
+        if (realm) realms.get(realm).aids.push(aid);
+        kept.push([e, realm]);
+      }
+
+      const labels = {};
+      const courses = [];
+      const realmName = new Map();
+      for (const [realm, r] of realms) {
+        await sgySleep(SGY_SPACING_MS);
+        const obj = await sgyJson(r.path, tok);
+        const name = obj && typeof obj === 'object' ? String(obj.course_title || obj.section_title || obj.title || '').trim() : '';
+        if (!name) continue;
+        realmName.set(realm, name);
+        courses.push({ id: realm.slice(1), name });
+        for (const aid of r.aids) labels[aid] = name;
+      }
+
+      const byId = new Map();
+      for (const [e, realm] of kept) {
+        const a = sgyAssignmentFromEvent(e, host, realm ? realmName.get(realm) || '' : '');
+        if (!a) continue;
+        const prev = byId.get(a.id);
+        if (!prev || a.date > prev.date) byId.set(a.id, a);
+      }
+
+      await admin.database().ref(`users/${uid}/profile/sgyApi/lastFetchAt`).set(new Date().toISOString());
+      return { host, courses, labels, assignments: [...byId.values()], coverage, scrapedAt: Date.now() };
+    } catch (err) {
+      if (err instanceof SgyAuthError) {
+        await sgyForget(uid, 'expired');
+        throw new HttpsError('failed-precondition', 'Your Schoology connection expired. Reconnect it in Settings.');
+      }
+      if (err instanceof HttpsError) throw err;
+      console.error('sgyFetch failed', err && err.message);
+      throw new HttpsError('unavailable', 'Couldn’t reach Schoology. Try again in a moment.');
+    }
+  }
+);
+
+exports.sgyDisconnect = onCall({ region: 'us-central1' }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const db = admin.database();
+  await db.ref(`sgyPrivate/tokens/${req.auth.uid}`).remove();
+  await db.ref(`users/${req.auth.uid}/profile/sgyApi`).remove();
+  return { ok: true };
 });
 // #endregion

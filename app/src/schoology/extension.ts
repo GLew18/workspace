@@ -140,7 +140,7 @@ const isSchoologyFeedUrl = isSchoologyIcalUrl;
 /** Runtime validation of whatever came over the wire. The extension is plain JS
  *  and a version ahead/behind of the app is normal, so never trust the shape —
  *  rebuild a clean payload field by field and drop anything malformed. */
-function coercePayload(raw: unknown): SgyPayload | null {
+export function coercePayload(raw: unknown): SgyPayload | null {
   if (!raw || typeof raw !== 'object') return null;
   const p = raw as Partial<SgyPayload>;
   if (typeof p.host !== 'string' || !Array.isArray(p.courses) || !p.labels || typeof p.labels !== 'object') {

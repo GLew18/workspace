@@ -14,10 +14,12 @@ import { TasksView } from '../tasks/render';
 import { addCourse, getCourses, matchByParseWords } from '../courses/registry';
 import { nextCourseColor } from '../courses/colors';
 import type { CourseConfig } from '../types';
-import { confirmDanger } from '../ui/confirm';
+import { openPopup, tabScopedOverlay } from '../ui/popup';
 import {
   type ScheduleBlock,
   type ScheduleFeed,
+  FEED_EVENT,
+  calendarDayUrl,
   currentCourses,
   dayOf,
   dayToShow,
@@ -102,6 +104,10 @@ interface ScheduleLink {
 }
 const SCHEDULE_LINK_KEY = 'scheduleLink';
 
+/** Calendar glyph with an outward arrow: "open this day in Google Calendar". */
+const GCAL_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/><path d="M12 15h4m0 0-1.5-1.5M16 15l-1.5 1.5"/></svg>';
+
 export class DashboardView {
   private data: Data;
   private firstName: string;
@@ -128,6 +134,9 @@ export class DashboardView {
   private linkFormBusy = false;
   /** Repaints the card once a minute so "now" moves on its own. */
   private tick = 0;
+  /** A day chosen from the header's day picker (YYYY-MM-DD), or null for the
+   *  automatic one (today while it has blocks left, else the next day with any). */
+  private pickedDay: string | null = null;
   private greetingEl: HTMLElement | null = null;
   private sample: boolean; // landing preview → external links (schedule) are inert
   private panelEl: HTMLElement | null = null; // kept so a prefs change can re-render
@@ -137,6 +146,10 @@ export class DashboardView {
   private dueBody: HTMLElement | null = null;
   private overdueBox!: HTMLElement;
   private overdueBody: HTMLElement | null = null;
+  private onFeedChange = (): void => {
+    this.pickedDay = null;
+    void this.refreshSchedule();
+  };
   private onPrefsChange = (): void => {
     if (this.panelEl) this.mount(this.panelEl);
   };
@@ -162,6 +175,9 @@ export class DashboardView {
     this.panelEl = panel;
     window.removeEventListener(PREFS_EVENT, this.onPrefsChange);
     window.addEventListener(PREFS_EVENT, this.onPrefsChange);
+    // Settings → Courses changed or removed the Google Calendar link: refetch.
+    window.removeEventListener(FEED_EVENT, this.onFeedChange);
+    window.addEventListener(FEED_EVENT, this.onFeedChange);
 
     const prefs = getPrefs().dash;
     panel.replaceChildren();
@@ -311,6 +327,7 @@ export class DashboardView {
     ]);
     this.scheduleLink = link?.url ? link : null;
     this.feed = feed;
+    if (!feed) this.feedBlocks = null; // never carry one link's days into the next
     if (feed) {
       // Paint from the cache at once; loadBlocks refetches only when it is stale.
       this.feedBlocks = readCache(feed.url)?.blocks ?? this.feedBlocks;
@@ -502,37 +519,201 @@ export class DashboardView {
     return `hsl(${h % 360} 65% 62%)`;
   }
 
+  /** A small menu hanging below `anchor`, right-aligned to it: the Tasks row
+   *  menu's idiom (backdrop catches the outside click, Esc closes, leaving the
+   *  tab closes), reusing its .row-menu styles. */
+  private dropdown(anchor: HTMLElement, build: (menu: HTMLElement, close: () => void) => void): void {
+    const doc = anchor.ownerDocument;
+    const back = el('div', { class: 'row-menu-back' });
+    const menu = el('div', { class: 'row-menu' });
+    back.append(menu);
+    doc.body.append(back);
+    const close = tabScopedOverlay(() => {
+      back.remove();
+      doc.removeEventListener('keydown', onKey, true);
+    });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        close();
+      }
+    };
+    doc.addEventListener('keydown', onKey, true);
+    back.addEventListener('click', (e) => {
+      if (e.target === back) close();
+    });
+    build(menu, close);
+    const a = anchor.getBoundingClientRect();
+    const b = back.getBoundingClientRect();
+    const m = menu.getBoundingClientRect();
+    const left = Math.max(8, Math.min(a.right - b.left - m.width, back.offsetWidth - m.width - 8));
+    const top = Math.max(8, Math.min(a.bottom - b.top + 6, back.offsetHeight - m.height - 8));
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }
+
+  /** "More days…": a month grid in the app's popup where any day that has a
+   *  schedule can be picked (Gabe, 10/7). Days without one are dimmed and inert;
+   *  ‹ › walk the months the calendar covers. */
+  private openDayCalendar(days: string[], shownDate: string, today: string, pick: (date: string) => void): void {
+    const avail = new Set(days);
+    const first = days[0];
+    const last = days[days.length - 1];
+    const monthOf = (date: string): string => date.slice(0, 7);
+    let month = monthOf(shownDate); // 'YYYY-MM'
+    openPopup('Pick a day', (body, close) => {
+      const wrap = el('div', { class: 'dash-cal' });
+      body.append(wrap);
+      const draw = (): void => {
+        wrap.replaceChildren();
+        const [y, m] = month.split('-').map(Number);
+        const nav = el('div', { class: 'dash-cal-nav' });
+        const prev = el('button', { class: 'dash-cal-btn', text: '‹', title: 'Previous month' });
+        const next = el('button', { class: 'dash-cal-btn', text: '›', title: 'Next month' });
+        prev.disabled = month <= monthOf(first);
+        next.disabled = month >= monthOf(last);
+        const shift = (by: number): void => {
+          const d = new Date(y, m - 1 + by, 1);
+          month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          draw();
+        };
+        prev.addEventListener('click', () => shift(-1));
+        next.addEventListener('click', () => shift(1));
+        nav.append(
+          prev,
+          el('span', { class: 'dash-cal-title', text: new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) }),
+          next
+        );
+        wrap.append(nav);
+        const grid = el('div', { class: 'dash-cal-grid' });
+        for (const wd of ['S', 'M', 'T', 'W', 'T', 'F', 'S']) grid.append(el('span', { class: 'dash-cal-wd', text: wd }));
+        const lead = new Date(y, m - 1, 1).getDay();
+        for (let i = 0; i < lead; i++) grid.append(el('span'));
+        const count = new Date(y, m, 0).getDate();
+        for (let d = 1; d <= count; d++) {
+          const date = `${month}-${String(d).padStart(2, '0')}`;
+          const on = avail.has(date);
+          const cell = el('button', {
+            class: `dash-cal-day${on ? '' : ' off'}${date === shownDate ? ' on' : ''}${date === today ? ' today' : ''}`,
+            text: String(d),
+          });
+          if (!on) cell.disabled = true;
+          else
+            cell.addEventListener('click', () => {
+              close();
+              pick(date);
+            });
+          grid.append(cell);
+        }
+        wrap.append(grid);
+      };
+      draw();
+    });
+  }
+
+  /** One schedule row: start time with the end time beneath it (Gabe, 10/7),
+   *  the color bar, name + meta, and "N min left" while it is on. `pinned` is
+   *  the duplicate at the top of the card, which never dims as past. */
+  private buildBlockRow(b: ScheduleBlock, now: number, pinned: boolean): HTMLElement {
+    const isNow = b.start <= now && now < b.end;
+    const past = !pinned && b.end <= now;
+    const row = el('div', {
+      class: `dash-sched-row${b.isClass ? '' : ' misc'}${isNow ? ' now' : ''}${past ? ' past' : ''}${pinned ? ' pinned' : ''}`,
+    });
+    row.style.setProperty('--c', this.blockColor(b));
+    const time = el('span', { class: 'dash-sched-time' });
+    time.append(
+      el('span', { class: 'dash-sched-t-start', text: formatWallClock(b.start) }),
+      el('span', { class: 'dash-sched-t-end', text: formatWallClock(b.end) })
+    );
+    row.append(time);
+    row.append(el('span', { class: 'dash-sched-bar' }));
+    const main = el('div', { class: 'dash-sched-main' });
+    main.append(el('div', { class: 'dash-sched-name', text: b.name }));
+    const meta = [b.period, b.detail, b.room && (/^\d/.test(b.room) ? `Room ${b.room}` : b.room), b.teachers.join(', ')].filter(Boolean).join(' · ');
+    if (meta) main.append(el('div', { class: 'dash-sched-meta', text: meta }));
+    row.append(main);
+    if (isNow) {
+      const left = Math.max(1, Math.round((b.end - now) / 60_000));
+      row.append(el('span', { class: 'dash-sched-now', text: `${left} min left` }));
+    }
+    return row;
+  }
+
   private renderCurrentSchedule(): void {
     const now = Date.now();
-    const shown = this.feedBlocks ? dayToShow(this.feedBlocks, now) : null;
+    const blocks = this.feedBlocks ?? [];
+    const auto = this.feedBlocks ? dayToShow(this.feedBlocks, now) : null;
+    // Every day the calendar still has ahead (the cache holds ~5 weeks), for the
+    // day picker (Gabe, 10/7). A picked day that has passed falls back to auto.
+    const days = auto ? [...new Set(blocks.filter((b) => dayOf(b.start) >= auto.date).map((b) => dayOf(b.start)))].sort() : [];
+    if (this.pickedDay && !days.includes(this.pickedDay)) this.pickedDay = null;
+    const shown =
+      this.pickedDay && this.pickedDay !== auto?.date
+        ? { date: this.pickedDay, blocks: blocks.filter((b) => dayOf(b.start) === this.pickedDay) }
+        : auto;
 
     const header = el('div', { class: 'dash-schedule-header' });
     header.append(el('span', { text: 'Current Schedule' }));
     const right = el('div', { class: 'dash-sched-head-right' });
-    if (shown && shown.date !== dayOf(now)) {
-      const d = new Date(shown.date + 'T12:00:00');
-      const tomorrow = dayOf(now + 86_400_000) === shown.date;
-      right.append(
-        el('span', {
-          class: 'dash-sched-day',
-          text: tomorrow ? 'Tomorrow' : d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }),
+    // The shown day's weekday and date, always (Gabe, 10/7). A day that is not
+    // today keeps its own weekday; tomorrow says so in place of the weekday.
+    // The label is a button that drops down every available day.
+    const dayLabel = (dateStr: string, long: boolean): string => {
+      const d = new Date(dateStr + 'T12:00:00');
+      const md = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      if (dayOf(now + 86_400_000) === dateStr) return `Tomorrow, ${md}`;
+      if (long && dayOf(now) === dateStr) return `Today, ${md}`;
+      return `${d.toLocaleDateString(undefined, { weekday: 'long' })}, ${md}`;
+    };
+    const shownDate = shown?.date ?? dayOf(now);
+    const dayBtn = el('button', { class: 'dash-sched-day', title: 'Choose a day', 'aria-haspopup': 'menu' });
+    dayBtn.append(el('span', { text: dayLabel(shownDate, false) }));
+    const pick = (date: string): void => {
+      this.pickedDay = date === auto?.date ? null : date;
+      this.renderSchedule(this.scheduleWeek ?? []);
+    };
+    if (days.length > 1) {
+      dayBtn.append(el('span', { class: 'dash-sched-day-caret', text: '▾' }));
+      dayBtn.addEventListener('click', () =>
+        this.dropdown(dayBtn, (menu, close) => {
+          // The next seven days only, then "More days…" opens a calendar for the
+          // rest (Gabe, 10/7: the full list crowded the menu).
+          for (const date of days.slice(0, 7)) {
+            const item = el('button', { class: `more-go dash-sched-day-opt${date === shownDate ? ' on' : ''}` });
+            item.append(el('span', { class: 'more-label', text: dayLabel(date, true) }));
+            if (date === shownDate) item.append(el('span', { class: 'dash-sched-day-check', text: '✓' }));
+            item.addEventListener('click', () => {
+              close();
+              pick(date);
+            });
+            menu.append(item);
+          }
+          if (days.length > 7) {
+            const more = el('button', { class: 'more-go dash-sched-day-opt dash-sched-day-more' });
+            more.append(el('span', { class: 'more-label', text: 'More days…' }));
+            more.addEventListener('click', () => {
+              close();
+              this.openDayCalendar(days, shownDate, dayOf(now), pick);
+            });
+            menu.append(more);
+          }
         })
       );
+    } else {
+      dayBtn.setAttribute('disabled', '');
     }
-    const x = el('button', { class: 'dash-schedule-link-x', text: '✕', title: 'Disconnect schedule' });
-    x.addEventListener('click', () =>
-      confirmDanger(
-        'Disconnect your schedule? Reconnecting means pasting the secret address again.',
-        () => {
-          this.feed = null;
-          this.feedBlocks = null;
-          void saveFeed(this.data, null);
-          this.renderSchedule(this.scheduleWeek ?? []);
-        },
-        'Disconnect'
-      )
-    );
-    right.append(x);
+    right.append(dayBtn);
+    // Quick hop to the same day in Google Calendar, to cross-check the schedule
+    // (Gabe, 10/7). Same idea as the ↗ on a task that opens it in Schoology.
+    const gcal = el('button', { class: 'dash-schedule-link-x dash-sched-gcal', title: 'Open in Google Calendar' });
+    gcal.innerHTML = GCAL_SVG;
+    gcal.addEventListener('click', () => {
+      if (this.sample || !this.feed) return;
+      openAttachment(calendarDayUrl(this.feed.url, shownDate));
+    });
+    right.append(gcal);
+    // No ✕ here (Gabe, 10/7): changing or removing the link lives in Settings → Courses.
     header.append(right);
     this.scheduleBox.append(header);
 
@@ -549,24 +730,41 @@ export class DashboardView {
       return;
     }
 
+    const isToday = shown.date === dayOf(now);
+
+    // The current period, pinned above the schedule in its own container
+    // (Gabe, 10/7): the first thing seen. During a gap between periods the slot
+    // shows the next one instead, so it never blinks out mid-day.
+    if (isToday) {
+      const current = shown.blocks.find((b) => b.start <= now && now < b.end);
+      const next = current ? null : shown.blocks.find((b) => b.start > now);
+      const b = current ?? next;
+      if (b) {
+        const pin = el('div', { class: 'dash-sched-pin' });
+        const label = current
+          ? 'Now'
+          : `Up next · in ${Math.max(1, Math.round((b.start - now) / 60_000))} min`;
+        pin.append(el('div', { class: 'dash-sched-pin-label', text: label }));
+        pin.append(this.buildBlockRow(b, now, true));
+        this.scheduleBox.append(pin);
+      }
+    }
+
     const list = el('div', { class: 'dash-sched-list' });
+    let lineDrawn = !isToday; // the red "now" line belongs to today only
     for (const b of shown.blocks) {
-      const isNow = b.start <= now && now < b.end;
-      const past = b.end <= now;
-      const row = el('div', {
-        class: `dash-sched-row${b.isClass ? '' : ' misc'}${isNow ? ' now' : ''}${past ? ' past' : ''}`,
-      });
-      row.style.setProperty('--c', this.blockColor(b));
-      row.append(el('span', { class: 'dash-sched-time', text: formatWallClock(b.start) }));
-      row.append(el('span', { class: 'dash-sched-bar' }));
-      const main = el('div', { class: 'dash-sched-main' });
-      main.append(el('div', { class: 'dash-sched-name', text: b.name }));
-      const meta = [b.period, b.detail, b.room && (/^\d/.test(b.room) ? `Room ${b.room}` : b.room), b.teachers.join(', ')].filter(Boolean).join(' · ');
-      if (meta) main.append(el('div', { class: 'dash-sched-meta', text: meta }));
-      row.append(main);
-      if (isNow) {
-        const left = Math.max(1, Math.round((b.end - now) / 60_000));
-        row.append(el('span', { class: 'dash-sched-now', text: `${left} min left` }));
+      // In a gap between periods the line sits between the two rows.
+      if (!lineDrawn && now < b.start) {
+        list.append(el('div', { class: 'dash-sched-gapline' }));
+        lineDrawn = true;
+      }
+      const row = this.buildBlockRow(b, now, false);
+      if (!lineDrawn && b.start <= now && now < b.end) {
+        // Inside the current period: the line crosses the row at the exact time.
+        const line = el('div', { class: 'dash-sched-nowline' });
+        line.style.top = `${((now - b.start) / (b.end - b.start)) * 100}%`;
+        row.append(line);
+        lineDrawn = true;
       }
       list.append(row);
     }

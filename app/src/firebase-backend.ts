@@ -8,7 +8,7 @@ import { firebaseConfig } from './firebase';
 
 export async function createFirebaseBackend(uid: string): Promise<Backend> {
   const { initializeApp, getApps, getApp } = await import('firebase/app');
-  const { getDatabase, ref, child, set, remove, get, onValue } = await import('firebase/database');
+  const { getDatabase, ref, child, set, remove, get, onValue, runTransaction } = await import('firebase/database');
 
   const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   const dbRoot = getDatabase(app);
@@ -33,6 +33,15 @@ export async function createFirebaseBackend(uid: string): Promise<Backend> {
     async getAll<T>(c: Collection): Promise<Record<string, T>> {
       const snap = await get(child(userRef, c));
       return (snap.val() ?? {}) as Record<string, T>;
+    },
+    async claim<T>(c: Collection, id: string, value: T): Promise<boolean> {
+      // A transaction re-runs against the server's real value, so of any number
+      // of clients racing for the same id, exactly one sees it empty and commits.
+      const v = JSON.parse(JSON.stringify(value));
+      const res = await runTransaction(child(userRef, `${c}/${id}`), (cur) => (cur === null ? v : undefined), {
+        applyLocally: false,
+      });
+      return res.committed;
     },
   };
 }

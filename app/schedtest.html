@@ -1,0 +1,178 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>current schedule: pin + end times + now line</title>
+<body style="margin:0;background:#07132e;color:#dbe6ff;font:12px/1.6 ui-monospace,monospace">
+  <pre id="out" style="padding:12px;white-space:pre-wrap">running</pre>
+  <div style="display:flex;flex-wrap:wrap;gap:24px;padding:12px;align-items:flex-start">
+    <div id="a" style="width:420px"></div>
+    <div id="b" style="width:420px"></div>
+    <div id="c" style="width:420px"></div>
+  </div>
+  <script type="module">
+    const say = (t) => { document.getElementById('out').textContent = t; };
+    window.addEventListener('unhandledrejection', (e) => say('REJECT: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+    window.addEventListener('error', (e) => say('ERROR: ' + e.message + '\n' + (e.error && e.error.stack || '')));
+    document.body.classList.add('app-mode');
+    const V = '?v=' + Date.now();
+    await import('/src/ui/theme.css' + V); await import('/src/ui/components.css' + V);
+    await import('/src/ui/dashboard.css' + V);
+    const { DashboardView } = await import('/src/dashboard/view.ts' + V);
+
+    const R = []; const ok = (n, c, x) => R.push((c ? 'PASS  ' : 'FAIL  ') + n + (x ? '  ' + x : ''));
+    const now = Date.now();
+    const min = 60_000;
+    const blk = (s, e, name, extra = {}) => ({
+      start: now + s * min, end: now + e * min, period: '', name, detail: '', room: '', teachers: [], isClass: true, ...extra,
+    });
+
+    // Case A: inside a period (Chemistry, 20 min in of 45).
+    const dayA = [
+      blk(-120, -75, 'Tefillah', { isClass: false }),
+      blk(-70, -25, 'Honors Algebra 2/Trig', { period: 'P1', room: '204', teachers: ['A. Levy'] }),
+      blk(-20, 25, 'Chemistry', { period: 'P2', room: '311' }),
+      blk(30, 75, 'Lunch', { isClass: false }),
+      blk(80, 125, 'US History', { period: 'P3' }),
+    ];
+    // Case B: in a gap (between P1 ending 5 min ago and P2 starting in 10).
+    const dayB = [
+      blk(-50, -5, 'Honors Algebra 2/Trig', { period: 'P1' }),
+      blk(10, 55, 'Chemistry', { period: 'P2' }),
+      blk(60, 105, 'US History', { period: 'P3' }),
+    ];
+    // Case C: today is over → tomorrow's day shows, no pin, no line.
+    const dayC = [
+      blk(-200, -150, 'Yesterday-ish', { isClass: false }),
+      blk(24 * 60 + 60, 24 * 60 + 105, 'Chemistry', { period: 'P2' }),
+    ];
+
+    const paint = (id, blocks) => {
+      const v = new DashboardView({}, 'Dan', () => {}, false);
+      const box = document.createElement('div');
+      box.className = 'dash-schedule';
+      document.getElementById(id).append(box);
+      v.scheduleBox = box;
+      v.feed = { url: 'https://example.test/basic.ics' };
+      v.feedBlocks = blocks;
+      v.renderSchedule([]);
+      return box;
+    };
+
+    const A = paint('a', dayA);
+    const B = paint('b', dayB);
+    const C = paint('c', dayC);
+
+    const txt = (el) => (el ? el.textContent : '(none)');
+    // Header date
+    const wd = new Date().toLocaleDateString(undefined, { weekday: 'long' });
+    ok('A header shows weekday + date', txt(A.querySelector('.dash-sched-day')).startsWith(wd + ','), txt(A.querySelector('.dash-sched-day')));
+    ok('C header says Tomorrow', txt(C.querySelector('.dash-sched-day')).startsWith('Tomorrow,'), txt(C.querySelector('.dash-sched-day')));
+    // Pin
+    const pinA = A.querySelector('.dash-sched-pin');
+    ok('A pin exists and is first after header', !!pinA && pinA.previousElementSibling?.classList.contains('dash-schedule-header'));
+    ok('A pin is Chemistry, labelled Now', txt(pinA?.querySelector('.dash-sched-name')) === 'Chemistry' && txt(pinA?.querySelector('.dash-sched-pin-label')) === 'Now');
+    ok('A pin shows min left', /min left/.test(txt(pinA?.querySelector('.dash-sched-now'))), txt(pinA?.querySelector('.dash-sched-now')));
+    const gap = pinA && A.querySelector('.dash-sched-list').getBoundingClientRect().top - pinA.getBoundingClientRect().bottom;
+    ok('A pin → list gap ≥ 18px', gap >= 18, gap + 'px');
+    const pinB = B.querySelector('.dash-sched-pin');
+    ok('B pin is Up next · Chemistry', /^Up next · in \d+ min$/.test(txt(pinB?.querySelector('.dash-sched-pin-label'))) && txt(pinB?.querySelector('.dash-sched-name')) === 'Chemistry', txt(pinB?.querySelector('.dash-sched-pin-label')));
+    ok('C has no pin', !C.querySelector('.dash-sched-pin'));
+    // End times
+    const rows = A.querySelectorAll('.dash-sched-list .dash-sched-row');
+    ok('A has 5 list rows', rows.length === 5, rows.length);
+    ok('every row has start AND end time', [...rows].every((r) => r.querySelector('.dash-sched-t-start')?.textContent && r.querySelector('.dash-sched-t-end')?.textContent));
+    const endBelowStart = [...rows].every((r) => r.querySelector('.dash-sched-t-end').getBoundingClientRect().top > r.querySelector('.dash-sched-t-start').getBoundingClientRect().top);
+    ok('end time sits under start time', endBelowStart);
+    // Now line
+    const nl = A.querySelector('.dash-sched-nowline');
+    ok('A has ONE now line inside the current row', A.querySelectorAll('.dash-sched-nowline, .dash-sched-gapline').length === 1 && nl?.parentElement.classList.contains('now'));
+    const pct = nl ? parseFloat(nl.style.top) : NaN;
+    ok('A line at ~44% (20/45)', Math.abs(pct - 44.4) < 2, pct.toFixed(1) + '%');
+    ok('A line is red and 2px', nl && getComputedStyle(nl).backgroundColor === 'rgb(239, 68, 68)' && getComputedStyle(nl).height === '2px');
+    const gl = B.querySelector('.dash-sched-gapline');
+    ok('B has ONE gap line between row 1 and row 2', B.querySelectorAll('.dash-sched-nowline, .dash-sched-gapline').length === 1 && gl?.previousElementSibling?.querySelector('.dash-sched-name')?.textContent === 'Honors Algebra 2/Trig' && gl?.nextElementSibling?.querySelector('.dash-sched-name')?.textContent === 'Chemistry');
+    ok('C has no line', !C.querySelector('.dash-sched-nowline, .dash-sched-gapline'));
+    ok('pinned row is not dimmed', pinA && getComputedStyle(pinA.querySelector('.dash-sched-row')).opacity === '1');
+
+    // --- Day picker + Google Calendar button + no ✕ (Gabe, 10/7, round 2) ---
+    ok('no ✕ disconnect button on the card', !A.querySelector('[title="Disconnect schedule"]'));
+    const gcalBtn = A.querySelector('.dash-sched-gcal');
+    ok('Google Calendar button present with icon', !!gcalBtn && !!gcalBtn.querySelector('svg') && gcalBtn.title === 'Open in Google Calendar');
+    // A multi-day feed: today + 2 more days + next Monday-ish (day 6).
+    const dayD = [...dayA, blk(24 * 60, 24 * 60 + 45, 'Chemistry', { period: 'P2' }), blk(48 * 60, 48 * 60 + 45, 'US History'), blk(6 * 24 * 60, 6 * 24 * 60 + 45, 'Lunch', { isClass: false }), ...[7, 8, 9, 12, 13, 34].map((n) => blk(n * 24 * 60 + 60, n * 24 * 60 + 105, 'Chemistry', { period: 'P2' }))];
+    const Dhost = document.createElement('div'); Dhost.id = 'd'; Dhost.style.width = '420px'; document.querySelector('[style*="display:flex"]').append(Dhost);
+    const D = paint('d', dayD);
+    const dayBtnD = D.querySelector('.dash-sched-day');
+    ok('A (one day) day button disabled, no caret', A.querySelector('.dash-sched-day').disabled && !A.querySelector('.dash-sched-day-caret'));
+    ok('D (10 days) day button enabled with caret', !dayBtnD.disabled && !!D.querySelector('.dash-sched-day-caret'));
+    Dhost.scrollIntoView({ block: 'start' });
+    dayBtnD.click();
+    await new Promise((r) => setTimeout(r, 50));
+    const menu = document.querySelector('.row-menu');
+    const opts = menu ? [...menu.querySelectorAll('.dash-sched-day-opt')] : [];
+    ok('menu lists 7 days + More days row', opts.length === 8 && opts[7].classList.contains('dash-sched-day-more') && opts[7].textContent === 'More days…', opts.map((o) => o.textContent).join(' | '));
+    ok('first option is Today and checked', /^Today,/.test(opts[0]?.textContent) && opts[0]?.classList.contains('on'));
+    ok('second option is Tomorrow', /^Tomorrow,/.test(opts[1]?.textContent));
+    const menuRect = menu?.getBoundingClientRect(), btnRect = dayBtnD.getBoundingClientRect();
+    ok('menu hangs below the button, right-aligned', menuRect && menuRect.top >= btnRect.bottom && Math.abs(menuRect.right - btnRect.right) < 2, menuRect && `top ${Math.round(menuRect.top)} vs btn bottom ${Math.round(btnRect.bottom)}`);
+    opts[2].click();
+    await new Promise((r) => setTimeout(r, 50));
+    ok('menu closed after pick', !document.querySelector('.row-menu'));
+    const dayAfter = new Date(now + 48 * 3600e3);
+    const expected = `${dayAfter.toLocaleDateString(undefined, { weekday: 'long' })}, ${dayAfter.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+    ok('picked day shows in header', txt(D.querySelector('.dash-sched-day span')) === expected, txt(D.querySelector('.dash-sched-day span')));
+    ok('picked day lists only that day (1 row: US History), no pin, no line', D.querySelectorAll('.dash-sched-list .dash-sched-row').length === 1 && txt(D.querySelector('.dash-sched-list .dash-sched-name')) === 'US History' && !D.querySelector('.dash-sched-pin') && !D.querySelector('.dash-sched-nowline, .dash-sched-gapline'));
+    // "More days…" → calendar popup
+    D.querySelector('.dash-sched-day').click();
+    await new Promise((r) => setTimeout(r, 50));
+    document.querySelector('.dash-sched-day-more').click();
+    await new Promise((r) => setTimeout(r, 80));
+    const pop = document.querySelector('.popup');
+    ok('calendar popup opened, menu closed', !!pop && !document.querySelector('.row-menu') && /Pick a day/.test(txt(pop.querySelector('h3'))));
+    const thisMonth = new Date(now + 48 * 3600e3).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    ok('calendar opens on the shown day’s month', txt(pop?.querySelector('.dash-cal-title')) === thisMonth, txt(pop?.querySelector('.dash-cal-title')));
+    const cells = pop ? [...pop.querySelectorAll('.dash-cal-day')] : [];
+    const enabled = cells.filter((c) => !c.disabled);
+    const monthDays = [...new Set(dayD.map((b) => new Date(b.start)).filter((d) => d.getMonth() === new Date(now + 48 * 3600e3).getMonth() && d >= new Date(new Date(now).toDateString())).map((d) => d.getDate()))];
+    ok('only days with a schedule are enabled', enabled.length === monthDays.length && enabled.every((c) => monthDays.includes(Number(c.textContent))), `${enabled.length} enabled vs ${monthDays.length} expected`);
+    ok('shown day highlighted, today ringed', !!pop?.querySelector('.dash-cal-day.on') && Number(pop.querySelector('.dash-cal-day.on').textContent) === new Date(now + 48 * 3600e3).getDate() && !!pop?.querySelector('.dash-cal-day.today'));
+    const nextBtn = pop?.querySelector('.dash-cal-btn[title="Next month"]');
+    const lastDay = new Date(now + 34 * 86400e3);
+    const sameMonth = lastDay.getMonth() === new Date(now + 48 * 3600e3).getMonth();
+    ok('next-month arrow matches whether later months have days', !!nextBtn && nextBtn.disabled === sameMonth);
+    const target = enabled.find((c) => Number(c.textContent) !== new Date(now + 48 * 3600e3).getDate());
+    target.click();
+    await new Promise((r) => setTimeout(r, 900)); // the popup fades out before it leaves the DOM
+    ok('picking a calendar day closes popup and repaints header', !document.querySelector('.popup') && new RegExp(', [A-Za-z]{3} ' + target.textContent + '$').test(txt(D.querySelector('.dash-sched-day span'))), txt(D.querySelector('.dash-sched-day span')));
+
+    // --- Settings → Courses: the Google Calendar link field ---
+    await import('/src/ui/settings.css' + V);
+    const { SettingsView } = await import('/src/settings/view.ts' + V);
+    const sv = Object.create(SettingsView.prototype);
+    sv.gcalUrl = ''; sv.data = { setProfile: async () => {} };
+    const field = sv.gcalField();
+    const Shost = document.createElement('div'); Shost.style.width = '420px'; Shost.className = 'settings-section'; Shost.append(field); document.querySelector('[style*="display:flex"]').append(Shost);
+    const sBtn = field.querySelector('button.settings-save');
+    const secHost = document.createElement('div'); document.body.append(secHost);
+    const sv2 = Object.create(SettingsView.prototype); sv2.gcalUrl = ''; sv2.data = {}; sv2.draft = { courses: [] }; sv2.newCourseIds = new Set();
+    const secC = sv2.sectionCourses();
+    ok('Settings → Courses: Google Calendar link is the FIRST block, courses label after it', secC.firstElementChild?.classList.contains('settings-gcal') && /Courses/.test(secC.children[1]?.textContent || ''));
+    ok('settings field: label, input, button, status', /Google Calendar link/.test(txt(field.querySelector('.settings-label'))) && !!field.querySelector('textarea.settings-input') && !!sBtn && txt(field.querySelector('.settings-status')) === 'Not connected.');
+    ok('settings button disabled when empty + none saved', sBtn.disabled);
+    const sIn = field.querySelector('textarea.settings-input');
+    sIn.value = 'https://youtube.com/x'; sIn.dispatchEvent(new Event('input'));
+    ok('typing enables button, reads Connect', !sBtn.disabled && sBtn.textContent === 'Connect');
+    sBtn.click();
+    ok('bad link shows the inline error', /not a Google Calendar address/.test(txt(field.querySelector('.settings-field-error'))) && sIn.classList.contains('invalid'));
+    sv.gcalUrl = 'https://calendar.google.com/calendar/ical/abc/private-1/basic.ics';
+    sIn.value = ''; sIn.dispatchEvent(new Event('input'));
+    ok('clearing a saved link reads Remove link', sBtn.textContent === 'Remove link');
+    // --- "Open in Google Calendar" lands on the exact calendar + day ---
+    const { calendarDayUrl } = await import('/src/schedule/feed.ts' + V);
+    const u = new URL(calendarDayUrl('https://calendar.google.com/calendar/ical/abc123%40group.calendar.google.com/private-0f1e2d/basic.ics', '2026-10-09'));
+    ok('gcal link is the single-calendar view', u.hostname === 'calendar.google.com' && u.pathname === '/calendar/u/0/embed');
+    ok('gcal link names the exact calendar', u.searchParams.get('src') === 'abc123@group.calendar.google.com');
+    ok('gcal link is pinned to the day', u.searchParams.get('mode') === 'DAY' && u.searchParams.get('dates') === '20261009/20261009' && !!u.searchParams.get('ctz'));
+    ok('unparseable address falls back to the day view', calendarDayUrl('https://example.com/x.ics', '2026-10-09') === 'https://calendar.google.com/calendar/u/0/r/day/2026/10/9');
+    say(R.join('\n') + '\n\n' + (R.some((r) => r.startsWith('FAIL')) ? 'FAIL' : 'PASS'));
+  </script>
+</body>

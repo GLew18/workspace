@@ -335,9 +335,10 @@ export class Data {
   async getNotifySent(): Promise<Record<string, unknown>> {
     return this.backend.getAll('notifySent');
   }
-  /** Claim one notification key. Same node the Function checks before sending. */
-  async markNotifySent(key: string, day: string): Promise<void> {
-    await this.backend.set('notifySent', key, { at: Date.now(), day });
+  /** Claim one notification key: true only for the ONE caller (any tab, device or
+   *  the Cloud Function) that got there first. Same node the Function claims. */
+  async claimNotifySent(key: string, day: string): Promise<boolean> {
+    return this.backend.claim('notifySent', key, { at: Date.now(), day });
   }
 
   // --- focus collection (custom music, hidden built-ins, settings) --------

@@ -123,7 +123,7 @@ import { TasksView } from './tasks/render';
 import { FocusView } from './focus/view';
 import { createWordmark } from './ui/laurel';
 import { createAppTabs } from './ui/appTabs';
-import { el, textInput } from './util/dom';
+import { el, textInput, showToast } from './util/dom';
 import { initRegistry } from './courses/registry';
 import { initLearn } from './courses/learn';
 import { SettingsView } from './settings/view';
@@ -138,6 +138,10 @@ import { setStorageUser, scopedKey } from './util/userScope';
 import { renderLanding } from './landing/view';
 import { runSync } from './schoology/sync';
 import { detectSchoologyExtension, requestSgyData, applySgyPayload } from './schoology/extension';
+import { finishSchoologyConnectIfReturning, getSgyApiState, sgyErrorText, sgyApiFlag } from './schoology/api';
+// Record ?sgyapi=1 the moment the site loads, on the landing page too, so the beta
+// Schoology connect button survives sign-up redirects that drop the query string.
+sgyApiFlag();
 import { startNotificationScheduler } from './notify/scheduler';
 import { setEmailSink } from './notify/notify';
 import { NotificationLogView } from './notify/logView';
@@ -535,9 +539,10 @@ async function renderApp(user: AuthUser): Promise<void> {
     // "linked" without ever pasting a URL.
     await pullSchoologyLabels();
     const sgy = await data.getProfile<SchoologySettings>('schoology');
-    // "Linked" is either a feed URL or the extension itself: with it installed the
-    // assignments come straight from its scrape, no link needed (sync.ts).
-    if (sgy?.icalUrl || (await detectSchoologyExtension())) {
+    // "Linked" is a feed URL, the real Schoology connection, or the extension
+    // itself: with either of the last two the assignments come straight from
+    // Schoology's API, no link needed (sync.ts).
+    if (sgy?.icalUrl || (await getSgyApiState(data))?.connected || (await detectSchoologyExtension())) {
       try {
         await runSync(data);
       } catch {
@@ -551,6 +556,21 @@ async function renderApp(user: AuthUser): Promise<void> {
     autoSyncTimer = p.auto ? window.setInterval(() => void syncIfLinked(), p.intervalMins * 60_000) : null;
   };
   armSyncTimer();
+  // BACK FROM SCHOOLOGY'S APPROVE SCREEN (?sgy=return&oauth_token=…): finish the
+  // connection, then import straight away so the student sees their work land.
+  void finishSchoologyConnectIfReturning().then(
+    async (st) => {
+      if (!st) return;
+      showToast(st.name ? `Schoology connected as ${st.name}. Importing your assignments…` : 'Schoology connected. Importing your assignments…');
+      try {
+        const r = await runSync(data);
+        showToast(`Schoology import done: ${r.added} new, ${r.updated} updated.`);
+      } catch (err) {
+        showToast(sgyErrorText(err));
+      }
+    },
+    (err) => showToast(sgyErrorText(err))
+  );
   if (getPrefs().sync.onOpen) void syncIfLinked();
   // Settings changes re-arm the timer live (interval change, auto-sync on/off).
   if (prefsListener) window.removeEventListener(PREFS_EVENT, prefsListener);

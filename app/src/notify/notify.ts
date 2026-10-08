@@ -538,8 +538,10 @@ interface Ledger {
   [key: string]: string; // key → 'YYYY-MM-DD' the entry was recorded (for pruning)
 }
 
-/** Cloud writer, installed by attachLedger(). Null in local mode. */
-let ledgerWrite: ((key: string, day: string) => void) | null = null;
+/** Cloud claimer, installed by attachLedger(). Null in local mode. Resolves true
+ *  only for whichever sender (tab, device, or the Cloud Function) claimed the key
+ *  first. */
+let ledgerWrite: ((key: string, day: string) => Promise<boolean>) | null = null;
 /** In-memory view: localStorage seed, then merged with the cloud copy. */
 let ledger: Ledger = loadLocal();
 
@@ -566,7 +568,7 @@ function saveLocal(l: Ledger): void {
  */
 export function attachLedger(
   seed: Record<string, unknown>,
-  write: (key: string, day: string) => void
+  write: (key: string, day: string) => Promise<boolean>
 ): void {
   // The Function writes {at: <ms>} per key; we write 'YYYY-MM-DD'. Only the KEY
   // matters for dedupe, but the value drives pruning, so normalize on the way in
@@ -677,8 +679,9 @@ if (typeof window !== 'undefined') {
   });
 }
 
-/** Record `key` as sent today, pruning entries older than LEDGER_KEEP_DAYS. */
-export function markSent(key: string, todayISO: string): void {
+/** Record `key` as sent today, pruning entries older than LEDGER_KEEP_DAYS.
+ *  Returns the cloud claim (null in local mode): send only if it resolves true. */
+export function markSent(key: string, todayISO: string): Promise<boolean> | null {
   ledger[key] = todayISO;
   const cutoff = new Date(todayISO + 'T00:00:00');
   cutoff.setDate(cutoff.getDate() - LEDGER_KEEP_DAYS);
@@ -686,7 +689,11 @@ export function markSent(key: string, todayISO: string): void {
     if (new Date(day + 'T00:00:00') < cutoff) delete ledger[k];
   }
   saveLocal(ledger);
-  // Fire-and-forget: the local copy already blocks a repeat on this device, and
-  // the cloud write is what stops the Function from re-sending the same one.
-  ledgerWrite?.(key, todayISO);
+  // THE CLOUD CLAIM DECIDES (Gabe, 10/7: one "due tomorrow" email arrived FOUR
+  // times in a minute). The local copy only stops repeats inside one browser
+  // origin; every other open copy of Cobalt (another browser, the .web.app
+  // address, a second device) read the cloud ledger once at startup and so never
+  // saw the others' sends. Now each sender must atomically claim the key in the
+  // shared ledger, and only the one that wins sends.
+  return ledgerWrite ? ledgerWrite(key, todayISO) : null;
 }

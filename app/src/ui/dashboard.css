@@ -320,10 +320,137 @@
   align-items: center;
   gap: 10px;
 }
+/* The day label is a button: it drops down every day the calendar has ahead
+   (Gabe, 10/7). Disabled (no caret) when there is only one day to show. */
 .dash-sched-day {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-dim);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dash-sched-day:disabled {
+  cursor: default;
+}
+.dash-sched-day:not(:disabled):hover {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--surface2);
+}
+.dash-sched-day-caret {
+  font-size: 11px;
+  line-height: 1;
+}
+.dash-sched-day-opt {
+  width: 100%;
+  justify-content: space-between;
+}
+.dash-sched-day-opt.on {
+  color: var(--accent);
+}
+.dash-sched-day-check {
+  flex: none;
+  font-size: 12px;
+}
+.dash-sched-day-more {
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 8px 8px;
+  margin-top: 3px;
+  padding-top: 10px;
+}
+.dash-sched-day-more:hover {
+  color: var(--text);
+}
+/* "More days…" month grid (dashboard/view.ts openDayCalendar), inside the
+   app's standard popup. Days without a schedule are dimmed and inert. */
+.dash-cal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dash-cal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dash-cal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.dash-cal-btn {
+  width: 30px;
+  height: 30px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dash-cal-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.dash-cal-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.dash-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.dash-cal-wd {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  padding-bottom: 2px;
+}
+.dash-cal-day {
+  height: 34px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.dash-cal-day:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.dash-cal-day.off {
+  background: none;
+  border-color: transparent;
+  color: var(--text-dim);
+  opacity: 0.4;
+  cursor: default;
+}
+.dash-cal-day.today {
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.dash-cal-day.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1a33;
+}
+.dash-sched-gcal svg {
+  display: block;
 }
 .dash-sched-empty {
   font-size: 13px;
@@ -335,6 +462,7 @@
   gap: 6px;
 }
 .dash-sched-row {
+  position: relative; /* anchors the red "now" line */
   display: flex;
   align-items: center;
   gap: 12px;
@@ -350,13 +478,75 @@
   border-color: var(--c);
   box-shadow: 0 0 0 1px var(--c) inset;
 }
+/* The current period, duplicated above the schedule as its own container
+   (Gabe, 10/7). The gap beneath it is what says "this is not row one". */
+.dash-sched-pin {
+  margin-bottom: 22px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--border);
+}
+.dash-sched-pin-label {
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.dash-sched-row.pinned {
+  padding: 12px 14px;
+}
+.dash-sched-row.pinned .dash-sched-name {
+  font-size: 15px;
+}
+/* The red line at the exact current time (Gabe, 10/7): across the current
+   row at the proportional spot, or between two rows during a gap. */
+.dash-sched-nowline,
+.dash-sched-gapline {
+  --now-red: #ef4444;
+  height: 2px;
+  background: var(--now-red);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.dash-sched-nowline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  transform: translateY(-1px);
+  z-index: 1;
+}
+.dash-sched-nowline::before,
+.dash-sched-gapline::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--now-red);
+}
+.dash-sched-gapline {
+  position: relative;
+  margin: 2px 0;
+}
 .dash-sched-time {
   flex: none;
   width: 66px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+.dash-sched-t-end {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.75;
 }
 .dash-sched-bar {
   flex: none;

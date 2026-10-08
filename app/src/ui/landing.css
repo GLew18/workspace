@@ -1804,46 +1804,56 @@ html[data-kbd] .landing :is(button, a):focus-visible {
    color tokens rather than inventing a second visual language. Left-aligned
    and narrower than .lp-section's 1360px column: nobody reads a privacy
    policy comfortably at full page width. */
+/* The nav's links are <a>s here, not the landing's <button>s, so they need the
+   browser's underline taken off to look identical (Gabe, 10/7). */
+.lp-legal-page .lp-nav a { text-decoration: none; line-height: normal; display: inline-block; }
+/* The empty links slot holds the height of the landing's section links (34px),
+   so the bar is the same height on both pages. */
+.lp-legal-page .lp-nav-links { min-height: 34px; }
 .lp-legal {
   max-width: 720px;
   margin: 0 auto;
-  padding: 130px 22px 90px;
+  /* .landing pulls the page up 70px under the fixed nav, so 70px of this only
+     gets back to the real top edge; the rest is the air below the nav. */
+  padding: 180px 22px 90px;
   text-align: left;
 }
+/* Sizes follow the landing's gentle text scaling (see .lp-h2): floor at a
+   375px screen, full size at 1360px. */
 .lp-legal h1 {
-  font-size: clamp(28px, 5vw, 38px);
+  font-size: clamp(22px, 15.9px + 1.624vw, 38px); /* = .lp-h2 */
   font-weight: 700;
   letter-spacing: -0.01em;
   margin: 0 0 8px;
 }
 .lp-legal-updated {
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: clamp(12.5px, 11.55px + 0.254vw, 15px); /* = .lp-sub */
   margin: 0 0 36px;
 }
 .lp-legal h2 {
-  font-size: 19px;
+  font-size: clamp(16px, 14.86px + 0.305vw, 19px);
   font-weight: 700;
   margin: 36px 0 10px;
 }
-.lp-legal p {
+.lp-legal p,
+.lp-legal li {
   color: rgba(255, 255, 255, 0.74);
-  font-size: 15px;
+  font-size: clamp(13.5px, 12.93px + 0.152vw, 15px);
   line-height: 1.65;
-  margin: 0 0 14px;
 }
+.lp-legal p { margin: 0 0 14px; }
 .lp-legal ul {
   margin: 0 0 14px;
   padding-left: 20px;
 }
-.lp-legal li {
-  color: rgba(255, 255, 255, 0.74);
-  font-size: 15px;
-  line-height: 1.65;
-  margin: 0 0 8px;
-}
-.lp-legal a { color: var(--accent); }
+.lp-legal li { margin: 0 0 8px; }
+.lp-legal a { color: var(--accent); text-decoration: none; }
+.lp-legal a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .lp-legal strong { color: var(--text); }
+@media (max-width: 640px) {
+  .lp-legal { padding-top: 150px; }
+}
 
 /* ---------------- Responsive ---------------- */
 /* RIGID BLOCKS (Gabe, 10/5): the carousel, Endless personalization, Cosmetics,

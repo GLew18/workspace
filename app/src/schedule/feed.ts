@@ -70,6 +70,31 @@ export function isGoogleCalendarIcalUrl(raw: string): boolean {
   }
 }
 
+/**
+ * Where "Open in Google Calendar" goes (Gabe, 10/7): the EXACT calendar on the
+ * EXACT day, the way a task's ↗ lands on its exact Schoology page. The secret
+ * address names the calendar (…/calendar/ical/<calendar id>/private-…/basic.ics),
+ * and Google's single-calendar view takes that id plus a day. It is read-only,
+ * and it shows a private calendar only to a browser signed in to an account
+ * that can see it, which the student's is. Falls back to the account's day view
+ * when the id cannot be read out of the address.
+ */
+export function calendarDayUrl(feedUrl: string, date: string): string {
+  const [y, m, d] = date.split('-');
+  const ymd = `${y}${m}${d}`;
+  const id = /\/calendar\/ical\/([^/]+)\//i.exec(feedUrl)?.[1];
+  if (!id) return `https://calendar.google.com/calendar/u/0/r/day/${y}/${Number(m)}/${Number(d)}`;
+  let tz = '';
+  try {
+    tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  } catch {
+    /* no zone: Google uses the calendar's own */
+  }
+  const q = new URLSearchParams({ src: decodeURIComponent(id), mode: 'DAY', dates: `${ymd}/${ymd}` });
+  if (tz) q.set('ctz', tz);
+  return `https://calendar.google.com/calendar/u/0/embed?${q.toString()}`;
+}
+
 /** The pasted address as the https URL every fetch uses. */
 export const normalizeFeedUrl = (raw: string): string =>
   raw.trim().replace(/^webcal:\/\//i, 'https://').replace(/^http:\/\//i, 'https://');
@@ -299,9 +324,14 @@ export async function getFeed(data: Data): Promise<ScheduleFeed | null> {
   return f?.url ? f : null;
 }
 
+/** Fired on window after saveFeed, so the dashboard card repaints when the link
+ *  is changed or removed from Settings (Gabe, 10/7). */
+export const FEED_EVENT = 'cobalt:schedule-feed';
+
 export async function saveFeed(data: Data, url: string | null): Promise<void> {
   if (!url) clearCache();
   await data.setProfile(SCHEDULE_FEED_KEY, { url: url ? normalizeFeedUrl(url) : '' });
+  window.dispatchEvent(new Event(FEED_EVENT));
 }
 
 // #endregion

@@ -22,6 +22,15 @@ import { recommendedSet } from '../courses/recommend';
 import { nextCourseColor } from '../courses/colors';
 import { runSync } from '../schoology/sync';
 import { isSchoologyIcalUrl } from '../schoology/ical';
+import { SCHEDULE_FEED_KEY, type ScheduleFeed, isGoogleCalendarIcalUrl, refreshFeed, saveFeed, readCache } from '../schedule/feed';
+import {
+  sgyApiFlag,
+  getSgyApiState,
+  startSchoologyConnect,
+  disconnectSchoology,
+  hostFromIcal,
+  sgyErrorText,
+} from '../schoology/api';
 import {
   signOut,
   needsEmailVerification,
@@ -134,6 +143,10 @@ const HELP: Record<string, { title: string; text: string }> = {
     title: 'Schoology calendar link',
     text: 'Your personal Schoology calendar (iCal) link. Cobalt uses it to import your assignments automatically. Find it in Schoology under Settings → your calendar feed, then paste it here.\n\nIt’s read-only and has no password in it. Cobalt never sees your Schoology login, and you can reset the link in Schoology anytime.',
   },
+  gcal: {
+    title: 'Google Calendar link',
+    text: 'The secret address of the Google Calendar your school schedule lives in. Cobalt reads it to show your real day, block by block, on the dashboard’s Current Schedule card.\n\nFind it in Google Calendar under Settings → your calendar → Integrate calendar → “Secret address in iCal format”. It’s read-only; Cobalt never sees your Google login, and you can reset the address in Google Calendar anytime.',
+  },
   course: {
     title: 'Course name',
     text: 'A class you take. Cobalt labels and color-codes its assignments with this name so your work is easy to scan.',
@@ -172,6 +185,8 @@ export class SettingsView {
     prefs: structuredClone(getPrefs()),
   };
   private schoologyMeta: SchoologySettings | null = null;
+  /** The saved Google Calendar schedule link (schedule/feed.ts), '' when none. */
+  private gcalUrl = '';
   private preview?: { btn: HTMLElement; stop: () => void; setVolume: (v: number) => void; timer: number }; // active sound preview
   private newCourseIds = new Set<string>(); // courses added this session — they get parse-word recommendations
   private refocusParseId: string | null = null; // after adding a parse word, return the cursor to that course's "+ parse word" input
@@ -197,6 +212,7 @@ export class SettingsView {
       icalUrl: '',
       lastSyncAt: null,
     };
+    this.gcalUrl = (profile[SCHEDULE_FEED_KEY] as ScheduleFeed | undefined)?.url || '';
     const savedSound = profile['focusEndSound'] as { key: string; volume?: number; enabled?: boolean } | undefined;
     this.draft = {
       name: account?.displayName || this.opts.displayName,
@@ -724,8 +740,75 @@ export class SettingsView {
     return sec;
   }
 
+  /** SCHOOLOGY ACCOUNT (beta, Gabe 10/7/26): connect Cobalt to Schoology through
+   *  Schoology's own approve screen. Hidden until the flag is on (open the app with
+   *  ?sgyapi=1) unless the account is already connected, so nobody is stranded
+   *  without a way to disconnect. */
+  private async renderSgyApi(slot: HTMLElement): Promise<void> {
+    const st = await getSgyApiState(this.data).catch(() => null);
+    if (!sgyApiFlag() && !st?.connected && !st?.expired) return;
+    slot.replaceChildren();
+    const row = el('div', { class: 'srow' });
+    const main = el('div', { class: 'srow-main' });
+    const ctrl = el('div', { class: 'srow-ctrl' });
+    const err = el('div', { class: 'settings-field-error' });
+    const fail = (e: unknown): void => {
+      err.textContent = sgyErrorText(e);
+    };
+    main.append(el('div', { class: 'srow-title', text: 'Schoology account (beta)' }));
+    if (st?.connected) {
+      const who = [st.name, st.host].filter(Boolean).join(' · ');
+      main.append(el('div', { class: 'srow-sub', text: `Connected${who ? ' as ' + who : ''}. Assignments and real course names come straight from Schoology.` }));
+      const off = el('button', { class: 'settings-save', text: 'Disconnect' }) as HTMLButtonElement;
+      off.addEventListener('click', async () => {
+        off.disabled = true;
+        try {
+          await disconnectSchoology();
+          await this.renderSgyApi(slot);
+        } catch (e) {
+          off.disabled = false;
+          fail(e);
+        }
+      });
+      ctrl.append(off);
+    } else {
+      main.append(
+        el('div', {
+          class: 'srow-sub',
+          text: st?.expired
+            ? 'Your Schoology connection expired. Reconnect to keep importing.'
+            : 'Sign in on your school’s Schoology page and approve Cobalt. Read-only: no grades, no password.',
+        })
+      );
+      const host = textInput({
+        class: 'settings-input',
+        placeholder: 'yourschool.schoology.com',
+        value: st?.host || hostFromIcal(this.schoologyMeta?.icalUrl),
+      });
+      const go = el('button', { class: 'settings-save', text: st?.expired ? 'Reconnect' : 'Connect' }) as HTMLButtonElement;
+      go.addEventListener('click', async () => {
+        go.disabled = true;
+        err.textContent = '';
+        try {
+          await startSchoologyConnect(host.value); // leaves the page on success
+        } catch (e) {
+          go.disabled = false;
+          fail(e);
+        }
+      });
+      ctrl.append(host, go);
+    }
+    row.append(main, ctrl);
+    slot.append(row, err);
+  }
+
   private sectionSchoology(): HTMLElement {
     const sec = el('section', { class: 'settings-section', id: 'sec-school' });
+    // The real Schoology connection (beta). Filled in async because it reads the
+    // account's connection marker; the slot keeps its place at the top meanwhile.
+    const apiSlot = el('div');
+    sec.append(apiSlot);
+    void this.renderSgyApi(apiSlot);
     sec.append(this.labelWithHelp('Calendar (iCal) link', 'ical'));
     const input = textInput({
       class: 'settings-input',
@@ -992,8 +1075,89 @@ export class SettingsView {
       nameInput?.focus();
       nameInput?.select();
     });
+    // The Google Calendar link sits ABOVE the course list (Gabe, 10/7).
+    sec.append(this.gcalField());
+    sec.append(el('div', { class: 'settings-group-label', text: '📚 Courses' }));
     sec.append(host, add);
     return sec;
+  }
+
+  /** GOOGLE CALENDAR LINK (Gabe, 10/7): the one place to connect, change or
+   *  remove the schedule feed the dashboard's Current Schedule card reads. Same
+   *  shape as the Schoology iCal field: a link box, one button whose label says
+   *  what pressing it does, and a status caption. */
+  private gcalField(): HTMLElement {
+    const wrap = el('div', { class: 'settings-gcal' });
+    wrap.append(el('div', { class: 'settings-group-label', text: '📅 Schedule' }));
+    wrap.append(this.labelWithHelp('Google Calendar link', 'gcal'));
+    const input = textInput({
+      class: 'settings-input',
+      placeholder: 'https://calendar.google.com/calendar/ical/…/basic.ics',
+      value: this.gcalUrl,
+    });
+    const err = el('div', { class: 'settings-field-error' });
+    const btn = el('button', { class: 'settings-save settings-ical-btn', text: 'Save' }) as HTMLButtonElement;
+    const status = el('div', { class: 'settings-status' });
+    const setStatus = (text: string, isError = false): void => {
+      status.textContent = text;
+      status.classList.toggle('settings-status-error', isError);
+    };
+    const savedStatus = (): void => {
+      if (!this.gcalUrl) return setStatus('Not connected.');
+      const c = readCache(this.gcalUrl);
+      const days = c ? new Set(c.blocks.map((b) => new Date(b.start).toDateString())).size : 0;
+      setStatus(days ? `Connected · ${days} day${days === 1 ? '' : 's'} of schedule loaded.` : 'Connected.');
+    };
+    const label = (): void => {
+      const typed = input.value.trim();
+      const changed = typed !== this.gcalUrl;
+      btn.textContent = changed ? (typed ? (this.gcalUrl ? 'Save & reload' : 'Connect') : 'Remove link') : this.gcalUrl ? 'Reload' : 'Connect';
+      btn.classList.toggle('changed', changed);
+      btn.disabled = !typed && !this.gcalUrl;
+    };
+    const setErr = (on: boolean): void => {
+      err.textContent = on ? 'That is not a Google Calendar address. It looks like https://calendar.google.com/calendar/ical/…/basic.ics' : '';
+      input.classList.toggle('invalid', on);
+    };
+    const commit = async (url: string): Promise<void> => {
+      btn.disabled = true;
+      try {
+        if (url) {
+          setStatus('Reading your calendar…');
+          await refreshFeed(url);
+        }
+        await saveFeed(this.data, url || null);
+        this.gcalUrl = url;
+        input.value = url;
+        savedStatus();
+      } catch (e) {
+        setStatus('Couldn’t read that calendar: ' + (e instanceof Error ? e.message : 'unknown error'), true);
+      }
+      label();
+    };
+    btn.addEventListener('click', () => {
+      const next = input.value.trim().replace(/^webcal:\/\//i, 'https://');
+      if (next && !isGoogleCalendarIcalUrl(next)) return setErr(true);
+      setErr(false);
+      if (this.gcalUrl && next !== this.gcalUrl) {
+        this.confirmDanger(
+          next ? 'Change your Google Calendar link? The dashboard will show the new calendar’s schedule.' : 'Remove your Google Calendar link? The Current Schedule card goes back to the connect prompt.',
+          () => void commit(next)
+        );
+        return;
+      }
+      void commit(next);
+    });
+    input.addEventListener('input', () => {
+      setErr(false);
+      label();
+    });
+    label();
+    savedStatus();
+    const actions = el('div', { class: 'settings-ical-actions' });
+    actions.append(btn);
+    wrap.append(input, err, actions, status);
+    return wrap;
   }
 
   /** Focus end-of-session sound picker. A Volume slider sets how loud cues play;

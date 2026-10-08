@@ -22,6 +22,9 @@ export interface Backend {
   remove(c: Collection, id: string): Promise<void>;
   /** One-shot read of a whole collection. */
   getAll<T = unknown>(c: Collection): Promise<Record<string, T>>;
+  /** Write `value` ONLY if the child does not exist yet, atomically. Resolves
+   *  true for the one caller that created it, false for everyone else. */
+  claim<T = unknown>(c: Collection, id: string, value: T): Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,5 +89,11 @@ export class LocalBackend implements Backend {
 
   async getAll<T>(c: Collection): Promise<Record<string, T>> {
     return { ...this.cache[c] } as Record<string, T>;
+  }
+
+  async claim<T>(c: Collection, id: string, value: T): Promise<boolean> {
+    if (id in this.cache[c]) return false;
+    await this.set(c, id, value);
+    return true;
   }
 }
