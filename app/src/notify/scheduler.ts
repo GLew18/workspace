@@ -38,6 +38,7 @@ import {
   markSent,
   attachLedger,
 } from './notify';
+import { chosenNotifyEmail, onNotifyEmailChange } from './notifyEmail';
 import { PRIORITIES } from '../tasks/priorities';
 
 const EVAL_MS = 30_000; // re-check twice a minute — plenty for minute-granular times
@@ -109,7 +110,10 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
     // `=== true` on purpose: an absent getter reads as false, so a caller that
     // forgets to pass it loses email rather than silently mailing an unproven
     // address. Mirrors the same check in the Cloud Function.
-    gmail: ch.gmail && !!opts.email && opts.emailVerified?.() === true,
+    // A chosen address was proven with a code, so it needs no further check.
+    gmail: chosenNotifyEmail()
+      ? ch.gmail
+      : ch.gmail && !!opts.email && opts.emailVerified?.() === true,
   });
   /** Send on the resolved channels, once, ledgered. Skips (without consuming the
    *  ledger) when nothing would actually deliver. */
@@ -351,7 +355,11 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
   });
 
   // The Gmail channel's destination is the signed-in ACCOUNT email, full stop.
-  setEmailAddress(opts.email || '');
+  // The chosen (code-proven) address when there is one, else the sign-in email;
+  // kept live so a change in Settings applies at once.
+  const syncAddress = (): void => setEmailAddress(chosenNotifyEmail() || opts.email || '');
+  syncAddress();
+  const offAddress = onNotifyEmailChange(syncAddress);
 
   // Share the dedupe ledger with the sendReminders Cloud Function. Without this
   // the two run blind to each other and every reminder arrives twice, once from
@@ -395,6 +403,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
   return () => {
     stopped = true; // watchTasks has no unsubscribe; the flag makes our callback inert
     clearInterval(interval);
+    offAddress();
     window.removeEventListener(NOTIFY_SETTINGS_EVENT, onSettings);
   };
 }

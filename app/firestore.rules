@@ -22,11 +22,24 @@ service cloud.firestore {
       // in the notification code, and duplicating it here risks silently killing a
       // working channel for an edge case (e.g. a Google account Firebase reports
       // differently). The recipient constraint is what closes the relay.
+      //
+      // OR to the notification address the student PROVED with a code (10/8/26):
+      // notifyEmails/{uid} is written only by the confirmNotifyEmail function.
       allow create: if request.auth != null
         && request.resource.data.to is list
         && request.resource.data.to.size() == 1
-        && request.resource.data.to[0] == request.auth.token.email;
+        && (request.resource.data.to[0] == request.auth.token.email
+          || (exists(/databases/$(database)/documents/notifyEmails/$(request.auth.uid))
+            && get(/databases/$(database)/documents/notifyEmails/$(request.auth.uid)).data.email
+              == request.resource.data.to[0]));
       allow read, update, delete: if false;
+    }
+    // A student's proven notification address: readable by them, writable by
+    // NO client (only the Cloud Functions, which bypass rules). The pending
+    // codes (notifyEmailCodes) have no rule at all, so no client can see them.
+    match /notifyEmails/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
     }
   }
 }

@@ -23,7 +23,7 @@
 //     already checked off, which keeps completed work as a record.
 
 import type { Data } from '../db';
-import type { Task, ScheduleItem, SchoologySettings } from '../types';
+import type { Task, Note, ScheduleItem, SchoologySettings } from '../types';
 import { parseIcal, taskEvents, scheduleEvents, type IcalEvent } from './ical';
 import { classifyBatch } from './classify';
 import {
@@ -33,9 +33,10 @@ import {
   requestSgyData,
   applySgyPayload,
   type SgyPayload,
+  type SgyAttachment,
 } from './extension';
 import { getSgyApiState, fetchSgyApiPayload } from './api';
-import { extractLinks } from '../tasks/attachments';
+import { extractLinks, nameFromUrl } from '../tasks/attachments';
 import { clearTranslation, clearDetailsTranslation } from '../tasks/store';
 import { getTaskFolders, patchTaskFolder } from '../tasks/folders';
 import { genId } from '../util/ids';
@@ -164,7 +165,7 @@ export async function fetchIcal(url: string): Promise<string> {
 // deletions, folders) is written once. Task ids stay 'ical_assign_<id>' for both,
 // which is what lets a phone (feed only) and a laptop (extension) agree on the
 // same task.
-type SourceEvent = IcalEvent & { course?: string; via: 'ext' | 'feed' };
+type SourceEvent = IcalEvent & { course?: string; via: 'ext' | 'feed'; attachments?: SgyAttachment[] };
 
 function eventsFromSgy(payload: SgyPayload): SourceEvent[] {
   return (payload.assignments ?? []).map((a) => ({
@@ -180,6 +181,7 @@ function eventsFromSgy(payload: SgyPayload): SourceEvent[] {
     time: a.time,
     kind: a.kind,
     course: a.course,
+    attachments: a.attachments,
   }));
 }
 
@@ -222,6 +224,26 @@ function logicalKey(e: IcalEvent): string {
   return 'evt_' + e.summary.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+/** The one URL comparison every attachment dedup here uses. */
+const urlKey = (u: string): string => u.trim().replace(/\/+$/, '');
+
+/** The teacher's own attachments (files, links, videos sent by the real Schoology
+ *  connection) as Notes, minus any URL in `have` and the assignment's own page, so
+ *  a file the instructions also linked to is attached once. Unnamed ones are named
+ *  from the URL, exactly like a pasted link. */
+function teacherNotes(list: SgyAttachment[] | undefined, have: string[], selfUrl: string): Note[] {
+  const skip = new Set(have.map(urlKey));
+  if (selfUrl) skip.add(urlKey(selfUrl));
+  const out: Note[] = [];
+  for (const a of list ?? []) {
+    const k = urlKey(a.url);
+    if (!k || skip.has(k)) continue;
+    skip.add(k);
+    out.push({ id: 'n_' + genId(), title: a.title || nameFromUrl(a.url), url: a.url });
+  }
+  return out;
+}
+
 /** Build a fresh imported task from an event + its classified course. */
 function newTask(key: string, e: SourceEvent, course: string): Task {
   const t: Task = {
@@ -255,6 +277,13 @@ function newTask(key: string, e: SourceEvent, course: string): Task {
   // (the 9/20/26 "מי אני" hunt). Same rule as the alterations pass below.
   if (e.description) t.details = e.description;
   if (e.url) t.schoologyUrl = e.url;
+  // Files and links the teacher ATTACHED (not pasted into the text) come in too,
+  // after the pasted ones. Their URLs are recorded so a re-sync knows which it has
+  // already brought in (see the alterations pass and Task.importedAttachments).
+  if (e.attachments?.length) {
+    t.notes = [...t.notes, ...teacherNotes(e.attachments, t.notes.map((n) => n.url), e.url)];
+    t.importedAttachments = e.attachments.map((a) => a.url);
+  }
   return t;
 }
 // #endregion
@@ -507,6 +536,29 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
       changes.add('link');
       changed = true;
     }
+    // The teacher's ATTACHED files and links: any not brought in before are added,
+    // after whatever the student has. Only ever appends, so hand-added attachments
+    // and renamed ones survive, and a URL the student already has is not doubled.
+    // One the student deleted is still in importedAttachments, so it stays deleted.
+    // `quiet` saves that ledger even when nothing visible changed (every new URL was
+    // already attached by hand), without raising the ✱ badge for it.
+    let quiet = false;
+    if (e.attachments?.length) {
+      const known = new Set((cur.importedAttachments ?? []).map(urlKey));
+      const incoming = e.attachments.filter((a) => !known.has(urlKey(a.url)));
+      if (incoming.length) {
+        const base = next.notes ?? [];
+        const added = teacherNotes(incoming, base.map((n) => n.url), e.url);
+        next.importedAttachments = [...(cur.importedAttachments ?? []), ...incoming.map((a) => a.url)];
+        quiet = true;
+        if (added.length) {
+          next.notes = [...base, ...added];
+          changes.add(added.length === 1 ? 'an attachment' : 'attachments');
+          changed = true;
+        }
+      }
+    }
+    if (!changed && quiet) altered.push(next);
     if (changed) {
       if (e.via === 'ext') next.importedVia = 'ext';
       next.feedUpdated = [...changes]; // surfaces the ✱ "updated" badge on the task row

@@ -442,6 +442,12 @@
      which left this pill 0.6px shorter than the solid chips beside it. 1.45 is the
      document's own value, and it is what the chips are already measuring at. */
   line-height: 1.45;
+  /* The auto-grow writes a whole-pixel height (17px) for a 17.4px line, which
+     clipped the descender off "parse word" (it read "oarse word", Gabe 10/8).
+     One pixel of room underneath, handed straight back by the negative margin, so
+     the pill stays exactly as tall as the chips beside it. */
+  padding-bottom: 1px;
+  margin-bottom: -1px;
 }
 .parse-add::placeholder {
   color: var(--text-dim);
@@ -1762,3 +1768,21 @@ a.settings-credits-lic:hover { color: var(--accent); border-color: var(--accent)
     padding-left: 8px;
   }
 }
+
+/* Change the reminder email, proven with a code (settings/view.ts drawNote, 10/8/26). */
+.ngmail-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ngmail-link:hover { text-decoration: underline; }
+.ngmail-link:disabled { opacity: 0.6; cursor: default; }
+.ngmail-form { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.ngmail-hint { font-size: 11.5px; color: var(--text-dim); }
+.ngmail-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ngmail-row .ngmail-input { flex: 1; min-width: 180px; font-size: 13px; }
+.ngmail-err { margin-top: 6px; font-size: 11.5px; color: #ef4444; }

@@ -1,0 +1,36 @@
+/* The audit jump bar (labs/onbPreview.ts). Not part of the app. */
+.onbp-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 100000;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 6px 8px;
+  border-radius: 14px;
+  background: rgba(5, 12, 30, 0.88);
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  font: 600 12px Inter, system-ui, sans-serif;
+}
+.onbp-tag {
+  align-self: center;
+  padding: 0 6px;
+  color: #f2bb33;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10.5px;
+}
+.onbp-bar button {
+  background: rgba(255, 255, 255, 0.08);
+  color: #dbe6ff;
+  border: none;
+  border-radius: 9px;
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.onbp-bar button:hover { background: rgba(255, 255, 255, 0.16); }

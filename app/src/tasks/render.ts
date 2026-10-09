@@ -42,6 +42,8 @@ import {
 import { classifyByRules, learnCorrection } from '../schoology/classify';
 import { recordManualLabelForTask } from '../schoology/extension';
 import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
+import { emailTeacherUrl } from './teachers';
+import { photoSubmitAssignment, openPhotoSubmit } from '../schoology/submitPhoto';
 import { parseDateTime, isPastDate, PAST_DATE_MSG, isPastTime, PAST_TIME_MSG } from './parser';
 import { shiftSelect } from '../util/select';
 import { detectAttachmentType, normalizeUrl, openAttachment, openAll, openAllInWindow } from './attachments';
@@ -3119,6 +3121,33 @@ export class TasksView {
           if (detailReadings) this.askingIds.add(this.vkey(DETAILS_SLOT, task.id));
           this.render();
         },
+      });
+    }
+
+    // EMAIL TEACHER (Gabe, 10/8/26) — Gmail opens with the course's teacher(s) in To
+    // and the assignment's title as the subject, body empty. Menu only, and only
+    // when Schoology has told Cobalt who teaches this task's course.
+    const mailUrl = emailTeacherUrl(task);
+    if (mailUrl) {
+      out.push({
+        id: 'emailTeacher',
+        label: 'Email teacher',
+        iconHtml: '✉️',
+        auto: false,
+        run: () => void window.open(mailUrl, '_blank', 'noopener'),
+      });
+    }
+
+    // SUBMIT A PHOTO (Gabe, 10/8/26) — hands photos in on this assignment in
+    // Schoology (schoology/submitPhoto.ts). Menu only, and only on a Schoology
+    // assignment for a student connected to Schoology directly.
+    if (photoSubmitAssignment(task)) {
+      out.push({
+        id: 'submitPhoto',
+        label: 'Submit photo to Schoology',
+        iconHtml: '📷',
+        auto: false,
+        run: () => openPhotoSubmit(task),
       });
     }
 

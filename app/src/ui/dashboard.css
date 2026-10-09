@@ -499,38 +499,6 @@
 .dash-sched-row.pinned .dash-sched-name {
   font-size: 15px;
 }
-/* The red line at the exact current time (Gabe, 10/7): across the current
-   row at the proportional spot, or between two rows during a gap. */
-.dash-sched-nowline,
-.dash-sched-gapline {
-  --now-red: #ef4444;
-  height: 2px;
-  background: var(--now-red);
-  border-radius: 1px;
-  pointer-events: none;
-}
-.dash-sched-nowline {
-  position: absolute;
-  left: 0;
-  right: 0;
-  transform: translateY(-1px);
-  z-index: 1;
-}
-.dash-sched-nowline::before,
-.dash-sched-gapline::before {
-  content: '';
-  position: absolute;
-  left: -4px;
-  top: -3px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--now-red);
-}
-.dash-sched-gapline {
-  position: relative;
-  margin: 2px 0;
-}
 .dash-sched-time {
   flex: none;
   width: 66px;

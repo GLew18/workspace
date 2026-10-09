@@ -14,6 +14,7 @@
 import type { Data } from '../db';
 import { firebaseConfig } from '../firebase';
 import { coercePayload, type SgyPayload } from './extension';
+import { el, textInput } from '../util/dom';
 
 /** Public marker the server writes at profile 'sgyApi'. The token itself never
  *  leaves the server. */
@@ -22,6 +23,8 @@ export interface SgyApiState {
   expired?: boolean;
   host?: string;
   name?: string;
+  /** Schoology's preferred first name, else the legal one: what Cobalt greets them as. */
+  firstName?: string;
   connectedAt?: string;
   lastFetchAt?: string;
 }
@@ -95,3 +98,90 @@ export function hostFromIcal(icalUrl: string | undefined): string {
   const m = String(icalUrl || '').match(/^[a-z]+:\/\/([a-z0-9.-]+\.schoology\.com)\//i);
   return m ? m[1].toLowerCase() : '';
 }
+
+// #region School picker — pick your school instead of typing its Schoology address
+/** Schools Cobalt knows the Schoology address of. Picking one starts the connect
+ *  flow in a single tap (Gabe, 10/8/26: typing an address was slow and cumbersome).
+ *  "Test" is Schoology's developer sandbox, where PowerSchool's reviewers and
+ *  Cobalt's own test accounts live. Add a school here as Cobalt reaches it. */
+export interface SchoolChoice {
+  name: string;
+  host: string;
+  /** Extra words the search matches, e.g. the school's full name. */
+  also?: string;
+}
+export const SCHOOLS: SchoolChoice[] = [
+  // Heschel ('heschel.schoology.com') comes back once PowerSchool publishes the app;
+  // until then Schoology refuses every account outside the sandbox (Gabe, 10/8/26).
+  // Labelled for testers until real schools are listed (Gabe, 10/8/26).
+  { name: 'Press this for now', host: 'app.schoology.com', also: 'test schoology sandbox developer reviewer powerschool' },
+];
+
+export function matchSchools(query: string): SchoolChoice[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return SCHOOLS;
+  return SCHOOLS.filter((s) => `${s.name} ${s.host} ${s.also ?? ''}`.toLowerCase().includes(q));
+}
+
+/** A typed address that names a Schoology site, for schools not in the list yet. */
+function typedHost(query: string): string {
+  const h = query.trim().toLowerCase().replace(/^[a-z]+:\/\//, '').split(/[/?#]/)[0];
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.schoology\.com$/.test(h) ? h : '';
+}
+
+/** Search box + one button per matching school. Tapping a school calls onPick
+ *  with its host. Enter picks when exactly one school matches. A full
+ *  "something.schoology.com" address works too, for a school not listed yet. */
+export function buildSchoolPicker(opts: {
+  inputClass: string;
+  btnClass: string;
+  onPick: (host: string) => void;
+}): { el: HTMLElement; setBusy: (busy: boolean) => void } {
+  const wrap = el('div', { style: 'display:flex;flex-direction:column;gap:8px;width:100%' });
+  const input = textInput({ class: opts.inputClass, placeholder: 'School search' });
+  const list = el('div', { style: 'display:flex;flex-direction:column;gap:8px' });
+  const empty = el('div', {
+    style: 'font-size:12px;opacity:.75',
+    text: 'Not listed yet. Type your school’s full Schoology address, like yourschool.schoology.com.',
+  });
+  let busy = false;
+  let current: string[] = [];
+  const render = (): void => {
+    list.replaceChildren();
+    const hits = matchSchools(input.value);
+    const extra = typedHost(input.value);
+    current = hits.map((s) => s.host);
+    if (extra && !current.includes(extra)) current.push(extra);
+    for (const s of hits) {
+      const b = el('button', { class: opts.btnClass, type: 'button', text: s.name, title: s.host }) as HTMLButtonElement;
+      b.style.marginTop = '0';
+      b.disabled = busy;
+      b.addEventListener('click', () => opts.onPick(s.host));
+      list.append(b);
+    }
+    if (extra && !hits.some((s) => s.host === extra)) {
+      const b = el('button', { class: opts.btnClass, type: 'button', text: `Connect to ${extra}` }) as HTMLButtonElement;
+      b.style.marginTop = '0';
+      b.disabled = busy;
+      b.addEventListener('click', () => opts.onPick(extra));
+      list.append(b);
+    }
+    if (!current.length) list.append(empty);
+  };
+  input.addEventListener('input', render);
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (current.length === 1 && !busy) opts.onPick(current[0]);
+  });
+  render();
+  wrap.append(input, list);
+  return {
+    el: wrap,
+    setBusy(b: boolean) {
+      busy = b;
+      render();
+    },
+  };
+}
+// #endregion

@@ -626,6 +626,15 @@
 .onb-sso-cap b {
   color: var(--gold);
 }
+/* The Google Calendar guide's last slide links straight to its settings page. */
+.onb-sso-cap a {
+  display: block;
+  margin-top: 6px;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+.onb-sso-cap a:hover { text-decoration: underline; }
 .onb-sso-nav {
   display: flex;
   align-items: center;
@@ -731,33 +740,6 @@
 .onb-sc.tight .onb-cta {
   margin-top: 18px;
   padding: 12px 22px;
-}
-
-/* ===================== screen 5 · name ===================== */
-/* One field, nothing competing for attention, so it gets to be a HERO field
-   rather than a form row. */
-.onb-name-input {
-  width: 100%;
-  background: var(--surface2);
-  border: 1.5px solid var(--border);
-  border-radius: 18px;
-  color: var(--text);
-  font-family: inherit;
-  font-size: 30px;
-  font-weight: 750;
-  letter-spacing: -0.01em;
-  text-align: center;
-  padding: 22px 20px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-.onb-name-input::placeholder {
-  color: rgba(255, 255, 255, 0.28);
-  font-weight: 650;
-}
-.onb-name-input:focus {
-  outline: none;
-  border-color: var(--gold);
-  box-shadow: 0 0 0 4px var(--gold-glow);
 }
 
 /* ================== screen 6 · setting up / payoff ================== */
@@ -1259,21 +1241,7 @@
   gap: 12px;
 }
 
-/* ---- 3b · schedule (onboarding/view.ts): Google Calendar secret address ---- */
-a.onb-help {
-  text-decoration: none;
-  box-sizing: border-box;
-}
-.onb-steps {
-  margin: 18px 0 0;
-  padding-left: 20px;
-  max-width: 420px;
-  width: 100%;
-  text-align: left;
-  font-size: 13.5px;
-  line-height: 1.55;
-  color: var(--text-dim);
-}
+/* ---- 4 · schedule (onboarding/view.ts): Google Calendar secret address ---- */
 .onb-sched {
   display: flex;
   flex-direction: column;

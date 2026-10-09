@@ -24,6 +24,12 @@ const LABS = {
     title: 'Cobalt Badges',
     artifact: 'https://claude.ai/artifact/KMabNsG2Rf7k8ExbpWrE8s',
   },
+  onboarding: {
+    entry: 'onbPreview.ts',
+    out: 'onboarding-preview.html',
+    title: 'Onboarding Preview',
+    artifact: 'https://claude.ai/artifact/6QqDgqmBzCPHfDHmgN4tiA',
+  },
 };
 
 const lab = LABS[process.argv[2]];
@@ -45,6 +51,10 @@ const res = await build({
   write: false,
   outdir: outDir,
   logLevel: 'warning',
+  // The onboarding preview pulls in real app modules: the icon inlines, and Vite's
+  // env object is empty, which the app reads as "no Firebase config" (local mode).
+  loader: { '.svg': 'dataurl' },
+  define: { 'import.meta.env': JSON.stringify({ PROD: true, DEV: false, MODE: 'lab' }) },
 });
 
 const js = res.outputFiles.find((f) => f.path.endsWith('.js')).text;

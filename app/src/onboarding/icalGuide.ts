@@ -60,25 +60,27 @@ const SCENE_CSS = `
   .gdsvg .pu{animation:kU 1.8s ease-in-out infinite}
   @keyframes kU{0%,100%{opacity:.35}50%{opacity:1}}`;
 
-const scene = (inner: string): string =>
+// Exported (with the helpers below) for the Google Calendar guide, gcalGuide.ts:
+// one engine, so both slideshows animate identically. `page` is the backdrop.
+export const scene = (inner: string, page = PAGE): string =>
   `<svg class="gdsvg" viewBox="0 0 460 260" xmlns="http://www.w3.org/2000/svg" role="img">` +
-  `<style>${SCENE_CSS}</style><rect width="460" height="260" rx="12" fill="${PAGE}"/>${inner}</svg>`;
+  `<style>${SCENE_CSS}</style><rect width="460" height="260" rx="12" fill="${page}"/>${inner}</svg>`;
 
-const T = (x: number, y: number, s: number, f: string, t: string, w = 500, a = 'start'): string =>
+export const T = (x: number, y: number, s: number, f: string, t: string, w = 500, a = 'start'): string =>
   `<text x="${x}" y="${y}" font-size="${s}" fill="${f}" font-weight="${w}" text-anchor="${a}" font-family="Inter,system-ui,sans-serif">${t}</text>`;
 
-const B = (x: number, y: number, w: number, h: number, f: string, rx = 8, ex = ''): string =>
+export const B = (x: number, y: number, w: number, h: number, f: string, rx = 8, ex = ''): string =>
   `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${f}" ${ex}/>`;
 
-const cursor = (x0: number, y0: number, x1: number, y1: number): string =>
+export const cursor = (x0: number, y0: number, x1: number, y1: number): string =>
   `<circle class="r" cx="${x1 + 2}" cy="${y1 + 2}" r="11" fill="${GOLD}"/>` +
   `<g class="c" style="--x0:${x0}px;--y0:${y0}px;--x1:${x1}px;--y1:${y1}px">` +
   `<path d="M0 0 L0 15 L4.2 11.6 L7.2 18 L9.8 16.8 L6.9 10.6 L11.5 10.2 Z" fill="#fff" stroke="#333a41" stroke-width="1.2"/></g>`;
 
-const hl = (x: number, y: number, w: number, h: number): string =>
+export const hl = (x: number, y: number, w: number, h: number): string =>
   `<rect class="pu" x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="none" stroke="${GOLD}" stroke-width="2"/>`;
 
-const arrow = (x1: number, y1: number, x2: number, y2: number): string => {
+export const arrow = (x1: number, y1: number, x2: number, y2: number): string => {
   const a = Math.atan2(y2 - y1, x2 - x1);
   const h1x = x2 - 9 * Math.cos(a - 0.44),
     h1y = y2 - 9 * Math.sin(a - 0.44);
@@ -177,7 +179,7 @@ function shareCalSection(): string {
 }
 
 // ---- the slides --------------------------------------------------------------
-interface Slide {
+export interface Slide {
   cap: string;
   svg: string;
 }
@@ -237,18 +239,40 @@ const SLIDES: Slide[] = [
  *  backdrop, or the final "Got it" button), so the caller can refocus the link
  *  input the student is about to paste into. */
 export function openIcalGuide(onClose?: () => void): void {
+  openSlideGuide(
+    {
+      slides: SLIDES,
+      label: 'Where to find your calendar link',
+      title: 'Where your iCal link lives',
+      sub: 'Two clicks and a scroll. About 15 seconds.',
+    },
+    onClose
+  );
+}
+
+export interface SlideGuide {
+  slides: Slide[];
+  /** The dialog's accessible name. */
+  label: string;
+  title: string;
+  sub: string;
+}
+
+/** The player both guides share: dots, arrows, keyboard, and a final "Got it". */
+export function openSlideGuide(guide: SlideGuide, onClose?: () => void): void {
   if (document.querySelector('.onb-sso')) return; // one at a time
+  const SLIDES = guide.slides;
 
   const wrap = el('div', {
     class: 'onb-sso guide-scrim',
     role: 'dialog',
     'aria-modal': 'true',
-    'aria-label': 'Where to find your calendar link',
+    'aria-label': guide.label,
   });
   const card = el('div', { class: 'onb-sso-card guide-sheet' });
   const close = el('button', { class: 'dlg-close onb-sso-close', 'aria-label': 'Close', text: '✕' });
-  const title = el('h3', { class: 'onb-sso-title', text: 'Where your iCal link lives' });
-  const sub = el('div', { class: 'onb-sso-sub', text: 'Two clicks and a scroll. About 15 seconds.' });
+  const title = el('h3', { class: 'onb-sso-title', text: guide.title });
+  const sub = el('div', { class: 'onb-sso-sub', text: guide.sub });
   const sceneHost = el('div', { class: 'onb-sso-scene' });
   const cap = el('div', { class: 'onb-sso-cap' });
   const nav = el('div', { class: 'onb-sso-nav' });

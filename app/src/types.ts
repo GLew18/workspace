@@ -48,6 +48,10 @@ export interface Task {
    *  slightly differently, so sync.ts only lets the feed rewrite those fields on a
    *  task the extension wrote when the extension is not the current source. */
   importedVia?: 'ext' | 'feed';
+  /** URLs of the teacher's own Schoology attachments that sync.ts has already put in
+   *  `notes`. A re-sync adds only URLs missing from BOTH lists, so one the student
+   *  removed stays removed instead of coming back every sync. */
+  importedAttachments?: string[];
   // Edit-protection flags: once a user manually edits a field, imports won't overwrite it.
   _manualTitle?: boolean;
   _manualDueDate?: boolean;

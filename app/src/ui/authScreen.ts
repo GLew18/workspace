@@ -208,11 +208,44 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
     });
     form.append(email, password, error, submit);
 
+    // NEVER STUCK ON "Waiting for Google…" (Gabe, 10/8). A popup left open, buried
+    // behind the window, or abandoned mid-way never settles, and this used to lock
+    // BOTH buttons until it did, which could be forever. Now a pending popup locks
+    // only its own button, and coming back to this window without finishing hands
+    // it back. Only the newest attempt may touch the button: a stale popup that
+    // settles later (Firebase cancels the old one when a new one opens) must not
+    // reset an attempt that is still live. A sign-in that does finish late still
+    // closes the screen, whichever attempt it was.
+    let gAttempt = 0;
+    let gReset: (() => void) | null = null;
+    const resetGoogle = () => {
+      gReset?.();
+      gReset = null;
+      googleBtn.disabled = busy;
+      gLabel.textContent = 'Continue with Google';
+    };
     googleBtn.addEventListener('click', () => {
       if (busy) return;
       setError('');
-      setBusy(true, undefined);
+      resetGoogle();
+      const attempt = ++gAttempt;
+      googleBtn.disabled = true;
       gLabel.textContent = 'Waiting for Google…';
+      // Back on this window = done with the popup, or gave up on it. The beat lets
+      // a sign-in that just finished land first, so a success never flashes the
+      // button back before the screen closes.
+      let timer = 0;
+      const onFocus = () => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          if (attempt === gAttempt) resetGoogle();
+        }, 1500);
+      };
+      window.addEventListener('focus', onFocus);
+      gReset = () => {
+        window.removeEventListener('focus', onFocus);
+        window.clearTimeout(timer);
+      };
 
       // THIS SCREEN MUST CLOSE ITSELF NOW (Gabe, 8/16).
       //
@@ -232,15 +265,15 @@ export function openAuthScreen(mode: AuthMode = 'signup'): void {
       signInWithGoogle()
         .then((signedIn) => {
           if (signedIn) {
+            if (attempt === gAttempt) gReset?.();
             teardown();
             return;
           }
-          setBusy(false);
-          gLabel.textContent = 'Continue with Google';
+          if (attempt === gAttempt) resetGoogle();
         })
         .catch(() => {
-          setBusy(false);
-          gLabel.textContent = 'Continue with Google';
+          if (attempt !== gAttempt) return;
+          resetGoogle();
           setError('Google sign-in failed. Please try again.');
         });
     });

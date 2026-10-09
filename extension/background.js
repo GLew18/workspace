@@ -144,6 +144,13 @@ function sgyMerge(prev, next) {
     scrapedAt: next.scrapedAt || Date.now(),
     diag: next.diag || prev.diag,
   };
+  // Teachers: a fresh harvest replaces the old list; a scrape that skipped the
+  // harvest (it runs once a day) keeps what was stored.
+  const teachers = Array.isArray(next.teachers) && next.teachers.length ? next.teachers : prev.teachers;
+  if (Array.isArray(teachers) && teachers.length) {
+    out.teachers = teachers;
+    out.teachersAt = (Array.isArray(next.teachers) && next.teachers.length ? next.teachersAt : prev.teachersAt) || Date.now();
+  }
   if (assignments.size) {
     out.assignments = [...assignments.values()];
     out.coverage = (nextList.length && cov) || prev.coverage || undefined;

@@ -29,6 +29,7 @@ import './ui/dashboard.css';
 import './ui/settings.css';
 import './ui/notifylog.css';
 import './ui/bookmarks.css';
+import './ui/tests.css';
 import './ui/landing.css';
 import './ui/auth.css';
 import './ui/onboarding.css';
@@ -122,12 +123,15 @@ import { DashboardView } from './dashboard/view';
 import { TasksView } from './tasks/render';
 import { FocusView } from './focus/view';
 import { createWordmark } from './ui/laurel';
-import { createAppTabs } from './ui/appTabs';
+import { createAppTabs, TESTS_TAB_ON } from './ui/appTabs';
 import { el, textInput, showToast } from './util/dom';
 import { initRegistry } from './courses/registry';
 import { initLearn } from './courses/learn';
 import { SettingsView } from './settings/view';
 import { BookmarksView } from './bookmarks/view';
+import { TestsView } from './tests/view';
+import { loadTeachers } from './tasks/teachers';
+import { loadPhotoSubmit } from './schoology/submitPhoto';
 import { detectExtension } from './bookmarks/shortcuts';
 import { StoreView } from './store/view';
 import { initGems, noteTasksUpdate } from './gems/gems';
@@ -147,6 +151,7 @@ import { setEmailSink } from './notify/notify';
 import { NotificationLogView } from './notify/logView';
 import { unreadNotifyCount, NOTIFY_LOG_EVENT } from './notify/log';
 import { queueEmail } from './notify/email';
+import { loadNotifyEmail } from './notify/notifyEmail';
 import { enablePush } from './notify/push';
 import { capitalizeName } from './util/names';
 import { getPrefs, setPrefsCache, normalizePrefs, DEFAULT_PREFS, PREFS_EVENT } from './prefs';
@@ -291,6 +296,8 @@ async function renderApp(user: AuthUser): Promise<void> {
     // First-run onboarding check: confirm name → connect Schoology, then re-render.
     data.getProfile<{ displayName: string; onboarded: boolean }>('account'),
     data.getProfile('prefs'), // app preferences (Settings) into the sync cache
+    loadTeachers(data), // who teaches each course, for "Email teacher"
+    loadPhotoSubmit(data), // whether Schoology is connected, for "Submit photo to Schoology"
   ]);
   setPrefsCache(normalizePrefs(rawPrefs));
   root.replaceChildren(); // boot done — drop the spinner
@@ -463,6 +470,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   const notifyLogView = new NotificationLogView();
   const dashboardView = new DashboardView(data, displayName, (id) => controller.goToTab(id));
   const tasksView = new TasksView(data);
+  const testsView = new TestsView(data, user.email || '');
   const focusView = new FocusView(data);
   activeFocusView = focusView; // sign-out tears this down (music, widget, overlay)
   controller = mountTabs(
@@ -473,6 +481,7 @@ async function renderApp(user: AuthUser): Promise<void> {
       // re-tests the sticky add bar, which now that every tab opens at its top can
       // be left wearing a pinned shadow at scroll zero (see TasksView.onShow).
       { id: 'tasks', label: 'Tasks', render: (p) => tasksView.mount(p), onShow: () => tasksView.onShow() },
+      ...(TESTS_TAB_ON ? [{ id: 'tests', label: 'Tests', render: (p: HTMLElement) => testsView.mount(p), onShow: () => testsView.onShow() }] : []),
       { id: 'focus', label: 'Focus', render: (p) => void focusView.mount(p) },
       { id: 'bookmarks', label: 'Bookmarks', render: (p) => void new BookmarksView(data).mount(p) },
       { id: 'store', label: 'Shop', render: (p) => void new StoreView(data).mount(p) },
@@ -600,6 +609,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   // while the app is open. Stopped on sign-out, restarted per sign-in. Clicking a
   // notification focuses the window and jumps straight to the Tasks tab.
   stopNotifications?.();
+  void loadNotifyEmail(user.uid); // a code-proven reminder address, if one is set
   stopNotifications = startNotificationScheduler(data, {
     onClick: () => controller.goToTab('tasks'),
     email: user.email, // the Gmail channel's ONLY destination — the account email

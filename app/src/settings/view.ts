@@ -11,14 +11,13 @@ import type { Data } from '../db';
 import type { CourseConfig, SchoologySettings } from '../types';
 import { el, textInput, escapeHtml, enterConfirms, fadeRemove, escapeCloses } from '../util/dom';
 import { createPlusSidebarButton } from '../plus/view';
-import { attachColorPicker } from '../ui/colorPicker';
 import { openAtTop } from '../ui/tabs';
 import { confirmDanger, confirmDialog } from '../ui/confirm';
 import { genId } from '../util/ids';
 import type { SettingsSection } from '../util/router';
 import { capitalizeName } from '../util/names';
 import { getCourses, replaceCourses } from '../courses/registry';
-import { recommendedSet } from '../courses/recommend';
+import { buildCourseRow } from '../courses/courseRow';
 import { nextCourseColor } from '../courses/colors';
 import { runSync } from '../schoology/sync';
 import { isSchoologyIcalUrl } from '../schoology/ical';
@@ -28,7 +27,7 @@ import {
   getSgyApiState,
   startSchoologyConnect,
   disconnectSchoology,
-  hostFromIcal,
+  buildSchoolPicker,
   sgyErrorText,
 } from '../schoology/api';
 import {
@@ -47,6 +46,13 @@ import { LIBRARY_TRACKS, MUSIC_GENRES } from '../focus/library';
 import { loadPlaylists, playlistEmoji, playlistKey, type CustomPlaylist } from '../focus/playlists';
 import { focusSessionLive } from '../focus/persist';
 import { NOTIFY_GUIDES_MAC, NOTIFY_GUIDES_WINDOWS } from './notifyGuides';
+import {
+  chosenNotifyEmail,
+  clearNotifyEmail,
+  confirmNotifyEmail,
+  onNotifyEmailChange,
+  requestNotifyEmail,
+} from '../notify/notifyEmail';
 import { cobaltIconSvg, chromeIconSvg } from '../ui/appIcon';
 import { detectOS } from '../util/os';
 import {
@@ -189,7 +195,7 @@ export class SettingsView {
   private gcalUrl = '';
   private preview?: { btn: HTMLElement; stop: () => void; setVolume: (v: number) => void; timer: number }; // active sound preview
   private newCourseIds = new Set<string>(); // courses added this session — they get parse-word recommendations
-  private refocusParseId: string | null = null; // after adding a parse word, return the cursor to that course's "+ parse word" input
+  private refocusParse = { id: null as string | null }; // after adding a parse word, return the cursor to that course's "+ parse word" input
 
   constructor(data: Data, opts: SettingsOpts) {
     this.data = data;
@@ -777,26 +783,25 @@ export class SettingsView {
           class: 'srow-sub',
           text: st?.expired
             ? 'Your Schoology connection expired. Reconnect to keep importing.'
-            : 'Sign in on your school’s Schoology page and approve Cobalt. Read-only: no grades, no password.',
+            : 'Pick your school, sign in on Schoology, and approve Cobalt. Read-only: no grades, no password.',
         })
       );
-      const host = textInput({
-        class: 'settings-input',
-        placeholder: 'yourschool.schoology.com',
-        value: st?.host || hostFromIcal(this.schoologyMeta?.icalUrl),
+      // One tap per school (Gabe, 10/8/26), shared with onboarding's Connect screen.
+      const picker = buildSchoolPicker({
+        inputClass: 'settings-input',
+        btnClass: 'settings-save',
+        onPick: (h) => {
+          picker.setBusy(true);
+          err.textContent = '';
+          startSchoologyConnect(h).catch((e) => {
+            picker.setBusy(false);
+            fail(e);
+          }); // leaves the page on success
+        },
       });
-      const go = el('button', { class: 'settings-save', text: st?.expired ? 'Reconnect' : 'Connect' }) as HTMLButtonElement;
-      go.addEventListener('click', async () => {
-        go.disabled = true;
-        err.textContent = '';
-        try {
-          await startSchoologyConnect(host.value); // leaves the page on success
-        } catch (e) {
-          go.disabled = false;
-          fail(e);
-        }
-      });
-      ctrl.append(host, go);
+      row.append(main, ctrl);
+      slot.append(row, picker.el, err);
+      return;
     }
     row.append(main, ctrl);
     slot.append(row, err);
@@ -1643,11 +1648,104 @@ export class SettingsView {
       el('div', { class: 'nmaster-desc', text: 'One press turns that channel on or off for every notification below.' })
     );
     master.append(masterText, masterGrid.el);
-    // Where the Gmail channel goes — READ-ONLY, always the signed-in account email.
-    // Deliberately no input: an editable address would let notifications be aimed at
-    // someone else's inbox.
+    // Where the Gmail channel goes. The sign-in email by default; a different inbox
+    // only after the student proves it with a 6-digit code mailed there (Gabe,
+    // 10/8/26: changeable, but never to an inbox you don't own, or anyone could
+    // aim reminders at a classmate). The server holds the proven address; this
+    // page can only ask for a code and hand it back (notify/notifyEmail.ts).
     const gmailNote = el('div', { class: 'ngmail-note' });
-    gmailNote.innerHTML = `✉ Gmail notifications go to <b>${escapeHtml(this.opts.email || 'your account email')}</b>, your sign-in email.`;
+    let stage: 'idle' | 'email' | 'code' = 'idle';
+    let pending = '';
+    let noteErr = '';
+    const drawNote = (): void => {
+      gmailNote.replaceChildren();
+      const chosen = chosenNotifyEmail();
+      const line = el('div', { class: 'ngmail-line' });
+      line.innerHTML = chosen
+        ? `✉ Gmail notifications go to <b>${escapeHtml(chosen)}</b>.`
+        : `✉ Gmail notifications go to <b>${escapeHtml(this.opts.email || 'your account email')}</b>, your sign-in email.`;
+      if (stage === 'idle' && this.opts.email) {
+        const change = el('button', { class: 'ngmail-link', text: 'Change' });
+        change.addEventListener('click', () => {
+          stage = 'email';
+          noteErr = '';
+          drawNote();
+          gmailNote.querySelector<HTMLTextAreaElement>('.ngmail-input')?.focus();
+        });
+        line.append(' ', change);
+        if (chosen) {
+          const back = el('button', { class: 'ngmail-link', text: 'Use my sign-in email' });
+          back.addEventListener('click', () => {
+            back.setAttribute('disabled', '');
+            void clearNotifyEmail()
+              .catch((e: Error) => (noteErr = e.message))
+              .finally(drawNote);
+          });
+          line.append(' · ', back);
+        }
+      }
+      gmailNote.append(line);
+
+      if (stage !== 'idle') {
+        const form = el('div', { class: 'ngmail-form' });
+        const isCode = stage === 'code';
+        const input = textInput({
+          class: 'ngmail-input',
+          placeholder: isCode ? '6-digit code' : 'New email address',
+          'aria-label': isCode ? 'Code' : 'New email address',
+        });
+        const go = el('button', { class: 'nverify-send', text: isCode ? 'Verify' : 'Send code' }) as HTMLButtonElement;
+        const cancel = el('button', { class: 'ngmail-link', text: 'Cancel' });
+        cancel.addEventListener('click', () => {
+          stage = 'idle';
+          noteErr = '';
+          drawNote();
+        });
+        const submit = (): void => {
+          const v = input.value.trim();
+          if (!v) return;
+          go.disabled = true;
+          go.textContent = isCode ? 'Checking…' : 'Sending…';
+          const work = isCode
+            ? confirmNotifyEmail(v).then(() => {
+                stage = 'idle';
+              })
+            : requestNotifyEmail(v).then((r) => {
+                pending = v;
+                stage = r === 'done' ? 'idle' : 'code';
+              });
+          void work
+            .then(() => (noteErr = ''))
+            .catch((e: Error) => (noteErr = e.message))
+            .finally(() => {
+              drawNote();
+              gmailNote.querySelector<HTMLTextAreaElement>('.ngmail-input')?.focus();
+            });
+        };
+        go.addEventListener('click', submit);
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            submit();
+          }
+        });
+        if (isCode) {
+          form.append(
+            el('div', {
+              class: 'ngmail-hint',
+              text: `We emailed a code to ${pending}. It expires in 15 minutes.`,
+            })
+          );
+        }
+        form.append(el('div', { class: 'ngmail-row' }, [input, go, cancel]));
+        gmailNote.append(form);
+      }
+      if (noteErr) gmailNote.append(el('div', { class: 'ngmail-err', text: noteErr }));
+    };
+    drawNote();
+    onNotifyEmailChange(() => {
+      if (gmailNote.isConnected) drawNote();
+    });
 
     // The gmail channel REQUIRES a verified address (these emails carry task
     // titles, so an unproven address could be a stranger's). Without this notice
@@ -1657,7 +1755,9 @@ export class SettingsView {
     const verifyWarn = el('div', { class: 'ngmail-note ngmail-warn' });
     verifyWarn.hidden = true;
     void needsEmailVerification().then((needs) => {
-      if (!needs) return;
+      // A code-proven address replaces the sign-in email, so its verification
+      // no longer gates anything.
+      if (!needs || chosenNotifyEmail()) return;
       verifyWarn.replaceChildren();
       verifyWarn.append(
         el('span', {
@@ -1834,7 +1934,7 @@ export class SettingsView {
           // Send a REAL email through the Trigger Email pipeline: queueEmail writes a
           // doc to the `mail` collection and the extension delivers it, to the signed-in
           // account's email. No notification permission needed — that's popup-only.
-          setEmailAddress(this.opts.email || '');
+          setEmailAddress(chosenNotifyEmail() || this.opts.email || '');
           sendNotification(c.title, c.body, { gmail: true });
         } else {
           const ok = await ensureNotificationPermission();
@@ -2132,7 +2232,7 @@ export class SettingsView {
     // button) shows only while Popup is on, and the email preview only while Gmail is
     // on — both when both.
     const cardOn = (ch: Channels): boolean => ch.popup || ch.gmail;
-    const addr = (): string => this.opts.email || 'you'; // always the account email
+    const addr = (): string => chosenNotifyEmail() || this.opts.email || 'you';
     const vis = (
       card: HTMLElement,
       ch: Channels,
@@ -2436,123 +2536,20 @@ export class SettingsView {
     return w;
   }
 
+  /** One row of the course editor: the shared builder, so the onboarding Courses
+   *  screen draws exactly this (courses/courseRow.ts). Edits write through. */
   private courseRow(c: CourseConfig, redraw: () => void): HTMLElement {
-    const row = el('div', { class: 'course-row' });
-
-    const color = el('button', { type: 'button', class: 'course-color', title: 'Course color' });
-    attachColorPicker(color, {
-      value: () => toHex(c.color),
-      host: this.opts.host,
-      onChange: (hex) => {
-        c.color = hex; // live preview while dragging in the picker
+    return buildCourseRow(c, {
+      all: () => this.draft.courses,
+      isNew: (id) => this.newCourseIds.has(id),
+      onSave: () => void this.saveCourses(),
+      onRemove: () => {
+        this.draft.courses = this.draft.courses.filter((x) => x.id !== c.id);
       },
-      onClose: (changed) => {
-        if (changed) void this.saveCourses(); // persist when the picker closes
-      },
+      redraw,
+      refocus: this.refocusParse,
+      pickerHost: this.opts.host,
     });
-
-    const name = textInput({ class: 'course-name', value: c.name });
-    name.addEventListener('input', () => {
-      c.name = name.value;
-      drawRecs(); // suggestions follow the name as it's typed
-    });
-    name.addEventListener('blur', () => void this.saveCourses());
-
-    const del = el('button', { class: 'course-del', title: 'Remove', text: '✕' });
-    del.addEventListener('click', () => {
-      this.draft.courses = this.draft.courses.filter((x) => x.id !== c.id);
-      void this.saveCourses();
-      redraw();
-    });
-
-    const top = el('div', { class: 'course-row-top' });
-    top.append(color, name, del);
-
-    const chips = el('div', { class: 'parse-chips' });
-    for (const w of c.parseWords) {
-      const chip = el('span', { class: 'parse-chip', text: w });
-      const x = el('button', { class: 'parse-chip-x', text: '×' });
-      x.addEventListener('click', () => {
-        c.parseWords = c.parseWords.filter((p) => p !== w);
-        void this.saveCourses();
-        redraw();
-      });
-      chip.append(x);
-      chips.append(chip);
-    }
-
-    // Recommended parse words (acronyms/abbreviations from the name) — shown only
-    // for newly added courses, as distinct "+ word" suggestions to accept.
-    const recsHost = el('div', { class: 'parse-recs' });
-    const drawRecs = () => {
-      recsHost.replaceChildren();
-      if (!this.newCourseIds.has(c.id)) return;
-      const named = c.name.trim();
-      if (!named || named.toLowerCase() === 'new course') return; // wait for a real name
-      const used = new Set(this.draft.courses.flatMap((x) => x.parseWords));
-      const recs = recommendedSet(named, used);
-      if (!recs.length) return;
-      for (const w of recs) {
-        const rec = el('button', { class: 'parse-rec', title: `Add “${w}”` });
-        rec.append(el('span', { class: 'parse-rec-plus', text: '+' }), el('span', { text: w }));
-        rec.addEventListener('click', () => {
-          if (!c.parseWords.includes(w)) c.parseWords.push(w);
-          this.refocusParseId = c.id; // land the cursor in the input for the next word
-          void this.saveCourses();
-          redraw();
-        });
-        recsHost.append(rec);
-      }
-    };
-    drawRecs();
-
-    const err = el('div', { class: 'parse-error' });
-    const wordInput = textInput({ class: 'parse-add', placeholder: 'parse word' });
-    const addWord = (): void => {
-      const w = wordInput.value.trim().toLowerCase();
-      if (!w) {
-        wordInput.focus();
-        return;
-      }
-      const conflict = this.draft.courses.find((x) => x.id !== c.id && x.parseWords.includes(w));
-      if (conflict) {
-        err.textContent = `Already used in "${conflict.name}".`;
-        return;
-      }
-      if (!c.parseWords.includes(w)) c.parseWords.push(w);
-      this.refocusParseId = c.id; // keep the cursor here for the next word
-      void this.saveCourses();
-      redraw();
-    };
-    wordInput.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter') return;
-      addWord();
-    });
-    // The commit button (Gabe, 8/26 — "rather than it just being enter"). It sits
-    // flush against the box as one pill so the pair reads as a single control and
-    // not as a fourth chip type in a row that already has three. The + on the
-    // placeholder and the + on the button are never on screen together: typing the
-    // first character replaces one with the other.
-    const addWordBtn = el('button', { type: 'button', class: 'parse-add-go', text: '+', title: 'Add parse word' });
-    // mousedown cancels the focus move only; click does the work, so Space/Enter on
-    // the focused button works too (see the note in tasks/render.ts).
-    addWordBtn.addEventListener('mousedown', (e) => e.preventDefault());
-    addWordBtn.addEventListener('click', () => addWord());
-    const addWrap = el('div', { class: 'parse-add-wrap' });
-    addWrap.append(wordInput, addWordBtn);
-
-    // One chip row (artifact style): saved words, then gold "+ word" suggestions,
-    // then the "+ parse word" input and its commit button — all flowing inline.
-    chips.append(recsHost, addWrap);
-    // After adding a word the whole list re-renders, wiping focus. If THIS course
-    // is the one just edited, drop the cursor back into its "+ parse word" input so
-    // several words can be typed in a row (Enter, type, Enter, type…) with no clicks.
-    if (this.refocusParseId === c.id) {
-      this.refocusParseId = null;
-      requestAnimationFrame(() => wordInput.focus());
-    }
-    row.append(top, chips, err);
-    return row;
   }
   // #endregion
 
@@ -2634,18 +2631,5 @@ function formatSyncTime(iso: string): string {
   const h = d.getHours() % 12 || 12;
   return `${date} ${h}:${min} ${ampm}`;
 }
-
-/** Coerce any CSS color string to a #rrggbb the <input type=color> accepts. */
-function toHex(color: string): string {
-  if (/^#[0-9a-f]{6}$/i.test(color)) return color;
-  const ctx = document.createElement('canvas').getContext('2d');
-  if (ctx) {
-    ctx.fillStyle = '#9ca3af';
-    ctx.fillStyle = color;
-    if (/^#[0-9a-f]{6}$/i.test(ctx.fillStyle)) return ctx.fillStyle;
-  }
-  return '#9ca3af';
-}
-
 
 // #endregion

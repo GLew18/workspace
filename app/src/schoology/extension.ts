@@ -33,6 +33,7 @@ import { DEFAULT_COURSE_COLOR } from '../courses/maps';
 import { detectExtension, EXTENSION_ID, PROTOCOL_VERSION, PING_TIMEOUT_MS } from '../bookmarks/shortcuts';
 import { genId } from '../util/ids';
 import { isSchoologyIcalUrl } from './ical';
+import { saveTeachers } from '../tasks/teachers';
 
 // #region Public types — mirrored field-for-field in the extension (plain JS side)
 export interface SgyCourse {
@@ -52,6 +53,22 @@ export interface SgyAssignment {
   time: string; // 'HH:MM' or '' for all-day
   kind: 'assignment' | 'assessment';
   course: string; // '' when the section lookup failed
+  /** Files, links and videos the teacher put on the assignment itself. Only the
+   *  real Schoology connection sends these today; optional so an extension that
+   *  predates them stays valid. */
+  attachments?: SgyAttachment[];
+}
+export interface SgyAttachment {
+  title: string; // may be '' (the app names it from the URL then)
+  url: string; // https, openable by the student signed in to Schoology
+}
+/** A course's teacher and their Schoology email (Gabe, 10/8/26), what "Email
+ *  teacher" opens Gmail with. Keyed by course NAME because that is what a task
+ *  carries. Sent by the extension and by the Schoology connection alike. */
+export interface SgyTeacher {
+  course: string;
+  name: string;
+  email: string;
 }
 export interface SgyPayload {
   host: string; // e.g. heschel.schoology.com
@@ -60,6 +77,7 @@ export interface SgyPayload {
   labels: Record<string, string>; // assignmentId -> courseName (exact ground truth)
   assignments?: SgyAssignment[]; // the student's upcoming work, when the API pass ran
   coverage?: { from: string; to: string }; // dates `assignments` is authoritative for
+  teachers?: SgyTeacher[]; // who teaches each course, with email
   scrapedAt: number;
   diag?: Record<string, unknown>; // which scrape strategies matched — troubleshooting only
 }
@@ -181,6 +199,7 @@ export function coercePayload(raw: unknown): SgyPayload | null {
   const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
   const MAX_ASSIGNMENTS = 2000;
   const MAX_TEXT = 20000;
+  const MAX_ATTACHMENTS = 30;
   const cov = p.coverage;
   if (
     Array.isArray(p.assignments) &&
@@ -201,6 +220,19 @@ export function coercePayload(raw: unknown): SgyPayload | null {
       if (!isValidAssignmentId(id) || !title || !DATE_RE.test(date)) continue;
       const time = typeof a.time === 'string' && /^\d{2}:\d{2}$/.test(a.time) ? a.time : '';
       const url = typeof a.url === 'string' && /^https:\/\//i.test(a.url) ? a.url.slice(0, 2000) : '';
+      // Teacher attachments: https only (they become clickable links), bounded.
+      const attachments: SgyAttachment[] = [];
+      if (Array.isArray(a.attachments)) {
+        for (const x of a.attachments as unknown[]) {
+          if (attachments.length >= MAX_ATTACHMENTS) break;
+          const at = x as Partial<SgyAttachment> | null;
+          if (!at || typeof at.url !== 'string' || !/^https:\/\//i.test(at.url)) continue;
+          attachments.push({
+            title: typeof at.title === 'string' ? at.title.trim().slice(0, 200) : '',
+            url: at.url.slice(0, 2000),
+          });
+        }
+      }
       list.push({
         id,
         title: title.slice(0, 500),
@@ -210,10 +242,31 @@ export function coercePayload(raw: unknown): SgyPayload | null {
         time,
         kind: a.kind === 'assessment' ? 'assessment' : 'assignment',
         course: typeof a.course === 'string' ? a.course.trim().slice(0, MAX_NAME) : '',
+        // Present-or-absent, never `attachments: undefined` (RTDB rejects undefined).
+        ...(attachments.length ? { attachments } : {}),
       });
     }
     out.assignments = list;
     out.coverage = { from: cov.from, to: cov.to };
+  }
+  // Teachers: only well-formed addresses survive. They become the To field of a
+  // mail draft, so a malformed one is dropped here rather than trusted.
+  if (Array.isArray(p.teachers)) {
+    const MAX_TEACHERS = 300;
+    const seen = new Set<string>();
+    const list: SgyTeacher[] = [];
+    for (const t of p.teachers as unknown[]) {
+      if (list.length >= MAX_TEACHERS) break;
+      const x = t as Partial<SgyTeacher> | null;
+      if (!x || typeof x.course !== 'string' || typeof x.email !== 'string') continue;
+      const course = x.course.trim().slice(0, MAX_NAME);
+      const email = x.email.trim().toLowerCase().slice(0, 120);
+      if (!course || !/^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$/.test(email)) continue;
+      if (seen.has(course + '|' + email)) continue;
+      seen.add(course + '|' + email);
+      list.push({ course, name: typeof x.name === 'string' ? x.name.trim().slice(0, 120) : '', email });
+    }
+    if (list.length) out.teachers = list;
   }
   // Optional fields only when present — a stored `undefined` would poison later
   // writes (RTDB rejects undefined; this codebase deletes keys instead).
@@ -469,6 +522,12 @@ export async function applySgyPayload(data: Data, payload: SgyPayload): Promise<
       result.icalCaptured = true;
     }
   }
+
+  // --- 5. remember who teaches each course ---
+  // Replaces the stored list only when this payload actually carried teachers, so
+  // a scrape that skipped the daily harvest (or an API pass the school's privacy
+  // settings left without emails) never wipes addresses already known.
+  if (payload.teachers?.length) await saveTeachers(data, payload.teachers);
 
   return result;
 }

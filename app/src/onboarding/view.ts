@@ -34,11 +34,10 @@
 
 import type { Data } from '../db';
 import { el, textInput } from '../util/dom';
-import { attachColorPicker } from '../ui/colorPicker';
 import { capitalizeName, nameFromEmail } from '../util/names';
 import { runSync, fetchIcal } from '../schoology/sync';
 import { replaceCourses, getCourseColor } from '../courses/registry';
-import { recommendedSet } from '../courses/recommend';
+import { buildCourseRow } from '../courses/courseRow';
 import { nextCourseColor } from '../courses/colors';
 import { BADGE_ASSESSMENT_RE, isSchoologyIcalUrl, parseIcal, taskEvents } from '../schoology/ical';
 import { detectSchoologyExtension, requestSgyData, EXTENSION_STORE_URL } from '../schoology/extension';
@@ -48,10 +47,12 @@ import {
   finishSchoologyConnectIfReturning,
   fetchSgyApiPayload,
   sgyErrorText,
+  buildSchoolPicker,
 } from '../schoology/api';
 import { todayStr } from '../util/dates';
 import { genId } from '../util/ids';
 import { openIcalGuide } from './icalGuide';
+import { openGcalGuide } from './gcalGuide';
 import { buildLanguagePicker } from '../settings/languagePicker';
 import { normalizePrefs } from '../prefs';
 import { signOut } from '../auth'; // TEMPORARY: powers the "‹ Landing page" escape hatch
@@ -72,6 +73,9 @@ interface OnboardingOpts {
   email: string;
   fallbackName: string;
   onDone: (displayName: string) => void;
+  /** PREVIEW ONLY (onbpreview.html, the audit copy of this flow): hands over a
+   *  way to jump between screens and to seed the draft. Real sign-ups omit it. */
+  preview?: (ctl: { go: (i: number) => void; count: number; draft: { name: string; courses: CourseConfig[] } }) => void;
 }
 
 /** The real Schoology mark, so the connect step shows the service by its own logo. */
@@ -115,11 +119,14 @@ async function discoverCourses(): Promise<CourseConfig[]> {
   }
 }
 
-export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingOpts): void {
+export function runOnboarding({ data, email, fallbackName, onDone, preview }: OnboardingOpts): void {
   // Draft state. NOTHING is written until the payoff screen commits it, so a
   // student who closes the tab mid-flow simply starts over rather than landing
   // in a half-configured account.
   const draft = {
+    // NO NAME SCREEN (Gabe, 10/8): fewest steps. A direct Schoology connection
+    // overwrites this with the student's real first name; otherwise it stays the
+    // guess from their email or Google account.
     name: capitalizeName(nameFromEmail(email) || fallbackName || ''),
     ical: '',
     connected: false,
@@ -174,7 +181,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
   // Per-screen bar targets. The LAST entry is 92, not 100, ON PURPOSE: arriving
   // at the setup screen must not complete the bar. The payoff pushes it to 100
   // so finishing and the reward land as one moment.
-  const PCT = [12, 24, 36, 48, 60, 72, 84, 92];
+  const PCT = [14, 28, 42, 56, 70, 84, 92];
   // Seeded from PCT[0], not a hand-typed number: the bar RATCHETS (Math.max below),
   // so a seed above the first target would make screen 1 open already overshot and
   // the deck would silently be one screen's worth of progress ahead of itself.
@@ -395,57 +402,30 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       // developer sandbox. A return from Schoology always shows it, so the
       // connection can finish even if the flag was set on another device.
       const apiOn = sgyApiFlag() || sgyResumePending;
-      const apiCard = el('div', { class: 'onb-route rise d2' });
-      // The other two routes fold behind one quiet link while this card leads: all
-      // three stacked overflow the deck and push Continue off a laptop screen.
-      const apiOr = el('button', { class: 'onb-skip rise d2', type: 'button', text: 'Use the extension or a calendar link instead' });
-      const apiHead = el('div', { class: 'onb-route-head' });
-      apiHead.append(
-        el('span', { class: 'onb-route-title', text: 'Connect with Schoology' }),
-        el('span', { class: 'onb-route-badge', text: 'Fastest' })
-      );
-      const apiText = el('p', {
-        class: 'onb-route-text',
-        text: 'Type your school’s Schoology address, sign in there, and approve Cobalt. Your assignments and real course names come in right away. Read-only: no grades, no password.',
-      });
-      const hostInput = textInput({
-        class: 'onb-field',
-        placeholder: 'yourschool.schoology.com',
-        value: '',
-      });
-      hostInput.style.marginTop = '10px';
-      const apiBtn = el('button', { class: 'onb-route-btn', type: 'button', text: 'Connect with Schoology' }) as HTMLButtonElement;
+      // No card, no pill, no other routes (Gabe, 10/8/26): the heading and caption
+      // already say what this is, so the screen is just the school search.
+      const apiCard = el('div', { class: 'rise d2', style: 'width:100%;max-width:420px;margin-top:18px' });
       const apiStatus = el('div', { class: 'onb-route-status' });
-      apiCard.append(apiHead, apiText, hostInput, apiBtn, apiStatus);
-      const startApi = (): void => {
-        if (!hostInput.value.trim()) {
-          apiStatus.textContent = 'Type your school’s Schoology address first, like yourschool.schoology.com.';
-          hostInput.focus();
-          return;
-        }
-        apiBtn.disabled = true;
+      const startApi = (host: string): void => {
+        picker.setBusy(true);
         apiStatus.textContent = 'Opening Schoology…';
         // Leaves the page on success; Schoology sends the student back here.
-        startSchoologyConnect(hostInput.value).catch((e) => {
-          apiBtn.disabled = false;
+        startSchoologyConnect(host).catch((e) => {
+          picker.setBusy(false);
           apiStatus.textContent = sgyErrorText(e);
         });
       };
-      apiBtn.addEventListener('click', startApi);
-      hostInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') startApi();
-      });
+      // One tap per school (Gabe, 10/8/26): no address to type for a listed school.
+      const picker = buildSchoolPicker({ inputClass: 'onb-field', btnClass: 'onb-route-btn', onPick: startApi });
+      apiCard.append(picker.el, apiStatus);
 
       // Back-navigation after connecting keeps the original layout, whose button
       // already reads Continue (see submit's draft.connected branch).
       if (apiOn && !draft.connected) {
-        sub.textContent = 'Sign in to Schoology once and Cobalt brings in everything.';
-        for (const n of [route, divider, fieldWrap, btn]) n.style.display = 'none';
-        apiOr.addEventListener('click', () => {
-          for (const n of [route, divider, fieldWrap, btn]) n.style.display = '';
-          apiOr.style.display = 'none';
-        });
-        sc.append(visual, h1, sub, apiCard, apiOr, route, divider, fieldWrap, btn);
+        sub.textContent = 'Cobalt brings everything in.';
+        // btn stays in the screen, hidden: reveal() turns it into Continue.
+        btn.style.display = 'none';
+        sc.append(visual, h1, sub, apiCard, btn);
       } else {
         sc.append(visual, h1, sub, route, divider, fieldWrap, btn);
       }
@@ -586,7 +566,6 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
         route.style.display = 'none';
         divider.style.display = 'none';
         apiCard.style.display = 'none';
-        apiOr.style.display = 'none';
         btn.style.display = ''; // folded away while the Schoology card led; it becomes Continue
         btn.disabled = true;
         stage.classList.add('scanning');
@@ -629,12 +608,13 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       // from the student's real sections instead of left empty.
       if (sgyResumePending) {
         sgyResumePending = false;
-        apiBtn.disabled = true;
+        picker.setBusy(true);
         apiStatus.textContent = 'Finishing the connection…';
         void (async () => {
           try {
             const st = await finishSchoologyConnectIfReturning();
             if (!st) throw new Error('That Schoology connection expired. Try connecting again.');
+            if (st.firstName) draft.name = capitalizeName(st.firstName);
             if (alive()) apiStatus.textContent = 'Connected. Reading your assignments…';
             const p = await fetchSgyApiPayload();
             if (!alive()) return;
@@ -654,7 +634,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
             );
           } catch (e) {
             if (!alive()) return;
-            apiBtn.disabled = false;
+            picker.setBusy(false);
             apiStatus.textContent = sgyErrorText(e);
           }
         })();
@@ -662,129 +642,9 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
     },
   });
 
-  // ------------------------------------------------------------ 3b · schedule
-  // The student's timetable, from their own Google Calendar (schedule/feed.ts).
-  // The calendar is private, so the student pastes its "secret address"; the
-  // address is read for real before it is accepted, and the next school day is
-  // shown back as proof. Skippable, unlike Schoology: not every school publishes
-  // a schedule calendar, and Cobalt works without it.
-  SCREENS.push({
-    build(host) {
-      const sc = pane(host);
-      const h1 = el('h1', { class: 'rise' });
-      h1.append('Add your ', el('span', { class: 'g', text: 'schedule' }));
-      const sub = el('p', {
-        class: 'onb-sub rise d1',
-        text: 'If your school puts your classes on Google Calendar, Cobalt shows your day on the dashboard: every period, room and teacher.',
-      });
-      sc.append(h1, sub);
-
-      const steps = el('ol', { class: 'onb-steps rise d2' });
-      for (const t of [
-        'Open Google Calendar with your school account.',
-        'Settings, then your own calendar (your school email) on the left.',
-        'Scroll to Integrate calendar.',
-        'Copy "Secret address in iCal format" and paste it below.',
-      ]) {
-        steps.append(el('li', { text: t }));
-      }
-      const open = el('a', {
-        class: 'onb-help',
-        href: 'https://calendar.google.com/calendar/r/settings',
-        target: '_blank',
-        rel: 'noopener',
-        text: 'Open Google Calendar settings →',
-      });
-
-      const fieldWrap = el('div', { class: 'rise d2', style: 'width:100%;max-width:420px;margin-top:14px' });
-      const input = textInput({
-        class: 'onb-field',
-        placeholder: 'https://calendar.google.com/calendar/ical/…/basic.ics',
-        value: draft.schedule,
-      });
-      const err = el('div', { class: 'onb-err' });
-      const preview = el('div', { class: 'onb-sched' });
-      fieldWrap.append(open, input, err);
-      sc.append(steps, fieldWrap, preview);
-
-      const btn = cta(draft.schedule ? 'Continue' : 'Connect');
-      const skip = el('button', { class: 'onb-skip', type: 'button', text: 'Skip, my school doesn’t use this' });
-      sc.append(btn, skip);
-      skip.addEventListener('click', () => go(index + 1));
-
-      /** The next school day, as proof the address works. */
-      const showDay = (blocks: ReturnType<typeof parseScheduleIcs>): void => {
-        const day = dayToShow(blocks);
-        preview.replaceChildren();
-        if (!day) return;
-        for (const b of day.blocks.filter((x) => x.isClass).slice(0, 5)) {
-          const row = el('div', { class: 'onb-sched-row' });
-          row.append(
-            el('span', { class: 'onb-sched-time', text: formatWallClock(b.start) }),
-            el('span', { class: 'onb-sched-name', text: b.name }),
-            el('span', { class: 'onb-sched-room', text: b.room })
-          );
-          preview.append(row);
-        }
-      };
-
-      const submit = (): void => {
-        if (draft.schedule) {
-          go(index + 1);
-          return;
-        }
-        const v = input.value.trim();
-        if (!isGoogleCalendarIcalUrl(v)) {
-          err.textContent = 'That isn’t a Google Calendar secret address. It starts with https://calendar.google.com/calendar/ical/';
-          input.focus();
-          return;
-        }
-        const mine = index;
-        btn.disabled = true;
-        btn.textContent = 'Reading…';
-        void (async () => {
-          try {
-            const blocks = parseScheduleIcs(await fetchScheduleIcs(v));
-            void refreshFeed(v).catch(() => {}); // warm the dashboard's cache
-            if (index !== mine) return;
-            draft.schedule = v;
-            // The schedule names every course exactly: add any the list lacks.
-            const have = new Set(draft.courses.map((c) => c.name.toLowerCase()));
-            for (const name of currentCourses(blocks)) {
-              if (have.has(name.toLowerCase())) continue;
-              draft.courses.push({
-                id: 'course_onb_' + Math.random().toString(36).slice(2, 9),
-                name,
-                color: nextCourseColor(draft.courses.map((x) => x.color)),
-                parseWords: [],
-              });
-              have.add(name.toLowerCase());
-              if (!draft.coursesFrom) draft.coursesFrom = 'schedule';
-            }
-            fieldWrap.style.display = 'none';
-            steps.style.display = 'none';
-            sub.textContent = 'Connected. Here’s your next school day:';
-            showDay(blocks);
-            btn.disabled = false;
-            btn.textContent = 'Continue';
-            skip.remove();
-          } catch (e) {
-            if (index !== mine) return;
-            err.textContent = e instanceof Error ? e.message : 'Couldn’t read that calendar.';
-            btn.disabled = false;
-            btn.textContent = 'Connect';
-          }
-        })();
-      };
-      btn.addEventListener('click', submit);
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') submit();
-      });
-      input.addEventListener('input', () => (err.textContent = ''));
-    },
-  });
-
-  // ------------------------------------------------------------- 4 · courses
+  // ------------------------------------------------------------- 3b · courses
+  // BEFORE the schedule screen (Gabe, 10/8). Courses a schedule calendar names
+  // that this list lacks are still added when that screen connects, after this one.
   // The Settings ▸ Courses editor, verbatim: same classes, same markup, so what
   // a student builds here is exactly what they'll edit in Settings later.
   SCREENS.push({
@@ -841,13 +701,26 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       sc.append(addWrap);
 
       const newIds = new Set<string>(); // courses added HERE show gold recommendations
-      let refocusIdx = -1;
+      const refocus = { id: null as string | null };
       let firstDraw = true; // the entrance cascade plays once, never on every edit
 
+      // THE SETTINGS ROW, SHARED (courses/courseRow.ts): one builder for both
+      // screens, so a course looks and behaves identically here and in Settings.
+      // Nothing is saved from here; the payoff screen commits the whole draft.
       const draw = (): void => {
         rows.replaceChildren();
-        draft.courses.forEach((c, idx) => {
-          const row = el('div', { class: 'course-row' });
+        for (const c of draft.courses) {
+          const row = buildCourseRow(c, {
+            all: () => draft.courses,
+            isNew: (id) => newIds.has(id),
+            onSave: () => {},
+            onRemove: () => {
+              draft.courses = draft.courses.filter((x) => x.id !== c.id);
+              newIds.delete(c.id);
+            },
+            redraw: draw,
+            refocus,
+          });
           // Rebuilding creates fresh nodes, which would replay the entrance
           // animation on every keystroke. That flicker is the bug; skip it after
           // the first paint.
@@ -856,97 +729,8 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
             row.style.transform = 'none';
             row.style.animation = 'none';
           }
-
-          const top = el('div', { class: 'course-row-top' });
-          const color = el('button', { type: 'button', class: 'course-color', title: 'Course color' });
-          attachColorPicker(color, {
-            value: () => c.color,
-            onChange: (hex) => (c.color = hex), // persisted with the rest of the draft on Continue
-          });
-          const nameIn = el('input', {
-            class: 'course-name',
-            value: c.name,
-            'aria-label': 'Course name',
-          }) as HTMLInputElement;
-          const del = el('button', { class: 'course-del', title: 'Remove', text: '✕' });
-          top.append(color, nameIn, del);
-
-          const chipRow = el('div', { class: 'parse-chips' });
-          for (const w of c.parseWords) {
-            const chip = el('span', { class: 'parse-chip', text: w });
-            const x = el('button', { class: 'parse-chip-x', text: '×' });
-            x.addEventListener('click', () => {
-              c.parseWords = c.parseWords.filter((p) => p !== w);
-              draw();
-            });
-            chip.append(x);
-            chipRow.append(chip);
-          }
-          if (newIds.has(c.id)) {
-            const used = new Set(draft.courses.flatMap((x) => x.parseWords));
-            for (const w of recommendedSet(c.name, used)) {
-              const rec = el('button', { class: 'parse-rec', title: `Add “${w}”` });
-              rec.append(el('span', { class: 'parse-rec-plus', text: '+' }), el('span', { text: w }));
-              rec.addEventListener('click', () => {
-                if (!c.parseWords.includes(w)) c.parseWords.push(w);
-                refocusIdx = idx;
-                draw();
-              });
-              chipRow.append(rec);
-            }
-          }
-          const wordIn = el('input', { class: 'parse-add', placeholder: 'parse word' }) as HTMLInputElement;
-          // Box + commit button as one pill, same as Settings ▸ Courses (Gabe,
-          // 8/26). Onboarding is the FIRST place anyone meets a parse word, so if
-          // either of the two is going to say out loud that Enter is not the only
-          // way in, it is this one.
-          const wordGo = el('button', { type: 'button', class: 'parse-add-go', text: '+', title: 'Add parse word' });
-          const wordWrap = el('div', { class: 'parse-add-wrap' });
-          wordWrap.append(wordIn, wordGo);
-          chipRow.append(wordWrap);
-          const perr = el('div', { class: 'parse-error' });
-
-          nameIn.addEventListener('input', () => (c.name = nameIn.value));
-          // recommendations follow the name once it settles
-          nameIn.addEventListener('change', () => {
-            if (newIds.has(c.id)) draw();
-          });
-          del.addEventListener('click', () => {
-            draft.courses.splice(idx, 1);
-            newIds.delete(c.id);
-            draw();
-          });
-          const addWord = (): void => {
-            const w = wordIn.value.trim().toLowerCase();
-            if (!w) {
-              wordIn.focus();
-              return;
-            }
-            const conflict = draft.courses.find((x) => x !== c && x.parseWords.includes(w));
-            if (conflict) {
-              perr.textContent = `Already used in "${conflict.name}".`;
-              return;
-            }
-            if (!c.parseWords.includes(w)) c.parseWords.push(w);
-            refocusIdx = idx;
-            draw();
-          };
-          wordIn.addEventListener('keydown', (e) => {
-            if (e.key !== 'Enter') return;
-            addWord();
-          });
-          // mousedown cancels the focus move only; click does the work, so
-          // Space/Enter on the focused button works too (tasks/render.ts note).
-          wordGo.addEventListener('mousedown', (e) => e.preventDefault());
-          wordGo.addEventListener('click', () => addWord());
-
-          row.append(top, chipRow, perr);
           rows.append(row);
-          if (refocusIdx === idx) {
-            refocusIdx = -1;
-            setTimeout(() => wordIn.focus(), 0);
-          }
-        });
+        }
         firstDraw = false;
       };
       draw();
@@ -976,6 +760,120 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
       const next = cta('Continue');
       next.addEventListener('click', () => go(index + 1));
       sc.append(next);
+    },
+  });
+
+  // ------------------------------------------------------------- 4 · schedule
+  // The student's timetable, from their own Google Calendar (schedule/feed.ts).
+  // The calendar is private, so the student pastes its "secret address"; the
+  // address is read for real before it is accepted, and the next school day is
+  // shown back as proof. Skippable, unlike Schoology: not every school publishes
+  // a schedule calendar, and Cobalt works without it.
+  SCREENS.push({
+    build(host) {
+      const sc = pane(host);
+      const h1 = el('h1', { class: 'rise' });
+      h1.append('Add your ', el('span', { class: 'g', text: 'schedule' }));
+      const sub = el('p', {
+        class: 'onb-sub rise d1',
+        text: 'If your school puts your classes on Google Calendar, Cobalt shows your day on the dashboard: every period, room and teacher.',
+      });
+      sc.append(h1, sub);
+
+      // THE SAME SHAPE AS THE SCHOOLOGY LINK SCREEN (Gabe, 10/8): one guide button,
+      // then the field. The four-line list of steps it replaced said less than the
+      // animated walkthrough (gcalGuide.ts) shows.
+      const helpBtn = el('button', {
+        class: 'onb-help',
+        type: 'button',
+        text: 'Where do I find this? Open the guide →',
+      });
+      const fieldWrap = el('div', { class: 'rise d2', style: 'width:100%;max-width:420px;margin-top:14px' });
+      const input = textInput({
+        class: 'onb-field',
+        placeholder: 'https://calendar.google.com/calendar/ical/…/basic.ics',
+        value: draft.schedule,
+      });
+      // Closing the guide (any way) puts the caret back in the address field.
+      helpBtn.addEventListener('click', () => openGcalGuide(() => input.focus()));
+      const err = el('div', { class: 'onb-err' });
+      const preview = el('div', { class: 'onb-sched' });
+      fieldWrap.append(helpBtn, input, err);
+      sc.append(fieldWrap, preview);
+
+      const btn = cta(draft.schedule ? 'Continue' : 'Connect');
+      const skip = el('button', { class: 'onb-skip', type: 'button', text: 'Skip, my school doesn’t use this' });
+      sc.append(btn, skip);
+      skip.addEventListener('click', () => go(index + 1));
+
+      /** The next school day, as proof the address works. */
+      const showDay = (blocks: ReturnType<typeof parseScheduleIcs>): void => {
+        const day = dayToShow(blocks);
+        preview.replaceChildren();
+        if (!day) return;
+        for (const b of day.blocks.filter((x) => x.isClass).slice(0, 5)) {
+          const row = el('div', { class: 'onb-sched-row' });
+          row.append(
+            el('span', { class: 'onb-sched-time', text: formatWallClock(b.start) }),
+            el('span', { class: 'onb-sched-name', text: b.name }),
+            el('span', { class: 'onb-sched-room', text: b.room })
+          );
+          preview.append(row);
+        }
+      };
+
+      const submit = (): void => {
+        if (draft.schedule) {
+          go(index + 1);
+          return;
+        }
+        const v = input.value.trim();
+        if (!isGoogleCalendarIcalUrl(v)) {
+          err.textContent = 'That isn’t a Google Calendar secret address. It starts with https://calendar.google.com/calendar/ical/';
+          input.focus();
+          return;
+        }
+        const mine = index;
+        btn.disabled = true;
+        btn.textContent = 'Reading…';
+        void (async () => {
+          try {
+            const blocks = parseScheduleIcs(await fetchScheduleIcs(v));
+            void refreshFeed(v).catch(() => {}); // warm the dashboard's cache
+            if (index !== mine) return;
+            draft.schedule = v;
+            // The schedule names every course exactly: add any the list lacks.
+            const have = new Set(draft.courses.map((c) => c.name.toLowerCase()));
+            for (const name of currentCourses(blocks)) {
+              if (have.has(name.toLowerCase())) continue;
+              draft.courses.push({
+                id: 'course_onb_' + Math.random().toString(36).slice(2, 9),
+                name,
+                color: nextCourseColor(draft.courses.map((x) => x.color)),
+                parseWords: [],
+              });
+              have.add(name.toLowerCase());
+              if (!draft.coursesFrom) draft.coursesFrom = 'schedule';
+            }
+            fieldWrap.style.display = 'none';
+            sub.textContent = 'Connected. Here’s your next school day:';
+            showDay(blocks);
+            btn.disabled = false;
+            btn.textContent = 'Continue';
+            skip.remove();
+          } catch (e) {
+            if (index !== mine) return;
+            err.textContent = e instanceof Error ? e.message : 'Couldn’t read that calendar.';
+            btn.disabled = false;
+            btn.textContent = 'Connect';
+          }
+        })();
+      };
+      btn.addEventListener('click', submit);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') submit();
+      });
+      input.addEventListener('input', () => (err.textContent = ''));
     },
   });
 
@@ -1049,56 +947,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
     },
   });
 
-  // ---------------------------------------------------------------- 6 · name
-  // Pre-filled from the signed-in email (main.ts hands it over), so the student
-  // is confirming a guess rather than answering a blank prompt.
-  SCREENS.push({
-    build(host) {
-      const sc = pane(host);
-      const h1 = el('h1', { class: 'rise' });
-      h1.append('What should we ', el('span', { class: 'g', text: 'call you' }), '?');
-      sc.append(
-        h1,
-        el('p', { class: 'onb-sub rise d1', text: 'This is the name Cobalt greets you with.' })
-      );
-
-      const wrap = el('div', { class: 'rise d2', style: 'width:100%;max-width:420px;margin-top:30px' });
-      const input = textInput({
-        class: 'onb-name-input',
-        value: draft.name,
-        placeholder: 'Your first name',
-        autocomplete: 'given-name',
-        spellcheck: false,
-      });
-      const err = el('div', { class: 'onb-err' });
-      wrap.append(input, err);
-      sc.append(wrap);
-
-      const next = cta('Continue');
-      const submit = (): void => {
-        const v = capitalizeName(input.value);
-        if (!v) {
-          err.textContent = 'Enter a name so Cobalt knows what to call you.';
-          input.focus();
-          return;
-        }
-        draft.name = v;
-        go(index + 1);
-      };
-      next.addEventListener('click', submit);
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') submit();
-      });
-      input.addEventListener('input', () => (err.textContent = ''));
-      sc.append(next);
-      setTimeout(() => {
-        input.focus();
-        input.select();
-      }, 380); // after the entrance settles
-    },
-  });
-
-  // ------------------------------------------------- 7 · commit, sync, payoff
+  // ------------------------------------------------- 6 · commit, sync, payoff
   let committed = false;
   SCREENS.push({
     build(host) {
@@ -1154,7 +1003,7 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
         // --- the payoff -------------------------------------------------------
         sc.replaceChildren();
         sc.append(el('div', { class: 'onb-check', text: '✓' }));
-        const h1 = el('h1', { text: `You’re in, ${draft.name}!` });
+        const h1 = el('h1', { text: draft.name ? `You’re in, ${draft.name}!` : 'You’re in!' });
         sc.append(h1);
 
         // Every imported assignment, listed. The count in the headline and the
@@ -1228,4 +1077,5 @@ export function runOnboarding({ data, email, fallbackName, onDone }: OnboardingO
   });
 
   go(sgyResumePending ? connectAt : 0);
+  preview?.({ go, count: SCREENS.length, draft });
 }

@@ -653,6 +653,49 @@
     return { labels, courses, assignments, coverage };
   }
 
+  // ============================== teachers ===================================
+  // WHO TEACHES EACH COURSE, WITH THEIR EMAIL (Gabe, 10/8/26) — what "Email teacher"
+  // in a task's ⋯ menu opens Gmail with. Schoology shows a teacher's address on their
+  // profile to every student ("Contact Information"), and the same /v1 calls this
+  // script already uses return it: a section's enrollments flag teachers with
+  // admin = 1, and /v1/users/<uid> carries primary_email. Verified on Heschel
+  // 10/8/26 (read-only, one course).
+  //
+  // Shape sent: payload.teachers = [{ course: <course name>, name, email }]. The app
+  // keys by course NAME because that is what a task carries. Best effort, like the
+  // rest: any failed read just yields fewer teachers, never an error.
+  const MAX_TEACHER_COURSES = 20;
+  const TEACHER_REFRESH_MS = 24 * 60 * 60 * 1000; // names and emails barely change
+
+  async function teacherHarvest(courses, diag) {
+    const teachers = [];
+    const emailOf = new Map(); // uid -> email | ''
+    diag.teachers = { courses: 0, found: 0, withEmail: 0 };
+    for (const course of courses.slice(0, MAX_TEACHER_COURSES)) {
+      await sleep(FETCH_SPACING_MS);
+      const json = await fetchJson('/v1/sections/' + course.id + '/enrollments');
+      const admins = apiList(json, 'enrollment').filter((e) => e && Number(e.admin) === 1 && e.uid != null);
+      diag.teachers.courses++;
+      for (const e of admins) {
+        const uid = String(e.uid);
+        if (!/^\d+$/.test(uid)) continue;
+        if (!emailOf.has(uid)) {
+          await sleep(FETCH_SPACING_MS);
+          const u = await fetchJson('/v1/users/' + uid);
+          const mail = u && typeof u.primary_email === 'string' ? u.primary_email.trim() : '';
+          emailOf.set(uid, /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail) ? mail : '');
+        }
+        diag.teachers.found++;
+        const email = emailOf.get(uid);
+        if (!email) continue;
+        diag.teachers.withEmail++;
+        const name = String(e.name_display || [e.name_first, e.name_last].filter(Boolean).join(' ')).trim();
+        teachers.push({ course: course.name, name, email });
+      }
+    }
+    return teachers;
+  }
+
   // ============================== the sync badge =============================
   // A pill in the bottom-right of the Schoology page reporting what this scrape
   // found, expanding to the per-course breakdown. It is the ONLY place the whole
@@ -871,6 +914,17 @@
         diag.strategies.coursesFetch = coursesPage ? 'logged-out' : 'fetch-failed';
       }
       payload.courses = courses;
+
+      // ---- teachers: once a day, not on every page load ----
+      const stored = await storageGet('sgy:data');
+      const prevData = stored && stored['sgy:data'];
+      const fresh =
+        prevData && Array.isArray(prevData.teachers) && prevData.teachers.length &&
+        Date.now() - (prevData.teachersAt || 0) < TEACHER_REFRESH_MS;
+      if (!fresh && courses.length) {
+        payload.teachers = await teacherHarvest(courses, diag);
+        payload.teachersAt = Date.now();
+      }
 
       // ---- labels from THIS page's DOM: a supplement, never an override ----
       // The API's answer comes from the assignment's own section record, so it

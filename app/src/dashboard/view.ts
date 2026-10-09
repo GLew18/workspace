@@ -751,23 +751,7 @@ export class DashboardView {
     }
 
     const list = el('div', { class: 'dash-sched-list' });
-    let lineDrawn = !isToday; // the red "now" line belongs to today only
-    for (const b of shown.blocks) {
-      // In a gap between periods the line sits between the two rows.
-      if (!lineDrawn && now < b.start) {
-        list.append(el('div', { class: 'dash-sched-gapline' }));
-        lineDrawn = true;
-      }
-      const row = this.buildBlockRow(b, now, false);
-      if (!lineDrawn && b.start <= now && now < b.end) {
-        // Inside the current period: the line crosses the row at the exact time.
-        const line = el('div', { class: 'dash-sched-nowline' });
-        line.style.top = `${((now - b.start) / (b.end - b.start)) * 100}%`;
-        row.append(line);
-        lineDrawn = true;
-      }
-      list.append(row);
-    }
+    for (const b of shown.blocks) list.append(this.buildBlockRow(b, now, false));
     this.scheduleBox.append(list);
 
     // Schedule courses Cobalt doesn't know yet: one click adds them all, each in a

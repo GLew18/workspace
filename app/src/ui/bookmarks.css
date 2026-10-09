@@ -787,3 +787,27 @@
    components.css now: every reset carves out .selected, so a selected card keeps its
    2px accent outline whether it is focused or not, and an unselected one still shows
    nothing. */
+
+/* ---- Submit photo to Schoology (schoology/submitPhoto.ts) ---- */
+.photo-submit-modal { max-width: 480px; width: calc(100% - 32px); }
+.photo-submit-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin: 14px 0 4px;
+}
+.photo-submit-thumb {
+  height: 150px;
+  max-width: 220px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  flex: none;
+}
+.photo-submit-status {
+  min-height: 18px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.photo-submit-status.error { color: var(--danger, #ef4444); }

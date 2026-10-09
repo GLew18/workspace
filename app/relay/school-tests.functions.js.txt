@@ -1,0 +1,103 @@
+// PARKED (Gabe, 10/8/26: Tests tab on hold). Not loaded by index.js on purpose:
+// the undefined secret TEST_RELAY_SECRET blocks every Functions deploy until it is set.
+// To resume: paste this block back at the end of functions/index.js, then
+//   firebase functions:secrets:set TEST_RELAY_SECRET --project workspace-67029
+// and deploy only the three functions named below.
+
+// #region School tests — the Heschel test calendar relay (Cobalt Calendars Plan, 10/8/26)
+//
+// The school's test calendars (one per grade, e.g. "09th Grade Test Calendar") are
+// not public, and Google blocks a third-party app from asking an under-18 Heschel
+// student to share their calendar. So an Apps Script that runs AS a Heschel student
+// (app/relay/test-calendar-relay.gs) reads the calendars on an hourly trigger and
+// POSTs the events here. Students never touch any of it.
+//
+//   ingestTestCalendar  HTTPS, shared secret in the X-Relay-Secret header. Replaces
+//                       the stored events for ONE calendar (so a deleted test leaves).
+//   getSchoolTests      callable. Returns the stored events, but only to an account
+//                       that is verifiably a Heschel student, enforced HERE because
+//                       the data is a school node, not the student's own.
+//
+// Stored at schools/heschel/tests/<calendarKey> = { name, updatedAt, events[] }.
+// Like sgyPrivate/, schools/ has no rule in firebase.rules.json, so clients cannot
+// touch it directly. Only this admin SDK does.
+const { onRequest } = require('firebase-functions/v2/https');
+const TEST_RELAY_SECRET = defineSecret('TEST_RELAY_SECRET');
+const TESTS_MAX_EVENTS = 600;
+const TESTS_MAX_AGE_MS = 48 * 3600_000; // older than this and the app says "last updated"
+
+const clip = (s, n) => String(s == null ? '' : s).slice(0, n);
+
+exports.ingestTestCalendar = onRequest(
+  { region: 'us-central1', secrets: [TEST_RELAY_SECRET], cors: false },
+  async (req, res) => {
+    if (req.method !== 'POST') return void res.status(405).send('POST only');
+    const given = String(req.get('x-relay-secret') || '');
+    const want = TEST_RELAY_SECRET.value();
+    const a = Buffer.from(given);
+    const b = Buffer.from(want);
+    if (!want || a.length !== b.length || !require('crypto').timingSafeEqual(a, b)) {
+      return void res.status(403).send('Forbidden');
+    }
+    const body = req.body || {};
+    const key = String(body.calendarId || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
+    if (!key || !Array.isArray(body.events) || body.events.length > TESTS_MAX_EVENTS) {
+      return void res.status(400).send('Bad payload');
+    }
+    const events = [];
+    for (const e of body.events) {
+      const date = String(e && e.date);
+      const title = clip(e && e.title, 120).trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !title) continue;
+      events.push({ date, title });
+    }
+    await admin.database().ref(`schools/heschel/tests/${key}`).set({
+      name: clip(body.calendarName, 80),
+      updatedAt: Date.now(),
+      events,
+    });
+    res.status(200).json({ ok: true, stored: events.length });
+  }
+);
+
+/** Is this signed-in account a Heschel student? A connected Heschel schedule feed,
+ *  a Heschel Schoology link, or a heschel.org sign-in address. */
+async function isHeschelStudent(uid, token) {
+  if (/@heschel\.org$/i.test((token && token.email) || '')) return true;
+  const snap = await admin.database().ref(`users/${uid}/profile`).get();
+  const p = snap.val() || {};
+  const feed = p.scheduleFeed && p.scheduleFeed.url;
+  if (feed && /@heschel\.org\//i.test(decodeURIComponent(String(feed)))) return true;
+  const sgy = p.schoology && p.schoology.icalUrl;
+  return !!(sgy && /^https?:\/\/[^/]*heschel[^/]*\.schoology\.com\//i.test(String(sgy).replace(/^webcal:/i, 'https:')));
+}
+
+exports.getSchoolTests = onCall({ region: 'us-central1' }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  if (!(await isHeschelStudent(req.auth.uid, req.auth.token))) return { ok: true, eligible: false, events: [], updatedAt: 0 };
+  const val = (await admin.database().ref('schools/heschel/tests').get()).val() || {};
+  const events = [];
+  let updatedAt = 0;
+  for (const cal of Object.values(val)) {
+    updatedAt = Math.max(updatedAt, Number(cal.updatedAt) || 0);
+    for (const e of cal.events || []) events.push({ date: e.date, title: e.title });
+  }
+  return { ok: true, eligible: true, events, updatedAt };
+});
+
+/** Staleness alarm (plan section 1): the relay is one student's account, so if it
+ *  stops posting for 48 hours the owner is emailed once a day until it resumes. */
+exports.testRelayWatchdog = onSchedule({ schedule: 'every day 08:00', timeZone: TZ }, async () => {
+  const val = (await admin.database().ref('schools/heschel/tests').get()).val();
+  if (!val) return; // never set up: nothing to be stale
+  const newest = Math.max(...Object.values(val).map((c) => Number(c.updatedAt) || 0));
+  if (Date.now() - newest < TESTS_MAX_AGE_MS) return;
+  await admin.firestore().collection(MAIL_COLLECTION).add({
+    to: [HELP_EMAIL],
+    message: {
+      subject: 'Cobalt: the test calendar relay has gone quiet',
+      text: `No test events have arrived since ${new Date(newest).toISOString()}. The Apps Script may be signed out or its trigger removed.`,
+    },
+  });
+});
+// #endregion

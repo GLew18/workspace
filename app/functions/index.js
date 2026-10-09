@@ -248,7 +248,10 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
     const rec = anyGmail
       ? await admin.auth().getUser(uid).then((r) => r).catch(() => null)
       : null;
-    const authEmail = rec && rec.emailVerified ? rec.email || null : null;
+    // A notification address the student PROVED with a code (notifyEmails/{uid},
+    // written only by confirmNotifyEmail below) replaces the sign-in email.
+    const chosen = anyGmail ? await readNotifyEmail(uid) : null;
+    const authEmail = chosen || (rec && rec.emailVerified ? rec.email || null : null);
     const canGmail = !!authEmail;
     if (!canPopup && !canGmail) continue;
 
@@ -1054,6 +1057,15 @@ const SGY_PAGE_LIMIT = 200;
 const SGY_MAX_PAGES = 5;
 const SGY_SPACING_MS = 120; // Schoology allows 50 requests / 5 s per user
 const SGY_TIMEOUT_MS = 15_000;
+const SGY_TEACHERS_REFRESH_MS = 24 * 3600_000;
+const SGY_TEACHER_COURSES_MAX = 20; // courses whose teachers are looked up per fetch
+// Teacher attachments cost one extra read per assignment (the events list carries
+// none), so they are read a few at a time, capped, and inside a time budget that
+// leaves the rest of the 120 s callable for everything else.
+const SGY_ATTACH_WORKERS = 3;
+const SGY_ATTACH_MAX = 150;
+const SGY_ATTACH_BUDGET_MS = 60_000;
+const SGY_ATTACH_PER_TASK = 30;
 
 /** Origins Schoology may send the student back to. Anything else is refused, so the
  *  connect flow cannot be turned into an open redirect. */
@@ -1147,12 +1159,13 @@ class SgyAuthError extends Error {}
 async function sgyJson(path, tok) {
   const url = /^https:\/\//.test(path) ? path : SGY_API + path;
   const res = await sgyRequest(url, tok.token, tok.secret);
+  let body = '';
   if (!res.ok) {
     // What Schoology actually said, for diagnosing refusals. Path only, never tokens.
-    const body = await res.text().catch(() => '');
+    body = await res.text().catch(() => '');
     console.warn('sgy GET', new URL(res.url || url).pathname, res.status, body.slice(0, 300));
   }
-  if (res.status === 401 || res.status === 403) throw new SgyAuthError('schoology ' + res.status);
+  if (res.status === 401 || res.status === 403) throw new SgyAuthError('schoology ' + res.status + ' ' + body.slice(0, 200));
   if (!res.ok) return null;
   try {
     return await res.json();
@@ -1249,6 +1262,56 @@ function sgyAssignmentFromEvent(e, host, course) {
 const sgyList = (json, key) =>
   Array.isArray(json) ? json : json && Array.isArray(json[key]) ? json[key] : json && Array.isArray(json[key + 's']) ? json[key + 's'] : [];
 
+// ---- teacher attachments: what the teacher put on the assignment itself ----
+// Schoology nests each kind as attachments.files.file, .links.link, .videos.video,
+// .embeds.embed. A group with one item can arrive as a bare object instead of a
+// one-element array, and an assignment with none can carry [] for the whole
+// object, so every level is read defensively.
+function sgyAttachItems(attachments, group, key) {
+  const g = attachments && typeof attachments === 'object' ? attachments[group] : null;
+  const v = g && typeof g === 'object' ? g[key] : null;
+  return Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : v && typeof v === 'object' ? [v] : [];
+}
+
+/** A file's download_path points at api.schoology.com and needs OAuth, so a student
+ *  cannot open it. The same /attachment/<id>/source/<name> path on the school's own
+ *  host is what Schoology's web pages link to, and it opens with the student's
+ *  normal Schoology sign-in. Anything that does not fit that pattern falls back to
+ *  the assignment's page (where the file is listed), tagged with the file id so two
+ *  such files stay two attachments. */
+function sgyFileUrl(f, host, assignmentUrl) {
+  for (const p of [f.download_path, f.converted_download_path]) {
+    const m = typeof p === 'string' ? p.match(/\/attachment\/(\d+)\/source\/([^?#\s]+)/) : null;
+    if (m) return 'https://' + host + '/attachment/' + m[1] + '/source/' + m[2];
+  }
+  const id = f.id != null && /^\d+$/.test(String(f.id)) ? String(f.id) : '';
+  return assignmentUrl ? assignmentUrl + (id ? '#file-' + id : '') : '';
+}
+
+/** Every file, link, video and embed on one assignment as { title, url }, https only,
+ *  one per URL. */
+function sgyAttachmentsOf(obj, host, assignmentUrl) {
+  const a = obj && typeof obj === 'object' ? obj.attachments : null;
+  if (!a || typeof a !== 'object') return [];
+  const out = [];
+  const seen = new Set();
+  const add = (title, url) => {
+    const u = typeof url === 'string' ? url.trim().replace(/^http:\/\//i, 'https://') : '';
+    if (!/^https:\/\//i.test(u) || seen.has(u) || out.length >= SGY_ATTACH_PER_TASK) return;
+    seen.add(u);
+    out.push({ title: String(title || '').trim().slice(0, 200), url: u.slice(0, 2000) });
+  };
+  for (const f of sgyAttachItems(a, 'files', 'file')) add(f.title || f.filename, sgyFileUrl(f, host, assignmentUrl));
+  for (const l of sgyAttachItems(a, 'links', 'link')) add(l.title, l.url);
+  for (const v of sgyAttachItems(a, 'videos', 'video')) add(v.title, v.url);
+  // An embed is a block of HTML; its iframe's address is the thing worth opening.
+  for (const em of sgyAttachItems(a, 'embeds', 'embed')) {
+    const m = String(em.embed || em.html || '').match(/\bsrc\s*=\s*["']([^"']+)["']/i);
+    if (m) add(em.title, m[1].replace(/&amp;/g, '&').replace(/^\/\//, 'https://'));
+  }
+  return out;
+}
+
 /** The token was revoked or expired (Schoology issues them for 90 days): forget it and
  *  tell the app, so it shows "Reconnect" instead of silently importing nothing. */
 async function sgyForget(uid, reason) {
@@ -1334,9 +1397,14 @@ exports.sgyConnectFinish = onCall({ region: 'us-central1', secrets: [SGY_KEY, SG
   // answered 401 for a freshly approved token).
   let me = null;
   let sgyUid = '';
+  // "The application is not published": Schoology only lets an app that PowerSchool
+  // has not approved yet read accounts in its own developer sandbox. Said plainly,
+  // because "didn't say who you are" sent the first tester hunting for a bug.
+  let unpublished = false;
   try {
     me = await sgyJson('/users/me', tok);
   } catch (err) {
+    if (/not published/i.test((err && err.message) || '')) unpublished = true;
     console.error('sgy users/me failed', err && err.message);
   }
   if (me && (me.uid || me.id)) sgyUid = String(me.uid || me.id);
@@ -1346,8 +1414,15 @@ exports.sgyConnectFinish = onCall({ region: 'us-central1', secrets: [SGY_KEY, SG
       if (info && info.api_uid != null) sgyUid = String(info.api_uid);
       if (/^\d+$/.test(sgyUid)) me = await sgyJson('/users/' + sgyUid, tok).catch(() => null);
     } catch (err) {
+      if (/not published/i.test((err && err.message) || '')) unpublished = true;
       console.error('sgy app-user-info failed', err && err.message);
     }
+  }
+  if (!/^\d+$/.test(sgyUid) && unpublished) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Schoology hasn’t approved Cobalt for your school yet, so only test accounts can connect for now. Pick Test, or use the calendar link.'
+    );
   }
   if (!/^\d+$/.test(sgyUid)) throw new HttpsError('internal', 'Connected, but Schoology didn’t say who you are. Try again.');
   const name = me ? [me.name_first, me.name_last].filter((s) => typeof s === 'string' && s.trim()).join(' ').trim() : '';
@@ -1360,7 +1435,11 @@ exports.sgyConnectFinish = onCall({ region: 'us-central1', secrets: [SGY_KEY, SG
     host: pending.host,
     connectedAt: now,
   });
-  const marker = { connected: true, expired: false, host: pending.host, name, connectedAt: now };
+  // The first name Cobalt greets the student with (Gabe, 10/8: onboarding no longer
+  // asks). Schoology's preferred first name wins, so a "Kate" is never called Katherine.
+  const pick = (v) => (typeof v === 'string' ? v.trim() : '');
+  const firstName = me ? pick(me.name_first_preferred) || pick(me.name_first) : '';
+  const marker = { connected: true, expired: false, host: pending.host, name, firstName, connectedAt: now };
   await db.ref(`users/${req.auth.uid}/profile/sgyApi`).set(marker);
   return marker;
 });
@@ -1428,8 +1507,77 @@ exports.sgyFetch = onCall(
         if (!prev || a.date > prev.date) byId.set(a.id, a);
       }
 
+      // TEACHER ATTACHMENTS (Gabe, 10/8/26: a file on a sandbox assignment never
+      // reached the task). The events list carries none, so each assignment is read
+      // once more from its section with ?with_attachments=1. Only real assignments
+      // (a graded calendar event has no assignment record), a few at a time, capped
+      // and time-boxed. Best effort: a refused or failed read just means no
+      // attachments for that one, and it must NEVER reach the outer catch, where a
+      // 403 would forget the student's whole connection.
+      const sectionOf = new Map();
+      for (const [e] of kept) {
+        if (e.type !== 'assignment' || e.section_id == null) continue;
+        const aid = sgyAssignmentId(e, host);
+        if (aid && byId.has(aid) && !sectionOf.has(aid)) sectionOf.set(aid, String(e.section_id));
+      }
+      const queue = [...sectionOf].slice(0, SGY_ATTACH_MAX);
+      const stopAt = Date.now() + SGY_ATTACH_BUDGET_MS;
+      const worker = async () => {
+        while (queue.length && Date.now() < stopAt) {
+          const [aid, sid] = queue.shift();
+          // Spaced per worker so all of them together stay at the one-every-120 ms
+          // pace the rest of this function keeps (Schoology: 50 requests / 5 s).
+          await sgySleep(SGY_SPACING_MS * SGY_ATTACH_WORKERS);
+          try {
+            const obj = await sgyJson(`/sections/${sid}/assignments/${aid}?with_attachments=1`, tok);
+            const a = byId.get(aid);
+            const list = sgyAttachmentsOf(obj, host, a.url);
+            if (list.length) a.attachments = list;
+          } catch (err) {
+            console.warn('sgy attachments skipped', aid, err && err.message);
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: SGY_ATTACH_WORKERS }, worker));
+
+      // TEACHERS (Gabe, 10/8/26): who teaches each course and their email, for the
+      // "Email teacher" entry in a task's ⋯ menu. A section's enrollments flag
+      // teachers with admin = 1 and /users/<uid> carries primary_email (the same two
+      // calls the extension makes with the student's own session). Best effort, and
+      // swallowed completely: whether a student-scoped token may read another
+      // user's address is the school's privacy setting, and a refusal here must
+      // never reach the outer catch, where it would forget the whole connection.
+      // Once a day, not every sync: names and emails barely change, and a lookup is
+      // one request per course plus one per teacher.
+      const teachersRef = admin.database().ref(`users/${uid}/profile/sgyApi/teachersAt`);
+      const teachers = [];
+      try {
+        if (Date.now() - (Number((await teachersRef.get()).val()) || 0) < SGY_TEACHERS_REFRESH_MS) throw new Error('fresh');
+        const emailOf = new Map();
+        for (const c of courses.slice(0, SGY_TEACHER_COURSES_MAX)) {
+          await sgySleep(SGY_SPACING_MS);
+          const enr = await sgyJson(`/sections/${c.id}/enrollments`, tok);
+          for (const e of sgyList(enr, 'enrollment')) {
+            if (!e || Number(e.admin) !== 1 || e.uid == null || !/^\d+$/.test(String(e.uid))) continue;
+            const tuid = String(e.uid);
+            if (!emailOf.has(tuid)) {
+              await sgySleep(SGY_SPACING_MS);
+              const u = await sgyJson(`/users/${tuid}`, tok);
+              const mail = u && typeof u.primary_email === 'string' ? u.primary_email.trim() : '';
+              emailOf.set(tuid, /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail) ? mail : '');
+            }
+            if (!emailOf.get(tuid)) continue;
+            const tname = String(e.name_display || [e.name_first, e.name_last].filter(Boolean).join(' ')).trim();
+            teachers.push({ course: c.name, name: tname, email: emailOf.get(tuid) });
+          }
+        }
+        await teachersRef.set(Date.now());
+      } catch (err) {
+        if (!(err && err.message === 'fresh')) console.warn('sgy teachers skipped', err && err.message);
+      }
+
       await admin.database().ref(`users/${uid}/profile/sgyApi/lastFetchAt`).set(new Date().toISOString());
-      return { host, courses, labels, assignments: [...byId.values()], coverage, scrapedAt: Date.now() };
+      return { host, courses, labels, assignments: [...byId.values()], coverage, scrapedAt: Date.now(), ...(teachers.length ? { teachers } : {}) };
     } catch (err) {
       if (err instanceof SgyAuthError) {
         await sgyForget(uid, 'expired');
@@ -1448,5 +1596,235 @@ exports.sgyDisconnect = onCall({ region: 'us-central1' }, async (req) => {
   await db.ref(`sgyPrivate/tokens/${req.auth.uid}`).remove();
   await db.ref(`users/${req.auth.uid}/profile/sgyApi`).remove();
   return { ok: true };
+});
+
+// SUBMIT A PHOTO (Gabe, 10/8/26): a task's ⋯ menu ▸ "Submit photo to Schoology"
+// hands photos in on that assignment as the student, through their own connection.
+// Two steps, one callable, so no single request carries every photo at once:
+//   { step: 'upload', name, mime, data }        one photo (base64) → { fileId }
+//   { step: 'submit', assignmentId, fileIds }   hands them in → { ok: true }
+// Upload is Schoology's documented two-step (POST /upload for a slot, then PUT the
+// bytes there), and the hand-in is POST /sections/{sid}/submissions/{aid}/file
+// with the ids as "file-attachment". The section is looked up here, among the
+// student's own sections, so the app never has to have stored it.
+const SGY_PHOTO_MAX_BYTES = 6 * 1024 * 1024; // the client sends ~1 MB JPEGs; this is the hard stop
+const SGY_PHOTO_MAX_FILES = 5;
+
+/** A signed request with a body, for Schoology's writes. No redirect following:
+ *  the upload and submission endpoints answer directly. */
+async function sgySend(method, url, tok, body, contentType) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 30_000);
+  try {
+    return await fetch(url, {
+      method,
+      signal: ctl.signal,
+      headers: {
+        Authorization: sgyAuthHeader(method, url, tok.token, tok.secret),
+        Accept: 'application/json',
+        'Content-Type': contentType,
+      },
+      body,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Which of the student's sections holds this assignment. Null when none does. */
+async function sgySectionOfAssignment(tok, aid) {
+  const json = await sgyJson(`/users/${tok.sgyUid}/sections`, tok);
+  for (const s of sgyList(json, 'section')) {
+    const sid = s && s.id != null ? String(s.id) : '';
+    if (!/^\d+$/.test(sid)) continue;
+    await sgySleep(SGY_SPACING_MS);
+    try {
+      const a = await sgyJson(`/sections/${sid}/assignments/${aid}`, tok);
+      if (a && String(a.id) === aid) return sid;
+    } catch {
+      // A section that refuses this read just is not the one.
+    }
+  }
+  return null;
+}
+
+exports.sgySubmitPhoto = onCall(
+  { region: 'us-central1', secrets: [SGY_KEY, SGY_SECRET], timeoutSeconds: 90 },
+  async (req) => {
+    if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+    const uid = req.auth.uid;
+    const tok = (await admin.database().ref(`sgyPrivate/tokens/${uid}`).get()).val();
+    if (!tok || !tok.token) throw new HttpsError('failed-precondition', 'Connect Schoology in Settings first.');
+    const d = req.data || {};
+    const expired = async () => {
+      await sgyForget(uid, 'expired');
+      throw new HttpsError('failed-precondition', 'Your Schoology connection expired. Reconnect it in Settings.');
+    };
+
+    if (d.step === 'upload') {
+      const mime = String(d.mime || '');
+      if (!/^image\/(jpeg|png|webp)$/.test(mime)) throw new HttpsError('invalid-argument', 'That isn’t a photo Cobalt can send.');
+      const bytes = Buffer.from(String(d.data || ''), 'base64');
+      if (!bytes.length || bytes.length > SGY_PHOTO_MAX_BYTES) throw new HttpsError('invalid-argument', 'That photo is too large to send.');
+      const name = String(d.name || 'photo.jpg').replace(/[^\w .()-]/g, '_').slice(0, 80) || 'photo.jpg';
+      const md5 = require('crypto').createHash('md5').update(bytes).digest('hex');
+
+      const slot = await sgySend('POST', SGY_API + '/upload', tok, JSON.stringify({ filename: name, filesize: bytes.length, md5_checksum: md5 }), 'application/json');
+      if (slot.status === 401) return expired();
+      const slotJson = slot.ok ? await slot.json().catch(() => null) : null;
+      const fileId = slotJson && slotJson.id != null ? String(slotJson.id) : '';
+      const where = slotJson && typeof slotJson.upload_location === 'string' ? slotJson.upload_location.replace(/^http:/i, 'https:') : '';
+      if (!fileId || !where) {
+        console.warn('sgy upload slot', slot.status, slotJson ? '' : await slot.text().catch(() => ''));
+        throw new HttpsError('unavailable', 'Schoology wouldn’t take the photo. Try again.');
+      }
+      const put = await sgySend('PUT', where, tok, bytes, mime);
+      if (put.status === 401) return expired();
+      if (!put.ok) {
+        console.warn('sgy upload put', put.status, (await put.text().catch(() => '')).slice(0, 300));
+        throw new HttpsError('unavailable', 'Schoology wouldn’t take the photo. Try again.');
+      }
+      return { fileId };
+    }
+
+    if (d.step === 'submit') {
+      const aid = String(d.assignmentId || '');
+      const ids = Array.isArray(d.fileIds) ? d.fileIds.map(String).filter((x) => /^\d+$/.test(x)) : [];
+      if (!/^\d+$/.test(aid) || !ids.length || ids.length > SGY_PHOTO_MAX_FILES) {
+        throw new HttpsError('invalid-argument', 'Nothing to submit.');
+      }
+      let sid;
+      try {
+        sid = await sgySectionOfAssignment(tok, aid);
+      } catch (err) {
+        if (err instanceof SgyAuthError && /\b401\b/.test(err.message)) return expired();
+        throw new HttpsError('unavailable', 'Couldn’t reach Schoology. Try again in a moment.');
+      }
+      if (!sid) throw new HttpsError('not-found', 'Schoology couldn’t find this assignment in your classes.');
+      const res = await sgySend(
+        'POST',
+        `${SGY_API}/sections/${sid}/submissions/${aid}/file`,
+        tok,
+        JSON.stringify({ 'file-attachment': { id: ids } }),
+        'application/json'
+      );
+      if (res.status === 401) return expired();
+      if (!res.ok) {
+        // 403 here is about THIS assignment (submissions off, closed, or not a
+        // dropbox), never the connection, so the token is kept.
+        console.warn('sgy submit', res.status, (await res.text().catch(() => '')).slice(0, 300));
+        throw new HttpsError(
+          'failed-precondition',
+          'Schoology didn’t accept a submission for this assignment. Your teacher may have turned submissions off, or it may be closed.'
+        );
+      }
+      return { ok: true };
+    }
+
+    throw new HttpsError('invalid-argument', 'Unknown step.');
+  }
+);
+// #endregion
+
+
+// #region Notification email — a different inbox, proven with a code (Gabe, 10/8/26)
+//
+// A student may send Cobalt's reminder emails to an address other than their
+// sign-in email, but only one they PROVE they own: Cobalt mails a 6-digit code
+// there, and the address switches only when that code comes back. Otherwise
+// anyone could aim a stream of emails at a classmate.
+//
+// Storage is Firestore, not the Realtime Database, on purpose: firestore.rules
+// lets a student READ their own notifyEmails/{uid} doc and write nothing, and the
+// mail rule there checks that doc, so the browser can never set an address
+// itself. Only these functions (admin) write it.
+//
+// Abuse limits, because the CODE email is itself an email to a chosen address:
+//   • per account: 3 codes an hour, 5 a day
+//   • per address: the same 1/min, 8/day throttle the auth emails use
+//   • a code lives 15 minutes and dies after 5 wrong tries
+//   • the email is plain, names no one, and says to ignore it if unexpected
+
+const NOTIFY_EMAILS = 'notifyEmails';
+const NOTIFY_CODES = 'notifyEmailCodes';
+const CODE_TTL_MS = 15 * 60_000;
+const CODE_MAX_TRIES = 5;
+const CODE_HOURLY_CAP = 3;
+const CODE_DAILY_CAP = 5;
+
+const sha = (x) => require('crypto').createHash('sha256').update(x).digest('hex');
+
+/** The proven notification address for a user, or null. */
+async function readNotifyEmail(uid) {
+  try {
+    const snap = await admin.firestore().collection(NOTIFY_EMAILS).doc(uid).get();
+    const email = snap.exists ? String(snap.data().email || '') : '';
+    return email || null;
+  } catch {
+    return null;
+  }
+}
+
+exports.requestNotifyEmail = onCall({ region: 'us-central1' }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const uid = req.auth.uid;
+  const email = String((req.data && req.data.email) || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 254) {
+    throw new HttpsError('invalid-argument', 'That doesn’t look like a valid email.');
+  }
+  const fs = admin.firestore();
+  // Their own sign-in email needs no proof: switching back just clears the choice.
+  if (email === String(req.auth.token.email || '').toLowerCase()) {
+    await fs.collection(NOTIFY_EMAILS).doc(uid).delete();
+    await fs.collection(NOTIFY_CODES).doc(uid).delete();
+    return { done: true };
+  }
+
+  const ref = fs.collection(NOTIFY_CODES).doc(uid);
+  const now = Date.now();
+  const prev = (await ref.get()).data() || {};
+  const sent = (Array.isArray(prev.sent) ? prev.sent : []).filter((t) => now - t < 24 * 3600_000);
+  if (sent.filter((t) => now - t < 3600_000).length >= CODE_HOURLY_CAP || sent.length >= CODE_DAILY_CAP) {
+    throw new HttpsError('resource-exhausted', 'Too many codes requested. Try again later.');
+  }
+  if (!(await throttleOk(email))) {
+    throw new HttpsError('resource-exhausted', 'Too many requests. Wait a minute, then try again.');
+  }
+
+  const code = String(require('crypto').randomInt(0, 1_000_000)).padStart(6, '0');
+  await ref.set({ email, hash: sha(`${uid}:${code}`), expires: now + CODE_TTL_MS, tries: 0, sent: [...sent, now] });
+  const text =
+    `Your Cobalt code is ${code}.\n\n` +
+    `Someone asked to send their Cobalt reminders to this address. If that was you, enter the code in Cobalt's Settings. ` +
+    `If it wasn't, ignore this email and nothing will be sent here. The code expires in 15 minutes.`;
+  await fs.collection(MAIL_COLLECTION).add(mailDoc(email, `Your Cobalt code: ${code}`, text));
+  return { sent: true };
+});
+
+exports.confirmNotifyEmail = onCall({ region: 'us-central1' }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const uid = req.auth.uid;
+  const code = String((req.data && req.data.code) || '').replace(/\D/g, '');
+  const fs = admin.firestore();
+  const ref = fs.collection(NOTIFY_CODES).doc(uid);
+  const cur = (await ref.get()).data();
+  if (!cur || !cur.hash) throw new HttpsError('failed-precondition', 'Request a new code first.');
+  if (Date.now() > cur.expires || cur.tries >= CODE_MAX_TRIES) {
+    await ref.update({ hash: '' });
+    throw new HttpsError('deadline-exceeded', 'That code expired. Request a new one.');
+  }
+  if (sha(`${uid}:${code}`) !== cur.hash) {
+    await ref.update({ tries: (Number(cur.tries) || 0) + 1 });
+    throw new HttpsError('permission-denied', 'That code isn’t right. Check the email and try again.');
+  }
+  await fs.collection(NOTIFY_EMAILS).doc(uid).set({ email: cur.email, verifiedAt: Date.now() });
+  await ref.update({ hash: '' }); // spent; the send history stays for the rate limit
+  return { email: cur.email };
+});
+
+exports.clearNotifyEmail = onCall({ region: 'us-central1' }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  await admin.firestore().collection(NOTIFY_EMAILS).doc(req.auth.uid).delete();
+  return { done: true };
 });
 // #endregion
