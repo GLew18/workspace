@@ -4082,7 +4082,7 @@ export class FocusView {
       next._manualCourse = true;
       changed = true;
       // Same as the Tasks tab: a hand-set course is ground truth, so it goes in the
-      // cloud label store where it outranks any later extension scrape.
+      // cloud label store where it outranks any later Schoology import.
       void recordManualLabelForTask(this.data, next, patch.course);
     }
     // Priority is a SUBJECTIVE field: no _manual* flag, because an import never

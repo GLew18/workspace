@@ -41,7 +41,7 @@ import {
 } from '../courses/registry';
 import { classifyByRules, learnCorrection } from '../schoology/classify';
 import { recordManualLabelForTask } from '../schoology/extension';
-import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
+import { BADGE_ASSESSMENT_RE } from '../schoology/events';
 import { emailTeacherUrl } from './teachers';
 import { photoSubmitAssignment, openPhotoSubmit } from '../schoology/submitPhoto';
 import { parseDateTime, isPastDate, PAST_DATE_MSG, isPastTime, PAST_TIME_MSG } from './parser';
@@ -558,9 +558,9 @@ export class TasksView {
     await this.data.putTasksBulk(changed);
   }
 
-  /** "Refresh tasks" — re-pull the Schoology iCal on demand. force:true (Gabe,
+  /** "Refresh tasks" — re-pull Schoology on demand. force:true (Gabe,
    *  9/16/26) makes this the one place that ignores the "never resurrect a
-   *  deleted import" rule: it imports anything in the feed that isn't CURRENTLY
+   *  deleted import" rule: it imports anything Schoology sends that isn't CURRENTLY
    *  a task, so a deleted (or pre-dating-your-link) Schoology assignment comes
    *  back with one press instead of staying gone forever. See SyncOptions.force. */
   private makeRefreshBtn(): HTMLButtonElement {

@@ -61,15 +61,15 @@ exports.ingestTestCalendar = onRequest(
 );
 
 /** Is this signed-in account a Heschel student? A connected Heschel schedule feed,
- *  a Heschel Schoology link, or a heschel.org sign-in address. */
+ *  a Schoology connection to Heschel's Schoology, or a heschel.org sign-in address. */
 async function isHeschelStudent(uid, token) {
   if (/@heschel\.org$/i.test((token && token.email) || '')) return true;
   const snap = await admin.database().ref(`users/${uid}/profile`).get();
   const p = snap.val() || {};
   const feed = p.scheduleFeed && p.scheduleFeed.url;
   if (feed && /@heschel\.org\//i.test(decodeURIComponent(String(feed)))) return true;
-  const sgy = p.schoology && p.schoology.icalUrl;
-  return !!(sgy && /^https?:\/\/[^/]*heschel[^/]*\.schoology\.com\//i.test(String(sgy).replace(/^webcal:/i, 'https:')));
+  const host = p.sgyApi && p.sgyApi.host;
+  return !!(host && /(^|\.)heschel[^.]*\.schoology\.com$/i.test(String(host)));
 }
 
 exports.getSchoolTests = onCall({ region: 'us-central1' }, async (req) => {

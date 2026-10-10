@@ -3381,7 +3381,7 @@ body:has(.selbar:not([hidden])) .toast {
 }
 
 /* ===== Guide sheet skin (Category 4: multi-step guides) =====
-   Shared by ui/popupGuide.ts (.ngd) and onboarding/icalGuide.ts (.onb-sso),
+   Shared by ui/popupGuide.ts (.ngd) and onboarding/slideGuide.ts (.onb-sso),
    the two step-by-step screenshot guides. Carries the bm-modal family look
    (ui/bookmarks.css bm-backdrop/bm-modal): same dim + scrim-in, same
    surface/border-strong/16px box, same shadow. Each guide keeps its own

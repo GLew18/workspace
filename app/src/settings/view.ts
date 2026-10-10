@@ -20,10 +20,8 @@ import { getCourses, replaceCourses } from '../courses/registry';
 import { buildCourseRow } from '../courses/courseRow';
 import { nextCourseColor } from '../courses/colors';
 import { runSync } from '../schoology/sync';
-import { isSchoologyIcalUrl } from '../schoology/ical';
 import { SCHEDULE_FEED_KEY, type ScheduleFeed, isGoogleCalendarIcalUrl, refreshFeed, saveFeed, readCache } from '../schedule/feed';
 import {
-  sgyApiFlag,
   getSgyApiState,
   startSchoologyConnect,
   disconnectSchoology,
@@ -121,7 +119,6 @@ interface SettingsOpts {
 
 interface Draft {
   name: string;
-  icalUrl: string;
   courses: CourseConfig[];
   endSound: string;
   endVolume: number; // 0..1, the Focus end-sound Volume slider
@@ -144,10 +141,6 @@ const HELP: Record<string, { title: string; text: string }> = {
   name: {
     title: 'Your name',
     text: 'What Cobalt calls you, in your greeting and across the app. It’s always capitalized, and you can change it anytime.',
-  },
-  ical: {
-    title: 'Schoology calendar link',
-    text: 'Your personal Schoology calendar (iCal) link. Cobalt uses it to import your assignments automatically. Find it in Schoology under Settings → your calendar feed, then paste it here.\n\nIt’s read-only and has no password in it. Cobalt never sees your Schoology login, and you can reset the link in Schoology anytime.',
   },
   gcal: {
     title: 'Google Calendar link',
@@ -176,13 +169,9 @@ export class SettingsView {
   // #region State & lifecycle — fields, constructor, full-page render (mount)
   private data: Data;
   private opts: SettingsOpts;
-  private icalInput?: HTMLTextAreaElement;
-  private icalErr?: HTMLElement;
-  private syncIcalBtn?: () => void; // refreshes the iCal button's label to match the field
-  private statusEl?: HTMLElement; // the "Last synced …" caption under the link
+  private statusEl?: HTMLElement; // the "Last synced …" caption under Sync now
   private draft: Draft = {
     name: '',
-    icalUrl: '',
     courses: [],
     endSound: DEFAULT_END_SOUND,
     endVolume: DEFAULT_END_VOLUME,
@@ -214,15 +203,11 @@ export class SettingsView {
     // which is what made opening Settings lag behind a blank panel.
     const profile = await this.data.getProfileAll();
     const account = profile['account'] as { displayName?: string } | undefined;
-    this.schoologyMeta = (profile['schoology'] as SchoologySettings | undefined) || {
-      icalUrl: '',
-      lastSyncAt: null,
-    };
+    this.schoologyMeta = (profile['schoology'] as SchoologySettings | undefined) || { lastSyncAt: null };
     this.gcalUrl = (profile[SCHEDULE_FEED_KEY] as ScheduleFeed | undefined)?.url || '';
     const savedSound = profile['focusEndSound'] as { key: string; volume?: number; enabled?: boolean } | undefined;
     this.draft = {
       name: account?.displayName || this.opts.displayName,
-      icalUrl: this.schoologyMeta.icalUrl,
       courses: getCourses().map((c) => ({ ...c, parseWords: [...(c.parseWords ?? [])] })),
       endSound: savedSound?.key || DEFAULT_END_SOUND,
       endVolume: savedSound?.volume ?? DEFAULT_END_VOLUME,
@@ -456,56 +441,17 @@ export class SettingsView {
     window.dispatchEvent(new CustomEvent(NOTIFY_SETTINGS_EVENT, { detail: notify }));
   }
 
-  /** The calendar link is the ONE gated field: validate, confirm a change to an
-   *  existing link (it re-imports everything), then commit + sync. */
-  private applyIcal(): void {
-    const prev = (this.schoologyMeta?.icalUrl || '').trim();
-    const next = this.draft.icalUrl.trim().replace(/^webcal:\/\//i, 'https://');
-
-    // Reject anything that is not a real Schoology calendar feed before anything
-    // persists. A YouTube link is a valid URL, which is exactly why the old
-    // syntax-only check was not enough. Empty = removing the link.
-    if (next && !isSchoologyIcalUrl(next)) {
-      this.setIcalError(true);
-      return;
-    }
-    this.setIcalError(false);
-
-    // Safeguard: changing or removing an EXISTING link needs a confirm.
-    if (prev && next !== prev) {
-      this.confirmDanger(
-        next
-          ? 'Change your Schoology link? This re-imports your assignments from the new feed.'
-          : 'Remove your Schoology link? Cobalt will stop importing your assignments.',
-        () => void this.commitIcal(next)
+  /** Re-run the Schoology import now (the Sync now button). */
+  private async syncNow(): Promise<void> {
+    this.setSyncStatus('Syncing…');
+    try {
+      const r = await runSync(this.data);
+      this.schoologyMeta = (await this.data.getProfile<SchoologySettings>('schoology')) || this.schoologyMeta;
+      this.setSyncStatus(
+        `Synced: ${r.added} new${r.updated ? `, ${r.updated} updated` : ''}${r.removed ? `, ${r.removed} removed` : ''}${r.skipped - r.updated > 0 ? `, ${r.skipped - r.updated} unchanged` : ''}.`
       );
-      return;
-    }
-    void this.commitIcal(next);
-  }
-
-  private async commitIcal(icalUrl: string): Promise<void> {
-    this.setIcalError(false);
-    const schoology = { ...(this.schoologyMeta || { lastSyncAt: null }), icalUrl };
-    await this.data.setProfile('schoology', schoology);
-    this.schoologyMeta = schoology;
-    this.draft.icalUrl = icalUrl;
-    if (this.icalInput) this.icalInput.value = icalUrl; // reflect webcal→https normalization
-    this.syncIcalBtn?.(); // link now matches what's saved → button returns to "Sync now"
-
-    if (icalUrl) {
-      this.setSyncStatus('Syncing…');
-      try {
-        const r = await runSync(this.data);
-        this.schoologyMeta = (await this.data.getProfile<SchoologySettings>('schoology')) || this.schoologyMeta;
-        this.setSyncStatus(
-          `Synced: ${r.added} new${r.updated ? `, ${r.updated} updated` : ''}${r.removed ? `, ${r.removed} removed` : ''}${r.skipped - r.updated > 0 ? `, ${r.skipped - r.updated} unchanged` : ''}.`
-        );
-      } catch (err) {
-        this.setSyncStatus('Sync failed: ' + (err as Error).message, true);
-      }
-    } else {
-      this.setSyncStatus('Not synced yet.');
+    } catch (err) {
+      this.setSyncStatus('Sync failed: ' + (err as Error).message, true);
     }
   }
 
@@ -746,13 +692,11 @@ export class SettingsView {
     return sec;
   }
 
-  /** SCHOOLOGY ACCOUNT (beta, Gabe 10/7/26): connect Cobalt to Schoology through
-   *  Schoology's own approve screen. Hidden until the flag is on (open the app with
-   *  ?sgyapi=1) unless the account is already connected, so nobody is stranded
-   *  without a way to disconnect. */
+  /** SCHOOLOGY ACCOUNT (Gabe 10/7/26; the only way in since 10/9/26): connect
+   *  Cobalt to Schoology through Schoology's own approve screen. Connected, it
+   *  shows Sync now and the last-synced caption. */
   private async renderSgyApi(slot: HTMLElement): Promise<void> {
     const st = await getSgyApiState(this.data).catch(() => null);
-    if (!sgyApiFlag() && !st?.connected && !st?.expired) return;
     slot.replaceChildren();
     const row = el('div', { class: 'srow' });
     const main = el('div', { class: 'srow-main' });
@@ -761,7 +705,7 @@ export class SettingsView {
     const fail = (e: unknown): void => {
       err.textContent = sgyErrorText(e);
     };
-    main.append(el('div', { class: 'srow-title', text: 'Schoology account (beta)' }));
+    main.append(el('div', { class: 'srow-title', text: 'Schoology account' }));
     if (st?.connected) {
       const who = [st.name, st.host].filter(Boolean).join(' · ');
       main.append(el('div', { class: 'srow-sub', text: `Connected${who ? ' as ' + who : ''}. Assignments and real course names come straight from Schoology.` }));
@@ -783,7 +727,7 @@ export class SettingsView {
           class: 'srow-sub',
           text: st?.expired
             ? 'Your Schoology connection expired. Reconnect to keep importing.'
-            : 'Pick your school, sign in on Schoology, and approve Cobalt. Read-only: no grades, no password.',
+            : 'Pick your school, sign in on Schoology, and approve Cobalt. Cobalt never sees your password.',
         })
       );
       // One tap per school (Gabe, 10/8/26), shared with onboarding's Connect screen.
@@ -804,62 +748,29 @@ export class SettingsView {
       return;
     }
     row.append(main, ctrl);
-    slot.append(row, err);
-  }
-
-  private sectionSchoology(): HTMLElement {
-    const sec = el('section', { class: 'settings-section', id: 'sec-school' });
-    // The real Schoology connection (beta). Filled in async because it reads the
-    // account's connection marker; the slot keeps its place at the top meanwhile.
-    const apiSlot = el('div');
-    sec.append(apiSlot);
-    void this.renderSgyApi(apiSlot);
-    sec.append(this.labelWithHelp('Calendar (iCal) link', 'ical'));
-    const input = textInput({
-      class: 'settings-input',
-      placeholder: 'webcal://… or https://…/ical.ics',
-      value: this.draft.icalUrl,
-    });
-    this.icalInput = input;
-    const icalErr = el('div', { class: 'settings-field-error' });
-    this.icalErr = icalErr;
-
-    // The one gated field. The button's label reflects whether the typed link
-    // differs from what's saved: an unsaved change reads "Save & sync"; otherwise
-    // it just re-runs the import ("Sync now").
+    // Sync now + the last-synced caption, which turns into progress and the
+    // result the moment the button is pressed.
     const btn = el('button', { class: 'settings-save settings-ical-btn', text: 'Sync now' }) as HTMLButtonElement;
-    const syncBtnLabel = () => {
-      const saved = (this.schoologyMeta?.icalUrl || '').trim();
-      const typed = this.draft.icalUrl.trim().replace(/^webcal:\/\//i, 'https://');
-      const changed = typed !== saved;
-      btn.textContent = changed ? (typed ? 'Save & sync' : 'Remove link') : 'Sync now';
-      btn.classList.toggle('changed', changed);
-      btn.disabled = !typed && !saved; // nothing to do with an empty field and no saved link
-    };
-    this.syncIcalBtn = syncBtnLabel;
-    btn.addEventListener('click', () => this.applyIcal());
-
-    input.addEventListener('input', () => {
-      this.draft.icalUrl = input.value;
-      this.setIcalError(false); // typing clears the invalid-link warning
-      syncBtnLabel();
-    });
-
+    btn.addEventListener('click', () => void this.syncNow());
     const actions = el('div', { class: 'settings-ical-actions' });
     actions.append(btn);
-
     const status = el('div', { class: 'settings-status' });
     this.statusEl = status;
-    // The button runs the import. This caption shows the last-synced time, then
-    // progress/result the moment "Save & sync" (or "Sync now") is pressed.
     this.setSyncStatus(
       this.schoologyMeta?.lastSyncAt
         ? `Last synced ${formatSyncTime(this.schoologyMeta.lastSyncAt)} · ${this.schoologyMeta.lastSyncCount ?? 0} assignments`
         : 'Not synced yet.'
     );
+    slot.append(row, err, actions, status);
+  }
 
-    syncBtnLabel(); // initial state
-    sec.append(input, icalErr, actions, status);
+  private sectionSchoology(): HTMLElement {
+    const sec = el('section', { class: 'settings-section', id: 'sec-school' });
+    // The Schoology connection. Filled in async because it reads the
+    // account's connection marker; the slot keeps its place at the top meanwhile.
+    const apiSlot = el('div');
+    sec.append(apiSlot);
+    void this.renderSgyApi(apiSlot);
 
     const p = this.draft.prefs;
     const save = (): void => void this.savePrefs();
@@ -1044,15 +955,6 @@ export class SettingsView {
     if (!this.statusEl) return;
     this.statusEl.textContent = text;
     this.statusEl.classList.toggle('settings-status-error', isError);
-  }
-
-  /** Toggle the inline "invalid iCal link" warning on the link field. */
-  private setIcalError(on: boolean): void {
-    if (this.icalErr)
-      this.icalErr.textContent = on
-        ? 'That is not a Schoology calendar link. It looks like webcal://yourschool.schoology.com/calendar/feed/ical/…'
-        : '';
-    this.icalInput?.classList.toggle('invalid', on);
   }
 
   private sectionCourses(): HTMLElement {

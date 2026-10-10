@@ -1,15 +1,11 @@
-// Cobalt: the real Schoology connection (OAuth through Cloud Functions).
+// Cobalt: the Schoology connection (OAuth through Cloud Functions), the ONLY way
+// Schoology connects since 10/9/26.
 //
 // The student authorizes Cobalt on their own school's Schoology page; the server
 // keeps the token (functions/index.js, "Schoology API" region) and hands back the
-// same payload shape the companion extension produces, so sync.ts runs its one
-// pipeline over it unchanged. Task ids stay 'ical_assign_<id>', which means an
-// account that already imported through iCal or the extension does not get a
-// duplicate of anything when it switches over.
-//
-// BEHIND A FLAG until one real end-to-end import has run (Schoology Integration
-// Timeline, Phase 2). The Settings row only appears when the flag is on or the
-// account is already connected. Turn it on by opening the app with ?sgyapi=1.
+// payload sync.ts imports. Task ids stay 'ical_assign_<id>' (a legacy name), so an
+// account that imported through the old iCal link or extension gets no duplicates
+// when it reconnects.
 
 import type { Data } from '../db';
 import { firebaseConfig } from '../firebase';
@@ -27,30 +23,6 @@ export interface SgyApiState {
   firstName?: string;
   connectedAt?: string;
   lastFetchAt?: string;
-}
-
-const FLAG_KEY = 'cobalt:sgyApi';
-
-/** Is the beta connect row switched on for this browser? `?sgyapi=1` turns it on,
- *  `?sgyapi=0` off; the choice is remembered. */
-export function sgyApiFlag(): boolean {
-  try {
-    const q = new URLSearchParams(location.search).get('sgyapi');
-    // The address alone decides when it says so, so a browser with storage blocked
-    // still honours ?sgyapi=1 for this visit.
-    if (q === '1' || q === '0') {
-      try {
-        if (q === '1') localStorage.setItem(FLAG_KEY, '1');
-        else localStorage.removeItem(FLAG_KEY);
-      } catch {
-        /* remembered next time only if storage works */
-      }
-      return q === '1';
-    }
-    return localStorage.getItem(FLAG_KEY) === '1';
-  } catch {
-    return false;
-  }
 }
 
 async function callable<T>(name: string, payload: unknown): Promise<T> {
@@ -99,13 +71,6 @@ export async function disconnectSchoology(): Promise<void> {
 /** The student's courses and upcoming assignments, read by the server. */
 export async function fetchSgyApiPayload(): Promise<SgyPayload | null> {
   return coercePayload(await callable<unknown>('sgyFetch', {}));
-}
-
-/** The school host to suggest in the connect box: from the saved iCal link when
- *  there is one (it lives on the school's own Schoology domain). */
-export function hostFromIcal(icalUrl: string | undefined): string {
-  const m = String(icalUrl || '').match(/^[a-z]+:\/\/([a-z0-9.-]+\.schoology\.com)\//i);
-  return m ? m[1].toLowerCase() : '';
 }
 
 // #region School picker — pick your school instead of typing its Schoology address

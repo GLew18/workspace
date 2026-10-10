@@ -1,61 +1,45 @@
-// Cobalt: Schoology-extension client + course-label store.
+// Cobalt: the Schoology payload (types + validation) and the course-label store.
 //
-// The iCal feed has NO course names, so imported tasks get their course from a
-// heuristic guess — the app's biggest credibility risk. The companion extension
-// reads the REAL course label for every assignment straight off the signed-in
-// Schoology pages (the same session access Schoology's own UI uses; no password,
-// no cookies ever touched here) and hands it over as assignmentId → courseName.
-// That joins to tasks EXACTLY: the feed URL and the Schoology DOM both carry the
-// same /assignment/<id>, and sync.ts writes those tasks as 'ical_assign_<id>'.
+// The file keeps its old name: it began as the client for the companion
+// extension's Schoology scrape. Since 10/9/26 the only payload is the one the
+// server builds from the student's real Schoology connection (sgyFetch, see
+// api.ts); the extension no longer touches Schoology.
 //
-// This module is the app side of that bridge:
-//   • detectSchoologyExtension / requestSgyData — talk to the extension over the
-//     same transport as bookmarks/shortcuts.ts (direct chrome.runtime.sendMessage
-//     when the published id is known, window.postMessage bridge otherwise).
+//   • coercePayload — rebuild a clean payload from whatever came over the wire.
 //   • loadLabels / saveLabels / recordManualLabel / labelFor — the label store.
-//   • applySgyPayload — merge scraped labels in, fix already-imported tasks,
-//     seed the course registry, and auto-capture the iCal URL.
+//   • applySgyPayload — merge labels in, fix already-imported tasks, seed the
+//     course registry, remember teachers.
 //
 // STORAGE IS CLOUD, NOT LOCAL: labels persist at profile 'courseLabels' through
-// Data (Firebase RTDB). That is the entire reason this design works on mobile —
-// the extension only exists on desktop Chrome, but once it has labeled an
-// assignment there, a phone with no extension reads the same profile and shows
-// the same true course.
+// Data (Firebase RTDB), so every device shows the same true course.
 //
 // PRECEDENCE (enforced in applySgyPayload): manual > ext > heuristic guess.
-// A manual label is never overwritten by a scrape; an ext label DOES overwrite
+// A manual label is never overwritten by an import; an ext label DOES overwrite
 // an older ext label, because teachers move assignments between courses.
 
 import type { Data } from '../db';
-import type { Task, SchoologySettings } from '../types';
+import type { Task } from '../types';
 import { getCourses, addCourse, registryHydratedFromStore } from '../courses/registry';
 import { DEFAULT_COURSE_COLOR } from '../courses/maps';
-import { EXTENSION_ID, PROTOCOL_VERSION } from '../bookmarks/shortcuts';
-import { genId } from '../util/ids';
-import { isSchoologyIcalUrl } from './ical';
 import { saveTeachers } from '../tasks/teachers';
 
-// #region Public types — mirrored field-for-field in the extension (plain JS side)
+// #region Public types — what sgyFetch sends
 export interface SgyCourse {
   id: string; // Schoology section id from /course/<id>
   name: string;
 }
-/** One assignment read straight off Schoology's own API by the extension. The
- *  import source when the extension is installed (Gabe, 10/6/26): same fields as
- *  an IcalEvent so sync.ts runs ONE pipeline over either source, plus the course
- *  the extension resolved from the assignment's own section record. */
+/** One assignment read off Schoology's API, with the course resolved from the
+ *  assignment's own section record. */
 export interface SgyAssignment {
   id: string; // the /assignment/<id> join key
   title: string;
-  description: string; // plain text (the extension flattens Schoology's HTML)
+  description: string; // plain text (the server flattens Schoology's HTML)
   url: string;
   date: string; // 'YYYY-MM-DD'
   time: string; // 'HH:MM' or '' for all-day
   kind: 'assignment' | 'assessment';
   course: string; // '' when the section lookup failed
-  /** Files, links and videos the teacher put on the assignment itself. Only the
-   *  real Schoology connection sends these today; optional so an extension that
-   *  predates them stays valid. */
+  /** Files, links and videos the teacher put on the assignment itself. */
   attachments?: SgyAttachment[];
 }
 export interface SgyAttachment {
@@ -64,7 +48,7 @@ export interface SgyAttachment {
 }
 /** A course's teacher and their Schoology email (Gabe, 10/8/26), what "Email
  *  teacher" opens Gmail with. Keyed by course NAME because that is what a task
- *  carries. Sent by the extension and by the Schoology connection alike. */
+ *  carries. */
 export interface SgyTeacher {
   course: string;
   name: string;
@@ -72,12 +56,12 @@ export interface SgyTeacher {
 }
 export interface SgyPayload {
   host: string; // e.g. heschel.schoology.com
-  icalUrl?: string; // personal iCal feed URL, when the scrape discovered it
   courses: SgyCourse[];
   labels: Record<string, string>; // assignmentId -> courseName (exact ground truth)
   assignments?: SgyAssignment[]; // the student's upcoming work, when the API pass ran
   coverage?: { from: string; to: string }; // dates `assignments` is authoritative for
   teachers?: SgyTeacher[]; // who teaches each course, with email
+  schedule?: { id: string; title: string; date: string; url: string }[]; // schedule posts, for the dashboard card
   scrapedAt: number;
   diag?: Record<string, unknown>; // which scrape strategies matched — troubleshooting only
 }
@@ -90,28 +74,17 @@ export type LabelMap = Record<string, CourseLabel>;
 export interface ApplyResult {
   labeled: number; // tasks that had NO course and got one
   corrected: number; // tasks whose guessed course was wrong and got fixed
-  coursesAdded: number; // new registry courses seeded from the scrape
-  icalCaptured: boolean; // the feed URL was auto-configured this pass
+  coursesAdded: number; // new registry courses seeded from the payload
 }
 // #endregion
 
 // #region Constants
-/** Where a student installs the companion extension. EMPTY until it is published
- *  to the Chrome Web Store (same gate as EXTENSION_ID in bookmarks/shortcuts.ts):
- *  onboarding shows the install route as "coming soon" while this is blank, and
- *  turns it into a real button the moment the listing URL is pasted here. */
-export const EXTENSION_STORE_URL = '';
 
 /** Profile key for the label store. Cloud data (see header) — never localStorage. */
 const LABELS_PROFILE_KEY = 'courseLabels';
 
 /** The join to sync.ts: logicalKey 'assign_<id>' prefixed with 'ical_'. */
 const TASK_ID_PREFIX = 'ical_assign_';
-
-/** SGY_GET is a chrome.storage read in the SW — fast. SGY_REFRESH asks a live
- *  Schoology tab to re-scrape first, so it gets a much longer leash. */
-const GET_TIMEOUT_MS = 2000;
-const REFRESH_TIMEOUT_MS = 10000;
 
 /** Assignment ids come from /assignment/(\d+) on both sides, so anything
  *  non-numeric is a broken scrape. Also keeps the profile write safe: RTDB
@@ -122,40 +95,10 @@ function isValidAssignmentId(id: string): boolean {
 }
 // #endregion
 
-// #region Minimal chrome typings (no @types/chrome in this project; mirrors shortcuts.ts)
-interface ChromeRuntimeLike {
-  sendMessage?: (
-    extensionId: string,
-    message: unknown,
-    callback?: (response: unknown) => void
-  ) => void;
-  lastError?: { message?: string } | undefined;
-}
-function getChromeRuntime(): ChromeRuntimeLike | undefined {
-  return (window as unknown as { chrome?: { runtime?: ChromeRuntimeLike } }).chrome?.runtime;
-}
-// #endregion
 
-// #region Transport — detect + request/response with the extension
-/** True when the Cobalt companion extension answers a ping. Same extension as
- *  shortcuts, so this simply reuses its detector (ping/pong over both channels,
- *  5s positive cache). Never throws; absent/blocked chrome APIs → false. */
-/** Always false since 10/10/26 (Gabe): the extension no longer reads Schoology at
- *  all (1.2.1 dropped it), so nothing in the app may treat it as a Schoology
- *  source. Schoology comes only from the real connection. */
-export async function detectSchoologyExtension(_timeoutMs?: number): Promise<boolean> {
-  return false;
-}
-
-/** Is this the student's own Schoology personal-calendar feed? Anything else must
- *  never reach account settings (see the icalUrl note in coercePayload).
- *  The check itself now lives in schoology/ical.ts (isSchoologyIcalUrl) so
- *  onboarding, Settings, and this wire-payload guard all share ONE validator. */
-const isSchoologyFeedUrl = isSchoologyIcalUrl;
-
-/** Runtime validation of whatever came over the wire. The extension is plain JS
- *  and a version ahead/behind of the app is normal, so never trust the shape —
- *  rebuild a clean payload field by field and drop anything malformed. */
+// #region Validation
+/** Runtime validation of whatever came over the wire. A server a version ahead
+ *  or behind the app is normal, so never trust the shape — rebuild a clean payload field by field and drop anything malformed. */
 export function coercePayload(raw: unknown): SgyPayload | null {
   if (!raw || typeof raw !== 'object') return null;
   const p = raw as Partial<SgyPayload>;
@@ -268,94 +211,13 @@ export function coercePayload(raw: unknown): SgyPayload | null {
   }
   // Optional fields only when present — a stored `undefined` would poison later
   // writes (RTDB rejects undefined; this codebase deletes keys instead).
-  // icalUrl is re-validated HERE as well as in the extension: it gets written into
-  // account settings first-write-wins, so a wrong capture (a teacher-posted third
-  // party calendar link) would silently import someone else's calendar forever.
-  // Belt-and-braces on both sides means one side regressing cannot open the hole.
-  if (typeof p.icalUrl === 'string' && isSchoologyFeedUrl(p.icalUrl)) out.icalUrl = p.icalUrl;
   if (p.diag && typeof p.diag === 'object') out.diag = p.diag as Record<string, unknown>;
   return out;
 }
 
-/** One request→response round-trip. Same dual-channel scheme as shortcuts.ts:
- *  direct chrome.runtime.sendMessage when the published id is known, PLUS the
- *  postMessage bridge (dev/localhost, Firefox/Safari, unpublished builds where
- *  only bridge.js knows the id). Unlike SYNC_SHORTCUTS, sending on both channels
- *  is safe here — SGY_GET is a pure read and SGY_REFRESH's re-scrape is
- *  idempotent — and the reqId settle-once guard dedupes a double reply. */
-function sendSgyRequest(type: 'SGY_GET' | 'SGY_REFRESH', timeoutMs: number): Promise<SgyPayload | null> {
-  const reqId = 'sgy_' + genId();
-  const msg = { source: 'workspace', v: PROTOCOL_VERSION, type, reqId };
-
-  return new Promise<SgyPayload | null>((resolve) => {
-    let settled = false;
-    let timer = 0;
-    const finish = (payload: SgyPayload | null): void => {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timer);
-      window.removeEventListener('message', onMsg);
-      resolve(payload);
-    };
-
-    // Bridge channel replies arrive as same-window postMessages tagged with our reqId.
-    const onMsg = (ev: MessageEvent): void => {
-      if (ev.source !== window) return; // only same-window relays from bridge.js
-      const d = ev.data as
-        | { source?: string; type?: string; reqId?: string; payload?: unknown }
-        | undefined;
-      if (!d || d.source !== 'workspace-ext' || d.type !== 'SGY_DATA' || d.reqId !== reqId) return;
-      finish(coercePayload(d.payload));
-    };
-    window.addEventListener('message', onMsg);
-
-    // 1. Direct channel (published extension with a known id). The announced-id
-    //    fallback lives privately in shortcuts.ts; without EXTENSION_ID the
-    //    bridge below is the only path — exactly like syncShortcutsToExtension.
-    const runtime = getChromeRuntime();
-    if (runtime && runtime.sendMessage && EXTENSION_ID) {
-      try {
-        runtime.sendMessage(EXTENSION_ID, msg, (response: unknown) => {
-          if (runtime.lastError) return; // not reachable directly; bridge/timer decides
-          const r = response as { source?: string; type?: string; payload?: unknown } | undefined;
-          if (r && r.source === 'workspace-ext' && r.type === 'SGY_DATA') {
-            finish(coercePayload(r.payload));
-          }
-        });
-      } catch {
-        /* unknown id throws synchronously in some browsers — bridge/timer decides */
-      }
-    }
-
-    // 2. Bridge channel.
-    try {
-      window.postMessage(msg, location.origin);
-    } catch {
-      /* ignore */
-    }
-
-    // 3. Nothing answered in time → no extension / no data. Silence, never throw.
-    timer = window.setTimeout(() => finish(null), timeoutMs);
-  });
-}
-
-/** Fetch the extension's scraped Schoology data. `refresh` asks any open
- *  schoology.com tab to re-scrape first (SGY_REFRESH), else it's the cached
- *  chrome.storage copy (SGY_GET). Resolves null when the extension is absent,
- *  times out, or replies garbage — callers need no try/catch. */
-export async function requestSgyData(refresh?: boolean): Promise<SgyPayload | null> {
-  try {
-    return await sendSgyRequest(
-      refresh ? 'SGY_REFRESH' : 'SGY_GET',
-      refresh ? REFRESH_TIMEOUT_MS : GET_TIMEOUT_MS
-    );
-  } catch {
-    return null; // transport must never take the caller down
-  }
-}
 // #endregion
 
-// #region Label store — cloud profile, survives devices without the extension
+// #region Label store — cloud profile, the same on every device
 /** Read the label map from the profile. Normalizes on read (same policy as
  *  registry/db: the storage boundary is where stored data gets made safe), so
  *  consumers can trust every entry. Never throws — a failed read is just {}. */
@@ -425,12 +287,12 @@ export function labelFor(labels: LabelMap, assignmentId: string): string {
 }
 // #endregion
 
-// #region applySgyPayload — merge labels, fix tasks, seed courses, capture the feed URL
-/** Fold one scrape into the account. Idempotent by design: every step compares
+// #region applySgyPayload — merge labels, fix tasks, seed courses, remember teachers
+/** Fold one payload into the account. Idempotent by design: every step compares
  *  before writing, so a second run over the same payload changes nothing and
  *  returns all-zero counts. */
 export async function applySgyPayload(data: Data, payload: SgyPayload): Promise<ApplyResult> {
-  const result: ApplyResult = { labeled: 0, corrected: 0, coursesAdded: 0, icalCaptured: false };
+  const result: ApplyResult = { labeled: 0, corrected: 0, coursesAdded: 0 };
   if (!payload || typeof payload !== 'object') return result;
   const scrapedLabels = payload.labels && typeof payload.labels === 'object' ? payload.labels : {};
 
@@ -464,7 +326,7 @@ export async function applySgyPayload(data: Data, payload: SgyPayload): Promise<
   // defaults in memory only — because an empty read can be a transient blank rather
   // than a new user. This is the first AUTOMATIC caller, so without this gate one
   // background scrape landing in that blank window would overwrite a curated course
-  // list (names, colors, parse words) with seeds. Labels/tasks/iCal still apply;
+  // list (names, colors, parse words) with seeds. Labels/tasks still apply;
   // only seeding waits, and the next run picks it up.
   if (registryHydratedFromStore()) {
     const have = new Set(getCourses().map((c) => c.name.toLowerCase().trim()));
@@ -503,25 +365,7 @@ export async function applySgyPayload(data: Data, payload: SgyPayload): Promise<
   }
   if (changed.length) await data.putTasksBulk(changed);
 
-  // --- 4. auto-capture the iCal feed URL ---
-  // The whole point: the extension finds the personal feed URL so the user never
-  // pastes one. FIRST-write only — an already-configured URL is the user's (or a
-  // previous capture's) and is never overwritten.
-  if (payload.icalUrl && typeof payload.icalUrl === 'string') {
-    const settings = await data.getProfile<SchoologySettings>('schoology');
-    if (!settings?.icalUrl) {
-      const next: SchoologySettings = {
-        icalUrl: payload.icalUrl,
-        lastSyncAt: settings?.lastSyncAt ?? null,
-      };
-      // Optional field: only carry it when it exists — never write undefined.
-      if (typeof settings?.lastSyncCount === 'number') next.lastSyncCount = settings.lastSyncCount;
-      await data.setProfile('schoology', next);
-      result.icalCaptured = true;
-    }
-  }
-
-  // --- 5. remember who teaches each course ---
+  // --- 4. remember who teaches each course ---
   // Replaces the stored list only when this payload actually carried teachers, so
   // a scrape that skipped the daily harvest (or an API pass the school's privacy
   // settings left without emails) never wipes addresses already known.

@@ -1,49 +1,42 @@
 // Cobalt: first-run onboarding deck.
 //
-// Ported from the onb-A prototype (app/public/onb-A.html). Six full-screen
-// slides over the branded gradient field, with a progress rail that only ever
-// climbs:
+// Seven full-screen slides over the branded gradient field, with a progress rail
+// that only ever climbs:
 //
-//   1. WELCOME:  the app mark, the wordmark, one button.
-//   2. IMPORT:   what the product actually does, shown rather than described.
-//   3. CONNECT:  the Schoology mark, the extension pitch (recommended route,
-//                auto-connects when installed) + the iCal link. Pressing Connect plays the
-//                scan animation IN PLACE (it is not a separate slide), then the
-//                button becomes Continue. There is deliberately NO skip: a
-//                student who skips forgets, opens an empty app, and concludes
-//                the product is bad. The connection IS the product.
-//   3b. SCHEDULE: the student's Google Calendar schedule (secret iCal address),
-//                which feeds the dashboard's Current Schedule card AND names their
-//                courses. Skippable: not every school publishes one (10/5/26).
-//   4. COURSES:  the Settings ▸ Courses editor, verbatim (same classes, from
-//                settings.css), because onboarding is where courses are BORN
-//                and Settings is where they're edited later.
-//   5. NAME:     pre-filled from the signed-in account's email, so the student
-//                confirms a guess instead of answering a blank prompt.
-//   6. PAYOFF:   everything commits here, the first sync runs live, and the
-//                real imported assignments are listed (not a teaser count).
+//   1. WELCOME:   the app mark, the wordmark, one button.
+//   2. IMPORT:    what the product actually does, shown rather than described.
+//   3. CONNECT:   pick your school, approve Cobalt on Schoology's own page, and
+//                 the real titles fly in (Schoology OAuth, the only way in since
+//                 10/9/26). There is deliberately NO real skip: a student who
+//                 skips forgets, opens an empty app, and concludes the product is
+//                 bad. The connection IS the product. (A temporary testing skip
+//                 sits on the screen; see the note there.)
+//   4. COURSES:   the Settings ▸ Courses editor, filled from Schoology's sections.
+//   5. SCHEDULE:  the student's Google Calendar schedule (secret iCal address),
+//                 which feeds the dashboard's Current Schedule card. Skippable.
+//   6. LANGUAGES: which languages to translate task titles from.
+//   7. PAYOFF:    everything commits here, the first sync runs live, and the
+//                 real imported assignments are listed (not a teaser count).
 //
-// WHERE AUTH SITS: main.ts signs the user in BEFORE calling this (it passes
-// `user.email`), so the prototype's sign-in slide has no equivalent here. By the
-// time this runs, the account already exists. That is also why the name screen
-// can pre-fill: the email is already known.
+// The first name comes from Schoology (preferred name first); without a
+// connection it falls back to a guess from the email, then the Google name.
 //
-// Contract (unchanged from the previous card version): saves profile/account with
-// onboarded: true + markOnboardedLocally(), saves profile/schoology when a link is
-// given, runs the first sync, then calls onDone(name).
+// WHERE AUTH SITS: main.ts signs the user in BEFORE calling this, so by the time
+// this runs the account already exists.
+//
+// Contract: saves profile/account with onboarded: true + markOnboardedLocally(),
+// runs the first sync, then calls onDone(name).
 
 import type { Data } from '../db';
 import { el, textInput } from '../util/dom';
-import { createWordmark } from '../ui/laurel';
+import { STONE_SVG } from '../ui/laurel';
 import { capitalizeName, nameFromEmail } from '../util/names';
-import { runSync, fetchIcal } from '../schoology/sync';
+import { runSync } from '../schoology/sync';
 import { replaceCourses, getCourseColor } from '../courses/registry';
 import { buildCourseRow } from '../courses/courseRow';
 import { nextCourseColor } from '../courses/colors';
-import { BADGE_ASSESSMENT_RE, isSchoologyIcalUrl, parseIcal, taskEvents } from '../schoology/ical';
-import { detectSchoologyExtension, requestSgyData, EXTENSION_STORE_URL } from '../schoology/extension';
+import { BADGE_ASSESSMENT_RE } from '../schoology/events';
 import {
-  sgyApiFlag,
   startSchoologyConnect,
   finishSchoologyConnectIfReturning,
   fetchSgyApiPayload,
@@ -52,7 +45,6 @@ import {
 } from '../schoology/api';
 import { todayStr } from '../util/dates';
 import { genId } from '../util/ids';
-import { openIcalGuide } from './icalGuide';
 import { openGcalGuide } from './gcalGuide';
 import { buildLanguagePicker } from '../settings/languagePicker';
 import { normalizePrefs } from '../prefs';
@@ -79,6 +71,16 @@ interface OnboardingOpts {
   preview?: (ctl: { go: (i: number) => void; count: number; draft: { name: string; courses: CourseConfig[] } }) => void;
 }
 
+/** A calendar page, the schedule screen's source tile: Google-blue header band
+ *  and date, no trademark artwork. */
+const CAL_ICON =
+  '<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Calendar">' +
+  '<rect x="4" y="6" width="40" height="38" rx="7" fill="#fff" stroke="#dadce0" stroke-width="2"/>' +
+  '<path d="M4 13a7 7 0 0 1 7-7h26a7 7 0 0 1 7 7v4H4z" fill="#4285f4"/>' +
+  '<rect x="13" y="2" width="4" height="9" rx="2" fill="#1a5fd0"/><rect x="31" y="2" width="4" height="9" rx="2" fill="#1a5fd0"/>' +
+  '<text x="24" y="36" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1a73e8">31</text>' +
+  '</svg>';
+
 /** The real Schoology mark, so the connect step shows the service by its own logo. */
 const SGY_LOGO =
   '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Schoology">' +
@@ -87,38 +89,6 @@ const SGY_LOGO =
   '<text x="50" y="51" text-anchor="middle" dominant-baseline="central" ' +
   'font-family="Inter, Helvetica, Arial, sans-serif" font-size="56" font-weight="700" fill="#38383B">S</text>' +
   '</svg>';
-
-// Link validation: isSchoologyIcalUrl (schoology/ical.ts), the same strict check
-// Settings and the extension use. Any-URL was not enough: a YouTube link is a
-// perfectly valid URL and a perfectly useless calendar feed.
-
-
-/**
- * The student's REAL courses, or nothing.
- *
- * The iCal feed carries no course field at all (verified against Heschel's feed:
- * UID, DTSTART, SUMMARY, DESCRIPTION, URL, and nothing else), so the only honest
- * source is the companion extension, which reads the course names off the
- * student's own logged-in Schoology pages. No extension, no Chrome, or nothing
- * scraped yet returns an empty list, and the courses screen then shows an empty
- * editor instead of a fabricated schedule.
- */
-async function discoverCourses(): Promise<CourseConfig[]> {
-  try {
-    if (!(await detectSchoologyExtension())) return [];
-    const payload = await requestSgyData();
-    const names = (payload?.courses ?? []).map((c) => c.name.trim()).filter(Boolean);
-    // A section can appear more than once across scraped pages.
-    return [...new Set(names)].map((name) => ({
-      id: 'course_' + genId(),
-      name,
-      color: getCourseColor(name),
-      parseWords: [],
-    }));
-  } catch {
-    return []; // a scrape problem must never block onboarding
-  }
-}
 
 export function runOnboarding({ data, email, fallbackName, onDone, preview }: OnboardingOpts): void {
   // Draft state. NOTHING is written until the payoff screen commits it, so a
@@ -129,7 +99,6 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
     // overwrites this with the student's real first name; otherwise it stays the
     // guess from their email or Google account.
     name: capitalizeName(nameFromEmail(email) || fallbackName || ''),
-    ical: '',
     connected: false,
     // Courses start EMPTY, and stay empty unless the connection actually finds
     // some (per Gabe). The old code seeded this from getCourses(), which on a
@@ -140,13 +109,11 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
     courses: [] as CourseConfig[],
     /** Where the course list came from, for the courses screen's subtitle. */
     coursesFrom: '' as '' | 'schoology' | 'schedule',
-    /** Connected through the extension's own assignment list (no feed link). */
-    extConnected: false,
     /** Connected through Schoology's own approve screen (the real API). */
     apiConnected: false,
     /** The Google Calendar schedule address, once it has been read successfully. */
     schedule: '',
-    // Real assignment titles pulled from the student's own feed, shown flying in
+    // Real assignment titles pulled from the student's own Schoology, shown flying in
     // during the scan. Empty feed means an empty animation, honestly.
     found: [] as string[],
     foundCount: 0,
@@ -206,6 +173,16 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
     stageEl.replaceChildren();
     const screen = el('div', { class: `onb-screen${dir < 0 ? ' off-l' : ''}` });
     SCREENS[i].build(screen);
+    // BUTTON LOW, CONTENT HIGH (Gabe, 10/10): every screen's picture and heading sit
+    // near the top and its main button near the bottom, so both land at about the
+    // same height from step to step. A spacer before the button takes the slack.
+    // The payoff screen keeps its centred layout (its button arrives later).
+    const sc = screen.querySelector<HTMLElement>(':scope > .onb-sc');
+    const mainBtn = sc?.querySelector(':scope > .onb-cta');
+    if (sc && mainBtn && sc.id !== 'onbSetup' && !sc.classList.contains('centered')) {
+      sc.classList.add('stacked');
+      mainBtn.before(el('div', { class: 'onb-push' }));
+    }
     stageEl.append(screen);
     // setTimeout, not rAF: rAF never fires in a hidden/uncomposited tab, which
     // would freeze the entrance and the bar. One tick is enough for the
@@ -232,6 +209,12 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   const cta = (label: string): HTMLButtonElement =>
     el('button', { class: 'onb-cta rise d3', text: label }) as HTMLButtonElement;
 
+  /** The Connect screen's caption once Schoology has answered. */
+  const connectedLine = (total: number): string =>
+    total
+      ? `Connected. Found ${total} upcoming assignment${total === 1 ? '' : 's'}.`
+      : 'Connected. No upcoming assignments yet, new ones will import automatically.';
+
   /** Shared: the white Schoology tile. */
   const sgyTile = (big = false): HTMLElement => {
     const tile = el('div', { class: `onb-tile${big ? ' lg' : ''}` });
@@ -242,25 +225,28 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   // ------------------------------------------------------------- 1 · welcome
   SCREENS.push({
     build(host) {
-      const sc = pane(host);
-      const hero = el('div', { class: 'onb-visual onb-hero', style: 'margin-bottom:26px' });
-      hero.append(el('div', { class: 'onb-hero-glow' }));
-      hero.append(el('img', { class: 'onb-mark', src: '/icons/icon.svg', alt: '' }));
-      // THE REAL WORDMARK (Gabe, 10/9): C + gem + balt, exactly as everywhere else.
-      // It was the only place in the app that spelled the "o" as a coloured letter.
-      const wordmark = el('div', { class: 'onb-wordmark rise d1' });
-      wordmark.append(createWordmark().el);
+      // THE FIRST SLIDE MIRRORS THE LAST (Gabe, 10/10): the same centred layout and
+      // button height as the payoff, with the Cobalt gem where the payoff has its
+      // check (a crown was tried and dropped). The two ends are deliberate
+      // exceptions to "button low".
+      const sc = pane(host, 'centered');
+      const mark = el('div', { class: 'onb-crowned' });
+      // Static markup authored in this file and laurel.ts; no user input.
+      // UPRIGHT here (Gabe, 10/10): the wordmark tilts its gem to sit in "Cobalt" as
+      // the "o"; standing alone, it reads straight.
+      mark.innerHTML = `<div class="onb-crowned-gem">${STONE_SVG.replace('rotate(-8 50 50) ', '')}</div>`;
+      const h1 = el('h1', { class: 'rise d1' });
+      h1.append('Welcome to ', el('span', { class: 'g', text: 'Cobalt' }));
       sc.append(
-        hero,
-        el('div', { class: 'onb-eyebrow rise d1', text: 'welcome to' }),
-        wordmark,
+        mark,
+        h1,
         el('p', {
           class: 'onb-sub rise d2',
-          style: 'margin-top:16px',
-          text: 'Your Schoology, organized. Every assignment in one calm place.',
+          text: 'Your Schoology, organized. Everything you need in one calm place.',
         })
       );
       const next = cta('Let’s go');
+      next.style.marginTop = '30px'; // the payoff's own gap above Enter Cobalt
       next.addEventListener('click', () => go(index + 1));
       sc.append(next);
     },
@@ -304,7 +290,7 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         h1,
         el('p', {
           class: 'onb-sub rise d2',
-          text: 'Cobalt reads your Schoology calendar and turns it into a clean task list. Automatically, forever.',
+          text: 'Cobalt reads your Schoology and turns it into a clean task list. Automatically, forever.',
         })
       );
       const next = cta('Continue');
@@ -335,78 +321,14 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
 
       const h1 = el('h1', { class: 'rise d1' });
       h1.append('Connect ', el('span', { class: 'g', text: 'Schoology' }));
-      const sub = el('p', {
-        class: 'onb-sub rise d2',
-        text: 'Two ways in. The extension does all of it on its own; the link does the basics.',
-      });
+      // No caption until Schoology has answered (Gabe, 10/9); reveal() fills it in.
+      const sub = el('p', { class: 'onb-sub rise d2', style: 'display:none' });
 
-      // THE PITCH (Gabe, 10/6/26): the extension is the lowest-friction route that
-      // stays inside the rules. Install once, sign in to Schoology as usual, and it
-      // syncs assignments AND real course names every 30 minutes in the background,
-      // reading only the student's own pages (never a password, never a cookie).
-      // The pasted link is the no-install fallback: assignments only, no courses.
-      // Until the Web Store listing exists (EXTENSION_STORE_URL blank) the button is
-      // an honest "coming soon", and the paste route below carries the step.
-      const route = el('div', { class: 'onb-route rise d2' });
-      const routeHead = el('div', { class: 'onb-route-head' });
-      routeHead.append(
-        el('span', { class: 'onb-route-title', text: 'Install the Cobalt extension' }),
-        el('span', { class: 'onb-route-badge', text: 'Recommended' })
-      );
-      const routeText = el('p', {
-        class: 'onb-route-text',
-        text: 'Assignments, real course names, and a refresh every 30 minutes without opening Schoology. It reads only your own pages and never sees your password.',
-      });
-      const routeBtn = el('button', { class: 'onb-route-btn', type: 'button', text: 'Get the extension' });
-      const routeStatus = el('div', { class: 'onb-route-status' });
-      if (EXTENSION_STORE_URL) {
-        routeBtn.addEventListener('click', () => window.open(EXTENSION_STORE_URL, '_blank', 'noopener'));
-      } else {
-        routeBtn.disabled = true;
-        routeBtn.textContent = 'Coming to the Chrome Web Store';
-      }
-      route.append(routeHead, routeText, routeBtn, routeStatus);
-
-      const divider = el('div', { class: 'onb-route-or rise d2', text: 'or paste your calendar link' });
-
-      const fieldWrap = el('div', {
-        class: 'rise d2',
-        style: 'width:100%;max-width:420px;margin-top:4px',
-      });
-      // The animated walkthrough (icalGuide.ts): Schoology-accurate slides of the
-      // REAL route (your name → Settings → scroll → copy). It replaced a text
-      // list that described a route Schoology doesn't actually have.
-      // THE SAME BUTTON AS SETTINGS' fix-it guides (Gabe, 8/22). Both open an
-      // animated walkthrough of a thing the student cannot find, so they should not
-      // be two different-looking controls. The play disc and the "4 slides · 15 sec"
-      // tail went with the restyle: one centred accent line says it.
-      const helpBtn = el('button', {
-        class: 'onb-help',
-        type: 'button',
-        text: 'Can’t find your link? Open the guide →',
-      });
-
-      const input = textInput({
-        class: 'onb-field',
-        placeholder: 'webcal://… or https://…/ical.ics',
-        value: draft.ical,
-      });
-      // Closing the guide (any way) puts the caret back in the link field.
-      helpBtn.addEventListener('click', () => openIcalGuide(() => input.focus()));
-      const err = el('div', { class: 'onb-err' });
-      fieldWrap.append(helpBtn, input, err);
-
-      const btn = cta('Connect');
-
-      // CONNECT WITH SCHOOLOGY (Gabe, 10/7/26): the real connection, through the
-      // school's own Schoology approve screen. Leads the screen when it is on. Behind
-      // the same flag as Settings (?sgyapi=1) until PowerSchool publishes the app,
-      // because before that Schoology refuses every account outside Cobalt's own
-      // developer sandbox. A return from Schoology always shows it, so the
-      // connection can finish even if the flag was set on another device.
-      const apiOn = sgyApiFlag() || sgyResumePending;
-      // No card, no pill, no other routes (Gabe, 10/8/26): the heading and caption
-      // already say what this is, so the screen is just the school search.
+      // CONNECT WITH SCHOOLOGY (Gabe, 10/7/26), the ONLY way in since 10/9/26: the
+      // real connection, through the school's own Schoology approve screen. No card,
+      // no pill, no other routes (Gabe, 10/8/26): the heading and caption already
+      // say what this is, so the screen is just the school search.
+      const btn = cta('Continue');
       const apiCard = el('div', { class: 'rise d2', style: 'width:100%;max-width:420px;margin-top:18px' });
       const apiStatus = el('div', { class: 'onb-route-status' });
       const startApi = (host: string): void => {
@@ -422,160 +344,43 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       const picker = buildSchoolPicker({ inputClass: 'onb-field', btnClass: 'onb-route-btn', onPick: startApi });
       apiCard.append(picker.el, apiStatus);
 
-      // Back-navigation after connecting keeps the original layout, whose button
-      // already reads Continue (see submit's draft.connected branch).
-      if (apiOn && !draft.connected) {
-        sub.textContent = 'Cobalt brings everything in.';
+      if (draft.connected) {
+        // Back-navigation after connecting: no replay, just the result and Continue.
+        stage.classList.add('done');
+        sub.textContent = connectedLine(draft.foundCount);
+        sub.style.display = '';
+        sc.append(visual, h1, sub, btn);
+      } else {
         // btn stays in the screen, hidden: reveal() turns it into Continue.
         btn.style.display = 'none';
         sc.append(visual, h1, sub, apiCard, btn);
-      } else {
-        // No extension route (10/10/26): the extension stopped reading Schoology.
-        sub.textContent = 'Paste your Schoology calendar link.';
-        sc.append(visual, h1, sub, fieldWrap, btn);
       }
 
-      // Extension already installed? Then the student pastes nothing: the extension
-      // knows their feed URL (it reads it off their Schoology settings page), so it
-      // is pulled in and connected automatically. Polled every 2s while this screen
-      // is showing, so installing it mid-step flips the card without a reload.
-      // An installed extension that has not scraped yet (never opened Schoology
-      // since install) says so, and the paste route stays open underneath.
-      let extHandled = false;
-      const mineScreen = index;
-      const pollExt = async (): Promise<void> => {
-        // Never on the Schoology-connect layout (Gabe, 10/10): there the student's
-        // tap on their school is the start, and the browser's own Schoology login
-        // (often a different account) must not connect anything on its own.
-        if (apiOn || extHandled || index !== mineScreen || draft.connected) return;
-        if (!(await detectSchoologyExtension())) return;
-        if (extHandled) return;
-        extHandled = true;
-        route.classList.add('found');
-        routeBtn.style.display = 'none';
-        routeStatus.textContent = 'Extension found. Reading your account…';
-        const payload = await requestSgyData(true);
-        if (index !== mineScreen || draft.connected) return;
-        if (payload?.assignments?.length) {
-          // The extension's own assignment list IS the connection: no link needed.
-          // The feed URL is still kept when it was found, so a phone (no extension)
-          // can read the same account later.
-          const today = todayStr();
-          const upcoming = payload.assignments.filter((a) => a.date >= today);
-          draft.ical = payload.icalUrl ?? '';
-          draft.extConnected = true;
-          routeStatus.textContent = 'Extension found. Connected.';
-          reveal(
-            upcoming.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6).map((a) => a.title),
-            upcoming.length
-          );
-        } else if (payload?.icalUrl) {
-          input.value = payload.icalUrl;
-          routeStatus.textContent = 'Extension found. Connecting…';
-          submit();
-        } else {
-          routeStatus.textContent =
-            'Extension found. Open Schoology once so it can read your account, or paste the link below.';
-          extHandled = false; // try again on the next tick, the scrape may land
-        }
-      };
-      const extTimer = window.setInterval(() => {
-        if (index !== mineScreen || draft.connected) {
-          window.clearInterval(extTimer);
-          return;
-        }
-        void pollExt();
-      }, 2000);
-      void pollExt();
+      // AUDIT PREVIEW ONLY (Gabe, 10/9): a way past Connect so the later screens
+      // can be reviewed without a Schoology login. Never in the real app: a student
+      // who skips forgets, opens an empty app, and concludes Cobalt is useless. The
+      // connection IS the product, so getting into Cobalt means Schoology is connected.
+      // It plays the real reveal over sample titles (Gabe, 10/10), so the chips
+      // flying in and the Continue button can be audited too. Nothing is imported:
+      // the student was never connected, so the payoff runs no sync.
+      if (preview) {
+        const skip = el('button', { class: 'onb-skip', type: 'button', text: 'Skip for now (preview only)' });
+        skip.addEventListener('click', () => {
+          skip.remove();
+          reveal(['Read Ch. 7 & annotate', 'Unit 5 Test', 'Finish lab write-up'], 3);
+        });
+        sc.append(skip);
+      }
 
-      // TEMPORARY (Gabe, 8/9): a way past the connect step while the rest of
-      // onboarding is being built, so testing later screens doesn't require a
-      // working Schoology feed every time.
-      //
-      // This is deliberately NOT a product decision. The header comment above
-      // explains why there is no Skip in the real flow: a student who skips
-      // forgets, opens an empty app, and concludes Cobalt is broken. The
-      // connection IS the product. DELETE THIS BLOCK when the flow is done.
-      //
-      // It leaves draft.connected false and draft.courses empty, which the later
-      // screens already handle honestly ("Your courses" + "add them here").
-      const skip = el('button', { class: 'onb-skip', type: 'button', text: 'Skip for now (temporary)' });
-      skip.addEventListener('click', () => go(index + 1));
-      sc.append(skip);
-
-      const submit = (): void => {
-        // Back-navigation: don't replay the scan, just move on.
-        if (draft.connected) {
-          go(index + 1);
-          return;
-        }
-        const v = input.value.trim();
-        if (!v) {
-          err.textContent = 'Paste your calendar link to continue.';
-          input.focus();
-          return;
-        }
-        if (!isSchoologyIcalUrl(v)) {
-          err.textContent =
-            'That is not your Schoology calendar link. It looks like webcal://heschel.schoology.com/calendar/feed/ical/…';
-          input.focus();
-          input.select();
-          return;
-        }
-        btn.disabled = true;
-        btn.textContent = 'Connecting…';
-        sub.textContent = 'Reading your calendar feed…';
-
-        // THE REAL CONNECTION. This used to validate the URL's shape and then play
-        // a canned animation over six invented titles, which meant a student with
-        // an empty Schoology watched Cobalt "find" six assignments that do not
-        // exist. Now the feed is actually downloaded and parsed, and what flies in
-        // is what is genuinely in it.
-        void (async () => {
-          let titles: string[] = [];
-          let total = 0;
-          try {
-            const text = await fetchIcal(v);
-            const today = todayStr();
-            // The same rule the importer uses: future items only, no past backlog.
-            const upcoming = taskEvents(parseIcal(text)).filter((e) => e.date >= today);
-            total = upcoming.length;
-            titles = upcoming
-              .sort((a, b) => a.date.localeCompare(b.date))
-              .slice(0, 6)
-              .map((e) => e.summary);
-          } catch (e) {
-            if (!alive()) return;
-            // fetchIcal throws sentences meant for a student, so show them as-is.
-            fieldWrap.style.display = '';
-            err.textContent = e instanceof Error ? e.message : 'Couldn’t read that link.';
-            btn.disabled = false;
-            btn.textContent = 'Connect';
-            input.focus();
-            return;
-          }
-          if (!alive()) return;
-
-          // The link works. Commit it to the draft and reveal what was found.
-          draft.ical = v;
-          reveal(titles, total);
-        })();
-      };
-
-      // The shared payoff for BOTH routes: the field and the pitch fold away, the
-      // Schoology mark sweeps, the real titles fly in, and Connect becomes Continue.
+      // The payoff: the picker folds away, the Schoology mark sweeps, the real
+      // titles fly in, and only then do the caption and Continue appear.
       const mine = index; // only touch this screen if the student is still on it
       const alive = (): boolean => index === mine;
       function reveal(titles: string[], total: number): void {
         draft.connected = true;
         draft.found = titles;
         draft.foundCount = total;
-        fieldWrap.style.display = 'none';
-        route.style.display = 'none';
-        divider.style.display = 'none';
         apiCard.style.display = 'none';
-        btn.style.display = ''; // folded away while the Schoology card led; it becomes Continue
-        btn.disabled = true;
         stage.classList.add('scanning');
         titles.forEach((t, i) =>
           setTimeout(() => {
@@ -583,39 +388,22 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
             chips.append(el('span', { class: 'onb-chip', text: t }));
           }, 350 + i * 230)
         );
-
-        // Real course names, when they exist at all, come from the companion
-        // extension: the calendar feed carries none. No extension, or nothing
-        // scraped, means the courses screen stays empty rather than inventing.
-        // Not after a Schoology connection: it already brought the real courses,
-        // and the extension's would be the browser's account, not this one.
-        if (!draft.apiConnected) void discoverCourses().then((found) => {
-          if (!found.length) return;
-          const have = new Set(found.map((c) => c.name.toLowerCase()));
-          draft.courses = [...found, ...draft.courses.filter((c) => !have.has(c.name.toLowerCase()))];
-          draft.coursesFrom = 'schoology';
-        });
-
         setTimeout(() => {
           if (!alive()) return;
           stage.classList.remove('scanning');
           stage.classList.add('done');
-          sub.textContent = total
-            ? `Connected. Found ${total} upcoming assignment${total === 1 ? '' : 's'}.`
-            : 'Connected. No upcoming assignments yet, new ones will import automatically.';
-          btn.disabled = false;
-          btn.textContent = 'Continue';
+          sub.textContent = connectedLine(total);
+          sub.style.display = '';
+          // Continue arrives WITH the caption, once every chip has landed (Gabe, 10/10).
+          btn.style.display = '';
         }, 350 + titles.length * 230 + 250);
       }
-      btn.addEventListener('click', submit);
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') submit();
+      btn.addEventListener('click', () => {
+        if (draft.connected) go(index + 1);
       });
-      input.addEventListener('input', () => (err.textContent = ''));
 
-      // Finishing a Schoology approval (see sgyResumePending above). Same payoff as
-      // the other two routes: real titles fly in, and the courses screen is filled
-      // from the student's real sections instead of left empty.
+      // Finishing a Schoology approval (see sgyResumePending above): real titles fly
+      // in, and the courses screen is filled from the student's real sections.
       if (sgyResumePending) {
         sgyResumePending = false;
         picker.setBusy(true);
@@ -671,33 +459,10 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         el('p', {
           class: 'onb-sub rise d1',
           text: discovered
-            ? `Pulled from ${draft.coursesFrom === 'schedule' ? 'your schedule' : 'Schoology'}. Fix anything that looks wrong, and add what’s missing.`
-            : 'Your feed carries no course names, so add them here. Change them any time in Settings.',
+            ? `Pulled from ${draft.coursesFrom === 'schedule' ? 'your schedule' : 'Schoology'}. Fix anything that looks wrong, and add parse words for easy navigation.`
+            : 'Add your courses here. Change them any time in Settings.',
         })
       );
-
-      // Three chips settling into a stack, in the first three colours a new course
-      // is actually given (courses/colors.ts). Screens 1 to 3 all open with
-      // something moving; Courses and Languages were the two that just sat there
-      // (Gabe, 8/22), and this doubles as a preview of what the colours are FOR.
-      // NAMED, not bare colour bars (Gabe, 8/22): a stripe of yellow says nothing,
-      // "Math" in yellow says what the colour is for. Shown in the first three
-      // colours a new course is actually given, so it is a real preview and not a
-      // decoration. The names are generic subjects because the student's own list is
-      // right underneath and would only repeat itself.
-      const swatches = el('div', { class: 'onb-visual onb-swatches rise d1' });
-      const PREVIEW: Array<[string, string]> = [
-        ['Math', '#f2c531'],
-        ['History', '#ef4444'],
-        ['Science', '#4a9eff'],
-      ];
-      PREVIEW.forEach(([label, c], i) => {
-        const chip = el('span', { class: 'onb-swatch', text: label });
-        chip.style.setProperty('--c', c);
-        chip.style.setProperty('--i', String(i));
-        swatches.append(chip);
-      });
-      sc.append(swatches);
 
       // The pin-free wrapper exists so the list can scroll inside itself.
       const wrap = el('div', { class: 'onb-courses-wrap rise d2' });
@@ -742,7 +507,15 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
           rows.append(row);
         }
         firstDraw = false;
+        requestAnimationFrame(moreBelow);
       };
+      // SCROLL CUE (Gabe, 10/9: "not so obvious that this is scrollable"): a thin
+      // visible scrollbar plus a deeper fade at the bottom while rows remain below.
+      // The fade lifts once the last row is in view, so it never dims what you edit.
+      const moreBelow = (): void => {
+        rows.classList.toggle('more-below', rows.scrollHeight - rows.scrollTop - rows.clientHeight > 4);
+      };
+      rows.addEventListener('scroll', moreBelow, { passive: true });
       draw();
 
       addBtn.addEventListener('click', () => {
@@ -782,10 +555,31 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   SCREENS.push({
     build(host) {
       const sc = pane(host);
-      const h1 = el('h1', { class: 'rise' });
+      // CALENDAR → COBALT (Gabe, 10/9): every other screen opens on a picture, so
+      // this one gets the auto-import screen's motion: periods flying from a
+      // calendar into the Cobalt mark.
+      const visual = el('div', { class: 'onb-visual rise' });
+      const card = el('div', { class: 'onb-vcard' });
+      const imp = el('div', { class: 'onb-imp onb-imp-cal' });
+      const lane = el('div', { class: 'onb-lane' });
+      lane.append(
+        el('div', { class: 'onb-fly f1' }),
+        el('div', { class: 'onb-fly f2' }),
+        el('div', { class: 'onb-fly f3' })
+      );
+      const cal = el('div', { class: 'onb-tile onb-tile-lg' });
+      cal.innerHTML = CAL_ICON; // static, authored above, no user input reaches this
+      const gem = el('div', { class: 'onb-tile onb-tile-lg onb-tile-gem' });
+      gem.append(el('img', { src: '/icons/icon.svg', alt: '' }));
+      imp.append(cal, lane, gem);
+      card.append(imp);
+      visual.append(card);
+      sc.append(visual);
+
+      const h1 = el('h1', { class: 'rise d1' });
       h1.append('Add your ', el('span', { class: 'g', text: 'schedule' }));
       const sub = el('p', {
-        class: 'onb-sub rise d1',
+        class: 'onb-sub rise d2',
         text: 'If your school puts your classes on Google Calendar, Cobalt shows your day on the dashboard: every period, room and teacher.',
       });
       sc.append(h1, sub);
@@ -901,25 +695,10 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   SCREENS.push({
     build(host) {
       const sc = pane(host, 'tight');
-      const h1 = el('h1', { class: 'rise' });
-      h1.append('Your ', el('span', { class: 'g', text: 'languages' }));
-      // ONE CAPTION, NOT TWO (Gabe, 8/22). The screen's subtitle and the picker's
-      // own lead were saying the same sentence twice, at roughly triple the length
-      // of every other screen's caption. The subtitle is now as short as theirs, and
-      // the picker's lead is suppressed rather than reworded, because with the
-      // subtitle above it there is nothing left for it to add.
-      sc.append(
-        h1,
-        el('p', {
-          class: 'onb-sub rise d1',
-          text: 'Assignments written in these get an English line underneath. Change it any time in Settings.',
-        })
-      );
-
       // The globe, drifting through the scripts the picker can read. Screens 1 to 3
       // all open with something moving; this one and Courses were the two that just
-      // sat there (Gabe, 8/22).
-      const orbit = el('div', { class: 'onb-visual onb-langs rise d1' });
+      // sat there (Gabe, 8/22). Above the heading, like every other screen's picture (10/9).
+      const orbit = el('div', { class: 'onb-visual onb-langs rise' });
       const GLYPHS = ['あ', 'ע', 'ñ', 'ت', 'Я', '中', 'Ω', 'ह'];
       GLYPHS.forEach((ch, i) => {
         const g = el('span', { class: 'onb-lang-glyph', text: ch });
@@ -931,6 +710,22 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       });
       orbit.append(el('span', { class: 'onb-lang-core', text: '🌐' }));
       sc.append(orbit);
+
+      const h1 = el('h1', { class: 'rise d1' });
+      h1.append('Your ', el('span', { class: 'g', text: 'languages' }));
+      // ONE CAPTION, NOT TWO (Gabe, 8/22). The screen's subtitle and the picker's
+      // own lead were saying the same sentence twice, at roughly triple the length
+      // of every other screen's caption. The subtitle is now as short as theirs, and
+      // the picker's lead is suppressed rather than reworded, because with the
+      // subtitle above it there is nothing left for it to add.
+      sc.append(
+        h1,
+        el('p', {
+          class: 'onb-sub rise d2',
+          text: 'Assignments written in these get an English line underneath. Change it any time in Settings.',
+        })
+      );
+
 
       // onb-lang-wrap carries the stacking order (see the CSS): the results list has
       // to open OVER the Continue button below it, and z-index inside the picker
@@ -991,10 +786,6 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
           const prefs = normalizePrefs(await data.getProfile('prefs'));
           prefs.tasks.translateFrom = draft.languages;
           await data.setProfile('prefs', prefs);
-          if (draft.ical) {
-            const url = draft.ical.replace(/^webcal:\/\//i, 'https://');
-            await data.setProfile('schoology', { icalUrl: url, lastSyncAt: null });
-          }
           if (draft.schedule) await saveFeed(data, draft.schedule);
         }
 
@@ -1002,7 +793,7 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         let failed = false;
         // A Schoology connection with nothing upcoming has nothing to import, and the
         // sync would read that as "no source" and report a failure that isn't one.
-        if (draft.ical || draft.extConnected || (draft.apiConnected && draft.foundCount > 0)) {
+        if (draft.apiConnected && draft.foundCount > 0) {
           try {
             added = (await runSync(data)).added;
           } catch {
@@ -1013,7 +804,10 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         // --- the payoff -------------------------------------------------------
         sc.replaceChildren();
         sc.append(el('div', { class: 'onb-check', text: '✓' }));
-        const h1 = el('h1', { text: draft.name ? `You’re in, ${draft.name}!` : 'You’re in!' });
+        // The name in the accent blue, like every other heading's key word (10/10).
+        const h1 = el('h1');
+        if (draft.name) h1.append('You’re in, ', el('span', { class: 'g', text: draft.name }));
+        else h1.append('You’re ', el('span', { class: 'g', text: 'in' }));
         sc.append(h1);
 
         // Every imported assignment, listed. The count in the headline and the
@@ -1025,9 +819,9 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
           .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
 
         let subText: string;
-        if (failed) subText = 'Couldn’t reach Schoology. Your link is saved, retry from Settings.';
+        if (failed) subText = 'Couldn’t reach Schoology. You’re connected, retry from Settings.';
         else if (added > 0) subText = `${added} assignment${added === 1 ? '' : 's'} imported, sorted into your courses.`;
-        else if (draft.ical || draft.extConnected) subText = 'Connected. New assignments will import automatically.';
+        else if (draft.apiConnected) subText = 'Connected. New assignments will import automatically.';
         else subText = 'Your courses are saved and ready.';
         sc.append(el('p', { class: 'onb-sub', text: subText }));
 

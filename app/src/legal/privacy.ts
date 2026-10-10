@@ -17,7 +17,7 @@
 import { el } from '../util/dom';
 import { createWordmark } from '../ui/laurel';
 
-const UPDATED = 'October 9, 2026';
+const UPDATED = 'October 10, 2026';
 
 /** The one public contact address, for support, suggestions and data requests.
  *  A forwarding alias on the cobaltstudy.com domain, so no personal address is
@@ -112,7 +112,7 @@ const SECTIONS: Section[] = [
       'Your profile (display name, course list and colors) and app preferences, including notification settings and your notification history.',
       'The course-matching hints Cobalt learns from your task titles, so new assignments land in the right course.',
       'Your Gems balance, the tasks that earned them, and the cosmetics you own and use.',
-      'If you connect Schoology, the calendar feed link Schoology gives you, and the sync history for it.',
+      'If you connect Schoology, your Schoology name, your school’s Schoology address, when you connected, your teachers’ names and school email addresses, and your sync history.',
       'If you add your class schedule, its Google Calendar feed link and any schedule link you save. Treat a calendar feed link like a password: anyone who has it can read that calendar.',
     ],
   },
@@ -125,11 +125,14 @@ const SECTIONS: Section[] = [
   {
     heading: 'Connecting Schoology',
     paragraphs: [
-      'There are two ways to bring in your assignments.',
-      'With a calendar link: you give Cobalt your personal Schoology calendar link (an iCal feed Schoology generates for your account). When you sync, a Cobalt server function fetches that link on your behalf and reads back the calendar file. The server does not keep a copy of the raw calendar file: it hands the contents straight back to your device, where Cobalt turns each event into a task in your account. Only the resulting tasks are stored. A Google Calendar schedule link is fetched the same way.',
-      'By connecting your Schoology account directly: you approve Cobalt on your school’s own Schoology page, so Cobalt never sees your Schoology password. Cobalt’s server then keeps a private access key for your account, which your browser never receives, and uses it to read your upcoming assignments (the next 60 days, including any files your teacher attached), your class names, and your teachers’ names and school email addresses (so “Email teacher” can address a message) from Schoology. Cobalt also saves your Schoology name, your school’s Schoology address, and when you connected. The access key is deleted when you disconnect, or when Schoology expires it after about 90 days.',
+      'You connect Schoology by approving Cobalt on your school’s own Schoology page, so Cobalt never sees your Schoology password. Cobalt’s server then keeps a private access key for your account, which your browser never receives, and uses it to read your upcoming assignments (the next 60 days, including any files your teacher attached), your class names, and your teachers’ names and school email addresses (so “Email teacher” can address a message) from Schoology. Cobalt also saves your Schoology name, your school’s Schoology address, and when you connected. The access key is deleted when you disconnect, or when Schoology expires it after about 90 days.',
       'If you use “Submit photo to Schoology” on an assignment, the photos you pick are shrunk on your device, sent through a Cobalt server function, and handed in to that assignment in Schoology under your account, using the same access key. Cobalt does not keep a copy of the photos; they pass straight through to Schoology. This is the only way Cobalt changes anything in Schoology, and it happens only when you press Submit.',
-      'If you install the companion Cobalt Chrome extension, it can also read your own, already-logged-in Schoology pages. See “The Cobalt Chrome extension” below for exactly what it reads.',
+    ],
+  },
+  {
+    heading: 'Your class schedule',
+    paragraphs: [
+      'If you add your Google Calendar schedule link, a Cobalt server function fetches it on your behalf when Cobalt refreshes your schedule. The server does not keep a copy of the calendar file: it hands the contents straight back to your device.',
     ],
   },
   {
@@ -172,8 +175,7 @@ const SECTIONS: Section[] = [
     ],
     list: [
       'On any page, it watches for the keyboard shortcuts you’ve configured and opens the matching bookmark. It does not read or transmit the page’s content.',
-      'On Schoology pages specifically, once you’re logged in there yourself, it reads your assignments (title, description, due date, and link) and your class names, so Cobalt can import them and label them with the right course. It never reads, stores, or sends your Schoology login cookies or password.',
-      'On Cobalt’s own site, it exchanges messages with the Cobalt web app (for example, to sync your shortcut list or pass along what it read from Schoology) and can open a named, colored group of browser tabs when you use “Open all.”',
+      'On Cobalt’s own site, it exchanges messages with the Cobalt web app (for example, to sync your shortcut list) and can open a named, colored group of browser tabs when you use “Open all.”',
     ],
   },
   {

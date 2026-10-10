@@ -4,7 +4,7 @@ import type { ParsedTask, Task, TaskMap } from '../types';
 import { genId } from '../util/ids';
 import { todayStr, dayDiff, formatGroupHeader } from '../util/dates';
 import { PRIORITY_WEIGHT } from './priorities';
-import { BADGE_ASSESSMENT_RE } from '../schoology/ical';
+import { BADGE_ASSESSMENT_RE } from '../schoology/events';
 import { isSpentCompleted } from '../db';
 
 /**

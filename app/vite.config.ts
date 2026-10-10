@@ -67,18 +67,9 @@ export default defineConfig({
     // The project lives in a Dropbox folder, which swallows OS file-change
     // events and breaks HMR. Polling makes Vite detect saves reliably.
     watch: { usePolling: true, interval: 300 },
-    // Dev-only CORS bypass for the Schoology iCal feed (Schoology serves no
-    // CORS headers, so the browser can't fetch it directly). In production the
-    // scheduled Cloud Function does the fetch server-side instead.
-    // v1 is single-school (Heschel); Phase 6 makes this per-schoolDomain.
+    // Dev-only CORS bypass for the student's Google Calendar schedule feed
+    // (src/schedule/feed.ts). In production a Cloud Function fetches it instead.
     proxy: {
-      '/sgy': {
-        target: 'https://heschel.schoology.com',
-        changeOrigin: true,
-        secure: true,
-        rewrite: (path) => path.replace(/^\/sgy/, ''),
-      },
-      // The student's Google Calendar schedule feed (src/schedule/feed.ts).
       '/gcal': {
         target: 'https://calendar.google.com',
         changeOrigin: true,
