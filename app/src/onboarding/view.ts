@@ -697,24 +697,31 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   SCREENS.push({
     build(host) {
       const sc = pane(host, 'tight');
-      // The globe, drifting through the scripts the picker can read. Screens 1 to 3
-      // all open with something moving; this one and Courses were the two that just
-      // sat there (Gabe, 8/22). Above the heading, like every other screen's picture (10/9).
-      const orbit = el('div', { class: 'onb-visual onb-langs rise' });
-      const GLYPHS = ['あ', 'ע', 'ñ', 'ت', 'Я', '中', 'Ω', 'ह'];
-      GLYPHS.forEach((ch, i) => {
-        const g = el('span', { class: 'onb-lang-glyph', text: ch });
-        // Spread around the ring, each drifting on its own clock so the group never
-        // pulses in unison.
-        g.style.setProperty('--i', String(i));
-        g.style.setProperty('--n', String(GLYPHS.length));
-        orbit.append(g);
-      });
-      orbit.append(el('span', { class: 'onb-lang-core', text: '🌐' }));
-      sc.append(orbit);
+      // WHAT A TRANSLATION LOOKS LIKE (Gabe, 10/10), in place of the globe: a real
+      // task row in the schedule screen's card, a foreign title with its English
+      // line underneath, built from the Tasks tab's own title and translation
+      // classes so it matches the app exactly.
+      const visual = el('div', { class: 'onb-visual rise' });
+      const card = el('div', { class: 'onb-vcard' });
+      const row = el('div', { class: 'onb-mini-task onb-trans-task' });
+      const info = el('div', { class: 'onb-trans-info' });
+      const tr = el('div', { class: 'task-translation' });
+      tr.append(
+        el('span', { class: 'task-translation-badge', text: '🌐' }),
+        el('span', { text: 'This is what your translation will look like' })
+      );
+      info.append(el('div', { class: 'task-title', text: 'Así se verá tu traducción' }), tr);
+      row.append(
+        el('span', { class: 'cb' }),
+        info,
+        el('span', { class: 'crs', style: 'color:#f0c040', text: 'Spanish' })
+      );
+      card.append(row);
+      visual.append(card);
+      sc.append(visual);
 
       const h1 = el('h1', { class: 'rise d1' });
-      h1.append('Your ', el('span', { class: 'g', text: 'languages' }));
+      h1.append('Add your ', el('span', { class: 'g', text: 'languages' }));
       // ONE CAPTION, NOT TWO (Gabe, 8/22). The screen's subtitle and the picker's
       // own lead were saying the same sentence twice, at roughly triple the length
       // of every other screen's caption. The subtitle is now as short as theirs, and

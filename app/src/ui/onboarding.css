@@ -1026,71 +1026,22 @@
   box-shadow: none;
 }
 
-/* ================== screen 5 · the language orbit ==================
-   A globe with eight scripts drifting around it: the point of the screen, said
-   without a sentence. Each glyph sits at its own angle on the ring and breathes on
-   its own clock, so the group never pulses in unison. */
-/* HEIGHT = the ring, not less (Gabe, 8/22: "why is this language orb visual
-   overlapping with other elements"). The glyphs sit on a ring centred in this box,
-   so anything shorter than 2 x radius + a line of text lets the top and bottom ones
-   escape and land on the subtitle above and the picker below. 46 x 2 + 20 = 112. */
-.onb-langs {
-  position: relative;
-  height: 112px;
-  /* Clearance on BOTH sides. The ring is centred in this box now, so it reaches to
-     within a pixel of the box's own edges; without these margins the top glyph grazes
-     the caption above it, which is the collision this whole block exists to end. */
-  margin-top: 12px;
-  margin-bottom: 12px;
-  align-items: center;
-  /* The ring is decoration; it must never be what a click lands on. */
-  pointer-events: none;
+/* ================== screen 5 · a translated task (10/10) ==================
+   The Tasks tab's own .task-title / .task-translation inside the screen-2 mini
+   row, so the sample reads exactly like the app; only sized down to the card. */
+.onb-trans-task {
+  padding: 12px 14px;
 }
-.onb-lang-core {
-  font-size: 30px;
-  line-height: 1;
-  filter: drop-shadow(0 0 16px rgba(125, 180, 255, 0.55));
-  animation: onb-orbit-breathe 5s ease-in-out infinite;
+.onb-trans-info {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
 }
-.onb-lang-glyph {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--accent);
-  opacity: 0.55;
-  /* 46px, down from 76 (Gabe, 8/22: "decrease the radius of the circle so that the
-     language text icons are closer to globe"). It also fits the ring inside its own
-     box, which is what stopped it colliding with the rows above and below.
-     LEADING translate(-50%, -50%): left/top 50% puts the glyph's top-left corner on
-     the centre, not the glyph itself, so without this the whole ring hangs down and
-     right by half a glyph. Measured, that left 12px of it below its own box and only
-     2px of clearance above the picker. Centring the glyph on its anchor makes the
-     ring symmetrical, which is the only way the box's height actually bounds it.
-     The rotate/translate/counter-rotate triple after it keeps each glyph upright. */
-  transform: translate(-50%, -50%) rotate(calc(var(--i) * (360deg / var(--n))))
-    translate(46px) rotate(calc(var(--i) * (-360deg / var(--n))));
-  animation: onb-glyph-float 4.5s ease-in-out infinite;
-  animation-delay: calc(var(--i) * -0.55s);
+.onb-trans-task .task-title {
+  font-size: 14px;
 }
-@keyframes onb-glyph-float {
-  0%,
-  100% {
-    opacity: 0.32;
-  }
-  50% {
-    opacity: 0.9;
-  }
-}
-@keyframes onb-orbit-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.08);
-  }
+.onb-trans-task .task-translation {
+  font-size: 12.5px;
 }
 
 /* THE RESULTS LIST OPENS OVER THE CONTINUE BUTTON (Gabe, 8/22, screenshot).
@@ -1108,16 +1059,6 @@
 .lang-picker-full .lang-input {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .onb-lang-glyph,
-  .onb-lang-core {
-    animation: none;
-  }
-  .onb-lang-glyph {
-    opacity: 0.6;
-  }
 }
 
 /* Connect was the one screen that overshot the shared floor (617px against 476),
@@ -1190,8 +1131,7 @@
 .onb-push {
   flex: 2.5 0 20px;
 }
-/* Bigger pictures on the screens with the most room (10/10): the Connect stage and
-   the language globe. */
+/* A bigger picture on the screen with the most room (10/10): the Connect stage. */
 .onb-sc.stacked .onb-stage {
   min-height: 150px;
   justify-content: center;
@@ -1199,17 +1139,6 @@
 .onb-sc.stacked .onb-tile.lg {
   width: 84px;
   height: 84px;
-}
-.onb-sc.stacked .onb-langs {
-  height: 150px;
-}
-.onb-sc.stacked .onb-lang-core {
-  font-size: 40px;
-}
-.onb-sc.stacked .onb-lang-glyph {
-  font-size: 18px;
-  transform: translate(-50%, -50%) rotate(calc(var(--i) * (360deg / var(--n))))
-    translate(62px) rotate(calc(var(--i) * (-360deg / var(--n))));
 }
 .onb-sc.stacked > .onb-cta {
   margin-top: 0;
