@@ -305,13 +305,13 @@
 }
 
 /* ===================== screen 1 · welcome =====================
-   Mirrors the payoff (Gabe, 10/10): centred, with the crowned Cobalt gem where
-   the payoff has its check. Pops in like the check, then breathes. */
+   Mirrors the payoff (Gabe, 10/10): centred, with the Cobalt gem where the
+   payoff has its check. Pops in like the check, then breathes. */
 .onb-crowned {
   position: relative;
   width: 92px;
-  height: 108px; /* the crown sits ON the gem's top edge, not floating over it */
-  margin: 0 auto 16px;
+  height: 92px;
+  margin: 0 auto 20px;
   filter: drop-shadow(0 12px 30px rgba(61, 127, 232, 0.45));
   animation:
     onb-pop 0.5s cubic-bezier(0.3, 1.6, 0.5, 1),
@@ -328,14 +328,6 @@
   width: 100%;
   height: 100%;
   display: block;
-}
-.onb-crown {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: 60px;
-  z-index: 1;
-  transform: translateX(-50%) rotate(-6deg);
 }
 @keyframes onb-crown-pulse {
   0%,

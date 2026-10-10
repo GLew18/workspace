@@ -71,19 +71,6 @@ interface OnboardingOpts {
   preview?: (ctl: { go: (i: number) => void; count: number; draft: { name: string; courses: CourseConfig[] } }) => void;
 }
 
-/** The crown over the welcome slide's gem (Gabe, 10/10): platinum, set with
- *  stones in the gem's own blues. */
-const CROWN_SVG =
-  '<svg class="onb-crown" viewBox="0 0 100 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
-  '<defs><linearGradient id="onb-crown-metal" x1="0" y1="0" x2="0" y2="1">' +
-  '<stop offset="0" stop-color="#f5f8fc"/><stop offset=".55" stop-color="#c9d5e6"/><stop offset="1" stop-color="#8fa3c0"/>' +
-  '</linearGradient></defs>' +
-  '<path d="M10 50 L4 14 L28 34 L50 6 L72 34 L96 14 L90 50 Z" fill="url(#onb-crown-metal)" stroke="#6f86a8" stroke-width="2" stroke-linejoin="round"/>' +
-  '<rect x="9" y="48" width="82" height="12" rx="4" fill="url(#onb-crown-metal)" stroke="#6f86a8" stroke-width="2"/>' +
-  '<circle cx="4" cy="12" r="4.5" fill="#7db4ff"/><circle cx="50" cy="5" r="5" fill="#7db4ff"/><circle cx="96" cy="12" r="4.5" fill="#7db4ff"/>' +
-  '<circle cx="30" cy="54" r="3.4" fill="#3d7fe8"/><circle cx="50" cy="54" r="4" fill="#7db4ff"/><circle cx="70" cy="54" r="3.4" fill="#3d7fe8"/>' +
-  '</svg>';
-
 /** A calendar page, the schedule screen's source tile: Google-blue header band
  *  and date, no trademark artwork. */
 const CAL_ICON =
@@ -239,12 +226,13 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   SCREENS.push({
     build(host) {
       // THE FIRST SLIDE MIRRORS THE LAST (Gabe, 10/10): the same centred layout and
-      // button height as the payoff, with the crowned Cobalt gem where the payoff
-      // has its check. The two ends are deliberate exceptions to "button low".
+      // button height as the payoff, with the Cobalt gem where the payoff has its
+      // check (a crown was tried and dropped). The two ends are deliberate
+      // exceptions to "button low".
       const sc = pane(host, 'centered');
       const mark = el('div', { class: 'onb-crowned' });
       // Static markup authored in this file and laurel.ts; no user input.
-      mark.innerHTML = CROWN_SVG + `<div class="onb-crowned-gem">${STONE_SVG}</div>`;
+      mark.innerHTML = `<div class="onb-crowned-gem">${STONE_SVG}</div>`;
       const h1 = el('h1', { class: 'rise d1' });
       h1.append('Welcome to ', el('span', { class: 'g', text: 'Cobalt' }));
       sc.append(
@@ -811,8 +799,8 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         sc.append(el('div', { class: 'onb-check', text: '✓' }));
         // The name in the accent blue, like every other heading's key word (10/10).
         const h1 = el('h1');
-        if (draft.name) h1.append('You’re in, ', el('span', { class: 'g', text: draft.name }), '!');
-        else h1.append('You’re ', el('span', { class: 'g', text: 'in' }), '!');
+        if (draft.name) h1.append('You’re in, ', el('span', { class: 'g', text: draft.name }));
+        else h1.append('You’re ', el('span', { class: 'g', text: 'in' }));
         sc.append(h1);
 
         // Every imported assignment, listed. The count in the headline and the
