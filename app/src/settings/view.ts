@@ -25,7 +25,7 @@ import {
   getSgyApiState,
   startSchoologyConnect,
   disconnectSchoology,
-  buildSchoolPicker,
+  buildSchoolAddress,
   sgyErrorText,
 } from '../schoology/api';
 import {
@@ -727,13 +727,15 @@ export class SettingsView {
           class: 'srow-sub',
           text: st?.expired
             ? 'Your Schoology connection expired. Reconnect to keep importing.'
-            : 'Pick your school, sign in on Schoology, and approve Cobalt. Cobalt never sees your password.',
+            : 'Enter your school’s Schoology address, sign in, and approve Cobalt. Cobalt never sees your password.',
         })
       );
-      // One tap per school (Gabe, 10/8/26), shared with onboarding's Connect screen.
-      const picker = buildSchoolPicker({
+      // The school's own Schoology address (Gabe, 10/10/26), shared with onboarding.
+      // An expired connection pre-fills the school it used.
+      const picker = buildSchoolAddress({
         inputClass: 'settings-input',
         btnClass: 'settings-save',
+        value: st?.host,
         onPick: (h) => {
           picker.setBusy(true);
           err.textContent = '';

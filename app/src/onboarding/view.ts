@@ -29,7 +29,6 @@
 
 import type { Data } from '../db';
 import { el, textInput } from '../util/dom';
-import { STONE_SVG } from '../ui/laurel';
 import { capitalizeName, nameFromEmail } from '../util/names';
 import { runSync } from '../schoology/sync';
 import { replaceCourses, getCourseColor } from '../courses/registry';
@@ -41,7 +40,7 @@ import {
   finishSchoologyConnectIfReturning,
   fetchSgyApiPayload,
   sgyErrorText,
-  buildSchoolPicker,
+  buildSchoolAddress,
 } from '../schoology/api';
 import { todayStr } from '../util/dates';
 import { genId } from '../util/ids';
@@ -231,10 +230,11 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       // exceptions to "button low".
       const sc = pane(host, 'centered');
       const mark = el('div', { class: 'onb-crowned' });
-      // Static markup authored in this file and laurel.ts; no user input.
-      // UPRIGHT here (Gabe, 10/10): the wordmark tilts its gem to sit in "Cobalt" as
-      // the "o"; standing alone, it reads straight.
-      mark.innerHTML = `<div class="onb-crowned-gem">${STONE_SVG.replace('rotate(-8 50 50) ', '')}</div>`;
+      // THE APP ICON, navy tile and all (Gabe, 10/10): more contrast than the bare
+      // gem, and the same mark the schedule screen's picture flies into.
+      const gem = el('div', { class: 'onb-crowned-gem' });
+      gem.append(el('img', { src: '/icons/icon.svg', alt: 'Cobalt' }));
+      mark.append(gem);
       const h1 = el('h1', { class: 'rise d1' });
       h1.append('Welcome to ', el('span', { class: 'g', text: 'Cobalt' }));
       sc.append(
@@ -332,16 +332,16 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       const apiCard = el('div', { class: 'rise d2', style: 'width:100%;max-width:420px;margin-top:18px' });
       const apiStatus = el('div', { class: 'onb-route-status' });
       const startApi = (host: string): void => {
-        picker.setBusy(true);
-        apiStatus.textContent = 'Opening Schoology…';
+        picker.setBusy(true); // the button itself says "Opening Schoology…"
+        apiStatus.textContent = '';
         // Leaves the page on success; Schoology sends the student back here.
         startSchoologyConnect(host).catch((e) => {
           picker.setBusy(false);
           apiStatus.textContent = sgyErrorText(e);
         });
       };
-      // One tap per school (Gabe, 10/8/26): no address to type for a listed school.
-      const picker = buildSchoolPicker({ inputClass: 'onb-field', btnClass: 'onb-route-btn', onPick: startApi });
+      // The school's own Schoology address (Gabe, 10/10/26), shared with Settings.
+      const picker = buildSchoolAddress({ inputClass: 'onb-field', btnClass: 'onb-route-btn', onPick: startApi });
       apiCard.append(picker.el, apiStatus);
 
       if (draft.connected) {
@@ -470,10 +470,10 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       wrap.append(rows);
       sc.append(wrap);
 
-      const addWrap = el('div', { class: 'rise d2', style: 'width:100%' });
-      const addBtn = el('button', { class: 'settings-add', text: '+ Add course' });
-      addWrap.append(addBtn);
-      sc.append(addWrap);
+      // INSIDE the scrolling list, after the last course (Gabe, 10/10): adding a
+      // course is the fallback for a student who has checked the list Schoology
+      // sent, so it waits at the bottom instead of crowding the screen.
+      const addBtn = el('button', { class: 'settings-add onb-add-course', text: '+ Add course' });
 
       const refocus = { id: null as string | null };
       let firstDraw = true; // the entrance cascade plays once, never on every edit
@@ -507,6 +507,7 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
           }
           rows.append(row);
         }
+        rows.append(addBtn);
         firstDraw = false;
         requestAnimationFrame(moreBelow);
       };
@@ -533,7 +534,8 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         draw();
         // The list scrolls internally, so a new row can land below the fold.
         // Bring it into view BEFORE focusing so the caret is never off-screen.
-        const lastRow = rows.querySelector('.course-row:last-child');
+        const allRows = rows.querySelectorAll('.course-row');
+        const lastRow = allRows[allRows.length - 1];
         lastRow?.scrollIntoView({ block: 'nearest' });
         const nameField = lastRow?.querySelector('.course-name') as HTMLInputElement | null;
         nameField?.focus();

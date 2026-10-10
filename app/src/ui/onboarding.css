@@ -324,10 +324,11 @@
   width: 92px;
   height: 92px;
 }
-.onb-crowned-gem svg {
+.onb-crowned-gem img {
   width: 100%;
   height: 100%;
   display: block;
+  border-radius: 22px;
 }
 @keyframes onb-crown-pulse {
   0%,
@@ -718,7 +719,9 @@
   margin-top: 16px;
 }
 .onb-deck .settings-courses {
-  max-height: min(285px, 40vh);
+  /* 330, up from 285, now that + Add course lives inside the list (10/10) instead
+     of taking its own row underneath. */
+  max-height: min(330px, 46vh);
   overflow-y: auto;
   overscroll-behavior: contain;
   /* SCROLL CUE (Gabe, 10/9: "not so obvious that this is scrollable"): the app's
@@ -726,6 +729,12 @@
      rows remain below. The fade lifts at the end (.more-below is toggled in
      onboarding/view.ts), so it never dims the last row you're editing. */
   padding-right: 4px;
+}
+/* The list's last item, not a separate control: no extra gap above it beyond the
+   list's own spacing between rows. */
+.onb-deck .onb-add-course {
+  margin-top: 0;
+  flex: none;
 }
 .onb-deck .settings-courses.more-below {
   -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 64px), transparent 100%);
