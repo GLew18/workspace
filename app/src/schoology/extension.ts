@@ -61,6 +61,7 @@ export interface SgyPayload {
   assignments?: SgyAssignment[]; // the student's upcoming work, when the API pass ran
   coverage?: { from: string; to: string }; // dates `assignments` is authoritative for
   teachers?: SgyTeacher[]; // who teaches each course, with email
+  schedule?: { id: string; title: string; date: string; url: string }[]; // schedule posts, for the dashboard card
   scrapedAt: number;
   diag?: Record<string, unknown>; // which scrape strategies matched — troubleshooting only
 }

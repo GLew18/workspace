@@ -20,7 +20,7 @@
 //     already checked off, which keeps completed work as a record.
 
 import type { Data } from '../db';
-import type { Task, Note, SchoologySettings } from '../types';
+import type { Task, Note, ScheduleItem, SchoologySettings } from '../types';
 import { classifyBatch } from './classify';
 import {
   loadLabels,
@@ -445,6 +445,17 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
   // remember every key we've now seen so it never re-imports (even if deleted)
   for (const { key } of fresh) seen.add(key);
   await data.setProfile('imported', { keys: [...seen] });
+
+  // --- schedule (dashboard card): latest day per title, from the API's schedule
+  // posts (Gabe, 10/10/26: the card stays, the feed it used to come from does not).
+  if (Array.isArray(sgy.schedule)) {
+    const byTitle = new Map<string, ScheduleItem>();
+    for (const e of sgy.schedule) {
+      const prev = byTitle.get(e.title);
+      if (!prev || e.date > prev.date) byTitle.set(e.title, e);
+    }
+    await data.setProfile('schedule', { list: [...byTitle.values()] });
+  }
 
   // --- sync state ---
   // Written whole, so a leftover iCal link from before 10/9/26 is dropped too.

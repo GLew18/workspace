@@ -1463,6 +1463,18 @@ exports.sgyFetch = onCall(
       // Resolve each section/course ONCE, however many assignments it has.
       const realms = new Map(); // 's<id>' | 'c<id>' -> { path, aids[] }
       const kept = [];
+      // SCHEDULE POSTS (Gabe, 10/10/26): the dashboard's "This Week's Schedule" card
+      // used to come from the Schoology iCal feed. Same rule the feed used: a
+      // calendar event whose title starts with "Schedule". Never a task.
+      const schedule = [];
+      for (const e of events) {
+        if (!e || e.type !== 'event' || !/^\s*schedule\b/i.test(String(e.title || ''))) continue;
+        const when = sgySplitDate(e.start, e.all_day);
+        if (!when || e.id == null) continue;
+        const url = sgyRepairUrl(String(e.web_url || ''), host) || 'https://' + host + '/event/' + e.id;
+        schedule.push({ id: 'sgy_' + e.id, title: String(e.title).trim(), date: when.date, url: url.replace(/^http:\/\//i, 'https://') });
+      }
+
       for (const e of events) {
         if (!sgyIsTaskEvent(e)) continue;
         const aid = sgyAssignmentId(e, host);
@@ -1567,7 +1579,7 @@ exports.sgyFetch = onCall(
       }
 
       await admin.database().ref(`users/${uid}/profile/sgyApi/lastFetchAt`).set(new Date().toISOString());
-      return { host, courses, labels, assignments: [...byId.values()], coverage, scrapedAt: Date.now(), ...(teachers.length ? { teachers } : {}) };
+      return { host, courses, labels, assignments: [...byId.values()], coverage, schedule, scrapedAt: Date.now(), ...(teachers.length ? { teachers } : {}) };
     } catch (err) {
       if (err instanceof SgyAuthError) {
         await sgyForget(uid, 'expired');
