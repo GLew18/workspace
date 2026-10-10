@@ -451,6 +451,10 @@
 }
 .parse-add:focus {
   outline: none;
+  /* theme.css gives every focused field a 3px accent halo; inside this pill it drew
+     a faint ellipse that cut the word off (Gabe, 10/10). The pill's own
+     :focus-within below is the focus look. */
+  box-shadow: none;
 }
 /* Solid, and filled, once you are typing in it: the same "this is becoming real"
    move the dashed border makes, on the whole pill rather than half of it. */

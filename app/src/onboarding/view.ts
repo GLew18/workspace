@@ -475,7 +475,6 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       addWrap.append(addBtn);
       sc.append(addWrap);
 
-      const newIds = new Set<string>(); // courses added HERE show gold recommendations
       const refocus = { id: null as string | null };
       let firstDraw = true; // the entrance cascade plays once, never on every edit
 
@@ -487,11 +486,13 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         for (const c of draft.courses) {
           const row = buildCourseRow(c, {
             all: () => draft.courses,
-            isNew: (id) => newIds.has(id),
+            // EVERY course shows suggestions here, three at most (Gabe, 10/10): the
+            // list came from Schoology, so none of it was typed in this session.
+            isNew: () => true,
+            recLimit: 3,
             onSave: () => {},
             onRemove: () => {
               draft.courses = draft.courses.filter((x) => x.id !== c.id);
-              newIds.delete(c.id);
             },
             redraw: draw,
             refocus,
@@ -529,7 +530,6 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
           parseWords: [],
         };
         draft.courses.push(c);
-        newIds.add(c.id);
         draw();
         // The list scrolls internally, so a new row can land below the fold.
         // Bring it into view BEFORE focusing so the caret is never off-screen.

@@ -20,6 +20,8 @@ export interface CourseRowCtx {
   all: () => CourseConfig[];
   /** Courses added in this session; only they show gold "+ word" suggestions. */
   isNew: (id: string) => boolean;
+  /** Most suggestions to show at once; omitted = all of the set (Settings). */
+  recLimit?: number;
   /** Persist an edit (Settings) or do nothing (onboarding's draft). */
   onSave: () => void;
   /** Take the course out of the list. The row redraws the list afterwards. */
@@ -99,7 +101,7 @@ export function buildCourseRow(c: CourseConfig, ctx: CourseRowCtx): HTMLElement 
     const named = c.name.trim();
     if (!named || named.toLowerCase() === 'new course') return; // wait for a real name
     const used = new Set(ctx.all().flatMap((x) => x.parseWords));
-    const recs = recommendedSet(named, used);
+    const recs = recommendedSet(named, used).slice(0, ctx.recLimit ?? Infinity);
     if (!recs.length) return;
     for (const w of recs) {
       const rec = el('button', { class: 'parse-rec', title: `Add “${w}”` });
