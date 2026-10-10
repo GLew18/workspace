@@ -29,6 +29,7 @@
 
 import type { Data } from '../db';
 import { el, textInput } from '../util/dom';
+import { createWordmark } from '../ui/laurel';
 import { capitalizeName, nameFromEmail } from '../util/names';
 import { runSync } from '../schoology/sync';
 import { replaceCourses, getCourseColor } from '../courses/registry';
@@ -172,6 +173,16 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
     stageEl.replaceChildren();
     const screen = el('div', { class: `onb-screen${dir < 0 ? ' off-l' : ''}` });
     SCREENS[i].build(screen);
+    // BUTTON LOW, CONTENT HIGH (Gabe, 10/10): every screen's picture and heading sit
+    // near the top and its main button near the bottom, so both land at about the
+    // same height from step to step. A spacer before the button takes the slack.
+    // The payoff screen keeps its centred layout (its button arrives later).
+    const sc = screen.querySelector<HTMLElement>(':scope > .onb-sc');
+    const mainBtn = sc?.querySelector(':scope > .onb-cta');
+    if (sc && mainBtn && sc.id !== 'onbSetup') {
+      sc.classList.add('stacked');
+      mainBtn.before(el('div', { class: 'onb-push' }));
+    }
     stageEl.append(screen);
     // setTimeout, not rAF: rAF never fires in a hidden/uncomposited tab, which
     // would freeze the entrance and the bar. One tick is enough for the
@@ -215,13 +226,15 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   SCREENS.push({
     build(host) {
       const sc = pane(host);
-      // "Welcome to" + the Cobalt mark, no wordmark (Gabe, 10/9): the mark and the
-      // wordmark's gem "o" together read as a double gem.
-      const hero = el('div', { class: 'onb-visual onb-hero rise d1', style: 'margin-bottom:26px' });
+      // "Welcome to" + THE REAL WORDMARK (Gabe, 10/10): C + gem + balt, exactly as
+      // everywhere else, only bigger, and no app icon beside it (the icon and the
+      // wordmark's gem "o" together read as a double gem).
+      const hero = el('div', { class: 'onb-visual onb-hero onb-welcome rise' });
       hero.append(el('div', { class: 'onb-hero-glow' }));
-      hero.append(el('img', { class: 'onb-mark', src: '/icons/icon.svg', alt: 'Cobalt' }));
+      const wordmark = el('div', { class: 'onb-wordmark' });
+      wordmark.append(createWordmark().el);
+      hero.append(el('div', { class: 'onb-eyebrow', text: 'welcome to' }), wordmark);
       sc.append(
-        el('div', { class: 'onb-eyebrow onb-eyebrow-top rise', text: 'welcome to' }),
         hero,
         el('p', {
           class: 'onb-sub rise d2',

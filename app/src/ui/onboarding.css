@@ -341,9 +341,23 @@
   color: var(--text-dim);
   margin-bottom: 10px;
 }
-/* "welcome to" sits ABOVE the mark now (Gabe, 10/9), so it needs room below. */
-.onb-eyebrow-top {
-  margin-bottom: 26px;
+/* "welcome to" over the real wordmark (Gabe, 10/10), stacked as one block with
+   room above it and a clear gap before the tagline. */
+.onb-welcome {
+  flex-direction: column;
+  margin-bottom: 40px;
+}
+.onb-welcome .onb-eyebrow {
+  position: relative;
+  margin-bottom: 14px;
+}
+.onb-wordmark {
+  position: relative;
+}
+/* The shared .ws-mark (components.css), only resized: it scales the whole C + gem
+   + balt lockup off its font-size, so the proportions stay exact. */
+.onb-wordmark .ws-mark {
+  font-size: clamp(54px, 9vw, 74px);
 }
 
 /* ================= screen 2 · the auto-import explainer ================= */
@@ -728,28 +742,17 @@
   max-height: min(285px, 40vh);
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* SCROLL CUE (Gabe, 10/9: "not so obvious that this is scrollable"): a thin
-     visible bar, plus a deep fade at the bottom while rows remain below. The fade
-     lifts at the end (.more-below is toggled in onboarding/view.ts), so it never
-     dims the last row you're editing. */
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  /* SCROLL CUE (Gabe, 10/9: "not so obvious that this is scrollable"): the app's
+     own accent scrollbar (theme.css) shows, plus a deep fade at the bottom while
+     rows remain below. The fade lifts at the end (.more-below is toggled in
+     onboarding/view.ts), so it never dims the last row you're editing. */
   padding-right: 4px;
 }
 .onb-deck .settings-courses.more-below {
   -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 64px), transparent 100%);
   mask-image: linear-gradient(180deg, #000 calc(100% - 64px), transparent 100%);
 }
-.onb-deck .settings-courses::-webkit-scrollbar {
-  width: 6px;
-}
-.onb-deck .settings-courses::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 99px;
-}
-.onb-deck .settings-courses::-webkit-scrollbar-track {
-  background: transparent;
-}
+
 /* tighter head + CTA so the whole editor fits a laptop viewport */
 /* NOT a smaller heading (Gabe, 8/22: "make sure that all screens have equal header
    text sizes, see how small Your courses is"). `.tight` used to shrink the headline
@@ -1180,4 +1183,46 @@
 .onb-sched-room {
   flex: none;
   color: var(--text-dim);
+}
+
+/* ===== BUTTON LOW, CONTENT HIGH (Gabe, 10/10) =====
+   Screens 1 to 6 stack from the top and a spacer (.onb-push, added in
+   onboarding/view.ts) pushes the main button to the bottom, so the picture, the
+   heading and the button land at about the same height on every step. The
+   spacer keeps at least 20px between the content and the button. The slack is
+   split 1 : 2.5 above and below the content, so a short screen's content sits in
+   the upper third instead of hugging the top edge. */
+.onb-sc.stacked {
+  justify-content: flex-start;
+}
+.onb-sc.stacked::before {
+  content: '';
+  flex: 1 0 0;
+}
+.onb-push {
+  flex: 2.5 0 20px;
+}
+/* Bigger pictures on the screens with the most room (10/10): the Connect stage and
+   the language globe. */
+.onb-sc.stacked .onb-stage {
+  min-height: 150px;
+  justify-content: center;
+}
+.onb-sc.stacked .onb-tile.lg {
+  width: 84px;
+  height: 84px;
+}
+.onb-sc.stacked .onb-langs {
+  height: 150px;
+}
+.onb-sc.stacked .onb-lang-core {
+  font-size: 40px;
+}
+.onb-sc.stacked .onb-lang-glyph {
+  font-size: 18px;
+  transform: translate(-50%, -50%) rotate(calc(var(--i) * (360deg / var(--n))))
+    translate(62px) rotate(calc(var(--i) * (-360deg / var(--n))));
+}
+.onb-sc.stacked > .onb-cta {
+  margin-top: 0;
 }
