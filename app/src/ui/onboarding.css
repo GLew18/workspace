@@ -560,14 +560,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.onb-chip::before {
-  content: '';
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--c, var(--gold));
-  flex: none;
-}
 @keyframes onb-chipIn {
   from {
     opacity: 0;
