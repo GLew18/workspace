@@ -102,6 +102,16 @@ export function buildSchoolAddress(opts: {
   input.setAttribute('spellcheck', 'false');
   const btn = el('button', { class: opts.btnClass, type: 'button', text: 'Connect' }) as HTMLButtonElement;
   btn.style.marginTop = '0';
+  // "PRESS THIS FOR NOW" STAYS (Gabe, 10/10): PowerSchool's app reviewers were told
+  // to press it, and it connects the developer sandbox in one tap. Remove it only
+  // once the review is over.
+  const sandbox = el('button', { class: opts.btnClass, type: 'button', text: 'Press this for now' }) as HTMLButtonElement;
+  sandbox.style.marginTop = '0';
+  sandbox.addEventListener('click', () => {
+    if (sandbox.disabled) return;
+    err.textContent = '';
+    opts.onPick('app.schoology.com');
+  });
   const err = el('div', { style: 'font-size:12px;color:var(--red)' });
   const submit = (): void => {
     if (btn.disabled) return;
@@ -123,11 +133,12 @@ export function buildSchoolAddress(opts: {
     submit();
   });
   input.addEventListener('input', () => (err.textContent = ''));
-  wrap.append(input, btn, err);
+  wrap.append(input, btn, sandbox, err);
   return {
     el: wrap,
     setBusy(b: boolean) {
       btn.disabled = b;
+      sandbox.disabled = b;
       input.disabled = b;
       btn.textContent = b ? 'Opening Schoology…' : 'Connect';
     },
