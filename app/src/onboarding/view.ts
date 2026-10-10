@@ -696,27 +696,10 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   // you past is a worse first impression than a feature you discover a week in.
   SCREENS.push({
     build(host) {
-      // 'pinned': the card starts at the top like the schedule screen's (10/10).
-      const sc = pane(host, 'tight pinned');
-      // WHAT A TRANSLATION LOOKS LIKE (Gabe, 10/10), in place of the globe: a task
-      // row in the schedule screen's card. It is the Tasks tab's OWN markup
-      // (task-item > task-cb + task-info > task-title + task-translation, see
-      // tasks/render.ts) with only the checkbox, title and translation, so its
-      // type, spacing and alignment are the real row's, not a copy of them.
-      const visual = el('div', { class: 'onb-visual rise' });
-      const card = el('div', { class: 'onb-vcard' });
-      const row = el('div', { class: 'task-item onb-trans-task' });
-      const info = el('div', { class: 'task-info' });
-      const tr = el('div', { class: 'task-translation' });
-      tr.append(
-        el('span', { class: 'task-translation-badge', text: '🌐' }),
-        el('span', { text: 'This is what your translation will look like' })
-      );
-      info.append(el('div', { class: 'task-title', text: 'This is what foreign text will look like' }), tr);
-      row.append(el('button', { class: 'task-cb', type: 'button', tabindex: '-1', 'aria-hidden': 'true' }), info);
-      card.append(row);
-      visual.append(card);
-      sc.append(visual);
+      // Heading and caption first, exactly as on Schedule (no 'tight': same sizes and
+      // gaps), then the picker, then the sample task (Gabe, 10/10). 'pinned' starts
+      // the heading at the very top, level with Courses'.
+      const sc = pane(host, 'pinned');
 
       const h1 = el('h1', { class: 'rise d1' });
       h1.append('Add your ', el('span', { class: 'g', text: 'languages' }));
@@ -732,7 +715,6 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
           text: 'Assignments written in these get an English line underneath. Change it any time in Settings.',
         })
       );
-
 
       // onb-lang-wrap carries the stacking order (see the CSS): the results list has
       // to open OVER the Continue button below it, and z-index inside the picker
@@ -752,6 +734,26 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         })
       );
       sc.append(wrap);
+
+      // WHAT A TRANSLATION LOOKS LIKE (Gabe, 10/10), in place of the globe: a task
+      // row in the schedule screen's card, under the picker. It is the Tasks tab's OWN markup
+      // (task-item > task-cb + task-info > task-title + task-translation, see
+      // tasks/render.ts) with only the checkbox, title and translation, so its
+      // type, spacing and alignment are the real row's, not a copy of them.
+      const visual = el('div', { class: 'onb-visual onb-trans-visual rise d3' });
+      const card = el('div', { class: 'onb-vcard' });
+      const row = el('div', { class: 'task-item onb-trans-task' });
+      const info = el('div', { class: 'task-info' });
+      const tr = el('div', { class: 'task-translation' });
+      tr.append(
+        el('span', { class: 'task-translation-badge', text: '🌐' }),
+        el('span', { text: 'This is what your translation will look like' })
+      );
+      info.append(el('div', { class: 'task-title', text: 'This is what foreign text will look like' }), tr);
+      row.append(el('button', { class: 'task-cb', type: 'button', tabindex: '-1', 'aria-hidden': 'true' }), info);
+      card.append(row);
+      visual.append(card);
+      sc.append(visual);
 
       const next = cta('Continue');
       next.addEventListener('click', () => go(index + 1));

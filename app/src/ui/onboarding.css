@@ -1037,6 +1037,10 @@
   margin-bottom: 0;
   pointer-events: none;
 }
+/* Under the picker now, so it needs room above rather than below. */
+.onb-trans-visual {
+  margin: 18px 0 0;
+}
 
 /* THE RESULTS LIST OPENS OVER THE CONTINUE BUTTON (Gabe, 8/22, screenshot).
    Its own z-index could never do this. Every `.rise` element animates transform and
@@ -1122,12 +1126,12 @@
   content: '';
   flex: 1 0 0;
 }
-/* A screen that starts at the top like Schedule, whatever its height (10/10). */
-.onb-sc.stacked.pinned::before {
-  flex: 0 0 0;
-}
 .onb-push {
   flex: 2.5 0 20px;
+}
+/* A screen whose heading starts at the very top, like Courses (10/10). */
+.onb-sc.stacked.pinned::before {
+  flex: 0 0 0;
 }
 /* A bigger picture on the screen with the most room (10/10): the Connect stage. */
 .onb-sc.stacked .onb-stage {
