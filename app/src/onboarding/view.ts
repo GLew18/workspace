@@ -373,7 +373,7 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       }
 
       // The payoff: the picker folds away, the Schoology mark sweeps, the real
-      // titles fly in, and the hidden button appears as Continue.
+      // titles fly in, and only then do the caption and Continue appear.
       const mine = index; // only touch this screen if the student is still on it
       const alive = (): boolean => index === mine;
       function reveal(titles: string[], total: number): void {
@@ -381,8 +381,6 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         draft.found = titles;
         draft.foundCount = total;
         apiCard.style.display = 'none';
-        btn.style.display = '';
-        btn.disabled = true;
         stage.classList.add('scanning');
         titles.forEach((t, i) =>
           setTimeout(() => {
@@ -396,7 +394,8 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
           stage.classList.add('done');
           sub.textContent = connectedLine(total);
           sub.style.display = '';
-          btn.disabled = false;
+          // Continue arrives WITH the caption, once every chip has landed (Gabe, 10/10).
+          btn.style.display = '';
         }, 350 + titles.length * 230 + 250);
       }
       btn.addEventListener('click', () => {
