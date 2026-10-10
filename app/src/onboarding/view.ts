@@ -29,7 +29,6 @@
 
 import type { Data } from '../db';
 import { el, textInput } from '../util/dom';
-import { createWordmark } from '../ui/laurel';
 import { capitalizeName, nameFromEmail } from '../util/names';
 import { runSync } from '../schoology/sync';
 import { replaceCourses, getCourseColor } from '../courses/registry';
@@ -70,6 +69,16 @@ interface OnboardingOpts {
    *  way to jump between screens and to seed the draft. Real sign-ups omit it. */
   preview?: (ctl: { go: (i: number) => void; count: number; draft: { name: string; courses: CourseConfig[] } }) => void;
 }
+
+/** A calendar page, the schedule screen's source tile: Google-blue header band
+ *  and date, no trademark artwork. */
+const CAL_ICON =
+  '<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Calendar">' +
+  '<rect x="4" y="6" width="40" height="38" rx="7" fill="#fff" stroke="#dadce0" stroke-width="2"/>' +
+  '<path d="M4 13a7 7 0 0 1 7-7h26a7 7 0 0 1 7 7v4H4z" fill="#4285f4"/>' +
+  '<rect x="13" y="2" width="4" height="9" rx="2" fill="#1a5fd0"/><rect x="31" y="2" width="4" height="9" rx="2" fill="#1a5fd0"/>' +
+  '<text x="24" y="36" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1a73e8">31</text>' +
+  '</svg>';
 
 /** The real Schoology mark, so the connect step shows the service by its own logo. */
 const SGY_LOGO =
@@ -206,21 +215,17 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   SCREENS.push({
     build(host) {
       const sc = pane(host);
-      const hero = el('div', { class: 'onb-visual onb-hero', style: 'margin-bottom:26px' });
+      // "Welcome to" + the Cobalt mark, no wordmark (Gabe, 10/9): the mark and the
+      // wordmark's gem "o" together read as a double gem.
+      const hero = el('div', { class: 'onb-visual onb-hero rise d1', style: 'margin-bottom:26px' });
       hero.append(el('div', { class: 'onb-hero-glow' }));
-      hero.append(el('img', { class: 'onb-mark', src: '/icons/icon.svg', alt: '' }));
-      // THE REAL WORDMARK (Gabe, 10/9): C + gem + balt, exactly as everywhere else.
-      // It was the only place in the app that spelled the "o" as a coloured letter.
-      const wordmark = el('div', { class: 'onb-wordmark rise d1' });
-      wordmark.append(createWordmark().el);
+      hero.append(el('img', { class: 'onb-mark', src: '/icons/icon.svg', alt: 'Cobalt' }));
       sc.append(
+        el('div', { class: 'onb-eyebrow onb-eyebrow-top rise', text: 'welcome to' }),
         hero,
-        el('div', { class: 'onb-eyebrow rise d1', text: 'welcome to' }),
-        wordmark,
         el('p', {
           class: 'onb-sub rise d2',
-          style: 'margin-top:16px',
-          text: 'Your Schoology, organized. Every assignment in one calm place.',
+          text: 'Your Schoology, organized. Everything you need in one calm place.',
         })
       );
       const next = cta('Let’s go');
@@ -298,7 +303,8 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
 
       const h1 = el('h1', { class: 'rise d1' });
       h1.append('Connect ', el('span', { class: 'g', text: 'Schoology' }));
-      const sub = el('p', { class: 'onb-sub rise d2', text: 'Cobalt brings everything in.' });
+      // No caption until Schoology has answered (Gabe, 10/9); reveal() fills it in.
+      const sub = el('p', { class: 'onb-sub rise d2', style: 'display:none' });
 
       // CONNECT WITH SCHOOLOGY (Gabe, 10/7/26), the ONLY way in since 10/9/26: the
       // real connection, through the school's own Schoology approve screen. No card,
@@ -324,6 +330,7 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         // Back-navigation after connecting: no replay, just the result and Continue.
         stage.classList.add('done');
         sub.textContent = connectedLine(draft.foundCount);
+        sub.style.display = '';
         sc.append(visual, h1, sub, btn);
       } else {
         // btn stays in the screen, hidden: reveal() turns it into Continue.
@@ -331,20 +338,15 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         sc.append(visual, h1, sub, apiCard, btn);
       }
 
-      // TEMPORARY (Gabe, 8/9): a way past the connect step while the rest of
-      // onboarding is being built, so testing later screens doesn't require a
-      // working Schoology connection every time.
-      //
-      // This is deliberately NOT a product decision. The header comment above
-      // explains why there is no Skip in the real flow: a student who skips
-      // forgets, opens an empty app, and concludes Cobalt is broken. The
-      // connection IS the product. DELETE THIS BLOCK when the flow is done.
-      //
-      // It leaves draft.connected false and draft.courses empty, which the later
-      // screens already handle honestly ("Your courses" + "add them here").
-      const skip = el('button', { class: 'onb-skip', type: 'button', text: 'Skip for now (temporary)' });
-      skip.addEventListener('click', () => go(index + 1));
-      sc.append(skip);
+      // AUDIT PREVIEW ONLY (Gabe, 10/9): a way past Connect so the later screens
+      // can be reviewed without a Schoology login. Never in the real app: a student
+      // who skips forgets, opens an empty app, and concludes Cobalt is useless. The
+      // connection IS the product, so getting into Cobalt means Schoology is connected.
+      if (preview) {
+        const skip = el('button', { class: 'onb-skip', type: 'button', text: 'Skip for now (preview only)' });
+        skip.addEventListener('click', () => go(index + 1));
+        sc.append(skip);
+      }
 
       // The payoff: the picker folds away, the Schoology mark sweeps, the real
       // titles fly in, and the hidden button appears as Continue.
@@ -369,6 +371,7 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
           stage.classList.remove('scanning');
           stage.classList.add('done');
           sub.textContent = connectedLine(total);
+          sub.style.display = '';
           btn.disabled = false;
         }, 350 + titles.length * 230 + 250);
       }
@@ -433,33 +436,10 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         el('p', {
           class: 'onb-sub rise d1',
           text: discovered
-            ? `Pulled from ${draft.coursesFrom === 'schedule' ? 'your schedule' : 'Schoology'}. Fix anything that looks wrong, and add what’s missing.`
-            : 'Your feed carries no course names, so add them here. Change them any time in Settings.',
+            ? `Pulled from ${draft.coursesFrom === 'schedule' ? 'your schedule' : 'Schoology'}. Fix anything that looks wrong, and add parse words for easy navigation.`
+            : 'Add your courses here. Change them any time in Settings.',
         })
       );
-
-      // Three chips settling into a stack, in the first three colours a new course
-      // is actually given (courses/colors.ts). Screens 1 to 3 all open with
-      // something moving; Courses and Languages were the two that just sat there
-      // (Gabe, 8/22), and this doubles as a preview of what the colours are FOR.
-      // NAMED, not bare colour bars (Gabe, 8/22): a stripe of yellow says nothing,
-      // "Math" in yellow says what the colour is for. Shown in the first three
-      // colours a new course is actually given, so it is a real preview and not a
-      // decoration. The names are generic subjects because the student's own list is
-      // right underneath and would only repeat itself.
-      const swatches = el('div', { class: 'onb-visual onb-swatches rise d1' });
-      const PREVIEW: Array<[string, string]> = [
-        ['Math', '#f2c531'],
-        ['History', '#ef4444'],
-        ['Science', '#4a9eff'],
-      ];
-      PREVIEW.forEach(([label, c], i) => {
-        const chip = el('span', { class: 'onb-swatch', text: label });
-        chip.style.setProperty('--c', c);
-        chip.style.setProperty('--i', String(i));
-        swatches.append(chip);
-      });
-      sc.append(swatches);
 
       // The pin-free wrapper exists so the list can scroll inside itself.
       const wrap = el('div', { class: 'onb-courses-wrap rise d2' });
@@ -504,7 +484,15 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
           rows.append(row);
         }
         firstDraw = false;
+        requestAnimationFrame(moreBelow);
       };
+      // SCROLL CUE (Gabe, 10/9: "not so obvious that this is scrollable"): a thin
+      // visible scrollbar plus a deeper fade at the bottom while rows remain below.
+      // The fade lifts once the last row is in view, so it never dims what you edit.
+      const moreBelow = (): void => {
+        rows.classList.toggle('more-below', rows.scrollHeight - rows.scrollTop - rows.clientHeight > 4);
+      };
+      rows.addEventListener('scroll', moreBelow, { passive: true });
       draw();
 
       addBtn.addEventListener('click', () => {
@@ -544,10 +532,31 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   SCREENS.push({
     build(host) {
       const sc = pane(host);
-      const h1 = el('h1', { class: 'rise' });
+      // CALENDAR → COBALT (Gabe, 10/9): every other screen opens on a picture, so
+      // this one gets the auto-import screen's motion: periods flying from a
+      // calendar into the Cobalt mark.
+      const visual = el('div', { class: 'onb-visual rise' });
+      const card = el('div', { class: 'onb-vcard' });
+      const imp = el('div', { class: 'onb-imp onb-imp-cal' });
+      const lane = el('div', { class: 'onb-lane' });
+      lane.append(
+        el('div', { class: 'onb-fly f1' }),
+        el('div', { class: 'onb-fly f2' }),
+        el('div', { class: 'onb-fly f3' })
+      );
+      const cal = el('div', { class: 'onb-tile onb-tile-lg' });
+      cal.innerHTML = CAL_ICON; // static, authored above, no user input reaches this
+      const gem = el('div', { class: 'onb-tile onb-tile-lg onb-tile-gem' });
+      gem.append(el('img', { src: '/icons/icon.svg', alt: '' }));
+      imp.append(cal, lane, gem);
+      card.append(imp);
+      visual.append(card);
+      sc.append(visual);
+
+      const h1 = el('h1', { class: 'rise d1' });
       h1.append('Add your ', el('span', { class: 'g', text: 'schedule' }));
       const sub = el('p', {
-        class: 'onb-sub rise d1',
+        class: 'onb-sub rise d2',
         text: 'If your school puts your classes on Google Calendar, Cobalt shows your day on the dashboard: every period, room and teacher.',
       });
       sc.append(h1, sub);
@@ -663,25 +672,10 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   SCREENS.push({
     build(host) {
       const sc = pane(host, 'tight');
-      const h1 = el('h1', { class: 'rise' });
-      h1.append('Your ', el('span', { class: 'g', text: 'languages' }));
-      // ONE CAPTION, NOT TWO (Gabe, 8/22). The screen's subtitle and the picker's
-      // own lead were saying the same sentence twice, at roughly triple the length
-      // of every other screen's caption. The subtitle is now as short as theirs, and
-      // the picker's lead is suppressed rather than reworded, because with the
-      // subtitle above it there is nothing left for it to add.
-      sc.append(
-        h1,
-        el('p', {
-          class: 'onb-sub rise d1',
-          text: 'Assignments written in these get an English line underneath. Change it any time in Settings.',
-        })
-      );
-
       // The globe, drifting through the scripts the picker can read. Screens 1 to 3
       // all open with something moving; this one and Courses were the two that just
-      // sat there (Gabe, 8/22).
-      const orbit = el('div', { class: 'onb-visual onb-langs rise d1' });
+      // sat there (Gabe, 8/22). Above the heading, like every other screen's picture (10/9).
+      const orbit = el('div', { class: 'onb-visual onb-langs rise' });
       const GLYPHS = ['あ', 'ע', 'ñ', 'ت', 'Я', '中', 'Ω', 'ह'];
       GLYPHS.forEach((ch, i) => {
         const g = el('span', { class: 'onb-lang-glyph', text: ch });
@@ -693,6 +687,22 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       });
       orbit.append(el('span', { class: 'onb-lang-core', text: '🌐' }));
       sc.append(orbit);
+
+      const h1 = el('h1', { class: 'rise d1' });
+      h1.append('Your ', el('span', { class: 'g', text: 'languages' }));
+      // ONE CAPTION, NOT TWO (Gabe, 8/22). The screen's subtitle and the picker's
+      // own lead were saying the same sentence twice, at roughly triple the length
+      // of every other screen's caption. The subtitle is now as short as theirs, and
+      // the picker's lead is suppressed rather than reworded, because with the
+      // subtitle above it there is nothing left for it to add.
+      sc.append(
+        h1,
+        el('p', {
+          class: 'onb-sub rise d2',
+          text: 'Assignments written in these get an English line underneath. Change it any time in Settings.',
+        })
+      );
+
 
       // onb-lang-wrap carries the stacking order (see the CSS): the results list has
       // to open OVER the Continue button below it, and z-index inside the picker

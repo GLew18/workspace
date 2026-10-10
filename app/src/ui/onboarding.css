@@ -341,13 +341,9 @@
   color: var(--text-dim);
   margin-bottom: 10px;
 }
-.onb-wordmark {
-  margin: 6px 0 0;
-}
-/* The shared .ws-mark (components.css), only resized: it scales the whole C + gem
-   + balt lockup off its font-size, so the proportions stay exact. */
-.onb-wordmark .ws-mark {
-  font-size: clamp(34px, 6vw, 46px);
+/* "welcome to" sits ABOVE the mark now (Gabe, 10/9), so it needs room below. */
+.onb-eyebrow-top {
+  margin-bottom: 26px;
 }
 
 /* ================= screen 2 · the auto-import explainer ================= */
@@ -386,6 +382,34 @@
   width: 100%;
   height: 100%;
   display: block;
+}
+/* The schedule screen's pair: a calendar tile and the Cobalt mark, a little
+   larger than the Schoology tile because they stand alone without a task list. */
+.onb-tile-lg {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+}
+.onb-tile-gem {
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  animation-delay: 1.5s; /* beats after the calendar, as if receiving */
+}
+.onb-tile-gem img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* Wider than screen 2's lane: the pills travel 52px + their own 34px, and here
+   they must fade out before the mark rather than over it. */
+.onb-imp-cal .onb-lane {
+  width: 92px;
+}
+/* The globe moved above the heading (10/9), so the caption now sits directly on
+   the picker; give it the gap the globe used to provide. */
+.onb-lang-wrap {
+  margin-top: 16px;
 }
 /* three gold pills flying from Schoology into the task list */
 .onb-lane {
@@ -712,17 +736,27 @@
   max-height: min(285px, 40vh);
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  /* fades only the last ~24px, so a partly-visible row reads as "more below"
-     without dimming a row you're actually editing */
-  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 24px), transparent 100%);
-  mask-image: linear-gradient(180deg, #000 calc(100% - 24px), transparent 100%);
+  /* SCROLL CUE (Gabe, 10/9: "not so obvious that this is scrollable"): a thin
+     visible bar, plus a deep fade at the bottom while rows remain below. The fade
+     lifts at the end (.more-below is toggled in onboarding/view.ts), so it never
+     dims the last row you're editing. */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  padding-right: 4px;
+}
+.onb-deck .settings-courses.more-below {
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 64px), transparent 100%);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 64px), transparent 100%);
 }
 .onb-deck .settings-courses::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
+  width: 6px;
+}
+.onb-deck .settings-courses::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 99px;
+}
+.onb-deck .settings-courses::-webkit-scrollbar-track {
+  background: transparent;
 }
 /* tighter head + CTA so the whole editor fits a laptop viewport */
 /* NOT a smaller heading (Gabe, 8/22: "make sure that all screens have equal header
@@ -1009,77 +1043,6 @@
   box-shadow: none;
 }
 
-/* ================== screen 4 · the course-colour swatches ==================
-   Three chips settling into place, in the exact first three colours a new course is
-   given (courses/colors.ts). It fills the height the screen gained, and it is an
-   honest preview: this is what the colours on the next screen will look like. */
-.onb-swatches {
-  gap: 9px;
-  /* Off the caption above it: the chips are an illustration OF the caption, not a
-     third line of it. */
-  margin-top: 14px;
-  margin-bottom: 24px;
-  height: 34px;
-  align-items: center;
-}
-/* A NAMED chip, not a bare colour bar (Gabe, 8/22). The colour is the point of the
-   screen, so it is shown doing its job: a dot in the colour, the subject in the
-   colour, on a wash of the colour. Everything is derived from --c, so the three
-   chips are one rule seen three times. */
-.onb-swatch {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 12px 6px 10px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--c) 13%, transparent);
-  border: 1px solid color-mix(in srgb, var(--c) 34%, transparent);
-  color: var(--c);
-  font-size: 12.5px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-  opacity: 0;
-  transform: translateY(-10px);
-  /* TWO animations: the entrance, then a drift that never stops (Gabe, 8/22 asked
-     for "some constant movement that is subtle"). The drift is listed second so it
-     wins the transform once it starts, and it starts as the drop finishes. Each
-     chip runs on its own slightly different clock, so the row breathes instead of
-     pulsing in unison. */
-  animation:
-    onb-swatch-drop 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards,
-    onb-swatch-drift 3.4s ease-in-out infinite;
-  animation-delay: calc(0.18s + var(--i) * 0.11s), calc(0.72s + var(--i) * 0.11s);
-  animation-duration: 0.5s, calc(3.4s + var(--i) * 0.5s);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
-}
-.onb-swatch::before {
-  content: '';
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--c);
-  box-shadow: 0 0 9px color-mix(in srgb, var(--c) 70%, transparent);
-}
-@keyframes onb-swatch-drop {
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-/* 3px, deliberately: enough to read as alive, small enough that nothing about the
-   row's position is ever in question. */
-@keyframes onb-swatch-drift {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-3px);
-  }
-}
-
 /* ================== screen 5 · the language orbit ==================
    A globe with eight scripts drifting around it: the point of the screen, said
    without a sentence. Each glyph sits at its own angle on the ring and breathes on
@@ -1165,11 +1128,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .onb-swatch {
-    animation: none;
-    opacity: 1;
-    transform: none;
-  }
   .onb-lang-glyph,
   .onb-lang-core {
     animation: none;
