@@ -418,19 +418,27 @@
 .parse-add-wrap {
   display: inline-flex;
   align-items: center;
-  gap: 4px; /* .parse-chip's gap — the + sits off the word exactly as the × does */
+  /* 2px + the input's own 2px of padding = the 4px a suggestion leaves between its
+     + and its word. */
+  gap: 2px;
   border: 1px dashed var(--border-strong);
   border-radius: 999px;
-  padding: 5px 7px 5px 11px; /* .parse-chip's padding, to the pixel */
+  /* + first since 10/10 (it matches the "+ word" suggestions), so the short side of
+     the padding is now on the LEFT, by the +, and the word gets the long side. The
+     input's own 2px each side brings the word to .parse-rec's 11px from the edge. */
+  padding: 5px 9px 5px 7px;
 }
 .parse-add {
   /* Wide enough for the "parse word" placeholder and no wider. The leading "+" came
      off that placeholder when the button arrived: the pill would otherwise carry two
      plus signs four pixels apart, one of them decorative. */
-  width: 66px;
+  /* 70px with 2px of padding each side: "parse word" measures 65px, and in a 66px
+     box with no padding the caret sat ON the "p" and its edge clipped (Gabe, 10/10).
+     The padding keeps the caret and the glyph clear of the box's edge. */
+  width: 70px;
   background: none;
   border: none;
-  padding: 0;
+  padding: 0 2px;
   color: var(--text);
   font-size: 12px;
   font-weight: 600;

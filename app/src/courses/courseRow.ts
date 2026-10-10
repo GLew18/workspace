@@ -150,7 +150,8 @@ export function buildCourseRow(c: CourseConfig, ctx: CourseRowCtx): HTMLElement 
   addWordBtn.addEventListener('mousedown', (e) => e.preventDefault());
   addWordBtn.addEventListener('click', () => addWord());
   const addWrap = el('div', { class: 'parse-add-wrap' });
-  addWrap.append(wordInput, addWordBtn);
+  // + FIRST (Gabe, 10/10), like the suggested words beside it ("+ lab").
+  addWrap.append(addWordBtn, wordInput);
 
   // One chip row (artifact style): saved words, then gold "+ word" suggestions,
   // then the "+ parse word" input and its commit button — all flowing inline.
