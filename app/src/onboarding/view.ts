@@ -696,26 +696,24 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   // you past is a worse first impression than a feature you discover a week in.
   SCREENS.push({
     build(host) {
-      const sc = pane(host, 'tight');
-      // WHAT A TRANSLATION LOOKS LIKE (Gabe, 10/10), in place of the globe: a real
-      // task row in the schedule screen's card, a foreign title with its English
-      // line underneath, built from the Tasks tab's own title and translation
-      // classes so it matches the app exactly.
+      // 'pinned': the card starts at the top like the schedule screen's (10/10).
+      const sc = pane(host, 'tight pinned');
+      // WHAT A TRANSLATION LOOKS LIKE (Gabe, 10/10), in place of the globe: a task
+      // row in the schedule screen's card. It is the Tasks tab's OWN markup
+      // (task-item > task-cb + task-info > task-title + task-translation, see
+      // tasks/render.ts) with only the checkbox, title and translation, so its
+      // type, spacing and alignment are the real row's, not a copy of them.
       const visual = el('div', { class: 'onb-visual rise' });
       const card = el('div', { class: 'onb-vcard' });
-      const row = el('div', { class: 'onb-mini-task onb-trans-task' });
-      const info = el('div', { class: 'onb-trans-info' });
+      const row = el('div', { class: 'task-item onb-trans-task' });
+      const info = el('div', { class: 'task-info' });
       const tr = el('div', { class: 'task-translation' });
       tr.append(
         el('span', { class: 'task-translation-badge', text: '🌐' }),
         el('span', { text: 'This is what your translation will look like' })
       );
-      info.append(el('div', { class: 'task-title', text: 'Así se verá tu traducción' }), tr);
-      row.append(
-        el('span', { class: 'cb' }),
-        info,
-        el('span', { class: 'crs', style: 'color:#f0c040', text: 'Spanish' })
-      );
+      info.append(el('div', { class: 'task-title', text: 'This is what foreign text will look like' }), tr);
+      row.append(el('button', { class: 'task-cb', type: 'button', tabindex: '-1', 'aria-hidden': 'true' }), info);
       card.append(row);
       visual.append(card);
       sc.append(visual);

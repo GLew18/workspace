@@ -1027,21 +1027,15 @@
 }
 
 /* ================== screen 5 · a translated task (10/10) ==================
-   The Tasks tab's own .task-title / .task-translation inside the screen-2 mini
-   row, so the sample reads exactly like the app; only sized down to the card. */
+   The Tasks tab's own row (components.css .task-item / .task-cb / .task-title /
+   .task-translation), untouched except for what the deck itself imposes: the
+   deck centres text, a task row is left-aligned, and the row's list spacing
+   underneath does not apply inside the card. It is a picture, so it takes no
+   clicks. */
 .onb-trans-task {
-  padding: 12px 14px;
-}
-.onb-trans-info {
-  flex: 1;
-  min-width: 0;
   text-align: left;
-}
-.onb-trans-task .task-title {
-  font-size: 14px;
-}
-.onb-trans-task .task-translation {
-  font-size: 12.5px;
+  margin-bottom: 0;
+  pointer-events: none;
 }
 
 /* THE RESULTS LIST OPENS OVER THE CONTINUE BUTTON (Gabe, 8/22, screenshot).
@@ -1127,6 +1121,10 @@
 .onb-sc.stacked::before {
   content: '';
   flex: 1 0 0;
+}
+/* A screen that starts at the top like Schedule, whatever its height (10/10). */
+.onb-sc.stacked.pinned::before {
+  flex: 0 0 0;
 }
 .onb-push {
   flex: 2.5 0 20px;
