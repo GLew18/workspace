@@ -232,7 +232,9 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       const sc = pane(host, 'centered');
       const mark = el('div', { class: 'onb-crowned' });
       // Static markup authored in this file and laurel.ts; no user input.
-      mark.innerHTML = `<div class="onb-crowned-gem">${STONE_SVG}</div>`;
+      // UPRIGHT here (Gabe, 10/10): the wordmark tilts its gem to sit in "Cobalt" as
+      // the "o"; standing alone, it reads straight.
+      mark.innerHTML = `<div class="onb-crowned-gem">${STONE_SVG.replace('rotate(-8 50 50) ', '')}</div>`;
       const h1 = el('h1', { class: 'rise d1' });
       h1.append('Welcome to ', el('span', { class: 'g', text: 'Cobalt' }));
       sc.append(
@@ -358,9 +360,15 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       // can be reviewed without a Schoology login. Never in the real app: a student
       // who skips forgets, opens an empty app, and concludes Cobalt is useless. The
       // connection IS the product, so getting into Cobalt means Schoology is connected.
+      // It plays the real reveal over sample titles (Gabe, 10/10), so the chips
+      // flying in and the Continue button can be audited too. Nothing is imported:
+      // the student was never connected, so the payoff runs no sync.
       if (preview) {
         const skip = el('button', { class: 'onb-skip', type: 'button', text: 'Skip for now (preview only)' });
-        skip.addEventListener('click', () => go(index + 1));
+        skip.addEventListener('click', () => {
+          skip.remove();
+          reveal(['Read Ch. 7 & annotate', 'Unit 5 Test', 'Finish lab write-up'], 3);
+        });
         sc.append(skip);
       }
 
