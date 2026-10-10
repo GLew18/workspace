@@ -295,8 +295,41 @@ export class BookmarksView {
     // into the search row on 9/6/26 — see above.)
 
     panel.append(page);
+    this.watchPin(searchWrap); // needs the bar in the document to find its scroller
     this.renderGrid();
   }
+
+  /** Re-test the pinned state; main.ts calls it when the tab is opened. */
+  onShow(): void {
+    this.pinSync?.();
+  }
+
+  /**
+   * The search row sticks to the top of the scroller like the Tasks add bar
+   * (Gabe, 10/9), and wears the same opaque `.pinned` surface once it is stuck.
+   * Same sentinel test as TasksView.watchQuickAdd; see the reasoning there.
+   */
+  private watchPin(bar: HTMLElement): void {
+    this.pinOff?.();
+    this.pinOff = undefined;
+    const root = (bar.closest('.app-below, .lp-demoshell-body .app') ??
+      (this.sample ? bar.closest('.app') : null)) as HTMLElement | null;
+    if (!root) return;
+    const sentinel = el('div', { class: 'quick-add-sentinel' });
+    bar.before(sentinel);
+    const sync = (): void => {
+      if (!bar.isConnected || !sentinel.isConnected) return;
+      if (!bar.getBoundingClientRect().height) return; // hidden tab: no answer
+      const pinned = sentinel.getBoundingClientRect().top < root.getBoundingClientRect().top + 0.5;
+      bar.classList.toggle('pinned', pinned);
+    };
+    root.addEventListener('scroll', sync, { passive: true });
+    this.pinOff = () => root.removeEventListener('scroll', sync);
+    this.pinSync = sync;
+    sync();
+  }
+  private pinOff?: () => void;
+  private pinSync?: () => void;
 
   private async load(): Promise<BookmarksData> {
     const d = await this.data.getProfile<BookmarksData>('bookmarks');

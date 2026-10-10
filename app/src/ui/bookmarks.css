@@ -23,7 +23,21 @@
   display: flex;
   align-items: stretch;
   gap: 8px;
-  margin-bottom: 14px;
+  /* PINNED LIKE THE TASKS BAR (Gabe, 10/9): same recipe as components.css
+     .quick-add, see the reasoning there. The -10px top margin eats the new
+     padding so the row sits exactly where it did before. */
+  position: sticky;
+  top: 0;
+  z-index: 300;
+  margin: -10px -8px 4px;
+  padding: 10px 8px;
+  background: transparent;
+  transition: none;
+}
+.bm-search-wrap.pinned {
+  background: var(--page-bg-flat);
+  border-radius: 0 0 14px 14px;
+  box-shadow: 0 5px 12px -9px rgba(0, 0, 0, 0.45);
 }
 .bm-search-wrap .bm-search {
   flex: 1;

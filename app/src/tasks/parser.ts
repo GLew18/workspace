@@ -64,8 +64,10 @@ const ORDINALS: Record<string, number> = {
   eighteenth: 18, nineteenth: 19, twentieth: 20, thirtieth: 30,
 };
 
-/** Strip a trailing comma and lowercase — every word lookup below wants this. */
-const clean = (tok: string): string => tok.toLowerCase().replace(/,$/, '');
+/** Strip trailing punctuation and lowercase — every word lookup below wants this.
+ *  Any punctuation, not just a comma (Gabe, 10/9): "today." and "friday!" are
+ *  still dates. Only the END of the word, so "8/11" and "6:30" stay intact. */
+const clean = (tok: string): string => tok.toLowerCase().replace(/[.,!?;:)\]"'’]+$/, '');
 
 /**
  * One written number → its value, or null. Handles the compounds too, written
@@ -102,7 +104,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 
 /** Parse a single token as a clock time → 'HH:MM' (24h), or null. */
 export function parseTimeToken(tok: string): string | null {
-  const lower = tok.toLowerCase();
+  const lower = clean(tok);
 
   // Suffix accepts the full am/pm or a bare a/p ("630a", "1145p", "6:30p").
   const ampm = lower.match(/^(\d{1,4})(?::(\d{2}))?(am|pm|a|p)$/);
@@ -192,7 +194,7 @@ const MONTHS: Record<string, number> = {
 function dayNum(tok: string): number | null {
   const t = clean(tok);
   const m = t.match(/^(\d{1,2})(?:st|nd|rd|th)?$/i);
-  const d = m ? +m[1] : (wordNumber(tok, true) ?? wordNumber(tok));
+  const d = m ? +m[1] : (wordNumber(t, true) ?? wordNumber(t));
   return d !== null && d >= 1 && d <= 31 ? d : null;
 }
 
@@ -280,19 +282,19 @@ const NIGHT = new Set(['night', 'nite']);
 function parseDateAt(tokens: string[], i: number, dayFirst = true): { date: string; consumed: number } | null {
   const hit = parseDateCore(tokens, i, dayFirst);
   if (!hit) return null;
-  const next = tokens[i + hit.consumed]?.toLowerCase().replace(/,$/, '');
+  const next = clean(tokens[i + hit.consumed] ?? '');
   return next && NIGHT.has(next) ? { date: hit.date, consumed: hit.consumed + 1 } : hit;
 }
 
 function parseDateCore(tokens: string[], i: number, dayFirst = true): { date: string; consumed: number } | null {
-  const tok = tokens[i].toLowerCase().replace(/,$/, ''); // tolerate a trailing comma
+  const tok = clean(tokens[i]); // tolerate trailing punctuation
 
 
   // --- relative words ---
   if (TODAY.has(tok)) return { date: todayStr(), consumed: 1 };
   if (TOMORROW.has(tok)) return { date: addDays(todayStr(), 1), consumed: 1 };
   if (tok === 'next' || tok === 'this' || tok === 'coming') {
-    const n2 = tokens[i + 1]?.toLowerCase().replace(/,$/, '');
+    const n2 = clean(tokens[i + 1] ?? '');
     // "next week" → the SUNDAY that starts next week (weeks are Sunday-anchored
     // app-wide), not a flat +7 from today.
     if (n2 === 'week') return { date: bareWeekday(0), consumed: 2 };
@@ -315,7 +317,7 @@ function parseDateCore(tokens: string[], i: number, dayFirst = true): { date: st
   // in the title with no date attached (Gabe, 8/19).
   if (tok === 'in') {
     const n = countWord(tokens[i + 1] ?? '');
-    const unit = tokens[i + 2]?.toLowerCase().replace(/,$/, '') ?? '';
+    const unit = clean(tokens[i + 2] ?? '');
     if (n !== null) {
       if (/^days?$/.test(unit)) return { date: addDays(todayStr(), n), consumed: 3 };
       if (/^weeks?$/.test(unit)) return { date: addDays(todayStr(), n * 7), consumed: 3 };
@@ -346,7 +348,7 @@ function parseDateCore(tokens: string[], i: number, dayFirst = true): { date: st
   if (tok in MONTHS) {
     const day = dayNum(tokens[i + 1] ?? '');
     if (day) {
-      const yTok = tokens[i + 2] ?? '';
+      const yTok = clean(tokens[i + 2] ?? '');
       const hasYear = /^\d{2}(\d{2})?$/.test(yTok);
       const d = hasYear ? mkDate(fullYear(yTok), MONTHS[tok], day) : nextOccurrence(MONTHS[tok], day);
       if (d) return { date: d, consumed: hasYear ? 3 : 2 };
@@ -355,9 +357,9 @@ function parseDateCore(tokens: string[], i: number, dayFirst = true): { date: st
   // "<day> <month>[ <year>]"  → "11 jan", "11th january 2026"
   const dFirst = dayFirst ? dayNum(tok) : null;
   if (dFirst) {
-    const mWord = tokens[i + 1]?.toLowerCase().replace(/,$/, '') ?? '';
+    const mWord = clean(tokens[i + 1] ?? '');
     if (mWord in MONTHS) {
-      const yTok = tokens[i + 2] ?? '';
+      const yTok = clean(tokens[i + 2] ?? '');
       const hasYear = /^\d{2}(\d{2})?$/.test(yTok);
       const d = hasYear ? mkDate(fullYear(yTok), MONTHS[mWord], dFirst) : nextOccurrence(MONTHS[mWord], dFirst);
       if (d) return { date: d, consumed: hasYear ? 3 : 2 };

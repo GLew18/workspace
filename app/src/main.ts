@@ -471,6 +471,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   const dashboardView = new DashboardView(data, displayName, (id) => controller.goToTab(id));
   const tasksView = new TasksView(data);
   const testsView = new TestsView(data, user.email || '');
+  const bookmarksView = new BookmarksView(data);
   const focusView = new FocusView(data);
   activeFocusView = focusView; // sign-out tears this down (music, widget, overlay)
   controller = mountTabs(
@@ -483,7 +484,7 @@ async function renderApp(user: AuthUser): Promise<void> {
       { id: 'tasks', label: 'Tasks', render: (p) => tasksView.mount(p), onShow: () => tasksView.onShow() },
       ...(TESTS_TAB_ON ? [{ id: 'tests', label: 'Tests', render: (p: HTMLElement) => testsView.mount(p), onShow: () => testsView.onShow() }] : []),
       { id: 'focus', label: 'Focus', render: (p) => void focusView.mount(p) },
-      { id: 'bookmarks', label: 'Bookmarks', render: (p) => void new BookmarksView(data).mount(p) },
+      { id: 'bookmarks', label: 'Bookmarks', render: (p) => void bookmarksView.mount(p), onShow: () => bookmarksView.onShow() },
       { id: 'store', label: 'Shop', render: (p) => void new StoreView(data).mount(p) },
       // Re-mount every visit so unsaved edits revert to the last-saved version.
       { id: 'settings', label: 'Settings', onShow: (p) => void settingsView.mount(p) },
