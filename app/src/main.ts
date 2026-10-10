@@ -535,6 +535,9 @@ async function renderApp(user: AuthUser): Promise<void> {
   // and the import proceeds exactly as before.
   const pullSchoologyLabels = async (): Promise<void> => {
     try {
+      // Connected to Schoology for real: that is the only source (see runSync), so
+      // the browser's own Schoology account must not seed courses or a feed link.
+      if ((await getSgyApiState(data))?.connected) return;
       if (!(await detectSchoologyExtension())) return;
       const payload = await requestSgyData();
       if (payload) await applySgyPayload(data, payload);

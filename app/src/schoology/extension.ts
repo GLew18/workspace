@@ -30,7 +30,7 @@ import type { Data } from '../db';
 import type { Task, SchoologySettings } from '../types';
 import { getCourses, addCourse, registryHydratedFromStore } from '../courses/registry';
 import { DEFAULT_COURSE_COLOR } from '../courses/maps';
-import { detectExtension, EXTENSION_ID, PROTOCOL_VERSION, PING_TIMEOUT_MS } from '../bookmarks/shortcuts';
+import { EXTENSION_ID, PROTOCOL_VERSION } from '../bookmarks/shortcuts';
 import { genId } from '../util/ids';
 import { isSchoologyIcalUrl } from './ical';
 import { saveTeachers } from '../tasks/teachers';
@@ -140,13 +140,11 @@ function getChromeRuntime(): ChromeRuntimeLike | undefined {
 /** True when the Cobalt companion extension answers a ping. Same extension as
  *  shortcuts, so this simply reuses its detector (ping/pong over both channels,
  *  5s positive cache). Never throws; absent/blocked chrome APIs → false. */
-export async function detectSchoologyExtension(timeoutMs?: number): Promise<boolean> {
-  try {
-    const r = await detectExtension(timeoutMs ?? PING_TIMEOUT_MS);
-    return r.installed;
-  } catch {
-    return false;
-  }
+/** Always false since 10/10/26 (Gabe): the extension no longer reads Schoology at
+ *  all (1.2.1 dropped it), so nothing in the app may treat it as a Schoology
+ *  source. Schoology comes only from the real connection. */
+export async function detectSchoologyExtension(_timeoutMs?: number): Promise<boolean> {
+  return false;
 }
 
 /** Is this the student's own Schoology personal-calendar feed? Anything else must

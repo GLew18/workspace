@@ -113,13 +113,28 @@ interface RowAction {
   build?: () => HTMLElement;
 }
 
+/** Camera for the row's "Submit photo to Schoology" button (Gabe, 10/10): line art in
+ *  currentColor at the folder button's size, so it reads as one of the row's own
+ *  dim glyphs instead of a color emoji. */
+const CAMERA_BTN_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h2.5l1.5-2h6l1.5 2H19a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.5"/></svg>';
+
+/** ⓘ and 📎 for the row, as line art at the folder button's size (Gabe, 10/10): a
+ *  text ⓘ and a color 📎 sat at different widths than the icons around them, which
+ *  is what made the row's gaps uneven. */
+const INFO_BTN_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5h.01"/></svg>';
+/** 🌐 and ⎘ as line art too (Gabe, 10/10: every row icon in line, black and white;
+ *  priority is the one exception, because its color IS the information). */
+const GLOBE_BTN_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/></svg>';
+const DUP_BTN_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+const CLIP_BTN_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>';
+
 const FOLDER_BTN_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
-
-/** Pushpin for the ⋯ menu's "Pin to top" and the Pinned section label. Line art in
- *  currentColor, so it reads as a different thing from the menu's 📌 row toggles. */
-const PIN_SVG =
-  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M12 15v6"/></svg>';
 
 /** Trash can for the ⋯ menu's Delete (checked-off tasks only). Line art in
  *  currentColor, like the folder glyph beside it in that menu. */
@@ -610,20 +625,16 @@ export class TasksView {
       return;
     }
     this.refreshCalPop(); // list mode → closes any stray popover
-    this.renderPinned();
     this.renderFolders();
     // Foldered tasks live INSIDE their folder's section — the main due-date
     // groups show everything else. (A task pointing at a deleted folder falls
-    // back to the main list rather than vanishing.) Pinned ones show only in
-    // Pinned, once (Gabe, 10/3).
+    // back to the main list rather than vanishing.)
     const loose: TaskMap = {};
-    let pinnedCount = 0;
     for (const [id, t] of Object.entries(this.map)) {
-      if (t.pinned && !t.completed) pinnedCount++;
-      else if (!this.liveFolder(t) && !this.completingIds.has(id)) loose[id] = t;
+      if (!this.liveFolder(t) && !this.completingIds.has(id)) loose[id] = t;
     }
     const groups = groupTasks(loose);
-    if (!groups.length && !this.folders.length && !pinnedCount) {
+    if (!groups.length && !this.folders.length) {
       this.listEl.append(
         el('div', { class: 'empty-state', text: 'No tasks yet. Add one above to get started.' })
       );
@@ -738,6 +749,56 @@ export class TasksView {
     this.renderFolders('cal');
     const loose = this.calByDate((t) => !this.liveFolder(t));
     this.calDraw(prefs, loose, this.listEl, '');
+    this.calNoDate(this.listEl, (t) => !this.liveFolder(t));
+  }
+
+  /** NO DUE DATE, UNDER THE GRID (Gabe, 10/10): a calendar of dates cannot place
+   *  these, so they sit beneath it as the list's own "No Due Date" group, header
+   *  and rows verbatim. The ⋮⋮ grip still reorders within the group, and drags a
+   *  row onto a day to give it that date (calDropTarget). */
+  private calNoDate(host: HTMLElement, filter: (t: Task) => boolean): void {
+    const tasks = Object.values(this.map).filter(
+      (t) => !t.dueDate && !this.completingIds.has(t.id) && !isSpentCompleted(t, todayStr()) && filter(t)
+    );
+    if (!tasks.length) return;
+    const group = groupTasks(Object.fromEntries(tasks.map((t) => [t.id, t]))).find((g) => g.key === 'none');
+    if (!group) return;
+    const wrap = el('div', { class: 'cal-nodate' });
+    wrap.append(el('div', { class: `task-group-header tone-${group.tone}`, text: group.header }));
+    for (const t of group.tasks) wrap.append(this.renderTask(t, group));
+    host.append(wrap);
+  }
+
+  /** A day on the calendar accepts a "No Due Date" row dragged onto it: the task takes
+   *  that date. Same rules as typing a date: a past day is refused, and a time
+   *  already gone by today is dropped rather than making the task overdue. */
+  private calDropTarget(node: HTMLElement, dateISO: string): void {
+    const fromTray = (): boolean => this.dragFrom?.group === 'none';
+    node.addEventListener('dragover', (e) => {
+      if (!fromTray()) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      node.classList.add('cal-drop');
+    });
+    node.addEventListener('dragleave', (e) => {
+      if (!node.contains(e.relatedTarget as Node | null)) node.classList.remove('cal-drop');
+    });
+    node.addEventListener('drop', (e) => {
+      node.classList.remove('cal-drop');
+      if (!fromTray()) return;
+      e.preventDefault();
+      const t = this.map[this.dragFrom!.id];
+      this.dragFrom = null;
+      if (!t) return;
+      if (isPastDate(dateISO)) {
+        this.notice(PAST_DATE_MSG);
+        return;
+      }
+      const dueTime = t.dueTime && !isPastTime(dateISO, t.dueTime) ? t.dueTime : '';
+      const next: Task = { ...t, dueDate: dateISO, dueTime, timeLabel: '', _manualDueDate: true };
+      delete next.manualOrder; // an index within the OLD day's group (see editDate)
+      void this.save(next);
+    });
   }
 
   /** The active view into `host`. `scope` keys the time grid's remembered scroll:
@@ -831,8 +892,11 @@ export class TasksView {
    *  and for which class"; priority, time and the rest are in the real row the
    *  click floats open. */
   private calChip(t: Task): HTMLElement {
+    // OVERDUE IN ITS OWN CELL, IN RED (Gabe, 10/10): it stays on the day it was due,
+    // tinted so a past cell with unfinished work reads as a concern.
+    const overdue = !t.completed && !!t.dueDate && t.dueDate < todayStr();
     const chip = el('button', {
-      class: `cal-chip${t.completed ? ' done' : ''}`,
+      class: `cal-chip${t.completed ? ' done' : ''}${overdue ? ' overdue' : ''}`,
       title: t.course ? `${t.title} · ${t.course}` : t.title,
     });
     const txt = el('span', { class: 'cal-chip-txt' });
@@ -877,6 +941,7 @@ export class TasksView {
           text: String(d.getDate()),
         }),
       );
+      this.calDropTarget(cell, dISO);
       const tasks = by.get(dISO) ?? [];
       for (const t of tasks.slice(0, maxChips)) cell.append(this.calChip(t));
       if (tasks.length > maxChips) {
@@ -941,9 +1006,11 @@ export class TasksView {
       const untimed = tasks.filter((t) => !t.dueTime);
       const cell = el('div', { class: `cal-tallday-cell${isToday ? ' today' : ''}` });
       for (const t of untimed) cell.append(this.calChip(t));
+      this.calDropTarget(cell, dISO);
       allDay.append(cell);
 
       const col = el('div', { class: `cal-tcol${isToday ? ' today' : ''}` });
+      this.calDropTarget(col, dISO);
       for (const { t, min, lane, lanes } of layoutTimed(tasks.filter((x) => !!x.dueTime))) {
         earliest = Math.min(earliest, min);
         const chip = this.calChip(t);
@@ -1127,21 +1194,6 @@ export class TasksView {
     return t.folderId ? this.folders.find((f) => f.id === t.folderId) : undefined;
   }
 
-  /** PINNED (Gabe, 10/2): the ⋯ menu's "Pin to top" tasks, above Folders, sorted
-   *  like everything else. A MOVE, not a copy (10/3): the task leaves its folder
-   *  and date group until it is unpinned or checked off. List view only; the
-   *  calendar still shows pinned tasks on their dates. */
-  private renderPinned(): void {
-    const pinned = Object.values(this.map).filter((t) => t.pinned && !t.completed);
-    if (!pinned.length) return;
-    const label = el('div', { class: 'task-folders-label task-pinned-label' });
-    label.innerHTML = PIN_SVG;
-    label.append('Pinned');
-    this.listEl.append(label);
-    const group: TaskGroup = { key: 'pinned', header: '', tone: 'red', tasks: sortTasks(pinned) };
-    for (const t of group.tasks) this.listEl.append(this.renderTask(t, group));
-  }
-
   /** The Folders section: rows above the date groups (list) or above the main
    *  grid (calendar). Expanding a folder shows the same presentation as the
    *  surrounding mode, scoped to that folder: due-date groups in the list, a
@@ -1150,9 +1202,7 @@ export class TasksView {
     if (!this.folders.length) return;
     this.listEl.append(el('div', { class: 'task-folders-label', text: 'Folders' }));
     for (const f of this.folders) {
-      // A pinned task shows ONCE, in Pinned (Gabe, 10/3), so the list's folders
-      // leave it out. The calendar has no Pinned section, so its folders keep it.
-      const members = folderMembers(f, this.map).filter((t) => bodyMode === 'cal' || !t.pinned || t.completed);
+      const members = folderMembers(f, this.map);
       // What the head COUNTS is what the body SHOWS: still-open tasks. Counting
       // every member (completed included) made a check-off leave the number
       // frozen — 10 tasks stayed "10 tasks" until a reload purged the completed
@@ -1329,6 +1379,7 @@ export class TasksView {
           const prefs = getPrefs().calendar;
           const scoped = this.calByDate((t) => t.folderId === f.id);
           this.calDraw(prefs, scoped, body, f.id);
+          this.calNoDate(body, (t) => t.folderId === f.id);
         } else {
           // Every member, finished ones included: they show crossed out below each
           // day's open tasks, exactly as in the main list (groupTasks). The head
@@ -2196,9 +2247,7 @@ export class TasksView {
     // rule, so dragging it anywhere would be undone by the next repaint. Its grip is
     // kept as an inert, invisible placeholder so the row still lines up with the
     // open rows above it, and it is not a drop target either (dragover below).
-    // Pinned rows span many dates, so a drag there would write one order across real
-    // date groups (the excerpt-card bug below). Their grip stays for alignment, inert.
-    const fixed = task.completed || group.key === 'pinned';
+    const fixed = task.completed;
     const handle = el('span', {
       class: `task-handle${fixed ? ' inert' : ''}`,
       text: '⋮⋮',
@@ -2426,9 +2475,21 @@ export class TasksView {
     }
     bottom.append(metaWrap);
 
-    // Actions — two clusters separated by a dot:
-    //   [assignment: ↗ Schoology, ⓘ description] · [tools: 🌐, 📎, priority, ⎘]
+    // Actions — two clusters, Schoology first (Gabe, 10/10): LEFT is Schoology,
+    // or a Schoology feature brought into Cobalt; RIGHT is native to Cobalt.
+    //   [Schoology: ↗, ⓘ, 📷 submit, 📎 attachments] [Cobalt: priority, 🌐, folder, ⎘]
     const actions = el('div', { class: 'task-actions' });
+    // The OPTIONAL tools. Each one is built here but only reaches the row if it
+    // EARNS its slot; everything else waits in the "…" menu (see openMoreMenu).
+    //
+    // A control earns its slot by having real content behind it: a translation to
+    // toggle, a link attached, a folder it belongs to. That rule is what makes the
+    // row calm without asking the student to configure anything — the tasks that
+    // use a feature show it, the ones that don't, don't. Pinning is the manual
+    // override on top, for forcing an EMPTY control to stay put.
+    const pinned = getPrefs().tasks.pinnedActions;
+    const onRow = this.rowActions(task, onDuplicated).filter((a) => a.build && (a.auto || pinned.includes(a.id)));
+    const SCHOOLOGY_SIDE = new Set(['submitPhoto', 'attach']);
     if (task.schoologyUrl) {
       const link = el('button', { class: 'act-schoology', title: 'Open in Schoology' });
       link.innerHTML = SCHOOLOGY_SVG;
@@ -2436,13 +2497,13 @@ export class TasksView {
       actions.append(link);
     }
     if (task.details) {
-      const infoBtn = el('button', { title: 'Description', text: 'ⓘ' });
+      const infoBtn = el('button', { title: 'Description' });
+      infoBtn.innerHTML = INFO_BTN_SVG;
       infoBtn.addEventListener('click', () => this.openDetails(task));
       actions.append(infoBtn);
     }
-    // Separator between the assignment buttons and the tools (only when the
-    // assignment cluster exists — manual tasks have no ↗/ⓘ, so no stray dot).
-    if (actions.childNodes.length) actions.append(el('span', { class: 'act-sep', text: '·' }));
+    for (const a of onRow) if (SCHOOLOGY_SIDE.has(a.id)) actions.append(a.build!());
+    // No dot between the two sides any more (Gabe, 10/10); the order alone splits them.
 
     // PRIORITY is always on the row (Gabe, 8/13), the third permanent control
     // after ↗ and ⓘ. It is the only way to change priority now that the strip is
@@ -2452,19 +2513,9 @@ export class TasksView {
     prioBtn.addEventListener('click', () => this.openPriority(task));
     actions.append(prioBtn);
 
-    // The OPTIONAL tools. Each one is built here but only reaches the row if it
-    // EARNS its slot; everything else waits in the "…" menu (see openMoreMenu).
-    //
-    // A control earns its slot by having real content behind it: a translation to
-    // toggle, a link attached, a folder it belongs to. That rule is what makes the
-    // row calm without asking the student to configure anything — the tasks that
-    // use a feature show it, the ones that don't, don't. Pinning is the manual
-    // override on top, for forcing an EMPTY control to stay put.
-    const optional = this.rowActions(task, onDuplicated);
-    const pinned = getPrefs().tasks.pinnedActions;
     // `a.build` guards the buttonless one: 'readings' asks inside the translation row
-    // rather than from the actions cluster, so it has nothing to append here.
-    for (const a of optional) if (a.build && (a.auto || pinned.includes(a.id))) actions.append(a.build());
+    // rather than from the actions cluster, so it was filtered out above.
+    for (const a of onRow) if (!SCHOOLOGY_SIDE.has(a.id)) actions.append(a.build!());
 
     // The "…" is ALWAYS present, even with nothing hidden: it is the only door to
     // the pin controls, so a stable door beats a row whose button count shifts.
@@ -2617,13 +2668,10 @@ export class TasksView {
     if (bulk) this.clearSelection();
     if (!targets.length) return;
     const now = new Date().toISOString();
-    // Ticking also UNPINS (Gabe, 10/2), so the Pinned section tidies itself and
-    // un-ticking later does not bring a stale pin back.
     const next = targets.map((t) => ({
       ...t,
       completed: done,
       completedAt: done ? now : null,
-      ...(done ? { pinned: false } : {}),
     }));
     if (next.length === 1) void this.save(next[0]);
     else void this.data.putTasksBulk(next);
@@ -2997,21 +3045,6 @@ export class TasksView {
     const noteCount = task.notes?.length ?? 0;
     const inFolder = this.liveFolder(task);
 
-    // PIN TO TOP (Gabe, 10/2): puts the task in the Pinned section above Folders,
-    // as a shortcut; it stays in its folder/date group too. Menu-only (no build), so
-    // it never gets a row-button 📌 of its own. Offered on open tasks only, since
-    // checking a task off unpins it; a pinned one can always be unpinned.
-    if (!task.completed || task.pinned) {
-      const pin = !task.pinned;
-      out.push({
-        id: 'pintop',
-        label: pin ? 'Pin to top' : 'Unpin',
-        iconHtml: PIN_SVG,
-        auto: false,
-        run: () => this.applyToSelection(task, (t) => ({ ...t, pinned: pin && !t.completed })),
-      });
-    }
-
     // THE GLOBE, for both things the translation row can be (Gabe, 8/21).
     //
     // It used to appear only once a translation existed, which left the OTHER state
@@ -3075,8 +3108,8 @@ export class TasksView {
           const b = el('button', {
             class: `act-translate${shown ? ' active' : ''}`,
             title: label,
-            text: '🌐',
           });
+          b.innerHTML = GLOBE_BTN_SVG;
           b.addEventListener('click', run);
           return b;
         },
@@ -3141,15 +3174,22 @@ export class TasksView {
     }
 
     // SUBMIT A PHOTO (Gabe, 10/8/26) — hands photos in on this assignment in
-    // Schoology (schoology/submitPhoto.ts). Menu only, and only on a Schoology
-    // assignment for a student connected to Schoology directly.
+    // Schoology (schoology/submitPhoto.ts). Only on a Schoology assignment for a
+    // student connected to Schoology directly. On the row since 10/10, in the
+    // Schoology cluster left of the dot (see SCHOOLOGY_SIDE in renderTask).
     if (photoSubmitAssignment(task)) {
       out.push({
         id: 'submitPhoto',
-        label: 'Submit photo to Schoology',
+        label: 'Submit to Schoology',
         iconHtml: '📷',
-        auto: false,
+        auto: true,
         run: () => openPhotoSubmit(task),
+        build: () => {
+          const b = el('button', { class: 'act-photo', title: 'Submit to Schoology' });
+          b.innerHTML = CAMERA_BTN_SVG;
+          b.addEventListener('click', () => openPhotoSubmit(task));
+          return b;
+        },
       });
     }
 
@@ -3162,7 +3202,7 @@ export class TasksView {
       run: () => this.openAttachments(task),
       build: () => {
         const b = el('button', { title: 'Attachments' });
-        b.innerHTML = `📎${noteCount ? `<span class="attach-count">${noteCount}</span>` : ''}`;
+        b.innerHTML = `${CLIP_BTN_SVG}${noteCount ? `<span class="attach-count">${noteCount}</span>` : ''}`;
         b.addEventListener('click', () => this.openAttachments(task));
         return b;
       },
@@ -3213,7 +3253,8 @@ export class TasksView {
       auto: false,
       run: doDuplicate,
       build: () => {
-        const b = el('button', { title: 'Duplicate', text: '⎘' });
+        const b = el('button', { title: 'Duplicate' });
+        b.innerHTML = DUP_BTN_SVG;
         // Duplicating a selected row duplicates the whole selection.
         b.addEventListener('click', doDuplicate);
         return b;
@@ -3509,7 +3550,7 @@ export class TasksView {
    */
   private openDetails(task: Task): void {
     const slot = DETAILS_SLOT;
-    this.popup(task.title, (body) => {
+    this.popup('Task Description', (body) => {
       const draw = (): void => {
         const t = this.map[task.id] || task;
         body.replaceChildren();
@@ -3641,7 +3682,8 @@ export class TasksView {
       };
 
       // Display: a compact bookmark-style card — badge + title + domain, click to
-      // open. Edit/delete icons sit to the right.
+      // open. The card takes the whole row; ✎ and ✕ appear in its top-right corner
+      // on hover, exactly like a bookmark card's (Gabe, 10/10).
       const displayCard = (n: typeof notes[number], idx: number): HTMLElement => {
         const item = el('div', { class: 'attach-item' });
         const type = detectAttachmentType(n.url);
@@ -3659,19 +3701,21 @@ export class TasksView {
           if (n.url.trim()) this.openExt(n.url);
         });
 
-        const edit = el('button', { class: 'attach-iconbtn', text: '✎', title: 'Edit' });
+        const edit = el('button', { class: 'bm-icon-btn', text: '✎', title: 'Edit' });
         edit.addEventListener('click', () => {
           editing.add(n.id);
           draw();
         });
-        const del = el('button', { class: 'attach-iconbtn danger', text: '✕', title: 'Delete' });
+        const del = el('button', { class: 'bm-icon-btn bm-icon-danger', text: '✕', title: 'Delete' });
         del.addEventListener('click', () => {
           notes.splice(idx, 1);
           persist();
           draw();
         });
 
-        item.append(main, edit, del);
+        const actions = el('div', { class: 'attach-actions' });
+        actions.append(edit, del);
+        item.append(main, actions);
         return item;
       };
 

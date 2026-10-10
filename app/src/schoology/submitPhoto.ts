@@ -4,15 +4,15 @@
 //
 // Only for a student connected to Schoology directly (the real API), and only on a
 // task that IS a Schoology assignment ('ical_assign_<id>'). The flow:
-//   1. pick or take photos (a phone offers its camera),
-//   2. a confirm screen shows them with the assignment's title, because a
-//      submission goes straight to the teacher and a student can't take it back,
-//   3. each photo is shrunk to a ~1 MB JPEG here, uploaded one per call, then all
+//   1. a popup explains what happens; "Open File Explorer" adds photos (a phone
+//      offers its camera) and a box takes text, since a submission goes straight
+//      to the teacher and a student can't take it back,
+//   2. each photo is shrunk to a ~1 MB JPEG here, uploaded one per call, then all
 //      of them are handed in together as one submission (functions: sgySubmitPhoto).
 
 import type { Data } from '../db';
 import type { Task } from '../types';
-import { el, fadeRemove, showToast } from '../util/dom';
+import { el, fadeRemove, showToast, textInput } from '../util/dom';
 import { getSgyApiState, sgyErrorText } from './api';
 import { firebaseConfig } from '../firebase';
 
@@ -62,43 +62,40 @@ async function toJpeg(file: File): Promise<string> {
   return url.slice(url.indexOf(',') + 1);
 }
 
-/** Opens the photo picker, then the confirm screen. */
+/**
+ * SUBMIT TO SCHOOLOGY (Gabe, 10/10): the popup FIRST, the file picker only when
+ * asked. Opening File Explorer straight from the row left a student staring at a
+ * file dialog with no idea what it was for. The popup says what happens, offers
+ * "Open File Explorer" for photos and a box for text, and Submit stays grayed out
+ * until there is something to hand in.
+ *
+ * Text and photos are TWO submissions in Schoology, not one: its API takes a
+ * submission either as files or as text (the same Upload / Create split as its own
+ * submit window), so with both, the text goes first and the photos second.
+ */
 export function openPhotoSubmit(task: Task): void {
   const aid = photoSubmitAssignment(task);
-  if (!aid) return;
-  const input = el('input', { type: 'file', accept: 'image/*', multiple: true }) as HTMLInputElement;
-  input.addEventListener('change', () => {
-    const files = [...(input.files ?? [])].filter((f) => f.type.startsWith('image/'));
-    if (files.length) confirmPhotos(task, aid, files.slice(0, MAX_PHOTOS), files.length > MAX_PHOTOS);
-  });
-  input.click();
-}
-
-function confirmPhotos(task: Task, aid: string, files: File[], trimmed: boolean): void {
-  if (document.querySelector('.bm-backdrop.photo-submit')) return;
+  if (!aid || document.querySelector('.bm-backdrop.photo-submit')) return;
   const back = el('div', { class: 'bm-backdrop photo-submit' });
   const box = el('div', { class: 'bm-modal photo-submit-modal' });
-  box.append(el('h3', { class: 'bm-modal-title', text: 'Submit to Schoology?' }));
+  box.append(el('h3', { class: 'bm-modal-title', text: 'Submit to Schoology' }));
   box.append(
     el('div', {
       class: 'bm-modal-note',
-      text: `${files.length === 1 ? 'This photo' : `These ${files.length} photos`} will be handed in on “${task.title}”. Your teacher sees ${files.length === 1 ? 'it' : 'them'} right away, and a submission can’t be taken back.`,
+      text: `Handed in on “${task.title}”. Your teacher sees it right away, and a submission can’t be taken back.`,
     })
   );
-  if (trimmed) box.append(el('div', { class: 'bm-modal-note', text: `Only the first ${MAX_PHOTOS} photos are sent.` }));
 
+  let files: File[] = [];
+  let urls: string[] = [];
+  const picker = el('input', { type: 'file', accept: 'image/*', multiple: true }) as HTMLInputElement;
+  const pickBtn = el('button', { class: 'bm-btn photo-submit-pick', type: 'button', text: 'Open File Explorer' }) as HTMLButtonElement;
   const strip = el('div', { class: 'photo-submit-strip' });
-  const urls = files.map((f) => URL.createObjectURL(f));
-  for (const u of urls) strip.append(el('img', { class: 'photo-submit-thumb', src: u, alt: '' }));
-  box.append(strip);
-
+  const note = el('div', { class: 'bm-modal-note photo-submit-trim' });
+  const text = textInput({ class: 'photo-submit-text', placeholder: 'Add text to hand in (optional)' });
   const status = el('div', { class: 'photo-submit-status' });
-  box.append(status);
+  box.append(pickBtn, strip, note, text, status);
 
-  const close = (): void => {
-    urls.forEach((u) => URL.revokeObjectURL(u));
-    fadeRemove(back);
-  };
   const row = el('div', { class: 'bm-modal-footer' });
   row.append(el('div', { class: 'bm-modal-spacer' }));
   const cancel = el('button', { class: 'bm-btn', text: 'Cancel' }) as HTMLButtonElement;
@@ -107,6 +104,33 @@ function confirmPhotos(task: Task, aid: string, files: File[], trimmed: boolean)
   box.append(row);
   back.append(box);
 
+  const ready = (): boolean => files.length > 0 || !!text.value.trim();
+  const sync = (): void => {
+    send.disabled = busy || !ready();
+    pickBtn.textContent = files.length ? 'Add more photos' : 'Open File Explorer';
+    pickBtn.hidden = files.length >= MAX_PHOTOS;
+  };
+  const drawStrip = (): void => {
+    urls.forEach((u) => URL.revokeObjectURL(u));
+    urls = files.map((f) => URL.createObjectURL(f));
+    strip.replaceChildren(...urls.map((u) => el('img', { class: 'photo-submit-thumb', src: u, alt: '' })));
+  };
+  pickBtn.addEventListener('click', () => picker.click());
+  picker.addEventListener('change', () => {
+    const picked = [...(picker.files ?? [])].filter((f) => f.type.startsWith('image/'));
+    picker.value = ''; // so picking the same photo again still fires
+    const all = [...files, ...picked];
+    files = all.slice(0, MAX_PHOTOS);
+    note.textContent = all.length > MAX_PHOTOS ? `Up to ${MAX_PHOTOS} photos. Only the first ${MAX_PHOTOS} are sent.` : '';
+    drawStrip();
+    sync();
+  });
+  text.addEventListener('input', sync);
+
+  const close = (): void => {
+    urls.forEach((u) => URL.revokeObjectURL(u));
+    fadeRemove(back);
+  };
   let busy = false;
   cancel.addEventListener('click', () => !busy && close());
   back.addEventListener('click', (e) => {
@@ -118,12 +142,13 @@ function confirmPhotos(task: Task, aid: string, files: File[], trimmed: boolean)
   };
   document.addEventListener('keydown', onEsc);
 
-  // A deliberate CLICK, never Enter: focus starts on Cancel (same rule as
-  // confirmDanger), because this one cannot be undone.
+  // A deliberate CLICK, never Enter: this one cannot be undone.
   send.addEventListener('click', () => {
-    if (busy) return;
+    if (busy || !ready()) return;
     busy = true;
-    send.disabled = cancel.disabled = true;
+    send.disabled = cancel.disabled = pickBtn.disabled = true;
+    text.disabled = true;
+    status.classList.remove('error');
     void (async () => {
       try {
         const ids: string[] = [];
@@ -139,12 +164,13 @@ function confirmPhotos(task: Task, aid: string, files: File[], trimmed: boolean)
           ids.push(fileId);
         }
         status.textContent = 'Handing it in…';
-        await call({ step: 'submit', assignmentId: aid, fileIds: ids });
+        await call({ step: 'submit', assignmentId: aid, fileIds: ids, text: text.value.trim() });
         close();
         showToast(`Submitted to Schoology: ${task.title}`);
       } catch (err) {
         busy = false;
-        send.disabled = cancel.disabled = false;
+        cancel.disabled = pickBtn.disabled = text.disabled = false;
+        sync();
         send.textContent = 'Try again';
         status.textContent = sgyErrorText(err);
         status.classList.add('error');
@@ -153,5 +179,6 @@ function confirmPhotos(task: Task, aid: string, files: File[], trimmed: boolean)
   });
 
   document.body.append(back);
+  sync();
   cancel.focus();
 }

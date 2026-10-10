@@ -408,7 +408,7 @@
   cursor: pointer;
 }
 .bm-group-x:hover {
-  color: var(--red);
+  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12; red removed 10/10) */
 }
 .bm-group-color {
   flex: none;
@@ -445,18 +445,13 @@
   align-items: center;
   justify-content: center;
 }
-.bm-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
+
 /* Small icon delete: red glyph + a subtle red tint (NOT a full red fill), matching
    .attach-iconbtn.danger — the full fill is reserved for labeled Delete buttons. */
 .bm-icon-danger {
   color: var(--text-dim); /* every ✕ app-wide rests on --text-dim (see .dlg-close) */
 }
-.bm-icon-danger:hover {
-  background: var(--red-tint);
-  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12); the tint keeps the danger read */
-}
+
 
 /* ===== Add button (right end of the search row) ===== */
 /* The Tasks quick-add button's recipe verbatim (components.css .quick-add-btn):
@@ -804,11 +799,25 @@
 
 /* ---- Submit photo to Schoology (schoology/submitPhoto.ts) ---- */
 .photo-submit-modal { max-width: 480px; width: calc(100% - 32px); }
+/* The picker button, full width under the note (Gabe, 10/10: popup first). */
+.photo-submit-pick {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+}
 .photo-submit-strip {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  margin: 14px 0 4px;
+  margin: 10px 0 0;
+}
+.photo-submit-strip:empty { display: none; }
+.photo-submit-trim:empty { display: none; }
+/* The optional text box: the app-wide field look (theme.css), full width. */
+.photo-submit-text {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
 }
 .photo-submit-thumb {
   height: 150px;

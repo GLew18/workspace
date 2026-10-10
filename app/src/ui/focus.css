@@ -51,9 +51,7 @@
 .focus-preset.custom:hover .focus-preset-del {
   opacity: 1;
 }
-.focus-preset-del:hover {
-  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12) */
-}
+
 /* "+ Preset" under the carousel — saves the dialed time as a new preset above. */
 .focus-add-preset {
   display: block;
@@ -174,7 +172,7 @@
 /* Free-text add row: input + accent "+". */
 .focus-add-todo {
   display: flex;
-  gap: 6px;
+  gap: 8px; /* .quick-add-row's gap */
   /* Positioning context for the "f:" folder menu, which hangs off this row the
      same way it hangs off .quick-add in the Tasks tab (Gabe, 8/15). Without it the
      drop would anchor to the page instead of the input. */
@@ -182,15 +180,24 @@
 }
 .focus-add-todo .focus-todo-input {
   flex: 1;
+  min-width: 0;
+  /* The Tasks quick-add box, verbatim (components.css .quick-add input). */
+  border-radius: 12px;
+  padding: 13px 14px;
+  font-size: 15px;
 }
+.focus-add-todo .focus-todo-input:focus {
+  box-shadow: 0 0 0 3px var(--gold-glow);
+}
+/* The Tasks "+" verbatim (components.css .quick-add-btn). */
 .focus-add-btn {
   flex: none;
-  width: 44px;
+  width: 48px;
   background: var(--accent);
   color: var(--on-accent);
   border: none;
-  border-radius: 10px;
-  font-size: 20px;
+  border-radius: 12px;
+  font-size: 22px;
   font-weight: 700;
   line-height: 1;
 }
@@ -686,9 +693,7 @@
   color: var(--text-dim);
   font-size: 13px;
 }
-.focus-todo-del:hover {
-  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12) */
-}
+
 .focus-music-list {
   display: flex;
   flex-direction: column;

@@ -224,9 +224,8 @@ const CLOUD: Array<[string, number]> = [
   ['pull into focus sessions', 3], ['turn one typed line into', 3], ['rename', 3], ['track', 3],
   ['set reminders for', 2], ['reorder by hand', 2], ['range-select', 2],
   ['conquer', 2],
-  // Gamification and pinning (Gabe, 10/4). 'pin' was here at 2; it grows into the
-  // phrase the ⋯ menu actually says.
-  ['gamify', 4], ['earn Gems from', 4], ['pin to the top', 3], ['celebrate finishing', 3],
+  // Gamification (Gabe, 10/4). Pinning was removed from the app 10/10.
+  ['gamify', 4], ['earn Gems from', 4], ['celebrate finishing', 3],
 ];
 
 // Deterministic palette + font mix for the cloud — chosen to feel like a classic
@@ -375,6 +374,15 @@ const STUDENT_SETUPS: StudentSetup[] = [
 
 // Local copies of the real task-row glyphs (tasks/render.ts) — the landing never
 // imports render.ts for icons (that would drag the whole Tasks module in).
+// The real row's ⓘ and 📎 (tasks/render.ts INFO_BTN_SVG / CLIP_BTN_SVG), same art.
+const LP_INFO_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5h.01"/></svg>';
+const LP_GLOBE_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/></svg>';
+const LP_DUP_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+const LP_CLIP_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>';
 const LP_SCHOOLOGY_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>';
 const LP_FOLDER_BTN_SVG =
@@ -594,7 +602,6 @@ const FN_GLOBE = FN_SVG('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><pat
 const FN_CLIP = FN_SVG(
   '<path d="M21.4 11.05 12.2 20.2a5.5 5.5 0 0 1-7.8-7.8l9.2-9.15a3.7 3.7 0 0 1 5.2 5.2l-9.2 9.2a1.8 1.8 0 0 1-2.6-2.6l8.5-8.5"/>'
 );
-const FN_PIN = FN_SVG('<path d="M9 4h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M12 15v6"/>'); // the ⋯ menu's Pin to top
 const FN_TARGET = FN_SVG('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.3"/>');
 const FN_MARK = FN_SVG('<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>');
 const FN_KEYS = FN_SVG('<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>');
@@ -612,7 +619,6 @@ const FUNCTIONS: Array<[string, string]> = [
   [FN_CLIP, 'Attachments'],
   [FN_FOLDER, 'Project folders'],
   ['⎘', 'Task duplication'],
-  [FN_PIN, 'Pinned tasks'],
   // Bulk check-off and focus music came out on 9/2/26 (Gabe): neither is a feature
   // of its own — one is what a bulk selection is FOR, the other is part of a focus
   // session — and listing a thing beside the thing that contains it pads the count
@@ -1109,7 +1115,8 @@ function staticTaskRow(t: ShowTask, s: StudentSetup): HTMLElement {
   bottom.append(metaWrap);
 
   // Action cluster, mirroring the REAL row's rules (see tasks/render.ts, 8/13):
-  //   ALWAYS  [↗ Schoology] [ⓘ] · [priority]        then [⋯] to close it out
+  //   ALWAYS  [↗ Schoology] [ⓘ] [priority]          then [⋯] to close it out
+  //   📎 sits with ↗ and ⓘ, before priority (Gabe, 10/10: Schoology side first; no dot)
   //   AUTO    a control appears when the task has content behind it: a translation,
   //           an attachment, a folder
   //   PINNED  the student forced an empty control to stay put (s.pinned)
@@ -1118,26 +1125,30 @@ function staticTaskRow(t: ShowTask, s: StudentSetup): HTMLElement {
   const actions = el('div', { class: 'task-actions' });
   const sgy = el('button', { class: 'act-schoology' });
   sgy.innerHTML = LP_SCHOOLOGY_SVG;
-  actions.append(sgy, el('button', { text: 'ⓘ' }), el('span', { class: 'act-sep', text: '·' }));
+  const infoBtn = el('button', {});
+  infoBtn.innerHTML = LP_INFO_SVG;
+  actions.append(sgy, infoBtn);
+
+  const pinned = s.pinned ?? [];
+  const count = s.attachments[t.id];
+  const folderColor = s.folderColorOf[t.id];
+  if (count || pinned.includes('attach')) {
+    const attach = el('button', {});
+    attach.innerHTML = `${LP_CLIP_SVG}${count ? `<span class="attach-count">${count}</span>` : ''}`;
+    actions.append(attach);
+  }
 
   const prio = el('button', { text: pri.arrow });
   prio.style.color = pri.color;
   actions.append(prio);
 
-  const pinned = s.pinned ?? [];
-  const count = s.attachments[t.id];
-  const folderColor = s.folderColorOf[t.id];
-
   // 🌐 exists only where there IS a translation, so pinning it can't conjure one.
   // On card 1 it stays un-`.active` (the app's own 0.4-opacity "off" look) rather
   // than disappearing, so card 1 reads as an earlier state of the same row.
   if (t.translated) {
-    actions.append(el('button', { class: `act-translate${s.hideTranslation ? '' : ' active'}`, text: '🌐' }));
-  }
-  if (count || pinned.includes('attach')) {
-    const attach = el('button', {});
-    attach.innerHTML = `📎${count ? `<span class="attach-count">${count}</span>` : ''}`;
-    actions.append(attach);
+    const tx = el('button', { class: `act-translate${s.hideTranslation ? '' : ' active'}` });
+    tx.innerHTML = LP_GLOBE_SVG;
+    actions.append(tx);
   }
   if (folderColor || pinned.includes('folder')) {
     const fold = el('button', { class: 'act-folder' });
@@ -1147,7 +1158,11 @@ function staticTaskRow(t: ShowTask, s: StudentSetup): HTMLElement {
   }
   // ⎘ never auto-promotes: nothing about a task makes duplicating it likelier, so
   // it is on the row only when pinned.
-  if (pinned.includes('duplicate')) actions.append(el('button', { text: '⎘' }));
+  if (pinned.includes('duplicate')) {
+    const dup = el('button', {});
+    dup.innerHTML = LP_DUP_SVG;
+    actions.append(dup);
+  }
 
   actions.append(el('button', { class: 'act-more', text: '⋯' }));
   bottom.append(actions);

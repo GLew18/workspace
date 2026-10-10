@@ -242,10 +242,7 @@
   font-size: 12px;
   cursor: pointer;
 }
-.dash-schedule-link-x:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
-}
+
 /* When the link row is already showing, the list of Schoology-fed posts (if any)
    and the schedule row need a gap between them. */
 .dash-schedule-linkrow + .dash-schedule-list {

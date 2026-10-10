@@ -430,7 +430,9 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         btn.style.display = 'none';
         sc.append(visual, h1, sub, apiCard, btn);
       } else {
-        sc.append(visual, h1, sub, route, divider, fieldWrap, btn);
+        // No extension route (10/10/26): the extension stopped reading Schoology.
+        sub.textContent = 'Paste your Schoology calendar link.';
+        sc.append(visual, h1, sub, fieldWrap, btn);
       }
 
       // Extension already installed? Then the student pastes nothing: the extension
@@ -442,7 +444,10 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       let extHandled = false;
       const mineScreen = index;
       const pollExt = async (): Promise<void> => {
-        if (extHandled || index !== mineScreen || draft.connected) return;
+        // Never on the Schoology-connect layout (Gabe, 10/10): there the student's
+        // tap on their school is the start, and the browser's own Schoology login
+        // (often a different account) must not connect anything on its own.
+        if (apiOn || extHandled || index !== mineScreen || draft.connected) return;
         if (!(await detectSchoologyExtension())) return;
         if (extHandled) return;
         extHandled = true;
@@ -582,7 +587,9 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         // Real course names, when they exist at all, come from the companion
         // extension: the calendar feed carries none. No extension, or nothing
         // scraped, means the courses screen stays empty rather than inventing.
-        void discoverCourses().then((found) => {
+        // Not after a Schoology connection: it already brought the real courses,
+        // and the extension's would be the browser's account, not this one.
+        if (!draft.apiConnected) void discoverCourses().then((found) => {
           if (!found.length) return;
           const have = new Set(found.map((c) => c.name.toLowerCase()));
           draft.courses = [...found, ...draft.courses.filter((c) => !have.has(c.name.toLowerCase()))];

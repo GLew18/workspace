@@ -1554,11 +1554,14 @@ exports.sgyFetch = onCall(
       try {
         if (Date.now() - (Number((await teachersRef.get()).val()) || 0) < SGY_TEACHERS_REFRESH_MS) throw new Error('fresh');
         const emailOf = new Map();
+        let admins = 0;
+        let noEmail = 0;
         for (const c of courses.slice(0, SGY_TEACHER_COURSES_MAX)) {
           await sgySleep(SGY_SPACING_MS);
           const enr = await sgyJson(`/sections/${c.id}/enrollments`, tok);
           for (const e of sgyList(enr, 'enrollment')) {
             if (!e || Number(e.admin) !== 1 || e.uid == null || !/^\d+$/.test(String(e.uid))) continue;
+            admins++;
             const tuid = String(e.uid);
             if (!emailOf.has(tuid)) {
               await sgySleep(SGY_SPACING_MS);
@@ -1566,12 +1569,19 @@ exports.sgyFetch = onCall(
               const mail = u && typeof u.primary_email === 'string' ? u.primary_email.trim() : '';
               emailOf.set(tuid, /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail) ? mail : '');
             }
-            if (!emailOf.get(tuid)) continue;
+            if (!emailOf.get(tuid)) {
+              noEmail++;
+              continue;
+            }
             const tname = String(e.name_display || [e.name_first, e.name_last].filter(Boolean).join(' ')).trim();
             teachers.push({ course: c.name, name: tname, email: emailOf.get(tuid) });
           }
         }
-        await teachersRef.set(Date.now());
+        // Only a lookup that FOUND someone counts as done for the day (10/10): stamping
+        // an empty one hid "Email teacher" for 24 hours after a teacher's email
+        // appeared. The counts say which half failed when none are found.
+        if (teachers.length) await teachersRef.set(Date.now());
+        else console.warn('sgy teachers none', { courses: courses.length, admins, noEmail });
       } catch (err) {
         if (!(err && err.message === 'fresh')) console.warn('sgy teachers skipped', err && err.message);
       }
@@ -1690,7 +1700,10 @@ exports.sgySubmitPhoto = onCall(
     if (d.step === 'submit') {
       const aid = String(d.assignmentId || '');
       const ids = Array.isArray(d.fileIds) ? d.fileIds.map(String).filter((x) => /^\d+$/.test(x)) : [];
-      if (!/^\d+$/.test(aid) || !ids.length || ids.length > SGY_PHOTO_MAX_FILES) {
+      // Optional text (Gabe, 10/10). Schoology takes a submission as files OR as
+      // text, never both in one, so text is its own submission, sent first.
+      const text = String(d.text || '').trim().slice(0, 20000);
+      if (!/^\d+$/.test(aid) || (!ids.length && !text) || ids.length > SGY_PHOTO_MAX_FILES) {
         throw new HttpsError('invalid-argument', 'Nothing to submit.');
       }
       let sid;
@@ -1701,23 +1714,24 @@ exports.sgySubmitPhoto = onCall(
         throw new HttpsError('unavailable', 'Couldn’t reach Schoology. Try again in a moment.');
       }
       if (!sid) throw new HttpsError('not-found', 'Schoology couldn’t find this assignment in your classes.');
-      const res = await sgySend(
-        'POST',
-        `${SGY_API}/sections/${sid}/submissions/${aid}/file`,
-        tok,
-        JSON.stringify({ 'file-attachment': { id: ids } }),
-        'application/json'
-      );
-      if (res.status === 401) return expired();
-      if (!res.ok) {
-        // 403 here is about THIS assignment (submissions off, closed, or not a
-        // dropbox), never the connection, so the token is kept.
-        console.warn('sgy submit', res.status, (await res.text().catch(() => '')).slice(0, 300));
-        throw new HttpsError(
-          'failed-precondition',
-          'Schoology didn’t accept a submission for this assignment. Your teacher may have turned submissions off, or it may be closed.'
-        );
+      const hand = async (action, body) => {
+        const res = await sgySend('POST', `${SGY_API}/sections/${sid}/submissions/${aid}/${action}`, tok, JSON.stringify(body), 'application/json');
+        if (res.status === 401) return expired();
+        if (!res.ok) {
+          // 403 here is about THIS assignment (submissions off, closed, or not a
+          // dropbox), never the connection, so the token is kept.
+          console.warn('sgy submit', action, res.status, (await res.text().catch(() => '')).slice(0, 300));
+          throw new HttpsError(
+            'failed-precondition',
+            'Schoology didn’t accept a submission for this assignment. Your teacher may have turned submissions off, or it may be closed.'
+          );
+        }
+      };
+      if (text) {
+        const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        await hand('create', { body: esc.split(/\r?\n/).map((l) => `<p>${l || '&nbsp;'}</p>`).join('') });
       }
+      if (ids.length) await hand('file', { 'file-attachment': { id: ids } });
       return { ok: true };
     }
 

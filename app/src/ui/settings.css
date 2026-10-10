@@ -371,9 +371,7 @@
   cursor: pointer;
   font-size: 14px;
 }
-.course-del:hover {
-  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12) */
-}
+
 
 .parse-chips {
   display: flex;
@@ -403,9 +401,7 @@
   line-height: 1;
   padding: 0 2px;
 }
-.parse-chip-x:hover {
-  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12) */
-}
+
 /* THE ADD PILL IS A PARSE CHIP (Gabe, 8/27).
    It is the same object as the saved chips beside it, in the same row, doing the
    inverse job — so it is built from .parse-chip's own box and .parse-chip-x's own
@@ -592,13 +588,10 @@
 }
 .settings-playlist-btn.danger {
   padding: 6px 10px;
-  color: var(--text-dim); /* every ✕ app-wide rests on --text-dim (see .dlg-close) */
-  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--text-dim);
 }
 .settings-playlist-btn.danger:hover {
-  background: rgba(239, 68, 68, 0.14);
-  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12); the tint keeps the danger read */
-  border-color: var(--red);
+  border-color: var(--border-strong); /* stays gray: only the ✕ goes red */
 }
 
 /* Playlist editor: renders the shared bm-backdrop/bm-modal skin (ui/bookmarks.css,
@@ -1694,7 +1687,6 @@ a.settings-credits-lic:hover { color: var(--accent); border-color: var(--accent)
   cursor: pointer;
   transition: background 0.14s ease, color 0.14s ease;
 }
-.lang-chip-x:hover { background: rgba(255, 255, 255, 0.14); color: var(--text); }
 .lang-search { position: relative; }
 .lang-input { width: 100%; }
 /* Absolutely positioned so opening the list can't push the rest of the tab down. */

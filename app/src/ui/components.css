@@ -797,10 +797,10 @@ body.app-mode .app-below {
   line-height: 1.4;
   vertical-align: top;
 }
-/* Add-rows = a growing text box beside a button. Center the button on the box so it
-   stays vertically aligned (and never stretches to the box's full growing height). */
+/* Focus's add row matches the Tasks quick-add bar (Gabe, 10/10): the "+" spans the
+   box's full height, as .quick-add-row's `stretch` does, and grows with it. */
 .focus-add-todo {
-  align-items: center;
+  align-items: stretch;
 }
 
 /* The pin marker (see watchQuickAdd in tasks/render.ts): pure measurement, zero
@@ -1432,10 +1432,6 @@ body.app-mode .app-below {
   color: var(--accent);
   margin: 2px 0 8px;
 }
-/* Pinned (10/2): same label as Folders, with its pushpin; the Folders label
-   that follows the pinned rows gets breathing room. */
-.task-pinned-label { display: flex; align-items: center; gap: 6px; }
-.task-pinned-label svg { width: 12px; height: 12px; }
 .task-item + .task-folders-label { margin-top: 18px; }
 .task-folder {
   background: var(--surface);
@@ -1667,7 +1663,8 @@ body.app-mode .app-below {
   padding: 10px 0 14px;
 }
 /* toolbox folder button — svg sits like the text glyphs beside it */
-.act-folder svg {
+.act-folder svg,
+.act-photo svg {
   display: inline-block;
   vertical-align: -2px;
 }
@@ -1749,20 +1746,24 @@ body.app-mode .app-below {
 /* "+ New folder" row: color well + name box + the create button, side by side. */
 .folder-pick-new {
   display: flex;
-  align-items: center;
+  /* stretch, like .quick-add-row (Gabe, 10/10): the + spans the box's full height. */
+  align-items: stretch;
   gap: 8px;
+}
+.folder-pick-new .folder-pick-color {
+  align-self: center; /* the swatch keeps its square */
 }
 .folder-pick-new .folder-pick-input {
   flex: 1;
   min-width: 0; /* a flex item's automatic minimum is its content; without this the box can't shrink */
 }
 /* The create button. Shared by all three "+ New …" rows — Tasks folders, Focus
-   folders, Bookmarks groups (Gabe, 8/26). 38px square against the input's 10/12
-   padding, so the two line up without either being told its height. */
+   folders, Bookmarks groups (Gabe, 8/26). Its height comes from the row's
+   `stretch`, so it always matches the box beside it. */
 .folder-pick-add {
   flex: none;
   width: 38px;
-  height: 38px;
+  min-height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2401,25 +2402,32 @@ html[data-kbd] :focus-visible {
 }
 .task-test-badge .task-test-badge-x:hover {
   opacity: 1;
-  color: var(--text);
 }
 
 .task-actions {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 1px;
+  gap: 2px;
 }
+/* EVEN GAPS (Gabe, 10/10): every control is the same 22px box with its icon
+   centered, so the space between icons is set by the box, not by how wide each
+   glyph happens to be. */
 .task-actions button {
+  position: relative; /* anchors the 📎 count */
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   background: none;
   border: none;
   color: var(--text-dim);
   font-size: 13px;
-  padding: 4px 4px;
   border-radius: 6px;
   line-height: 1;
   display: flex;
   align-items: center;
+  justify-content: center;
 }
 .task-actions button:hover {
   background: var(--surface2);
@@ -2431,7 +2439,6 @@ html[data-kbd] :focus-visible {
 .task-actions .act-more {
   font-size: 15px;
   letter-spacing: 1px;
-  padding: 4px 5px;
 }
 
 /* ---- The "…" dropdown (anchored to the row's ⋯, not a centered modal) ---- */
@@ -2552,13 +2559,13 @@ html[data-kbd] :focus-visible {
   opacity: 1;
 }
 .attach-count {
-  display: inline-block; /* inline spans aren't transformable — this one must be */
+  /* Superscript on the paperclip's top-right, OUT of the flow so it never widens
+     the 22px box and throws the row's spacing off (Gabe, 10/10). */
+  position: absolute;
+  top: 0;
+  right: -1px;
   font-size: 10px;
-  /* Tucked tight against the 📎 (negative gap) and raised superscript-style, so
-     the count unambiguously belongs to the paperclip. (The button is a flex row,
-     so vertical-align would be ignored — transform does the lift instead.) */
-  margin-left: -3px;
-  transform: translateY(-3px);
+  line-height: 1;
 }
 
 /* ---- Super-task (collapsed same-label run) ---- */
@@ -2868,9 +2875,30 @@ body:has(.selbar:not([hidden])) .toast {
   padding: 4px 2px;
 }
 .attach-item {
+  position: relative; /* anchors .attach-actions */
   display: flex;
   align-items: stretch;
   gap: 6px;
+}
+/* ✎ and ✕ in the card's top-right corner, shown on hover: the bookmark card's
+   .bm-card-actions, same buttons (Gabe, 10/10). Always shown where there is no
+   hover (phones), and while one of them has keyboard focus. */
+.attach-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: none;
+  gap: 4px;
+}
+.attach-item:hover .attach-actions,
+.attach-actions:focus-within {
+  display: flex;
+}
+@media (hover: none) {
+  .attach-actions { display: flex; }
+}
+.attach-item.editing .attach-actions {
+  display: none;
 }
 /* Edit mode: a small form card — labeled Name/URL fields stacked, then a
    Remove / Done row. Mirrors the Bookmarks add-link modal. */
@@ -3002,14 +3030,7 @@ body:has(.selbar:not([hidden])) .toast {
   font-size: 13px;
   cursor: pointer;
 }
-.attach-iconbtn:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
-}
-.attach-iconbtn.danger:hover {
-  color: var(--text); /* every ✕ hovers to --text (Gabe, 9/12); the red border keeps the danger read */
-  border-color: rgba(239, 68, 68, 0.4);
-}
+
 .attach-add {
   width: 100%;
   background: var(--surface2);
@@ -3251,7 +3272,6 @@ body:has(.selbar:not([hidden])) .toast {
   transition: opacity 0.14s ease, color 0.14s ease;
 }
 .folder-pick-row:hover .group-pick-edit { opacity: 1; }
-.group-pick-edit:hover { color: var(--text); }
 /* Delete, beside the pencil (Gabe, 9/1/26). Same hover-revealed treatment, so the
    row stays as quiet as it was; red only on hover, because the mark itself is not a
    warning — the links inside survive the group being dropped. `margin-left: 0`
@@ -3265,7 +3285,6 @@ body:has(.selbar:not([hidden])) .toast {
   transition: opacity 0.14s ease, color 0.14s ease;
 }
 .folder-pick-row:hover .group-pick-del { opacity: 1; }
-.group-pick-del:hover { color: var(--text); } /* every ✕ hovers to --text (Gabe, 9/12) */
 /* Save, inside an inline rename row. Sized to sit beside .folder-pick-input. */
 .folder-pick-mini {
   flex: none;
@@ -3402,4 +3421,78 @@ body:has(.selbar:not([hidden])) .toast {
 .dlg-close:hover {
   color: var(--text);
   background: rgba(255, 255, 255, 0.06);
+}
+
+/* ---- Calendar: No Due Date under the grid (Gabe, 10/10) ----
+   The list's own group header and rows; only the gap above is new. */
+.cal-nodate {
+  margin-top: 4px;
+}
+/* A day lit as a drop target while a No Due Date row is dragged over it. */
+.cal-cell.cal-drop,
+.cal-tallday-cell.cal-drop,
+.cal-tcol.cal-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: var(--gold-glow);
+}
+/* Overdue, in its own cell (Gabe, 10/10): red-tinted chip, red text. */
+.cal-chip.overdue {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+.cal-chip.overdue .cal-chip-txt {
+  color: var(--red);
+}
+.cal-chip.overdue:hover {
+  border-color: var(--red);
+}
+
+/* ---- ICON BUTTONS: every pencil and every delete ✕, one look (Gabe, 10/10) ----
+   "Homogenize every pencil and every X." One glyph size and weight, resting on
+   --text-dim. On hover ONLY THE GLYPH changes: the pencil goes white, the ✕ goes
+   red. No background tint, no border change, on either. Each keeps its own box
+   (boxed beside a row, bare inside a chip), only the glyph is shared.
+   This replaces the 9/12 "✕ hovers to --text" rule for DELETE ✕s; close/dismiss
+   ✕s (.dlg-close, popovers, toasts) are not deletes and keep that rule.
+   `html` in front so these win over the per-file rules regardless of load order. */
+html .bm-icon-btn,
+html .group-pick-edit,
+html .group-pick-del,
+html .attach-iconbtn,
+html .course-del,
+html .parse-chip-x,
+html .dash-schedule-link-x,
+html .focus-preset-del,
+html .focus-todo-del,
+html .settings-playlist-btn.danger,
+html .lang-chip-x {
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  transition: color 0.14s ease, opacity 0.14s ease;
+}
+html .task-test-badge-x {
+  color: var(--text-dim); /* same treatment; its size stays badge-sized */
+}
+/* pencils */
+html .bm-icon-btn:not(.bm-icon-danger):hover,
+html .group-pick-edit:hover,
+html .attach-iconbtn:not(.danger):hover {
+  color: var(--text);
+}
+/* delete ✕s */
+html .bm-icon-danger:hover,
+html .group-pick-del:hover,
+html .attach-iconbtn.danger:hover,
+html .course-del:hover,
+html .parse-chip-x:hover,
+html .dash-schedule-link-x:hover,
+html .focus-preset-del:hover,
+html .focus-todo-del:hover,
+html .settings-playlist-btn.danger:hover,
+html .lang-chip-x:hover,
+html .task-test-badge .task-test-badge-x:hover {
+  color: var(--red);
 }

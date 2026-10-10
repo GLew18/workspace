@@ -311,8 +311,15 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
   const settings = await data.getProfile<SchoologySettings>('schoology');
   // A caller-supplied payload (onboarding) is used as given; otherwise the real
   // Schoology connection first, then the extension.
+  // ONE SOURCE ONCE CONNECTED (Gabe, 10/10). The extension reads whatever Schoology
+  // account the BROWSER is signed into, not the Cobalt account's, so falling back
+  // to it (or to a feed link it captured) mixed a second account's assignments
+  // into this one. A real Schoology connection is now the only source: a failed
+  // or empty read imports nothing rather than borrowing from the others.
+  const apiOn = opts.sgy === undefined && !!(await getSgyApiState(data))?.connected;
   const sgy =
-    opts.sgy !== undefined ? await extensionSource(opts.sgy) : (await apiSource(data)) ?? (await extensionSource());
+    opts.sgy !== undefined ? await extensionSource(opts.sgy) : apiOn ? await apiSource(data) : await extensionSource();
+  if (apiOn && !sgy) return { added: 0, skipped: 0, updated: 0, removed: 0, total: 0, scheduleCount: 0 };
   if (!settings?.icalUrl && !sgy) throw new Error('No Schoology link configured.');
 
   // --- gather: feed (when linked) + extension (when installed) ---------------
@@ -321,7 +328,7 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
   // is fatal only when the extension cannot carry the sync alone.
   let feedEvents: IcalEvent[] = [];
   let feedRead = false;
-  if (settings?.icalUrl) {
+  if (settings?.icalUrl && !apiOn) {
     try {
       feedEvents = parseIcal(await fetchIcal(settings.icalUrl));
       feedRead = true;

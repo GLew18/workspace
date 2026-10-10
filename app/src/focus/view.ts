@@ -1678,7 +1678,7 @@ export class FocusView {
       .map((t) => {
         const s = t.taskId ? tasks[t.taskId] : undefined;
         return s
-          ? `${s.id}|${s.priority}|${s.dueDate}|${s.dueTime}|${s.pinned ? 1 : 0}|${s.manualOrder ?? ''}`
+          ? `${s.id}|${s.priority}|${s.dueDate}|${s.dueTime}|${s.manualOrder ?? ''}`
           : `~${t.id}|${t.dueDate ?? ''}|${t.dueTime ?? ''}`;
       })
       .sort()
@@ -1687,10 +1687,10 @@ export class FocusView {
   private todoSortSeen = new WeakMap<FocusTodo[], string>();
 
   /**
-   * THE TASKS TAB'S ORDER, IN FOCUS (Gabe, 10/3): pinned first, then due date,
+   * THE TASKS TAB'S ORDER, IN FOCUS (Gabe, 10/3): due date,
    * priority and the rest, exactly as sortTasks orders the Tasks tab. Re-sorted
    * only when something that order depends on changes (a task added, a priority,
-   * date or pin edited), so a hand ⋮⋮ drag holds until then. The session starts
+   * or date edited), so a hand ⋮⋮ drag holds until then. The session starts
    * with this array, so it starts in this order. Finished rows still sink at draw
    * time; that never touches the array.
    */
@@ -1709,7 +1709,7 @@ export class FocusView {
       byId.set(key, t);
       return { ...src, id: key };
     });
-    const ordered = [...sortTasks(rows.filter((r) => r.pinned)), ...sortTasks(rows.filter((r) => !r.pinned))];
+    const ordered = sortTasks(rows);
     list.splice(0, list.length, ...ordered.map((r) => byId.get(r.id)!));
   }
 
@@ -2258,7 +2258,7 @@ export class FocusView {
         const folderRows = this.taskFolders
           .map((tf) => ({
             tf,
-            members: filtered.filter((t) => t.folderId === tf.id && !t.pinned && !imported.has(t.id)),
+            members: filtered.filter((t) => t.folderId === tf.id && !imported.has(t.id)),
           }))
           .filter((x) => x.members.length);
         if (folderRows.length) {
@@ -2331,12 +2331,8 @@ export class FocusView {
       const inShownFolder = new Set(
         this.taskFolders.filter((tf) => filtered.some((t) => t.folderId === tf.id)).map((tf) => tf.id)
       );
-      const stray = filtered.filter((t) => !t.pinned && (!t.folderId || !inShownFolder.has(t.folderId)));
-      // PINNED FIRST, INSIDE this section (Gabe, 10/4): a pin overrides every other
-      // order and tops "Individual tasks", not a section of its own above Bulk
-      // import. Several pins sort among themselves by the usual rules. A pinned
-      // task is listed only here, never in its folder, same as the Tasks tab.
-      const sorted = [...sortTasks(filtered.filter((t) => t.pinned)), ...sortTasks(stray)];
+      const stray = filtered.filter((t) => !t.folderId || !inShownFolder.has(t.folderId));
+      const sorted = sortTasks(stray);
       // No heading over an empty list.
       if (sorted.length) importBody.append(el('div', { class: 'focus-import-section', text: 'Individual tasks' }));
       // Imported/filtered-out ids fall out of the selection instead of lingering
@@ -4322,7 +4318,6 @@ export class FocusView {
         ...task,
         completed: todo.done,
         completedAt: todo.done ? now : null,
-        ...(todo.done ? { pinned: false } : {}), // a finished task leaves Pinned
       });
     }
     if (writes.length === 1) await this.data.putTask(writes[0]);
