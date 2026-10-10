@@ -20,7 +20,7 @@
 // suggesting it would add a word that does nothing.
 
 import { COURSE_ABBR } from './maps';
-import { normalizeCourse } from './normalize';
+import { matchCourseStrict } from './normalize';
 
 const STOP_WORDS = new Set(['of', 'the', 'and', 'a', 'an', 'for', 'to', 'in', 'on', '&']);
 
@@ -48,9 +48,10 @@ export function recommendParseWords(name: string, exclude: Set<string>, limit = 
   const candidates: string[] = [];
 
   // --- 1. catalog abbreviations for whichever canonical course this resolves to
-  // normalizeCourse handles exact hits, substrings and typos, so "Chem Honors"
-  // still finds Science and inherits sci/bio/phys.
-  const canonical = normalizeCourse(trimmed);
+  // STRICT matching only (10/10): a typo-tolerant match is fine for guessing a
+  // course, but a suggestion built on a wrong guess is just noise ("Test" was
+  // being offered Social Studies' words). No confident match → derived words only.
+  const canonical = matchCourseStrict(trimmed);
   if (canonical) {
     for (const [abbr, canon] of Object.entries(COURSE_ABBR)) {
       if (canon === canonical) candidates.push(abbr);

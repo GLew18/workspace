@@ -176,7 +176,7 @@ const SLIDES: Slide[] = [
   // 5 · the address (no copy animation on purpose, same as the Schoology guide:
   //     students know how to copy; the guide only has to show WHERE it lives)
   {
-    cap: 'Copy the <b>Secret address in iCal format</b> with the copy button, then paste it back in Cobalt. <a href="https://calendar.google.com/calendar/r/settings" target="_blank" rel="noopener">Open Google Calendar settings →</a>',
+    cap: 'Copy the <b>Secret address in iCal format</b> with the copy button, then paste it back in Cobalt.',
     svg: scene(settingsFrame(true) + integrateSection() + hl(166, 152, 268, 40), PAGE),
   },
 ];

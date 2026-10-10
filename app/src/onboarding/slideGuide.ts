@@ -73,7 +73,9 @@ export interface SlideGuide {
   sub: string;
 }
 
-/** The player: dots, arrows, keyboard, and a final "Got it". */
+/** The player. Its caption, dots and footer are the notification fix-it guides'
+ *  own (settings/view.ts: .ngd-caption, .ngd-dots, bm-modal-footer with Back /
+ *  Next, Gabe 10/10), so every slideshow in Cobalt is driven the same way. */
 export function openSlideGuide(guide: SlideGuide, onClose?: () => void): void {
   if (document.querySelector('.onb-sso')) return; // one at a time
   const SLIDES = guide.slides;
@@ -89,14 +91,13 @@ export function openSlideGuide(guide: SlideGuide, onClose?: () => void): void {
   const title = el('h3', { class: 'onb-sso-title', text: guide.title });
   const sub = el('div', { class: 'onb-sso-sub', text: guide.sub });
   const sceneHost = el('div', { class: 'onb-sso-scene' });
-  const cap = el('div', { class: 'onb-sso-cap' });
-  const nav = el('div', { class: 'onb-sso-nav' });
-  const prev = el('button', { class: 'onb-sso-arrow', 'aria-label': 'Previous step', text: '‹' }) as HTMLButtonElement;
-  const dots = el('div', { class: 'onb-sso-dots' });
-  const count = el('div', { class: 'onb-sso-count' });
-  const nextSlot = el('span');
-  nav.append(prev, dots, count, nextSlot);
-  card.append(close, title, sub, sceneHost, cap, nav);
+  const cap = el('div', { class: 'ngd-caption onb-sso-cap' });
+  const dots = el('div', { class: 'ngd-dots' });
+  const nav = el('div', { class: 'bm-modal-footer' });
+  const prev = el('button', { class: 'bm-btn', text: 'Back' }) as HTMLButtonElement;
+  const next = el('button', { class: 'bm-btn bm-btn-primary' }) as HTMLButtonElement;
+  nav.append(prev, el('div', { class: 'bm-modal-spacer' }), next);
+  card.append(close, title, sub, sceneHost, cap, dots, nav);
   wrap.append(card);
 
   let i = 0;
@@ -109,32 +110,23 @@ export function openSlideGuide(guide: SlideGuide, onClose?: () => void): void {
     // All strings below are authored in this file; no user input reaches them.
     sceneHost.innerHTML = SLIDES[i].svg;
     cap.innerHTML = `<b>${i + 1}.</b> ${SLIDES[i].cap}`;
-    count.textContent = `${i + 1} / ${SLIDES.length}`;
-    prev.disabled = i === 0;
-    dots.replaceChildren(
-      ...SLIDES.map((_, d) => {
-        const dot = el('button', { class: `onb-sso-dot${d === i ? ' on' : ''}`, 'aria-label': `Step ${d + 1}` });
-        dot.addEventListener('click', () => {
-          i = d;
-          draw();
-        });
-        return dot;
-      })
-    );
-    nextSlot.replaceChildren();
-    if (i === SLIDES.length - 1) {
-      const done = el('button', { class: 'onb-sso-done bm-btn-primary', text: 'Got it' });
-      done.addEventListener('click', dismiss);
-      nextSlot.append(done);
-    } else {
-      const next = el('button', { class: 'onb-sso-arrow', 'aria-label': 'Next step', text: '›' });
-      next.addEventListener('click', () => {
-        i = Math.min(SLIDES.length - 1, i + 1);
-        draw();
-      });
-      nextSlot.append(next);
-    }
+    // Hidden, not removed, on the first slide, so Next never shifts (as in the
+    // fix-it guides).
+    prev.style.visibility = i === 0 ? 'hidden' : 'visible';
+    next.textContent = i === SLIDES.length - 1 ? 'Got it' : 'Next';
+    dots.replaceChildren(...SLIDES.map((_, d) => el('span', { class: `ngd-dot${d === i ? ' on' : ''}` })));
   };
+  // Back had no click handler at all before 10/10, only the ← key worked.
+  prev.addEventListener('click', () => {
+    i = Math.max(0, i - 1);
+    draw();
+  });
+  next.addEventListener('click', () => {
+    if (i < SLIDES.length - 1) {
+      i += 1;
+      draw();
+    } else dismiss();
+  });
 
   close.addEventListener('click', dismiss);
   wrap.addEventListener('click', (e) => {
@@ -160,5 +152,5 @@ export function openSlideGuide(guide: SlideGuide, onClose?: () => void): void {
   draw();
   // Focus INTO the dialog (same lesson as the confirm popups): Enter must act
   // here, not re-click the button that opened the guide.
-  (nextSlot.querySelector('button') as HTMLButtonElement | null)?.focus();
+  next.focus();
 }

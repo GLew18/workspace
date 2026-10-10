@@ -68,6 +68,28 @@ export function normalizeCourse(input: string): string {
   return raw;
 }
 
+/**
+ * The catalog course a name CONFIDENTLY names, or '' (Gabe, 10/10). No typo
+ * tolerance: normalizeCourse's fuzzy steps read "Test" as a misspelling of the
+ * abbreviation "sost" (two letters off) and called it Social Studies, so a course
+ * named Test was offered sost / social / ss. Only these count here:
+ *   exact abbreviation, exact catalog name, or a catalog name appearing as whole
+ *   words inside the name ("AP Biology") or the name as a whole word inside a
+ *   catalog name, 4+ letters ("Chemistry" inside "Honors Chemistry").
+ */
+export function matchCourseStrict(input: string): string {
+  const lower = input.trim().toLowerCase();
+  if (!lower) return '';
+  if (COURSE_ABBR[lower]) return COURSE_ABBR[lower];
+  const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const whole = (hay: string, needle: string): boolean => new RegExp(`(^|[^a-z0-9])${esc(needle)}($|[^a-z0-9])`).test(hay);
+  for (const c of CANONICAL) {
+    const cl = c.toLowerCase();
+    if (cl === lower || whole(lower, cl) || (lower.length >= 4 && whole(cl, lower))) return c;
+  }
+  return '';
+}
+
 export const getCourseColor = (name: string): string => COURSE_COLORS[name] || DEFAULT_COURSE_COLOR;
 
 export const getCourseTabColor = (name: string): string => COURSE_TABGROUP_COLOR[name] || 'grey';

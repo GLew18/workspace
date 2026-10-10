@@ -627,77 +627,10 @@
   width: 100%;
   height: auto;
 }
-.onb-sso-cap {
-  min-height: 58px;
-  font-size: 13px;
-  padding: 11px 2px 0;
-}
+/* Size and spacing come from .ngd-caption (settings.css), the fix-it guides'
+   caption; only the step number's accent is this guide's own. */
 .onb-sso-cap b {
   color: var(--gold);
-}
-/* The Google Calendar guide's last slide links straight to its settings page. */
-.onb-sso-cap a {
-  display: block;
-  margin-top: 6px;
-  color: var(--accent);
-  font-weight: 600;
-  text-decoration: none;
-}
-.onb-sso-cap a:hover { text-decoration: underline; }
-.onb-sso-nav {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 10px;
-}
-.onb-sso-arrow {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface2);
-  color: var(--text);
-  font-size: 16px;
-}
-.onb-sso-arrow:hover:not(:disabled) {
-  border-color: var(--gold);
-  color: var(--gold);
-}
-.onb-sso-arrow:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-.onb-sso-dots {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  gap: 7px;
-}
-.onb-sso-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--border-strong);
-  border: none;
-  padding: 0;
-  transition: background 0.2s ease, transform 0.2s ease;
-}
-.onb-sso-dot.on {
-  background: var(--gold);
-  transform: scale(1.25);
-}
-.onb-sso-count {
-  font-size: 11px;
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-  min-width: 34px;
-  text-align: right;
-}
-.onb-sso-done {
-  /* Color/border/radius/padding/weight come from the added .bm-btn-primary
-     class (ui/bookmarks.css) so this final action button matches every
-     other guide's "Next"/"Got it" button. */
-  white-space: nowrap;
 }
 .onb-err {
   min-height: 17px;
