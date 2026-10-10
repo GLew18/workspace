@@ -141,11 +141,7 @@ import { runOnboarding } from './onboarding/view';
 import { setStorageUser, scopedKey } from './util/userScope';
 import { renderLanding } from './landing/view';
 import { runSync } from './schoology/sync';
-import { detectSchoologyExtension, requestSgyData, applySgyPayload } from './schoology/extension';
-import { finishSchoologyConnectIfReturning, getSgyApiState, sgyErrorText, sgyApiFlag } from './schoology/api';
-// Record ?sgyapi=1 the moment the site loads, on the landing page too, so the beta
-// Schoology connect button survives sign-up redirects that drop the query string.
-sgyApiFlag();
+import { finishSchoologyConnectIfReturning, getSgyApiState, sgyErrorText } from './schoology/api';
 import { startNotificationScheduler } from './notify/scheduler';
 import { setEmailSink } from './notify/notify';
 import { NotificationLogView } from './notify/logView';
@@ -523,40 +519,30 @@ async function renderApp(user: AuthUser): Promise<void> {
   // reads this cached answer — which needs to already exist by the first click.
   void detectExtension();
 
+  // iCal LINKS RETIRED (10/9/26): Schoology connects only by signing in now. A
+  // stored feed link is a secret nothing reads any more, so it is deleted once,
+  // and a student who relied on it is told how to reconnect.
+  void (async () => {
+    const sgy = await data.getProfile<SchoologySettings & { icalUrl?: string }>('schoology');
+    if (!sgy || !('icalUrl' in sgy)) return;
+    const rest = { ...sgy };
+    delete rest.icalUrl;
+    await data.setProfile('schoology', rest);
+    if (!(await getSgyApiState(data))?.connected) {
+      showToast('Schoology now connects by signing in. Connect it in Settings to keep your assignments coming in.');
+    }
+  })().catch(() => {});
+
   // Background sync — driven by Settings ▸ Tasks ▸ Syncing: an on-open sync
   // (optional) plus a background re-sync at the chosen interval while the app
   // stays open. Failures are silent (the next tick / Settings retries). A true
   // server cron for when the app is CLOSED comes with Firebase later.
-  // Pull the companion extension's Schoology scrape (real course names, and the
-  // feed URL itself) into the cloud BEFORE syncing, so a fresh import lands with
-  // true courses instead of a guess that has to be corrected afterwards. Silent
-  // and optional: no extension, no Chrome, or no Schoology tab → resolves false
-  // and the import proceeds exactly as before.
-  const pullSchoologyLabels = async (): Promise<void> => {
-    try {
-      if (!(await detectSchoologyExtension())) return;
-      const payload = await requestSgyData();
-      if (payload) await applySgyPayload(data, payload);
-    } catch {
-      /* never let a scrape problem block the normal import */
-    }
-  };
-
   const syncIfLinked = async () => {
-    // Awaited before the settings read, because applySgyPayload may be what WRITES
-    // the feed URL — the extension can discover it, so this is what lets a user be
-    // "linked" without ever pasting a URL.
-    await pullSchoologyLabels();
-    const sgy = await data.getProfile<SchoologySettings>('schoology');
-    // "Linked" is a feed URL, the real Schoology connection, or the extension
-    // itself: with either of the last two the assignments come straight from
-    // Schoology's API, no link needed (sync.ts).
-    if (sgy?.icalUrl || (await getSgyApiState(data))?.connected || (await detectSchoologyExtension())) {
-      try {
-        await runSync(data);
-      } catch {
-        /* offline / expired link — user can retry from Settings */
-      }
+    if (!(await getSgyApiState(data))?.connected) return;
+    try {
+      await runSync(data);
+    } catch {
+      /* offline / Schoology unreachable — the next tick or Refresh retries */
     }
   };
   const armSyncTimer = () => {

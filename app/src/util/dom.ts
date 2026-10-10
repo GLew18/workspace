@@ -276,7 +276,7 @@ export function enterConfirms(back: HTMLElement, primary: () => HTMLElement | nu
     // that trigger button BEHIND the backdrop. Enter then reaches the browser's
     // native "activate the focused button", which re-clicks the trigger and opens
     // a SECOND copy of the same modal on top of the first: two backdrops, double
-    // dim, two live listeners. confirmDanger and icalGuide each fixed this locally
+    // dim, two live listeners. confirmDanger and the guide player each fixed this locally
     // by focusing into the dialog; this is the same fix, once, for everyone.
     //
     // Anything focused outside the backdrop cannot be a legitimate Enter target

@@ -568,9 +568,10 @@
   outline: none;
   border-color: var(--gold);
 }
-/* ==================== the iCal slideshow (icalGuide.ts) ====================
-   The player chrome is Cobalt-dark; the SCENES inside are Schoology-light
-   on purpose (see the fidelity note at the top of icalGuide.ts). Sits above
+/* ==================== the guide slideshow (slideGuide.ts) ====================
+   The player chrome is Cobalt-dark; the SCENES inside copy the real site's
+   own light UI on purpose, so the guide looks like the page the student is
+   about to see. Sits above
    the deck (z 200). */
 .onb-sso {
   /* Backdrop dim + fade-in come from the shared .guide-scrim (components.css),
@@ -592,7 +593,7 @@
   position: relative;
 }
 /* Position/color/hover/radius/padding now come from .dlg-close (components.css),
-   aliased in the markup (onboarding/icalGuide.ts). Only the ✕'s own size stays here. */
+   aliased in the markup (onboarding/slideGuide.ts). Only the ✕'s own size stays here. */
 .onb-sso-close {
   font-size: 15px;
 }
@@ -946,51 +947,8 @@
   text-decoration: underline;
 }
 
-/* ---- Connect screen: the extension route card (Gabe, 10/6/26). The recommended
-   path sits above the paste field as one quiet surface card; the badge and the
-   button carry the accent, nothing else competes with Connect below. ---- */
-.onb-route {
-  width: 100%;
-  max-width: 420px;
-  margin-top: 22px;
-  padding: 14px 16px;
-  text-align: left;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  transition: border-color 0.2s ease;
-}
-.onb-route.found {
-  border-color: var(--accent);
-}
-.onb-route-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.onb-route-title {
-  font-size: 14.5px;
-  font-weight: 700;
-  color: var(--text);
-}
-.onb-route-badge {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--accent);
-  background: rgba(125, 180, 255, 0.12);
-  border: 1px solid rgba(125, 180, 255, 0.35);
-  border-radius: 999px;
-  padding: 2px 8px;
-}
-.onb-route-text {
-  margin: 6px 0 0;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--text-dim);
-}
+/* ---- Connect screen: the school picker's buttons and status line. (The
+   extension route card these were born in went with the iCal import, 10/9/26.) ---- */
 .onb-route-btn {
   margin-top: 12px;
   width: 100%;
@@ -1024,14 +982,6 @@
 .onb-route-status:empty {
   display: none;
 }
-.onb-route-or {
-  margin: 14px 0 10px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--text-dim);
-}
-
 /* ---- The guide button, restyled to match Settings' fix-it guides (.notify-howto).
    Both open an animated walkthrough of something the student cannot find, so they
    were two different-looking controls doing one job. The play disc and the slide

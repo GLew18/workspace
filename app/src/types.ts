@@ -43,10 +43,9 @@ export interface Task {
   details?: string;
   schoologyUrl?: string;
   schoologyEventId?: string;
-  /** Which Schoology source last wrote this task's text: the extension's API read
-   *  ('ext') or the iCal feed ('feed'). The two flatten instructions and links
-   *  slightly differently, so sync.ts only lets the feed rewrite those fields on a
-   *  task the extension wrote when the extension is not the current source. */
+  /** Which Schoology source last wrote this task. Always 'ext' since 10/9/26 (the
+   *  OAuth read stamps it, a legacy name); 'feed' survives only on tasks the
+   *  removed iCal import wrote. */
   importedVia?: 'ext' | 'feed';
   /** URLs of the teacher's own Schoology attachments that sync.ts has already put in
    *  `notes`. A re-sync adds only URLs missing from BOTH lists, so one the student
@@ -231,8 +230,6 @@ export interface Profile {
   displayName: string;
   email: string;
   schoolDomain?: string;
-  schoologyUserId?: string;
-  schoologyIcalUrl?: string;
   createdAt: string; // ISO
 }
 
@@ -257,7 +254,6 @@ export interface ScheduleItem {
 
 /** Schoology connection + sync state, stored at profile/schoology. */
 export interface SchoologySettings {
-  icalUrl: string;
   lastSyncAt: string | null; // ISO
   lastSyncCount?: number;
 }

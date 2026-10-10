@@ -1,7 +1,7 @@
 // Cobalt: the "where is my Google Calendar secret address" slideshow.
 //
-// The schedule screen's counterpart to icalGuide.ts (Gabe, 10/8: "very similar to
-// what the iCal used to look like", an animated slideshow instead of a list of
+// The schedule screen's guide, on the slideGuide.ts engine (Gabe, 10/8: "very
+// similar to what the iCal used to look like", an animated slideshow instead of a list of
 // steps). Five slides along the real route in Google Calendar on the web:
 //
 //   1. Google Calendar: press the gear in the top right.
@@ -17,9 +17,9 @@
 // "Integrate calendar" section from ONE snippet so the scroll in slide 4 reveals
 // exactly what slide 5 dwells on.
 //
-// Engine, timing classes and player are icalGuide.ts's, imported, not copied.
+// Engine, timing classes and player are slideGuide.ts's, imported, not copied.
 
-import { scene, T, B, cursor, hl, arrow, openSlideGuide, type Slide } from './icalGuide';
+import { scene, T, B, cursor, hl, arrow, openSlideGuide, type Slide } from './slideGuide';
 
 // ---- palette: Google Calendar's ----------------------------------------------
 const PAGE = '#ffffff';

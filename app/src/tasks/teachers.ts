@@ -2,8 +2,8 @@
 //
 // A task belongs to a course and a course has teachers, so a task can reach its
 // teacher without anyone typing an address. The names and emails come from
-// Schoology (the extension today; the Schoology connection once PowerSchool
-// publishes the app), arrive in the same payload as the course labels, and are
+// the Schoology connection (sgyFetch), arrive in the same payload as the course
+// labels, and are
 // stored at profile/courseTeachers as { list: [{ course, name, email }] }. A list
 // rather than a map keyed by course because course names can contain "/" ("Honors
 // Algebra 2/Trig") and the database rejects that in a key.

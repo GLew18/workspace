@@ -636,40 +636,33 @@ exports.sendAuthEmail = onCall({ region: 'us-central1' }, async (req) => {
 });
 
 // ---------------------------------------------------------------------------
-// SCHOOLOGY iCAL FETCH — the server-side half of the calendar import.
+// CALENDAR FEED FETCH — the server half of the Google Calendar schedule feed
+// (src/schedule/feed.ts). Still named fetchSchoologyIcal because it began as the
+// Schoology iCal proxy; that import was removed 10/9/26 (Schoology is OAuth-only
+// now), and renaming the callable needs a coordinated client change.
 //
-// WHY THIS EXISTS: the client imports assignments by fetching the student's iCal
-// feed directly in the browser. That works on localhost only because vite.config
-// proxies /sgy → heschel.schoology.com in DEV. Schoology sends no
-// Access-Control-Allow-Origin header, so from any deployed origin the browser
-// blocks the request outright ("No 'Access-Control-Allow-Origin' header is
-// present" — verified in a real browser, not assumed). Without this function,
-// every import path breaks the moment the frontend is hosted: onboarding's
-// Connect step, Settings' sync, the Dashboard button, Tasks' refresh, and the
-// boot sync.
-//
-// Server-to-server requests aren't subject to CORS, which is the whole trick:
-// the same fetch the browser is forbidden to make, we make here and hand back.
+// WHY THIS EXISTS: Google's calendar feed sends no Access-Control-Allow-Origin
+// header, so a browser on a deployed origin may not read it. Server-to-server
+// requests aren't subject to CORS: the same fetch the browser is forbidden to
+// make, we make here and hand back.
 //
 // THIS IS NOT A GENERAL URL FETCHER, and must never become one. An endpoint that
 // fetches arbitrary URLs on request is an SSRF hole: it could be pointed at cloud
 // metadata services (169.254.169.254), private network ranges, or used as an
 // anonymous proxy. So it is locked down three ways:
 //   1. signed-in callers only,
-//   2. the URL must be an https Schoology calendar-feed URL — host is
-//      schoology.com or a subdomain, path contains /calendar/feed/,
+//   2. the URL must be an https Google Calendar iCal feed path,
 //   3. the response is capped, so a huge body can't be used to run up cost.
 // ---------------------------------------------------------------------------
 
-const ICAL_MAX_BYTES = 5 * 1024 * 1024; // a year of assignments is well under 1MB
+const ICAL_MAX_BYTES = 5 * 1024 * 1024; // a year of class periods is well under 1MB
 const ICAL_TIMEOUT_MS = 20_000;
 
-/** Mirrors isSchoologyIcalUrl in src/schoology/ical.ts, minus http:// — a server
- *  fetch has no excuse to leave TLS. Returns the normalized https URL, or null. */
-function safeSchoologyIcalUrl(raw) {
+/** The normalized https URL when it is a Google Calendar iCal feed, else null.
+ *  https only — a server fetch has no excuse to leave TLS. */
+function safeCalendarFeedUrl(raw) {
   try {
-    // webcal:// is what Schoology's Copy button hands out; it is https with the
-    // scheme swapped as a hint to open a calendar app (see toHttps on the client).
+    // webcal:// is https with the scheme swapped as a hint to open a calendar app.
     const u = new URL(String(raw || '').trim().replace(/^webcal:/i, 'https:'));
     if (u.protocol !== 'https:') return null;
     const host = u.hostname.toLowerCase();
@@ -678,9 +671,7 @@ function safeSchoologyIcalUrl(raw) {
     if (host === 'calendar.google.com') {
       return /^\/calendar\/ical\/[^/]+\/(private-[0-9a-f]+|public)\/basic\.ics$/i.test(u.pathname) ? u.toString() : null;
     }
-    if (host !== 'schoology.com' && !host.endsWith('.schoology.com')) return null;
-    if (!/\/calendar\/feed\//i.test(u.pathname)) return null;
-    return u.toString();
+    return null;
   } catch {
     return null;
   }
@@ -690,11 +681,11 @@ exports.fetchSchoologyIcal = onCall({ region: 'us-central1' }, async (req) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'Sign in first.');
   }
-  const url = safeSchoologyIcalUrl(req.data && req.data.url);
+  const url = safeCalendarFeedUrl(req.data && req.data.url);
   if (!url) {
     throw new HttpsError(
       'invalid-argument',
-      'That is not a Schoology calendar link. It looks like webcal://<school>.schoology.com/calendar/feed/ical/…'
+      'That is not a Google Calendar address. It looks like https://calendar.google.com/calendar/ical/…/basic.ics'
     );
   }
 
@@ -711,7 +702,7 @@ exports.fetchSchoologyIcal = onCall({ region: 'us-central1' }, async (req) => {
   } catch (err) {
     clearTimeout(timer);
     console.error('fetchSchoologyIcal network failure', err && err.message);
-    throw new HttpsError('unavailable', 'Couldn’t reach Schoology. Try again in a moment.');
+    throw new HttpsError('unavailable', 'Couldn’t reach that calendar. Try again in a moment.');
   }
   clearTimeout(timer);
 
@@ -725,9 +716,8 @@ exports.fetchSchoologyIcal = onCall({ region: 'us-central1' }, async (req) => {
     throw new HttpsError('resource-exhausted', 'That calendar is unexpectedly large.');
   }
   // The BODY is returned as-is. Every judgement about it — is it iCal, is it the
-  // "no events in this calendar" page, is it an HTML login page — stays on the
-  // client in fetchIcal(), so both paths (dev proxy and this) produce identical
-  // messages and there is exactly ONE place that decides what a feed means.
+  // an HTML page — stays on the client (src/schedule/feed.ts), so there is
+  // exactly ONE place that decides what a feed means.
   return { ok: true, status: res.status, text: buf.toString('utf8') };
 });
 
@@ -1182,7 +1172,7 @@ function sgyYmd(offsetDays = 0) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 }
 
-// ---- event → assignment, ported from extension/schoology.js (apiHarvest) so a task
+// ---- event → assignment, ported from the extension's old Schoology scraper (apiHarvest) so a task
 // imported by the extension and by this server is byte-for-byte the same task. ----
 const SGY_GRADED_RE = /\b(quiz|quizzes|test|exam|exams|midterm|final|finals|project)\b/i;
 const sgyIsTaskEvent = (e) =>
@@ -1421,7 +1411,7 @@ exports.sgyConnectFinish = onCall({ region: 'us-central1', secrets: [SGY_KEY, SG
   if (!/^\d+$/.test(sgyUid) && unpublished) {
     throw new HttpsError(
       'failed-precondition',
-      'Schoology hasn’t approved Cobalt for your school yet, so only test accounts can connect for now. Pick Test, or use the calendar link.'
+      'Schoology hasn’t approved Cobalt for your school yet, so only test accounts can connect for now.'
     );
   }
   if (!/^\d+$/.test(sgyUid)) throw new HttpsError('internal', 'Connected, but Schoology didn’t say who you are. Try again.');
