@@ -34,6 +34,7 @@
 
 import type { Data } from '../db';
 import { el, textInput } from '../util/dom';
+import { createWordmark } from '../ui/laurel';
 import { capitalizeName, nameFromEmail } from '../util/names';
 import { runSync, fetchIcal } from '../schoology/sync';
 import { replaceCourses, getCourseColor } from '../courses/registry';
@@ -245,8 +246,10 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       const hero = el('div', { class: 'onb-visual onb-hero', style: 'margin-bottom:26px' });
       hero.append(el('div', { class: 'onb-hero-glow' }));
       hero.append(el('img', { class: 'onb-mark', src: '/icons/icon.svg', alt: '' }));
+      // THE REAL WORDMARK (Gabe, 10/9): C + gem + balt, exactly as everywhere else.
+      // It was the only place in the app that spelled the "o" as a coloured letter.
       const wordmark = el('div', { class: 'onb-wordmark rise d1' });
-      wordmark.append('C', el('span', { class: 'o', text: 'o' }), 'balt');
+      wordmark.append(createWordmark().el);
       sc.append(
         hero,
         el('div', { class: 'onb-eyebrow rise d1', text: 'welcome to' }),

@@ -40,6 +40,19 @@ new MutationObserver(() => {
   for (const img of document.querySelectorAll<HTMLImageElement>('img[src="/icons/icon.svg"]')) img.src = ICON;
 }).observe(document.body, { childList: true, subtree: true });
 
+// The direct Schoology connection is behind ?sgyapi=1 until PowerSchool publishes
+// the app, and that version of the Connect screen is the one being audited.
+try {
+  history.replaceState(null, '', location.pathname + '?sgyapi=1' + location.hash);
+} catch {
+  /* a frame that refuses it still gets the flag from storage below */
+}
+try {
+  localStorage.setItem('cobalt:sgyApi', '1');
+} catch {
+  /* blocked storage: the address above carries it */
+}
+
 void (async () => {
   const data = await createSandboxData({ profile: { account: { displayName: '', onboarded: false } } });
   runOnboarding({

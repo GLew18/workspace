@@ -342,14 +342,12 @@
   margin-bottom: 10px;
 }
 .onb-wordmark {
-  font-size: clamp(34px, 6vw, 46px);
-  font-weight: 700;
-  letter-spacing: -0.02em;
   margin: 6px 0 0;
-  color: #fff;
 }
-.onb-wordmark .o {
-  color: var(--gold);
+/* The shared .ws-mark (components.css), only resized: it scales the whole C + gem
+   + balt lockup off its font-size, so the proportions stay exact. */
+.onb-wordmark .ws-mark {
+  font-size: clamp(34px, 6vw, 46px);
 }
 
 /* ================= screen 2 · the auto-import explainer ================= */

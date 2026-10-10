@@ -17,7 +17,7 @@
 import { el } from '../util/dom';
 import { createWordmark } from '../ui/laurel';
 
-const UPDATED = 'October 7, 2026';
+const UPDATED = 'October 9, 2026';
 
 /** The one public contact address, for support, suggestions and data requests.
  *  A forwarding alias on the cobaltstudy.com domain, so no personal address is
@@ -127,7 +127,8 @@ const SECTIONS: Section[] = [
     paragraphs: [
       'There are two ways to bring in your assignments.',
       'With a calendar link: you give Cobalt your personal Schoology calendar link (an iCal feed Schoology generates for your account). When you sync, a Cobalt server function fetches that link on your behalf and reads back the calendar file. The server does not keep a copy of the raw calendar file: it hands the contents straight back to your device, where Cobalt turns each event into a task in your account. Only the resulting tasks are stored. A Google Calendar schedule link is fetched the same way.',
-      'By connecting your Schoology account directly: you approve Cobalt on your school’s own Schoology page, so Cobalt never sees your Schoology password. Cobalt’s server then keeps a private access key for your account, which your browser never receives, and uses it to read your upcoming assignments (the next 60 days) and your class names from Schoology. Cobalt also saves your Schoology name, your school’s Schoology address, and when you connected. The access key is deleted when you disconnect, or when Schoology expires it after about 90 days.',
+      'By connecting your Schoology account directly: you approve Cobalt on your school’s own Schoology page, so Cobalt never sees your Schoology password. Cobalt’s server then keeps a private access key for your account, which your browser never receives, and uses it to read your upcoming assignments (the next 60 days, including any files your teacher attached), your class names, and your teachers’ names and school email addresses (so “Email teacher” can address a message) from Schoology. Cobalt also saves your Schoology name, your school’s Schoology address, and when you connected. The access key is deleted when you disconnect, or when Schoology expires it after about 90 days.',
+      'If you use “Submit photo to Schoology” on an assignment, the photos you pick are shrunk on your device, sent through a Cobalt server function, and handed in to that assignment in Schoology under your account, using the same access key. Cobalt does not keep a copy of the photos; they pass straight through to Schoology. This is the only way Cobalt changes anything in Schoology, and it happens only when you press Submit.',
       'If you install the companion Cobalt Chrome extension, it can also read your own, already-logged-in Schoology pages. See “The Cobalt Chrome extension” below for exactly what it reads.',
     ],
   },

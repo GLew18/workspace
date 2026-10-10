@@ -3126,8 +3126,10 @@ export class TasksView {
 
     // EMAIL TEACHER (Gabe, 10/8/26) — Gmail opens with the course's teacher(s) in To
     // and the assignment's title as the subject, body empty. Menu only, and only
-    // when Schoology has told Cobalt who teaches this task's course.
-    const mailUrl = emailTeacherUrl(task);
+    // when Schoology has told Cobalt who teaches this task's course. Schoology
+    // tasks only, like the ↗ and ⓘ buttons: a manual task that happens to share
+    // the course name doesn't get it (Gabe, 10/9).
+    const mailUrl = task.source === 'schoology-ical' ? emailTeacherUrl(task) : null;
     if (mailUrl) {
       out.push({
         id: 'emailTeacher',

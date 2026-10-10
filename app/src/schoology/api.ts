@@ -36,8 +36,17 @@ const FLAG_KEY = 'cobalt:sgyApi';
 export function sgyApiFlag(): boolean {
   try {
     const q = new URLSearchParams(location.search).get('sgyapi');
-    if (q === '1') localStorage.setItem(FLAG_KEY, '1');
-    if (q === '0') localStorage.removeItem(FLAG_KEY);
+    // The address alone decides when it says so, so a browser with storage blocked
+    // still honours ?sgyapi=1 for this visit.
+    if (q === '1' || q === '0') {
+      try {
+        if (q === '1') localStorage.setItem(FLAG_KEY, '1');
+        else localStorage.removeItem(FLAG_KEY);
+      } catch {
+        /* remembered next time only if storage works */
+      }
+      return q === '1';
+    }
     return localStorage.getItem(FLAG_KEY) === '1';
   } catch {
     return false;
