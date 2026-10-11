@@ -1,0 +1,102 @@
+/* Focus Ring Skins lab: page layout only. The rings are styled by the real app
+   CSS (theme.css + focus.css + ringSkins.css). Single dark look on purpose: it is
+   the app's own theme, which has no light mode. */
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  min-width: 0;
+}
+
+body {
+  background: var(--page-bg-flat, #07132e);
+  background: var(--page-bg);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.rl {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-block: 32px 56px;
+  padding-inline: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.rl-head h1 {
+  margin: 0 0 6px;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.rl-head p {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.rl-skin {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px 18px;
+}
+.rl-skin h2 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.rl-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .rl-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rl-look {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+/* The session ring is 340px; scale it to the column. */
+.rl-look .focus-ring-wrap,
+.rl-look .focus-ring {
+  width: 220px;
+  height: 220px;
+  max-width: 100%;
+}
+.rl-look .focus-time {
+  font-size: 38px;
+}
+.rl-look figcaption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.rl-look-name {
+  font-size: 13px;
+  font-weight: 700;
+}
+.rl-look-note {
+  font-size: 11px;
+  color: var(--text-dim);
+}

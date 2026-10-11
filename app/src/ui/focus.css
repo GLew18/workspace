@@ -6,6 +6,50 @@
   flex-direction: column;
   gap: 8px;
 }
+/* Straight | Pomodoro: the Tasks tab's List | Calendar switch (.tasks-mode-seg),
+   sitting on the left like it does there. */
+.focus-mode-seg {
+  align-self: flex-start;
+}
+/* The label and icon take the button's color instantly with it, never on a
+   transition of their own (which would trail the background). */
+.tasks-mode-opt > * {
+  transition: none;
+}
+.focus-mode-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.focus-mode-panel[hidden] {
+  display: none;
+}
+/* Pomodoro presets: "25m / 5m" over "4 rounds". */
+.focus-pomo-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0;
+}
+.focus-pomo-rounds {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.focus-pomo-preset.active .focus-pomo-rounds {
+  color: inherit;
+}
+/* One round has no rest, so the Rest wheel goes quiet. */
+.focus-wheel-col.off {
+  opacity: 0.35;
+  pointer-events: none;
+}
+.focus-pomo-summary {
+  /* Same type as the ROUNDS / WORK MIN / REST MIN labels (.focus-wheel-label). */
+  text-align: center;
+  margin-top: 4px;
+}
 .focus-label {
   font-size: 12px;
   font-weight: 700;
@@ -1098,6 +1142,34 @@
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
   color: #fff;
+}
+/* Pomodoro: "Round 2 of 4" / "Rest 1 of 3" under the clock. */
+.focus-phase {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 64%;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+.focus-widget .focus-phase {
+  font-size: 10px;
+}
+/* A rest turns the ring green (the last-5-minutes red still wins: see .urgent). */
+.focus-ring-wrap.rest:not(.urgent) .ring-fg {
+  stroke: var(--green);
+  filter: drop-shadow(0 0 8px rgba(39, 174, 96, 0.4));
+}
+.focus-ring-wrap.rest:not(.urgent) .ring-dot {
+  fill: var(--green);
+}
+.focus-ring-wrap.rest .focus-phase {
+  color: var(--green);
 }
 .focus-time.flash-up {
   animation: focusFlashUp 0.45s ease;

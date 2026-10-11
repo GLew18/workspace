@@ -812,6 +812,31 @@
   margin: 10px 0 0;
 }
 .photo-submit-strip:empty { display: none; }
+/* A photo plus its hover ✕ (top-right, like .bm-card-actions). Always shown where
+   there is no hover (phones). */
+.photo-submit-tile {
+  position: relative;
+  flex: none;
+}
+.photo-submit-tile .photo-submit-thumb {
+  display: block;
+}
+.photo-submit-x {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: none;
+  /* A dark backing so the ✕ still reads over a white photo. Rest state only; the
+     hover still changes just the glyph, like every delete ✕. */
+  background: rgba(0, 0, 0, 0.6);
+}
+.photo-submit-tile:hover .photo-submit-x,
+.photo-submit-x:focus-visible {
+  display: flex;
+}
+@media (hover: none) {
+  .photo-submit-x { display: flex; }
+}
 .photo-submit-trim:empty { display: none; }
 /* The optional text box: the app-wide field look (theme.css), full width. */
 .photo-submit-text {

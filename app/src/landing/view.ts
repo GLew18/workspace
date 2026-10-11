@@ -223,7 +223,7 @@ const CLOUD: Array<[string, number]> = [
   ['attach links to', 3], ['file into project folders', 3], ['see a month view of', 3],
   ['pull into focus sessions', 3], ['turn one typed line into', 3], ['rename', 3], ['track', 3],
   ['set reminders for', 2], ['reorder by hand', 2], ['range-select', 2],
-  ['conquer', 2],
+  ['conquer', 2], ['hand in', 3], // hand in: Submit to Schoology (10/10)
   // Gamification (Gabe, 10/4). Pinning was removed from the app 10/10.
   ['gamify', 4], ['earn Gems from', 4], ['celebrate finishing', 3],
 ];
@@ -377,8 +377,8 @@ const STUDENT_SETUPS: StudentSetup[] = [
 // The real row's ⓘ and 📎 (tasks/render.ts INFO_BTN_SVG / CLIP_BTN_SVG), same art.
 const LP_INFO_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5h.01"/></svg>';
-const LP_GLOBE_SVG =
-  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/></svg>';
+const LP_CAMERA_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h2.5l1.5-2h6l1.5 2H19a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.5"/></svg>';
 const LP_DUP_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
 const LP_CLIP_SVG =
@@ -606,19 +606,25 @@ const FN_TARGET = FN_SVG('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12"
 const FN_MARK = FN_SVG('<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>');
 const FN_KEYS = FN_SVG('<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>');
 const FN_PENCIL = FN_SVG('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>');
+// The row's camera, envelope and duplicate, line art like the row (Gabe, 10/10).
+const FN_CAMERA = FN_SVG('<path d="M3 8a2 2 0 0 1 2-2h2.5l1.5-2h6l1.5 2H19a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.5"/>');
+const FN_MAIL = FN_SVG('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>');
+const FN_DUP = FN_SVG('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>');
 const FN_BOX_CHECK = FN_SVG('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12l3 3 5-6"/>');
 
 // Schoology navigation and descriptions were here and came out on 9/2/26 (Gabe):
 // opening a link and reading an assignment's instructions are things Schoology
 // already does, and this strip is only for what Cobalt adds on top.
 const FUNCTIONS: Array<[string, string]> = [
-  // The task row's own toolbox first, in the order the row wears it. `↑` and `⎘` stay
-  // as characters: they ARE the app's marks, and both already draw in one colour.
+  // The task row's own toolbox first, in the order the row wears it (10/10: the
+  // Schoology side, then Cobalt's). `↑` stays a character: it IS the app's mark.
+  [FN_CAMERA, 'Submit to Schoology'],
+  [FN_CLIP, 'Attachments'],
   ['↑', 'Subjective priorities'], // the real High arrow (priorities.ts)
   [FN_GLOBE, 'Translation'],
-  [FN_CLIP, 'Attachments'],
   [FN_FOLDER, 'Project folders'],
-  ['⎘', 'Task duplication'],
+  [FN_DUP, 'Task duplication'],
+  [FN_MAIL, 'Email your teacher'], // the ⋯ menu's "Email teacher"
   // Bulk check-off and focus music came out on 9/2/26 (Gabe): neither is a feature
   // of its own — one is what a bulk selection is FOR, the other is part of a focus
   // session — and listing a thing beside the thing that contains it pads the count
@@ -1081,7 +1087,7 @@ function countRows(blocks: CardBlock[]): number {
 /** One hand-built `.task-item` with the REAL row anatomy, in the real order:
  *  priority strip, ⋮⋮ handle, checkbox, title (+ translation), then the bottom
  *  row of meta (course · date time), the QUIZ badge inside the meta wrap, and
- *  the full action cluster: ↗ ⓘ · 🌐 📎 folder priority ⎘. */
+ *  the full action cluster: ↗ ⓘ 📷 📎 priority 🌐 folder ⎘ (10/10 order, no dot). */
 function staticTaskRow(t: ShowTask, s: StudentSetup): HTMLElement {
   // `.selected` is the Tasks tab's OWN multi-select class, so the outline and tint
   // match the real thing exactly rather than being re-invented here.
@@ -1127,7 +1133,10 @@ function staticTaskRow(t: ShowTask, s: StudentSetup): HTMLElement {
   sgy.innerHTML = LP_SCHOOLOGY_SVG;
   const infoBtn = el('button', {});
   infoBtn.innerHTML = LP_INFO_SVG;
-  actions.append(sgy, infoBtn);
+  // 📷 Submit to Schoology rides every Schoology assignment of a connected student.
+  const cam = el('button', { class: 'act-photo' });
+  cam.innerHTML = LP_CAMERA_SVG;
+  actions.append(sgy, infoBtn, cam);
 
   const pinned = s.pinned ?? [];
   const count = s.attachments[t.id];
@@ -1146,9 +1155,7 @@ function staticTaskRow(t: ShowTask, s: StudentSetup): HTMLElement {
   // On card 1 it stays un-`.active` (the app's own 0.4-opacity "off" look) rather
   // than disappearing, so card 1 reads as an earlier state of the same row.
   if (t.translated) {
-    const tx = el('button', { class: `act-translate${s.hideTranslation ? '' : ' active'}` });
-    tx.innerHTML = LP_GLOBE_SVG;
-    actions.append(tx);
+    actions.append(el('button', { class: `act-translate${s.hideTranslation ? '' : ' active'}`, text: '🌐' }));
   }
   if (folderColor || pinned.includes('folder')) {
     const fold = el('button', { class: 'act-folder' });

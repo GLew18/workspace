@@ -517,7 +517,8 @@ const scenePremiumAndCourse: Scene = {
 /** Scene 6 — TWO translated descriptions (Gabe, 9/1/26: the Spanish task's and
  *  the Hebrew task's, each shown in its language with the translation under it —
  *  descriptions get the same pass titles do), then the essay's attachments: the
- *  Rubric is ALREADY there (the import's link extraction), Dan adds "essay doc". */
+ *  Rubric is ALREADY there (the import's link extraction), Dan adds "essay doc".
+ *  Then he submits a photo of his outline, with a text comment, to Schoology. */
 const sceneEssayAttachments: Scene = {
   name: 'descriptions-attachments',
   async run({ shell, cur }) {
@@ -563,6 +564,29 @@ const sceneEssayAttachments: Scene = {
     await cur.wait(1000);
     await cur.click(pop, { ax: 0.07, ay: 0.5 });
     await cur.wait(300);
+
+    // SUBMIT TO SCHOOLOGY (Gabe, 10/10): Dan hands in a photo of his outline on
+    // the same essay, with a line of text that reaches his teacher as a comment.
+    // The REAL popup (schoology/submitPhoto.ts in its demo mode): "Open File
+    // Explorer" hands it the photo, and the hand-in skips the server.
+    beat('submit-to-schoology');
+    await cur.click(row(shell, 'dan_essay').querySelector('.task-actions button[title="Submit to Schoology"]')!);
+    const sub = await cur.waitFor<HTMLElement>('.bm-backdrop.photo-submit', shell.body);
+    const send = sub.querySelector<HTMLButtonElement>('.bm-btn-primary')!;
+    expect(send.disabled, 'Submit must start grayed out');
+    await cur.wait(700);
+    await cur.click(sub.querySelector<HTMLElement>('.photo-submit-pick')!);
+    await cur.waitFor('.photo-submit-thumb', sub);
+    await cur.wait(800); // the photo landing in the popup is the beat
+    const text = sub.querySelector<HTMLTextAreaElement>('.photo-submit-text')!;
+    await cur.click(text);
+    await cur.typeInto(text, 'Outline attached, final draft by Friday');
+    await cur.waitUntil(() => !send.disabled, 2000, 'Submit enabled once there is a photo');
+    await cur.wait(400);
+    await cur.click(send);
+    await cur.waitUntil(() => !sub.isConnected || sub.classList.contains('closing'), 5000, 'submission handed in');
+    await cur.waitFor('.toast', shell.body);
+    await cur.wait(1400); // let "Submitted to Schoology" read
   },
 };
 

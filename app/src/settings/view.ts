@@ -1498,7 +1498,7 @@ export class SettingsView {
         grid.append(b);
       };
       mk('popup', BELL, 'Popup');
-      mk('gmail', ENVELOPE, 'Gmail');
+      mk('gmail', ENVELOPE, 'Email');
       const sync = (): void => {
         const ch = get();
         btns.forEach(([k, b]) => b.setAttribute('aria-pressed', String(ch[k])));
@@ -1566,8 +1566,8 @@ export class SettingsView {
       const chosen = chosenNotifyEmail();
       const line = el('div', { class: 'ngmail-line' });
       line.innerHTML = chosen
-        ? `✉ Gmail notifications go to <b>${escapeHtml(chosen)}</b>.`
-        : `✉ Gmail notifications go to <b>${escapeHtml(this.opts.email || 'your account email')}</b>, your sign-in email.`;
+        ? `✉ Email notifications go to <b>${escapeHtml(chosen)}</b>.`
+        : `✉ Email notifications go to <b>${escapeHtml(this.opts.email || 'your account email')}</b>, your sign-in email.`;
       if (stage === 'idle' && this.opts.email) {
         const change = el('button', { class: 'ngmail-link', text: 'Change' });
         change.addEventListener('click', () => {

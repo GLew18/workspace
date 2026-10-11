@@ -97,6 +97,9 @@ export interface FocusState {
    *  reload cannot unlock the clock: without it, turning the setting off and
    *  refreshing would hand the +/- buttons straight back. */
   accountability?: boolean;
+  /** Pomodoro sessions only: the phase lengths in seconds, work and rest
+   *  alternating, starting and ending on work. Absent = a straight timer. */
+  phases?: number[];
   quote: string;
   savedAt: number;
   /** The one tab this session runs in (see getTabId). Other tabs only offer "Enter". */

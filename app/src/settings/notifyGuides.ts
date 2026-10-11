@@ -435,7 +435,7 @@ const cobaltSwitchesGuide = (os: GuideOS): Guide => ({
             txt(46, 65, 12.5, TXT, 'Due-soon reminders', 650) +
             txt(46, 82, 9.5, DIM, 'A heads-up before a task is due.') +
             chanBtn(272, 58, '🔔 Popup', 'turnsOn') +
-            chanBtn(344, 58, '✉ Gmail', 'off') +
+            chanBtn(344, 58, '✉ Email', 'off') +
             txt(230, 150, 11, DIM, 'Grey = off · Gold = on', 500, 'middle') +
             wsToast(os, 125, 168, 'Due soon: Science lab', 'Due 3:00 PM (in 1 hour)') +
             hl(266, 52, 76, 34) +
@@ -450,7 +450,7 @@ const cobaltSwitchesGuide = (os: GuideOS): Guide => ({
             txt(46, 52, 12.5, TXT, 'All reminders', 700) +
             txt(46, 68, 9.5, DIM, 'One press flips every notification below.') +
             chanBtn(272, 45, '🔔 Popup', 'turnsOn') +
-            chanBtn(344, 45, '✉ Gmail', 'off') +
+            chanBtn(344, 45, '✉ Email', 'off') +
             box(30, 100, 400, 40, PANEL, 10) +
             txt(46, 124, 11, TXT, 'Due-soon reminders') +
             `<g class="af">${chanBtn(272, 109, '🔔 Popup', 'on')}</g><g class="bf">${chanBtn(272, 109, '🔔 Popup', 'off')}</g>` +

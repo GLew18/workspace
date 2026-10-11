@@ -1229,23 +1229,53 @@ function sgyHtmlToText(html) {
     .trim();
 }
 
+/** Links hidden behind words in a description (Gabe, 10/10/26: "Haha" linking out
+ *  showed only the word, since sgyHtmlToText drops the tag). Each becomes
+ *  { title: its link text, url }, https only, one per URL, never the assignment's
+ *  own page. An empty title lets the app name it from the URL. */
+function sgyLinksInHtml(html, host, selfUrl) {
+  const out = [];
+  const seen = new Set();
+  const self = String(selfUrl || '').replace(/\/+$/, '');
+  const re = /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  while ((m = re.exec(String(html || ''))) && out.length < SGY_ATTACH_PER_TASK) {
+    let u = m[1].trim().replace(/&amp;/gi, '&');
+    if (u.startsWith('//')) u = 'https:' + u;
+    else if (u.startsWith('/')) u = 'https://' + host + u;
+    u = u.replace(/^http:\/\//i, 'https://');
+    if (!/^https:\/\//i.test(u) || u.length > 2000) continue;
+    const key = u.replace(/\/+$/, '');
+    if (key === self || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ title: sgyHtmlToText(m[2]).replace(/\s+/g, ' ').slice(0, 200), url: u });
+  }
+  return out;
+}
+
 function sgyAssignmentFromEvent(e, host, course) {
   const id = sgyAssignmentId(e, host);
   const when = sgySplitDate(e && e.start, e && e.all_day);
   const title = String((e && e.title) || '').trim();
   if (!id || !when || !title) return null;
   const isAssignment = e.type === 'assignment';
-  const url =
-    sgyRepairUrl(String(e.web_url || ''), host) || 'https://' + host + (isAssignment ? '/assignment/' : '/event/') + id;
+  const url = (
+    sgyRepairUrl(String(e.web_url || ''), host) || 'https://' + host + (isAssignment ? '/assignment/' : '/event/') + id
+  )
+    .replace(/^http:\/\//i, 'https://')
+    .replace(/\/info\/?$/i, '');
+  // Never `attachments: undefined`: RTDB rejects it.
+  const links = sgyLinksInHtml(e.description, host, url);
   return {
     id,
     title,
     description: sgyHtmlToText(e.description),
-    url: url.replace(/^http:\/\//i, 'https://').replace(/\/info\/?$/i, ''),
+    url,
     date: when.date,
     time: when.time,
     kind: isAssignment ? 'assignment' : 'assessment',
     course: course || '',
+    ...(links.length ? { attachments: links } : {}),
   };
 }
 
@@ -1533,7 +1563,20 @@ exports.sgyFetch = onCall(
           try {
             const obj = await sgyJson(`/sections/${sid}/assignments/${aid}?with_attachments=1`, tok);
             const a = byId.get(aid);
-            const list = sgyAttachmentsOf(obj, host, a.url);
+            // Attached files and links first, then the links hidden in the
+            // description (this read's copy of it is HTML too), one per URL.
+            const merged = [
+              ...sgyAttachmentsOf(obj, host, a.url),
+              ...(a.attachments || []),
+              ...sgyLinksInHtml(obj && obj.description, host, a.url),
+            ];
+            const seen = new Set();
+            const list = merged
+              .filter((x) => {
+                const k = x.url.replace(/\/+$/, '');
+                return !seen.has(k) && seen.add(k);
+              })
+              .slice(0, SGY_ATTACH_PER_TASK);
             if (list.length) a.attachments = list;
           } catch (err) {
             console.warn('sgy attachments skipped', aid, err && err.message);
@@ -1702,8 +1745,8 @@ exports.sgySubmitPhoto = onCall(
     if (d.step === 'submit') {
       const aid = String(d.assignmentId || '');
       const ids = Array.isArray(d.fileIds) ? d.fileIds.map(String).filter((x) => /^\d+$/.test(x)) : [];
-      // Optional text (Gabe, 10/10). Schoology takes a submission as files OR as
-      // text, never both in one, so text is its own submission, sent first.
+      // Optional text (Gabe, 10/10). With photos it rides along as a comment on the
+      // submission (below); on its own it is a text submission.
       const text = String(d.text || '').trim().slice(0, 20000);
       if (!/^\d+$/.test(aid) || (!ids.length && !text) || ids.length > SGY_PHOTO_MAX_FILES) {
         throw new HttpsError('invalid-argument', 'Nothing to submit.');
@@ -1729,12 +1772,37 @@ exports.sgySubmitPhoto = onCall(
           );
         }
       };
-      if (text) {
-        const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        await hand('create', { body: esc.split(/\r?\n/).map((l) => `<p>${l || '&nbsp;'}</p>`).join('') });
+      const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const asHtml = () => ({ body: esc.split(/\r?\n/).map((l) => `<p>${l || '&nbsp;'}</p>`).join('') });
+      // Text alone is a normal text submission, the same as Schoology's own Create tab.
+      if (!ids.length) {
+        await hand('create', asHtml());
+        return { ok: true, textAs: 'submission' };
       }
-      if (ids.length) await hand('file', { 'file-attachment': { id: ids } });
-      return { ok: true };
+      await hand('file', { 'file-attachment': { id: ids } });
+      if (!text) return { ok: true };
+      // TEXT WITH PHOTOS = A COMMENT ON THE SUBMISSION (Gabe, 10/10): the private
+      // student-teacher thread Schoology shows beside the submission when grading,
+      // so the teacher reads it with the photos. Schoology documents reading these
+      // comments, not posting them, so if it refuses, the text goes in as its own
+      // text submission instead and the student is told; it is never dropped.
+      const uidS = /^\d+$/.test(String(tok.sgyUid || '')) ? String(tok.sgyUid) : '';
+      if (uidS) {
+        const c = await sgySend(
+          'POST',
+          `${SGY_API}/sections/${sid}/submissions/${aid}/${uidS}/comments`,
+          tok,
+          JSON.stringify({ comment: text }),
+          'application/json'
+        );
+        if (c.status === 401) return expired();
+        if (c.ok) return { ok: true, textAs: 'comment' };
+        console.warn('sgy submission comment refused', c.status, (await c.text().catch(() => '')).slice(0, 300));
+      } else {
+        console.warn('sgy submission comment skipped: no schoology uid on the token');
+      }
+      await hand('create', asHtml());
+      return { ok: true, textAs: 'submission' };
     }
 
     throw new HttpsError('invalid-argument', 'Unknown step.');

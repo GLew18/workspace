@@ -123,6 +123,37 @@ interface CustomPreset {
   seconds: number;
 }
 
+/** A Pomodoro plan: `rounds` work blocks with a rest between each pair, so
+ *  rounds − 1 rests. Work and rest are in minutes. */
+interface PomoPlan {
+  rounds: number;
+  work: number;
+  rest: number;
+}
+/** Built-in Pomodoro presets (the "+ Preset" ones are saved as pomo_* records). */
+const POMO_PRESETS: PomoPlan[] = [
+  { rounds: 4, work: 25, rest: 5 },
+  { rounds: 4, work: 30, rest: 5 },
+  { rounds: 3, work: 45, rest: 10 },
+  { rounds: 3, work: 50, rest: 10 },
+  { rounds: 3, work: 60, rest: 20 },
+  { rounds: 2, work: 90, rest: 20 },
+];
+interface CustomPomoPreset extends PomoPlan {
+  key: string; // 'pomo_' + genId(), also its id in the focus collection
+}
+const pomoKey = (p: PomoPlan): string => `${p.rounds}-${p.work}-${p.rest}`;
+const pomoTotal = (p: PomoPlan): number => (p.rounds * p.work + (p.rounds - 1) * p.rest) * 60;
+/** Phase lengths in seconds: work, rest, work, …, work. */
+const pomoPhases = (p: PomoPlan): number[] =>
+  Array.from({ length: p.rounds * 2 - 1 }, (_, i) => (i % 2 ? p.rest : p.work) * 60);
+// The Straight | Pomodoro switch's two faces: one stopwatch, and a repeat loop.
+const STRAIGHT_SVG =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M10 2h4"/></svg>';
+const POMO_SVG =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>';
+const FOCUS_MODE_KEY = 'focus:mode'; // per-device: which timer the setup screen opens on
+
 /** Compact label for a custom preset: "1h 30m", "25m", "1h 5m 30s", "45s". */
 function presetLabel(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
@@ -301,7 +332,13 @@ export class FocusView {
   private selectedSeconds = 60 * 60; // session length in seconds (default 1h)
   private selectedMusic: string | null = tracksForGenre(MUSIC_GENRES[0].id)[0]?.id ?? null;
   private customPresets: CustomPreset[] = []; // user-saved lengths ("+ Preset"), persisted
+  // Straight timer vs Pomodoro (the switcher atop the setup screen). The last pick
+  // is remembered per device; the landing demo always opens on Straight.
+  private focusMode: 'straight' | 'pomodoro' = 'straight';
+  private pomoPlan: PomoPlan = { ...POMO_PRESETS[0] };
+  private customPomoPresets: CustomPomoPreset[] = [];
   private initFocusWheels?: (tries?: number) => void; // positions the length carousel after mount
+  private initPomoWheels?: () => void; // same, for the Pomodoro carousel
   // Active-session state — owned by the running overlay/widget, snapshotted at start.
   private sessionTodos: FocusTodo[] = [];
   private sessionMusic: string | null = null; // the session's currently-playing track
@@ -364,6 +401,11 @@ export class FocusView {
   private ringWrap: HTMLElement | null = null;
   private timeText: HTMLElement | null = null;
   private endTimeEl: HTMLElement | null = null; // "⏰ Ends 2:34 PM" line beneath the ring
+  // Pomodoro: the running session's phase lengths (s), work/rest alternating; null =
+  // straight timer. totalSeconds always equals their sum.
+  private sessionPhases: number[] | null = null;
+  private lastPhaseIdx = -1; // which phase the ticker last saw, to chime on a change
+  private phaseEl: HTMLElement | null = null; // "Round 2 of 4" / "Rest 1 of 3" inside the ring
   private pauseBtn: HTMLElement | null = null; // active screen's Pause/Resume (overlay or widget)
   private musicNameEl: HTMLElement | null = null;
   private musicPlayBtn: HTMLElement | null = null;
@@ -385,6 +427,13 @@ export class FocusView {
   constructor(data: Data, sample?: { host: HTMLElement }) {
     this.data = data;
     this.sample = sample;
+    if (!sample) {
+      try {
+        if (localStorage.getItem(FOCUS_MODE_KEY) === 'pomodoro') this.focusMode = 'pomodoro';
+      } catch {
+        /* storage blocked: open on Straight */
+      }
+    }
     // Cross-tab session coordination (ownership handoffs, signpost toasts).
     // Removed in teardown() so re-sign-ins don't stack listeners.
     window.addEventListener('storage', this.onStorage);
@@ -618,7 +667,11 @@ export class FocusView {
     clearFocusState();
     const done = (saved.todos ?? []).filter((t) => t.done).length;
     const total = (saved.todos ?? []).length;
-    const minutes = Math.max(0, Math.round((saved.totalSeconds ?? 0) / 60));
+    // Pomodoro: rests are not focus time, so only the work blocks count.
+    const focused = saved.phases?.length
+      ? saved.phases.reduce((a, len, i) => (i % 2 ? a : a + len), 0)
+      : saved.totalSeconds ?? 0;
+    const minutes = Math.max(0, Math.round(focused / 60));
     if (this.endSoundEnabled) this.endCue = playEndSound(this.endSoundKey, this.endSoundVolume);
     // Same string as the live-completion path below, including dropping the task
     // count when there were no tasks (Gabe, 9/6/26). These are two doors into the
@@ -681,6 +734,10 @@ export class FocusView {
       .filter(([k]) => k.startsWith('preset_'))
       .map(([, v]) => v as CustomPreset)
       .filter((p) => typeof p.seconds === 'number' && p.seconds > 0);
+    this.customPomoPresets = Object.entries(focus)
+      .filter(([k]) => k.startsWith('pomo_'))
+      .map(([, v]) => v as CustomPomoPreset)
+      .filter((p) => p.rounds > 0 && p.rounds <= 6 && p.work > 0 && p.rest > 0);
     // Favorited track ids live in a single 'favorites' record; playlists in 'playlist_*'.
     this.favorites = new Set<string>((focus['favorites'] as { ids?: string[] } | undefined)?.ids ?? []);
     this.customPlaylists = loadPlaylists(focus);
@@ -901,11 +958,64 @@ export class FocusView {
     this.panel.replaceChildren();
     const wrap = el('div', { class: 'focus-setup' });
 
+    // Straight | Pomodoro — built like the Tasks tab's List | Calendar switch. Both
+    // panels are built once and the switch only shows one, so flipping back and
+    // forth keeps whatever was dialed in each.
+    const lenErr = el('div', { class: 'focus-field-error' });
+    const straightBox = el('div', { class: 'focus-mode-panel' });
+    const pomoBox = el('div', { class: 'focus-mode-panel' });
+    const modeSeg = el('div', { class: 'tasks-mode-seg focus-mode-seg', role: 'tablist' });
+    const syncSeg = (): void => {
+      for (const b of modeSeg.querySelectorAll<HTMLElement>('.tasks-mode-opt')) {
+        const on = b.dataset.mode === this.focusMode;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', String(on));
+      }
+    };
+    const syncPanels = (): void => {
+      straightBox.hidden = this.focusMode !== 'straight';
+      pomoBox.hidden = this.focusMode !== 'pomodoro';
+      lenErr.textContent = '';
+    };
+    const syncMode = (): void => {
+      syncSeg();
+      syncPanels();
+    };
+    const modeOpts: Array<['straight' | 'pomodoro', string, string]> = [
+      ['straight', 'Straight', STRAIGHT_SVG],
+      ['pomodoro', 'Pomodoro', POMO_SVG],
+    ];
+    for (const [m, label, svg] of modeOpts) {
+      const b = el('button', { class: 'tasks-mode-opt', role: 'tab' });
+      b.dataset.mode = m;
+      b.innerHTML = svg;
+      b.append(el('span', { text: label }));
+      b.addEventListener('click', () => {
+        if (this.focusMode === m) return;
+        this.focusMode = m;
+        try {
+          if (!this.sample) localStorage.setItem(FOCUS_MODE_KEY, m);
+        } catch {
+          /* storage blocked: the choice just won't outlive the page */
+        }
+        // The switch repaints FIRST, alone. Swapping panels lays out a few
+        // thousand wheel rows, and doing it in the same frame held the label's
+        // color change back behind the background (Gabe, 10/10).
+        syncSeg();
+        requestAnimationFrame(() => {
+          if (this.focusMode !== m) return; // flipped back before the frame
+          syncPanels();
+          (m === 'straight' ? this.initFocusWheels : this.initPomoWheels)?.();
+        });
+      });
+      modeSeg.append(b);
+    }
+    wrap.append(modeSeg, straightBox, pomoBox);
+
     // Duration — quick presets on top, an hours:minutes:seconds carousel below for
     // fine-tuning. The carousel is the source of truth; presets just scroll it.
-    wrap.append(el('div', { class: 'focus-label', text: 'Session length' }));
+    straightBox.append(el('div', { class: 'focus-label', text: 'Session length' }));
     const presetRow = el('div', { class: 'focus-presets' });
-    const lenErr = el('div', { class: 'focus-field-error' });
     const showSecs = getPrefs().focus.showSeconds; // "Show seconds" pref → seconds wheel
 
     const HOURS = Array.from({ length: 13 }, (_, i) => i); // 0–12 (the 12-hour cap)
@@ -1023,7 +1133,10 @@ export class FocusView {
       drawPresets();
     });
 
-    wrap.append(presetRow, carousel, addPreset, lenErr);
+    straightBox.append(presetRow, carousel, addPreset);
+    this.buildPomoSetup(pomoBox, lenErr);
+    wrap.append(lenErr);
+    syncMode();
     // Stash the wheel initializer; it runs after the panel is appended (below), so
     // the wheels are already in the live DOM and scrollable — no 00:00 flash.
     this.initFocusWheels = () => {
@@ -1329,6 +1442,14 @@ export class FocusView {
       );
     } else {
       start.addEventListener('click', () => {
+        if (this.focusMode === 'pomodoro') {
+          if (pomoTotal(this.pomoPlan) > MAX_FOCUS_SECONDS) {
+            lenErr.textContent = 'That plan runs past the 12-hour limit.';
+            return;
+          }
+          this.startSession();
+          return;
+        }
         if (this.selectedSeconds < 1) {
           lenErr.textContent = 'Pick a session length.';
           return;
@@ -1347,6 +1468,124 @@ export class FocusView {
     drawTodos();
     this.panel.append(wrap);
     this.initFocusWheels?.(); // carousel is now in the DOM → position it without a flash
+    this.initPomoWheels?.();
+  }
+
+  /** The Pomodoro half of the setup screen. Same shape as Straight on purpose:
+   *  presets on top, a wheel carousel below, "+ Preset" under it. The wheels are
+   *  Rounds / Work / Rest instead of Hour / Min / Sec. */
+  private buildPomoSetup(box: HTMLElement, lenErr: HTMLElement): void {
+    box.append(el('div', { class: 'focus-label', text: 'Session plan' }));
+    const presetRow = el('div', { class: 'focus-presets' });
+    const summary = el('div', { class: 'focus-wheel-label focus-pomo-summary' });
+
+    const ROUNDS = Array.from({ length: 6 }, (_, i) => i + 1); // 1–6 (Gabe, 10/10: nobody does more)
+    const WORK = Array.from({ length: 120 }, (_, i) => i + 1); // 1–120 min
+    const REST = Array.from({ length: 60 }, (_, i) => i + 1); // 1–60 min
+
+    const sync = (): void => {
+      // A hidden panel's wheels have no layout and read as 1/1/1: only trust them
+      // once they are on screen.
+      if (roundsWheel.wheel.clientHeight > 0) {
+        this.pomoPlan = { rounds: roundsWheel.value(), work: workWheel.value(), rest: restWheel.value() };
+      }
+      const p = this.pomoPlan;
+      const rests = p.rounds - 1;
+      restCol.classList.toggle('off', rests === 0); // one round = no rest to set
+      summary.textContent =
+        `${p.rounds} work · ${rests ? `${rests} rest` : 'no rest'}` +
+        ` · ${presetLabel(pomoTotal(p))} total`;
+      lenErr.textContent = '';
+      const key = pomoKey(p);
+      [...presetRow.children].forEach((btn) =>
+        (btn as HTMLElement).classList.toggle('active', (btn as HTMLElement).dataset.plan === key)
+      );
+    };
+    const roundsWheel = makeWheel(ROUNDS, sync);
+    const workWheel = makeWheel(WORK, sync);
+    const restWheel = makeWheel(REST, sync);
+
+    const wheelCol = (label: string, wheel: HTMLElement) => {
+      const col = el('div', { class: 'focus-wheel-col' });
+      col.append(wheel, el('div', { class: 'focus-wheel-label', text: label }));
+      return col;
+    };
+    const restCol = wheelCol('Rest min', restWheel.wheel);
+    const carousel = el('div', { class: 'focus-carousel' });
+    carousel.append(
+      wheelCol('Rounds', roundsWheel.wheel),
+      wheelCol('Work min', workWheel.wheel),
+      restCol,
+      el('div', { class: 'focus-carousel-window' })
+    );
+
+    const jumpTo = (p: PomoPlan) => {
+      roundsWheel.scrollTo(p.rounds);
+      workWheel.scrollTo(p.work);
+      restWheel.scrollTo(p.rest);
+      sync();
+    };
+    const drawPresets = () => {
+      presetRow.replaceChildren();
+      const all = [
+        ...POMO_PRESETS.map((p) => ({ ...p, key: '' })),
+        ...this.customPomoPresets,
+      ].sort((a, b) => a.work - b.work || a.rest - b.rest || a.rounds - b.rounds);
+      for (const p of all) {
+        const btn = el('button', { class: `focus-preset focus-pomo-preset${p.key ? ' custom' : ''}` });
+        btn.append(
+          el('span', { class: 'focus-pomo-times', text: `${p.work}m / ${p.rest}m` }),
+          el('span', { class: 'focus-pomo-rounds', text: `${p.rounds} round${p.rounds === 1 ? '' : 's'}` })
+        );
+        btn.dataset.plan = pomoKey(p);
+        btn.addEventListener('click', () => jumpTo(p));
+        if (p.key) {
+          const del = el('span', { class: 'focus-preset-del', text: '×', title: 'Remove preset' });
+          del.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.customPomoPresets = this.customPomoPresets.filter((c) => c.key !== p.key);
+            void this.data.removeFocus(p.key);
+            drawPresets();
+          });
+          btn.append(del);
+        }
+        if (pomoKey(p) === pomoKey(this.pomoPlan)) btn.classList.add('active');
+        presetRow.append(btn);
+      }
+    };
+    drawPresets();
+
+    const addPreset = el('button', { class: 'focus-add-preset', text: '+ Preset' });
+    addPreset.addEventListener('click', async () => {
+      const key = pomoKey(this.pomoPlan);
+      if (POMO_PRESETS.some((p) => pomoKey(p) === key) || this.customPomoPresets.some((p) => pomoKey(p) === key)) return;
+      const preset: CustomPomoPreset = { key: 'pomo_' + genId(), ...this.pomoPlan };
+      this.customPomoPresets = [...this.customPomoPresets, preset];
+      await this.data.putFocus(preset.key, preset);
+      drawPresets();
+    });
+
+    box.append(presetRow, carousel, summary, addPreset);
+    // Same positioning trick as the Straight wheels (see initFocusWheels): wait
+    // until the carousel is actually laid out, which for a hidden panel is the
+    // moment the switch reveals it.
+    this.initPomoWheels = () => {
+      const apply = () => {
+        roundsWheel.scrollTo(this.pomoPlan.rounds);
+        workWheel.scrollTo(this.pomoPlan.work);
+        restWheel.scrollTo(this.pomoPlan.rest);
+      };
+      const io = new IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting && e.boundingClientRect.height > 0)) {
+          apply();
+          sync();
+          io.disconnect();
+        }
+      });
+      io.observe(roundsWheel.wheel);
+      apply();
+      sync();
+    };
   }
 
   // --- reusable Import-Tasks dropdown -------------------------------------
@@ -2372,7 +2611,9 @@ export class FocusView {
     this.sessionTodos = this.todos;
     // Folders aren't snapshotted any more — they're the shared Tasks-tab list.
     this.sessionMusic = this.selectedMusic;
-    this.totalSeconds = this.selectedSeconds;
+    this.sessionPhases = this.focusMode === 'pomodoro' ? pomoPhases(this.pomoPlan) : null;
+    this.totalSeconds = this.sessionPhases ? pomoTotal(this.pomoPlan) : this.selectedSeconds;
+    this.lastPhaseIdx = this.sessionPhases ? 0 : -1;
     this.endTimeMs = Date.now() + this.totalSeconds * 1000;
     this.paused = false;
     this.pausedRemainingSec = null;
@@ -2427,6 +2668,7 @@ export class FocusView {
     // s.folders is ignored (legacy): folders now live in the shared profile list.
     this.totalSeconds = s.totalSeconds;
     this.endTimeMs = s.endTimeMs;
+    this.sessionPhases = s.phases?.length ? [...s.phases] : null;
     this.quote = s.quote;
     // Restored BEFORE anything renders, so a session that was locked stays locked
     // across a refresh. Without this, turning the setting off and hitting reload
@@ -2455,6 +2697,8 @@ export class FocusView {
     // above accounts for it.
     this.paused = !keepRunning;
     this.pausedRemainingSec = keepRunning ? null : remaining;
+    // No chime for the phase we land in: it was announced when it began.
+    this.lastPhaseIdx = this.phaseAt(remaining)?.i ?? -1;
     // Arm the pause→resume music linkage exactly as a live Pause would have: the
     // track returns with the session iff it was audible when the session was last
     // live (older saved states without the flag: any selected track counts).
@@ -2464,7 +2708,7 @@ export class FocusView {
     this.updateDisplay(remaining);
     if (keepRunning) {
       this.startTicker();
-      if (!this.sample) document.title = `🎯 ${this.clock(remaining)} · Focus`;
+      if (!this.sample) document.title = this.runningTitle(remaining);
     } else {
       // A paused restore's "Ends …" line is a projection from now, so it must keep
       // moving (see startPausedClock) instead of freezing at the moment of restore.
@@ -2624,6 +2868,7 @@ export class FocusView {
         this.endSession(true);
         return;
       }
+      this.checkPhase(remaining);
       this.updateDisplay(remaining);
       this.persist();
     }, 500);
@@ -2744,7 +2989,9 @@ export class FocusView {
     const total = this.sessionTodos.length;
     // Minutes actually focused (elapsed), not the planned length — so a session
     // ended early reports honestly.
-    const minutes = Math.max(0, Math.floor((this.totalSeconds - this.currentRemaining()) / 60));
+    const minutes = Math.max(0, Math.floor(this.focusedSeconds(this.totalSeconds - this.currentRemaining()) / 60));
+    this.sessionPhases = null;
+    this.lastPhaseIdx = -1;
 
     clearFocusState();
     this.engine?.destroy();
@@ -3039,12 +3286,19 @@ export class FocusView {
     const ringWrap = el('div', { class: 'focus-ring-wrap' });
     this.ringWrap = ringWrap;
     this.paintRingSkin();
-    this.timeText = el('div', { class: 'focus-time', text: this.clock(this.currentRemaining()) });
+    this.timeText = el('div', { class: 'focus-time', text: this.clock(this.shownSeconds(this.currentRemaining())) });
     ringWrap.append(this.timeText);
+    if (this.sessionPhases) {
+      this.phaseEl = el('div', { class: 'focus-phase' });
+      ringWrap.append(this.phaseEl);
+      this.paintPhase(this.currentRemaining());
+    } else {
+      this.phaseEl = null;
+    }
     this.startRingAnimation(); // drive the arc continuously (smoother than per-second)
     // A ring built INSIDE the last five minutes has to start red, not wait for a
     // tick that may never come (see syncUrgent).
-    this.syncUrgent(this.paused ? this.pausedRemainingSec ?? 0 : this.currentRemaining());
+    this.syncUrgent(this.exactRemaining());
     return ringWrap;
   }
 
@@ -3085,7 +3339,9 @@ export class FocusView {
       const remaining = this.paused
         ? this.pausedRemainingSec ?? 0
         : Math.max(0, (this.endTimeMs - Date.now()) / 1000);
-      const frac = this.totalSeconds > 0 ? remaining / this.totalSeconds : 0;
+      // Pomodoro: the arc is the CURRENT phase, refilling at each work/rest switch.
+      const ph = this.phaseAt(remaining);
+      const frac = ph ? (ph.len > 0 ? ph.left / ph.len : 0) : this.totalSeconds > 0 ? remaining / this.totalSeconds : 0;
       const offset = String(RING_C * (1 - frac));
       this.ringEl.style.strokeDashoffset = offset;
       for (const f of this.ringFollow) f.style.strokeDashoffset = offset; // skin parts that track the arc
@@ -4348,7 +4604,13 @@ export class FocusView {
    * one stale reference means the class lands on a node nobody is looking at.
    */
   private syncUrgent(remaining: number): void {
-    const urgent = remaining <= 300 && remaining > 0;
+    // Pomodoro: EVERY block goes red in its own last five minutes, exactly like a
+    // whole straight session does (Gabe, 10/10). A block of five minutes or less
+    // would be red from its first second, so it keeps its own color instead.
+    const ph = this.phaseAt(remaining);
+    const urgent = ph
+      ? ph.len > 300 && ph.left <= 300 && ph.left > 0
+      : remaining <= 300 && remaining > 0;
     this.ringWrap?.classList.toggle('urgent', urgent);
     for (const doc of [document, this.pipWindow?.document]) {
       if (!doc) continue;
@@ -4357,7 +4619,8 @@ export class FocusView {
   }
 
   private updateDisplay(remaining: number): void {
-    if (this.timeText) this.timeText.textContent = this.clock(remaining);
+    if (this.timeText) this.timeText.textContent = this.clock(this.shownSeconds(remaining));
+    this.paintPhase(this.exactRemaining());
     this.refreshEndTime(); // keep "Ends …" in step (tick, and after every ± adjust)
     // The ring's offset is animated continuously by startRingAnimation (rAF).
     // Last-5-minutes urgent state: only the RING fades to red (the timer text stays
@@ -4370,10 +4633,85 @@ export class FocusView {
     // class lands on a node nobody is looking at while the visible ring stays blue.
     // Asking the documents costs nothing twice a second and cannot go stale, which is
     // the same lesson the selection bar singleton taught.
-    this.syncUrgent(remaining);
+    this.syncUrgent(this.exactRemaining());
     // Live countdown in the tab title (paused title is set in togglePause and held
     // because the ticker is stopped, so we only write the running title here).
-    if (!this.paused && !this.sample) document.title = `🎯 ${this.clock(remaining)} · Focus`;
+    if (!this.paused && !this.sample) document.title = this.runningTitle(remaining);
+  }
+
+  // --- pomodoro phases ------------------------------------------------------
+
+  /** Where a Pomodoro session stands, given the WHOLE session's remaining time:
+   *  the phase index (even = work, odd = rest), its time left and its length.
+   *  null for a straight session. */
+  private phaseAt(remaining: number): { i: number; left: number; len: number } | null {
+    const ph = this.sessionPhases;
+    if (!ph?.length) return null;
+    let t = Math.max(0, this.totalSeconds - remaining); // elapsed
+    for (let i = 0; i < ph.length; i++) {
+      if (t < ph[i] || i === ph.length - 1) return { i, left: Math.max(0, ph[i] - t), len: ph[i] };
+      t -= ph[i];
+    }
+    return null;
+  }
+
+  /** The number the big clock shows: the phase's time left in Pomodoro, else all of it. */
+  private shownSeconds(remaining: number): number {
+    return this.phaseAt(remaining)?.left ?? remaining;
+  }
+
+  /** Seconds of WORK inside `elapsed` (Pomodoro rests do not count as focus). */
+  private focusedSeconds(elapsed: number): number {
+    const ph = this.sessionPhases;
+    if (!ph?.length) return elapsed;
+    let t = elapsed;
+    let work = 0;
+    for (let i = 0; i < ph.length && t > 0; i++) {
+      const used = Math.min(ph[i], t);
+      if (i % 2 === 0) work += used;
+      t -= used;
+    }
+    return work;
+  }
+
+  private runningTitle(remaining: number): string {
+    const ph = this.phaseAt(remaining);
+    if (ph && ph.i % 2) return `☕ ${this.clock(ph.left)} · Rest`;
+    return `🎯 ${this.clock(ph ? ph.left : remaining)} · Focus`;
+  }
+
+  /** "Round 2 of 4" / "Rest 1 of 3" under the clock, and the ring's rest tint. */
+  private paintPhase(remaining: number): void {
+    const ph = this.phaseAt(remaining);
+    const rest = !!ph && ph.i % 2 === 1;
+    if (ph && this.phaseEl && this.sessionPhases) {
+      const rounds = (this.sessionPhases.length + 1) / 2;
+      this.phaseEl.textContent = rest
+        ? `Rest ${(ph.i + 1) / 2} of ${rounds - 1}`
+        : `Round ${ph.i / 2 + 1} of ${rounds}`;
+    }
+    for (const doc of [document, this.pipWindow?.document]) {
+      if (!doc) continue;
+      for (const wrap of doc.querySelectorAll('.focus-ring-wrap')) wrap.classList.toggle('rest', rest);
+    }
+  }
+
+  /** The ticker crossed into a new phase: chime (the session's end sound) and keep
+   *  going. Auto-continues, and announces NOTHING else: no toast, no notification.
+   *  The only notification a session sends is its completion (Gabe, 10/10). */
+  private checkPhase(remaining: number): void {
+    const ph = this.phaseAt(remaining);
+    if (!ph || ph.i === this.lastPhaseIdx) return;
+    this.lastPhaseIdx = ph.i;
+    if (this.endSoundEnabled) this.endCue = playEndSound(this.endSoundKey, this.endSoundVolume);
+  }
+
+  /** Unrounded seconds left. The ring's colors read this, never the rounded clock
+   *  value, which runs up to half a second AHEAD: that turned a work block's ring
+   *  green before the block had actually ended (Gabe, 10/10). */
+  private exactRemaining(): number {
+    if (this.paused) return this.pausedRemainingSec ?? 0;
+    return Math.max(0, (this.endTimeMs - Date.now()) / 1000);
   }
 
   private togglePause(): void {
@@ -4428,6 +4766,22 @@ export class FocusView {
     // all and a stray button somewhere cannot become a loophole.
     if (this.accountabilityOn()) {
       showToast('\u23f3 Time accountability is on. The clock is fixed for this session.');
+      return;
+    }
+    // Pomodoro: the time goes on (or comes off) the CURRENT phase, so the blocks
+    // after it keep their lengths. Clamped to ≥5s left in the phase and the 12h cap.
+    const ph = this.phaseAt(this.currentRemaining());
+    if (ph && this.sessionPhases) {
+      let d = Math.max(5, ph.left + deltaSecs) - ph.left;
+      d = Math.min(d, MAX_FOCUS_SECONDS - this.totalSeconds);
+      const next = this.currentRemaining() + d; // the whole session's new remaining
+      this.sessionPhases[ph.i] += d;
+      this.totalSeconds += d;
+      if (this.paused) this.pausedRemainingSec = next;
+      else this.endTimeMs = Date.now() + next * 1000;
+      this.updateDisplay(next);
+      this.flashTime(deltaSecs > 0);
+      this.persist();
       return;
     }
     // Clamp to [5s, 12h] — "add time" can't push the session past the 12-hour cap.
@@ -4863,6 +5217,7 @@ export class FocusView {
       musicWasPlaying: this.paused ? this.musicPlayingAtPause : this.musicPlaying,
       quote: this.quote,
       accountability: this.accountabilityLatch, // a reload must not unlock the clock
+      ...(this.sessionPhases ? { phases: this.sessionPhases } : {}),
 
       savedAt: Date.now(),
       ownerTab: getTabId(), // one session, one tab — this is the deed of ownership

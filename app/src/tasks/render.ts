@@ -62,7 +62,6 @@ import {
   FOLDERS_EVENT,
 } from './folders';
 import { acceptFolderName, cleanFolderName, guardFolderNameField, wireRename } from './folderName';
-import { runSync } from '../schoology/sync';
 import {
   analyzeBatch, languageName, rankCandidates, translateAs, translateBatchAs,
   MAX_CHIPS, TRANSLATE_LANGS_EVENT,
@@ -124,12 +123,15 @@ const CAMERA_BTN_SVG =
  *  is what made the row's gaps uneven. */
 const INFO_BTN_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5h.01"/></svg>';
-/** 🌐 and ⎘ as line art too (Gabe, 10/10: every row icon in line, black and white;
- *  priority is the one exception, because its color IS the information). */
-const GLOBE_BTN_SVG =
-  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z"/></svg>';
+/** ⎘ as line art too (Gabe, 10/10: every row icon in line, black and white). The
+ *  exceptions: priority, whose color IS the information, and the 🌐, which keeps
+ *  the color emoji the translation line under the title wears. */
 const DUP_BTN_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+/** ✉ for the ⋯ menu's "Email teacher", line art like the rest (Gabe, 10/10). The
+ *  menu wears the same icons as the row, so a control looks the same in both. */
+const MAIL_BTN_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>';
 const CLIP_BTN_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>';
 
@@ -378,15 +380,10 @@ export class TasksView {
       this.modeSeg.append(b);
     }
     this.syncModeSeg();
-    // 💡 Pro tips, beside the refresh circle (Gabe, 8/22). The tips used to be
-    // scattered: one printed above the list, one inside each folder picker, and the
-    // rest were things you could only learn by being told. They are one popup now,
-    // in the one place a student goes looking for "what else can this do".
-    const tipsBtn = el('button', { class: 'tasks-tips-btn', text: '💡', title: 'Task pro tips' });
-    tipsBtn.addEventListener('click', () => this.openProTips());
-    const tools = el('div', { class: 'tasks-header-tools' });
-    tools.append(tipsBtn, this.makeRefreshBtn());
-    header.append(this.modeSeg, tools);
+    // No 💡 tips or ↻ refresh beside the switch any more (Gabe, 10/10): Schoology
+    // re-syncs on open, every 30 minutes and on returning to the tab, so the manual
+    // refresh had nothing left to do.
+    header.append(this.modeSeg);
     // Settings changes (week start, density, colors…) repaint the calendar live.
     window.addEventListener(PREFS_EVENT, () => this.render()); // mount runs once per session
     // Esc clears the multi-select (unless an inline editor owns the keyboard).
@@ -556,34 +553,6 @@ export class TasksView {
     this.recentLangsCache = null;
     this.render();
     await this.data.putTasksBulk(changed);
-  }
-
-  /** "Refresh tasks" — re-pull Schoology on demand. force:true (Gabe,
-   *  9/16/26) makes this the one place that ignores the "never resurrect a
-   *  deleted import" rule: it imports anything Schoology sends that isn't CURRENTLY
-   *  a task, so a deleted (or pre-dating-your-link) Schoology assignment comes
-   *  back with one press instead of staying gone forever. See SyncOptions.force. */
-  private makeRefreshBtn(): HTMLButtonElement {
-    // Icon-only (↻). Label is in the tooltip; single-glyph states keep the width
-    // fixed: spins while loading, then ✓ on success / ⚠ on failure, then back to ↻.
-    const btn = el('button', { class: 'tasks-refresh-btn', text: '↻', title: 'Refresh tasks' }) as HTMLButtonElement;
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      btn.classList.add('spinning');
-      let ok = true;
-      try {
-        await runSync(this.data, { force: true });
-      } catch {
-        ok = false;
-      }
-      btn.classList.remove('spinning');
-      btn.textContent = ok ? '✓' : '⚠';
-      setTimeout(() => {
-        btn.disabled = false;
-        btn.textContent = '↻';
-      }, 1400);
-    });
-    return btn;
   }
 
   // --- rendering ----------------------------------------------------------
@@ -3108,8 +3077,10 @@ export class TasksView {
           const b = el('button', {
             class: `act-translate${shown ? ' active' : ''}`,
             title: label,
+            // The color 🌐, the same mark as the translation line under the title
+            // (Gabe, 10/10: the line-art globe was tried and reverted the same day).
+            text: '🌐',
           });
-          b.innerHTML = GLOBE_BTN_SVG;
           b.addEventListener('click', run);
           return b;
         },
@@ -3167,7 +3138,7 @@ export class TasksView {
       out.push({
         id: 'emailTeacher',
         label: 'Email teacher',
-        iconHtml: '✉️',
+        iconHtml: MAIL_BTN_SVG,
         auto: false,
         run: () => void window.open(mailUrl, '_blank', 'noopener'),
       });
@@ -3177,17 +3148,18 @@ export class TasksView {
     // Schoology (schoology/submitPhoto.ts). Only on a Schoology assignment for a
     // student connected to Schoology directly. On the row since 10/10, in the
     // Schoology cluster left of the dot (see SCHOOLOGY_SIDE in renderTask).
-    if (photoSubmitAssignment(task)) {
+    if (photoSubmitAssignment(task, !!this.sample)) {
+      const submit = (): void => openPhotoSubmit(task, this.sample ? { host: this.sample.host } : undefined);
       out.push({
         id: 'submitPhoto',
         label: 'Submit to Schoology',
-        iconHtml: '📷',
+        iconHtml: CAMERA_BTN_SVG,
         auto: true,
-        run: () => openPhotoSubmit(task),
+        run: submit,
         build: () => {
           const b = el('button', { class: 'act-photo', title: 'Submit to Schoology' });
           b.innerHTML = CAMERA_BTN_SVG;
-          b.addEventListener('click', () => openPhotoSubmit(task));
+          b.addEventListener('click', submit);
           return b;
         },
       });
@@ -3197,7 +3169,7 @@ export class TasksView {
     out.push({
       id: 'attach',
       label: noteCount ? `Attachments (${noteCount})` : 'Attachments',
-      iconHtml: '📎',
+      iconHtml: CLIP_BTN_SVG,
       auto: noteCount > 0,
       run: () => this.openAttachments(task),
       build: () => {
@@ -3249,7 +3221,7 @@ export class TasksView {
     out.push({
       id: 'duplicate',
       label: 'Duplicate',
-      iconHtml: '⎘',
+      iconHtml: DUP_BTN_SVG,
       auto: false,
       run: doDuplicate,
       build: () => {
@@ -3455,51 +3427,6 @@ export class TasksView {
    *  the device frame. */
   private popup(title: string, build: (body: HTMLElement, close: () => void) => void): void {
     openPopup(title, build, this.sample?.host);
-  }
-
-  /**
-   * TASK PRO TIPS — every "did you know" the Tasks tab has, in one place.
-   *
-   * Each of these used to live wherever it happened to be relevant: Shift+click was
-   * printed above the list, `f:` was written inside both folder pickers, and the
-   * other two were not written down anywhere. Scattering them meant a tip was only
-   * ever read by someone already in the situation it describes, which is a little
-   * late to be learning the shortcut for it (Gabe, 8/22). Collected here they can be
-   * read on purpose, once, from a button that is always in the same spot.
-   *
-   * Keep them SHORT and keep them things a student could not guess.
-   */
-  private openProTips(): void {
-    const TIPS: Array<[string, string]> = [
-      [
-        'File a task as you type it',
-        'Type f: followed by a folder name in the task bar, e.g. “essay f:English tmw”. The folder is created if it does not exist yet, and the same shortcut works in every Focus add box.',
-      ],
-      [
-        'Foreign titles translate themselves',
-        'A task written in a language you have enabled gets an English line under it automatically. Choose which languages in Settings ▸ Tasks ▸ Languages; anything not on that list is left exactly as written.',
-      ],
-      [
-        'Select more than one task',
-        'Shift+click a second task to select everything between the two, or Ctrl+click (⌘ on a Mac) to pick them out one at a time. Checking off, dating, filing or deleting any one of them does it to the whole selection.',
-      ],
-      [
-        'Checked something off by mistake?',
-        'It stays right where it was, crossed out, until its due date passes. Click its checkbox again to put it back.',
-      ],
-    ];
-    this.popup('Task Pro Tips:', (body) => {
-      const list = el('div', { class: 'protip-list' });
-      for (const [head, text] of TIPS) {
-        const tip = el('div', { class: 'protip' });
-        tip.append(
-          el('div', { class: 'protip-head', text: `💡 ${head}` }),
-          el('div', { class: 'protip-body', text })
-        );
-        list.append(tip);
-      }
-      body.append(list);
-    });
   }
 
   /**

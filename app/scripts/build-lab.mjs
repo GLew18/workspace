@@ -24,6 +24,12 @@ const LABS = {
     title: 'Cobalt Badges',
     artifact: 'https://claude.ai/artifact/KMabNsG2Rf7k8ExbpWrE8s',
   },
+  rings: {
+    entry: 'ringLab.ts',
+    out: 'ring-lab.html',
+    title: 'Focus Ring Skins',
+    artifact: 'https://claude.ai/artifact/BYx9ydYuetye3Ri8zBrUPW',
+  },
   onboarding: {
     entry: 'onbPreview.ts',
     out: 'onboarding-preview.html',
