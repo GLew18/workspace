@@ -21,7 +21,7 @@ import type { Data } from '../db';
 import type { Task } from '../types';
 import { getCourses, addCourse, registryHydratedFromStore } from '../courses/registry';
 import { DEFAULT_COURSE_COLOR } from '../courses/maps';
-import { saveTeachers } from '../tasks/teachers';
+import { saveSections, saveTeachers } from '../tasks/teachers';
 
 // #region Public types — what sgyFetch sends
 export interface SgyCourse {
@@ -370,6 +370,8 @@ export async function applySgyPayload(data: Data, payload: SgyPayload): Promise<
   // a scrape that skipped the daily harvest (or an API pass the school's privacy
   // settings left without emails) never wipes addresses already known.
   if (payload.teachers?.length) await saveTeachers(data, payload.teachers);
+  // Same rule for the course pages: only replace the stored list when this payload had one.
+  if (payload.courses?.length && payload.host) await saveSections(data, payload.host, payload.courses);
 
   return result;
 }

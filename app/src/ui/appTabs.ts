@@ -1,4 +1,4 @@
-// The app's main tab bar: Dashboard / Tasks / Focus / Bookmarks / Store.
+// The app's main tab bar: Dashboard / Tasks / Grades / Focus / Bookmarks / Store.
 //
 // TOP BAR ON DESKTOP, BOTTOM BAR ON PHONES (Gabe, 10/2). It replaced the hamburger
 // drawer: tabs a student can't see are tabs a student never finds, and the red
@@ -21,9 +21,14 @@ export interface AppTabDef {
  *  deployed first (see the vault note "Cobalt Calendars Plan"). Flip to true to ship. */
 export const TESTS_TAB_ON = false;
 
+/** The Grades tab (Gabe, 10/11/26). One switch to hide it everywhere, e.g. if the school
+ *  asks Cobalt to drop grades. Full teardown steps: vault note "Grades Tab Teardown". */
+export const GRADES_TAB_ON = true;
+
 export const APP_TABS: AppTabDef[] = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'tasks', label: 'Tasks' },
+  ...(GRADES_TAB_ON ? [{ id: 'grades', label: 'Grades' }] : []),
   ...(TESTS_TAB_ON ? [{ id: 'tests', label: 'Tests' }] : []),
   { id: 'focus', label: 'Focus' },
   { id: 'bookmarks', label: 'Bookmarks' },
@@ -38,6 +43,7 @@ const svg = (inner: string): string =>
 const ICONS: Record<string, string> = {
   dashboard: svg('<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>'),
   tasks: svg('<path d="M4 6.5l1.8 1.8L9 5"/><path d="M4 16.5l1.8 1.8L9 15"/><line x1="12.5" y1="7" x2="20" y2="7"/><line x1="12.5" y1="17" x2="20" y2="17"/>'),
+  grades: svg('<line x1="4" y1="20" x2="20" y2="20"/><rect x="5.5" y="12" width="3.5" height="8" rx="1"/><rect x="10.25" y="7" width="3.5" height="13" rx="1"/><rect x="15" y="3.5" width="3.5" height="16.5" rx="1"/>'),
   tests: svg('<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3.5h6v3H9z"/><path d="M8.5 12.5l2 2 4-4"/><line x1="8.5" y1="18" x2="15.5" y2="18"/>'),
   focus: svg('<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2"/><path d="M9.5 2.5h5"/>'),
   bookmarks: svg('<path d="M6.5 3.5h11v17l-5.5-4-5.5 4z"/>'),

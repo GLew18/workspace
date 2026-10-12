@@ -288,7 +288,11 @@ export function extractLinks(
       if (!key || skip.has(key) || seen.has(key)) continue;
       seen.add(key);
 
-      let name = nameForLink(before, raw);
+      // A Schoology link hidden behind words arrives as [words](url): those words
+      // are its name, exactly as the teacher wrote them.
+      const named = before.match(/\[([^\]\n]{1,200})\]\s?\($/);
+      if (named && text[prevEnd] === ')') prevEnd++; // its ")" is not the next link's context
+      let name = named ? named[1].trim() : nameForLink(before, raw);
       const n = (usedNames.get(name.toLowerCase()) ?? 0) + 1;
       usedNames.set(name.toLowerCase(), n);
       if (n > 1) name = `${name} ${n}`;

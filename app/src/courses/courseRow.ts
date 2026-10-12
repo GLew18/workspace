@@ -14,6 +14,8 @@ import { el, textInput } from '../util/dom';
 import { attachColorPicker } from '../ui/colorPicker';
 import { recommendedSet } from './recommend';
 import type { CourseConfig } from '../types';
+import { emailTeacherUrlFor, schoologyCourseUrl } from '../tasks/teachers';
+import { MAIL_BTN_SVG, SCHOOLOGY_SVG } from '../tasks/rowIcons';
 
 export interface CourseRowCtx {
   /** Every course in the list, for parse-word conflicts and recommendations. */
@@ -47,6 +49,12 @@ function toHex(color: string): string {
   return '#9ca3af';
 }
 
+function courseLink(cls: string, href: string, title: string, svg: string): HTMLElement {
+  const a = el('a', { class: cls, href, target: '_blank', rel: 'noopener noreferrer', title, 'aria-label': title });
+  a.innerHTML = svg;
+  return a;
+}
+
 export function buildCourseRow(c: CourseConfig, ctx: CourseRowCtx): HTMLElement {
   const row = el('div', { class: 'course-row' });
 
@@ -77,12 +85,20 @@ export function buildCourseRow(c: CourseConfig, ctx: CourseRowCtx): HTMLElement 
   });
 
   const top = el('div', { class: 'course-row-top' });
-  top.append(color, name, del);
+  // The row's toolbox: Schoology page, email to the teacher, then remove. One wrapper
+  // so every child sits the same 2px apart (the Tasks toolbox spacing).
+  const tools = el('div', { class: 'course-tools' });
+  const sgyUrl = schoologyCourseUrl(c.name);
+  if (sgyUrl) tools.append(courseLink('course-act course-act-sgy', sgyUrl, 'Open in Schoology', SCHOOLOGY_SVG));
+  const mailUrl = emailTeacherUrlFor(c.name, c.name);
+  if (mailUrl) tools.append(courseLink('course-act', mailUrl, 'Email teacher', MAIL_BTN_SVG));
+  tools.append(del);
+  top.append(color, name, tools);
 
   const chips = el('div', { class: 'parse-chips' });
   for (const w of c.parseWords) {
     const chip = el('span', { class: 'parse-chip', text: w });
-    const x = el('button', { class: 'parse-chip-x', text: '×' });
+    const x = el('button', { class: 'parse-chip-x', text: '✕' });
     x.addEventListener('click', () => {
       c.parseWords = c.parseWords.filter((p) => p !== w);
       ctx.onSave();

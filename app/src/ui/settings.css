@@ -363,6 +363,39 @@
   background: var(--surface);
   border-color: var(--border-strong);
 }
+/* Open in Schoology / Email teacher: identical to the Tasks row icons (22px box,
+   dim, surface2 + white on hover, cyan for Schoology), 2px apart. */
+.course-act {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--text-dim);
+}
+.course-act:hover {
+  background: var(--surface2);
+  color: var(--text);
+}
+.course-act-sgy:hover {
+  color: #06b6d4;
+}
+.course-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px; /* toolbox spacing: identical to .task-actions, app-wide */
+}
+.course-tools .course-del {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+}
 .course-del {
   flex: none;
   background: none;

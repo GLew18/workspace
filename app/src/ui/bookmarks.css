@@ -802,8 +802,6 @@
 /* The picker button, full width under the note (Gabe, 10/10: popup first). */
 .photo-submit-pick {
   display: block;
-  width: 100%;
-  margin-top: 14px;
 }
 .photo-submit-strip {
   display: flex;
@@ -836,6 +834,138 @@
 }
 @media (hover: none) {
   .photo-submit-x { display: flex; }
+}
+/* File Explorer, Take photo, Record: one row of equal buttons (Gabe, 10/11). */
+.photo-submit-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.photo-submit-tools > .bm-btn {
+  /* Sized from their own labels, then sharing what is left (Gabe, 10/11): an
+     equal 0 basis squeezed "📁 Open File Explorer" narrower than its text, which
+     spilled over its right padding and read as a lopsided button. */
+  flex: 1 1 auto;
+  margin: 0;
+  white-space: nowrap;
+  text-align: center;
+}
+.photo-submit-tools:not(:has(> :not([hidden]))) { display: none; }
+/* The live camera or recorder, under the buttons while one is open. */
+.photo-submit-live {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.photo-submit-live[hidden] { display: none; }
+.photo-submit-video {
+  width: 100%;
+  max-height: 300px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #000;
+  object-fit: contain;
+}
+.photo-submit-live-bar {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.photo-submit-rec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-weight: 600;
+}
+.photo-submit-rec-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* The voice bars, under "Recording" in the same box. */
+.photo-submit-rec-viz {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 24px;
+}
+.photo-submit-rec-viz[hidden] { display: none; }
+.photo-submit-rec-bar {
+  flex: 1 1 0;
+  max-width: 6px;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transform: scaleY(0.08);
+  transform-origin: center;
+  will-change: transform;
+}
+.photo-submit-rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--red, #ef4444);
+  animation: photoSubmitRec 1.2s ease-in-out infinite;
+}
+@keyframes photoSubmitRec {
+  50% { opacity: 0.25; }
+}
+.photo-submit-rec-time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+/* A recording in the strip: its name over a player. */
+.photo-submit-tile.is-audio {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  width: 260px;
+  height: 150px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.photo-submit-audio-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 28px;
+}
+.photo-submit-audio { width: 100%; }
+@media (prefers-reduced-motion: reduce) {
+  .photo-submit-rec-dot { animation: none; }
+}
+/* "Yes, I'm sure" — the box Submit waits for. */
+.photo-submit-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 12px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--text);
+  cursor: pointer;
+}
+.photo-submit-ack-box {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 .photo-submit-trim:empty { display: none; }
 /* The optional text box: the app-wide field look (theme.css), full width. */

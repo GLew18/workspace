@@ -29,7 +29,7 @@ const DEMO_COURSES: CourseConfig[] = [
   { id: 'course_sci', name: 'Science', color: '#9b7ec8', parseWords: ['science', 'bio', 'lab', 'photosynthesis'] },
   { id: 'course_hist', name: 'Social Studies', color: '#e05050', parseWords: ['social studies', 'history', 'dbq'] },
   { id: 'course_bball', name: 'Basketball', color: '#e07b3a', parseWords: ['basketball', 'coach', 'practice'] },
-  // Dan's "get cobalt premium" task lives here until he builds the `cobalt`
+  // Dan's "get cobalt plus" task lives here until he builds the `cobalt`
   // course live in scene 5. Color = the app's real default-course gray.
   { id: 'course_misc', name: 'Miscellaneous', color: '#9ca3af', parseWords: ['misc'] },
 ];
@@ -169,7 +169,7 @@ function danTasks(): Record<string, Task> {
     {
       ...base,
       id: 'dan_prem',
-      title: 'get cobalt premium',
+      title: 'get cobalt plus',
       course: 'Miscellaneous',
       dueDate: '',
       priority: 'normal',

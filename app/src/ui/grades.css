@@ -1,0 +1,639 @@
+/* Cobalt: Grades tab. Built from the same pieces as the other tabs: the Tests/Tasks
+   title, .tasks-mode-seg for the period switch, .tasks-filter-btn for the header
+   button, the surface/border/radius card, and the app-wide input look. */
+
+.grades {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px;
+}
+.grades-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.grades-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.grades-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.grades-label {
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.grades-link {
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.grades-link:hover {
+  color: var(--text);
+}
+.grades-note {
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.grades-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+.grades-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+.grades-btn {
+  background: var(--accent);
+  color: var(--on-accent, #0a0a0a);
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 16px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.grades-btn:hover {
+  box-shadow: 0 0 var(--glow-blur) var(--glow-spread) rgba(var(--glow-rgb), var(--glow-alpha));
+}
+.grades-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.grades-card-head .grades-h {
+  margin: 0;
+}
+.grades-h {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 650;
+}
+.grades-ago {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.grades-ago.fresh {
+  color: var(--course, var(--accent));
+}
+.grades-clock {
+  display: inline-flex;
+  flex: none;
+}
+
+/* The grid of courses */
+.grades-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+.grades-skel {
+  height: 150px;
+  opacity: 0.5;
+}
+.grades-course {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.grades-course:hover {
+  border-color: var(--course, var(--accent));
+}
+.grades-course-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.grades-course-l {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.grades-course-name {
+  font-size: 16px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.grades-course-name::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--course, var(--text-dim));
+  margin-right: 8px;
+}
+.grades-course-sub {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.grades-course-r {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex: none;
+}
+.grades-course-pct {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.grades-letter {
+  color: var(--text-dim);
+  font-size: 0.62em;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.grades-trend {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.grades-trend.up .grades-trend-n {
+  color: var(--green);
+  font-weight: 650;
+}
+.grades-trend.down .grades-trend-n {
+  color: var(--red);
+  font-weight: 650;
+}
+.grades-spark svg {
+  display: block;
+  width: 100%;
+  height: 56px;
+}
+.grades-spark:empty {
+  height: 12px;
+}
+
+/* One course: header, banner */
+.grades-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.grades-hero-l {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.grades-seg-wrap {
+  display: flex;
+}
+.grades-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px;
+  background: color-mix(in srgb, var(--course, var(--accent)) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--course, var(--accent)) 38%, var(--border));
+}
+.grades-banner.whatif {
+  border-style: dashed;
+}
+.grades-banner-l {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.grades-banner-r {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.grades-banner-grade {
+  color: var(--course, var(--accent));
+  white-space: nowrap;
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.grades-banner-was {
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+.grades-banner-r .grades-link {
+  align-self: flex-end;
+  padding: 0;
+}
+
+/* Graph */
+.grades-graph-wrap {
+  position: relative;
+}
+.grades-graph {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  touch-action: pan-y;
+  cursor: crosshair;
+}
+.grades-grid-line {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.grades-grid-line.v {
+  stroke-dasharray: 2 4;
+}
+.grades-axis {
+  fill: var(--text-dim);
+  font-size: 11px;
+}
+.grades-guide {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}
+.grades-tip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 7px 10px;
+  max-width: 260px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.grades-tip-t {
+  font-size: 13.5px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.grades-tip-task {
+  color: var(--course, var(--accent));
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.grades-tip-s {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Categories */
+.grades-cats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.grades-cat {
+  padding: 0;
+  overflow: hidden;
+}
+.grades-cat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+}
+.grades-cat-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.grades-cat-caret {
+  display: inline-flex;
+  color: var(--text-dim);
+  transition: transform 0.15s;
+}
+.grades-cat.open .grades-cat-caret {
+  transform: rotate(90deg);
+}
+.grades-cat-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.grades-cat-name {
+  font-size: 16px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.grades-pill {
+  flex: none;
+  background: color-mix(in srgb, var(--course, var(--accent)) 10%, var(--surface2));
+  border: 1px solid color-mix(in srgb, var(--course, var(--accent)) 35%, var(--border));
+  border-radius: 999px;
+  color: var(--course, var(--accent));
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  font-variant-numeric: tabular-nums;
+}
+.grades-assigns {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+}
+.grades-assign {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+}
+.grades-assign + .grades-assign {
+  border-top: 1px solid var(--border);
+}
+.grades-assign-l {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.grades-assign-title {
+  display: flex;
+  align-items: center;
+  gap: 2px; /* same spacing as .task-actions */
+  min-width: 0;
+}
+.grades-assign-t {
+  font-size: 15px;
+  font-weight: 600;
+  margin-right: 6px;
+  overflow-wrap: anywhere;
+}
+/* Same as the Tasks row icons (.task-actions button): 22px box, dim at rest,
+   surface2 + white on hover; Open in Schoology goes cyan like .act-schoology. */
+.grades-open {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--text-dim);
+}
+.grades-open:hover {
+  background: var(--surface2);
+  color: var(--text);
+}
+.grades-open-sgy:hover {
+  color: #06b6d4;
+}
+.grades-assign-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+.grades-assign-actions {
+  display: flex;
+  gap: 8px;
+}
+.grades-mini {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.grades-mini:hover {
+  color: var(--text);
+}
+.grades-score {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.grades-score-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 96px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  font: inherit;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.grades-score-pill:hover {
+  border-color: var(--accent);
+}
+.grades-score-pill.whatif {
+  border-style: dashed;
+  border-color: var(--accent);
+}
+.grades-score-pill.missing .grades-score-main {
+  color: var(--red);
+}
+.grades-score-main {
+  color: var(--course, var(--accent));
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.grades-score-sub {
+  color: var(--text-dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.grades-score-in {
+  width: 76px;
+  text-align: center;
+}
+.grades-score-of {
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+/* Inputs: the app-wide look */
+.grades-input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 9px 11px;
+  font: inherit;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+.grades-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--gold-glow);
+}
+
+/* What-if grades */
+.grades-wi {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.grades-wi .grades-h {
+  margin: 0;
+}
+.grades-wi-row {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) minmax(150px, auto);
+  align-items: center;
+  gap: 12px;
+}
+.grades-wi-label {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.grades-wi-body {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.grades-wi-num {
+  width: 84px;
+  text-align: center;
+}
+.grades-wi-out {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+}
+.grades-wi-big {
+  color: var(--course, var(--accent));
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.grades-wi-big.muted {
+  color: var(--text-dim);
+}
+.grades-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.grades-chip {
+  background: var(--surface);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 13px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.grades-chip:hover {
+  color: var(--text);
+}
+.grades-chip.on {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--gold-glow);
+}
+.grades-wi-seg {
+  flex: none;
+}
+.grades-wi-need {
+  display: flex;
+  flex-direction: column;
+}
+.grades-wi-need-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+}
+.grades-wi-need-row + .grades-wi-need-row {
+  border-top: 1px solid var(--border);
+}
+.grades-wi-need-t {
+  font-size: 15px;
+  font-weight: 600;
+}
+.grades-wi-need-row .grades-wi-out {
+  align-items: flex-end;
+}
+
+@media (max-width: 760px) {
+  .grades-grid {
+    grid-template-columns: 1fr;
+  }
+  .grades-hero {
+    flex-direction: column;
+  }
+  .grades-banner-grade {
+    font-size: 30px;
+  }
+  .grades-wi-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .grades-wi-out {
+    align-items: flex-start;
+    text-align: left;
+  }
+  .grades-assign {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .grades-score {
+    justify-content: flex-start;
+  }
+}

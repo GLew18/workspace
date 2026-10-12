@@ -73,6 +73,11 @@ export async function fetchSgyApiPayload(): Promise<SgyPayload | null> {
   return coercePayload(await callable<unknown>('sgyFetch', {}));
 }
 
+/** The student's gradebook (Grades tab), read by the server. Never stored. */
+export async function fetchSgyGrades(): Promise<unknown> {
+  return callable<unknown>('sgyGrades', {});
+}
+
 // #region School address — the student types their school's Schoology address
 // (Gabe, 10/10/26). It replaced a search over a hand-kept list of schools: a list
 // only knows the schools someone added, while every Schoology school already has

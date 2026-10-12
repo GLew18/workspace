@@ -77,22 +77,19 @@
   color: var(--accent);
   box-shadow: 0 0 0 2px var(--gold-glow);
 }
-/* User-saved presets carry a small × (delete). Kept dim until hovered so the row
-   reads clean; the × sits inside the button but never triggers the jump. */
-.focus-preset.custom {
+/* Every preset, built-in included (Gabe, 10/11), carries a small × (delete). Kept
+   hidden until hovered so the row reads clean; the × sits inside the button but
+   never triggers the jump. */
+.focus-preset {
   position: relative;
 }
 .focus-preset-del {
   position: absolute;
   top: 2px;
   right: 7px;
-  font-size: 12px;
-  line-height: 1;
-  color: var(--text-dim);
-  opacity: 0;
-  transition: opacity 0.15s ease, color 0.15s ease;
+  opacity: 0; /* glyph look + hover: the ICON BUTTONS block in components.css */
 }
-.focus-preset.custom:hover .focus-preset-del {
+.focus-preset:hover .focus-preset-del {
   opacity: 1;
 }
 

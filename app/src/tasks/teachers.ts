@@ -10,15 +10,37 @@
 
 import type { Data } from '../db';
 import type { Task } from '../types';
-import type { SgyTeacher } from '../schoology/extension';
+import type { SgyTeacher, SgyCourse } from '../schoology/extension';
 
 const KEY = 'courseTeachers';
 
 let cache: SgyTeacher[] = [];
 
+// Each course's Schoology section id and the school's host, so a course can link
+// straight to its page on Schoology (profile/courseSections).
+const SECTIONS_KEY = 'courseSections';
+let sections: SgyCourse[] = [];
+let sectionHost = '';
+
 export async function loadTeachers(data: Data): Promise<void> {
   const v = await data.getProfile<{ list?: SgyTeacher[] }>(KEY);
   cache = Array.isArray(v?.list) ? v.list : [];
+  const s = await data.getProfile<{ host?: string; list?: SgyCourse[] }>(SECTIONS_KEY);
+  sections = Array.isArray(s?.list) ? s.list : [];
+  sectionHost = s?.host ?? '';
+}
+
+export async function saveSections(data: Data, host: string, list: SgyCourse[]): Promise<void> {
+  sections = list;
+  sectionHost = host;
+  await data.setProfile(SECTIONS_KEY, { host, list });
+}
+
+/** The course's own page on Schoology, or null when it was never seen there. */
+export function schoologyCourseUrl(course: string): string | null {
+  const c = course.trim().toLowerCase();
+  const hit = c ? sections.find((x) => x.name.trim().toLowerCase() === c) : undefined;
+  return hit && sectionHost ? `https://${sectionHost}/course/${hit.id}` : null;
 }
 
 export async function saveTeachers(data: Data, list: SgyTeacher[]): Promise<void> {
@@ -41,13 +63,18 @@ export function teachersOf(course: string): SgyTeacher[] {
  * Null when the task has no course or the course has no known teacher.
  */
 export function emailTeacherUrl(task: Task): string | null {
-  const ts = teachersOf(task.course);
+  return emailTeacherUrlFor(task.course, task.title);
+}
+
+/** The same draft for any course and subject (the Grades tab's assignment rows). */
+export function emailTeacherUrlFor(course: string, subject: string): string | null {
+  const ts = teachersOf(course);
   if (!ts.length) return null;
   const q = new URLSearchParams({
     view: 'cm',
     fs: '1',
     to: ts.map((t) => t.email).join(','),
-    su: task.title,
+    su: subject,
   });
   return `https://mail.google.com/mail/?${q.toString()}`;
 }

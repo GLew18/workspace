@@ -1233,24 +1233,54 @@ function sgyHtmlToText(html) {
  *  showed only the word, since sgyHtmlToText drops the tag). Each becomes
  *  { title: its link text, url }, https only, one per URL, never the assignment's
  *  own page. An empty title lets the app name it from the URL. */
+const SGY_ANCHOR_RE = /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+/** An <a href> as a full https URL on the school's host, or '' when it is not one
+ *  worth opening (mailto:, javascript:, a #anchor, too long). */
+function sgyAnchorUrl(href, host) {
+  let u = String(href || '').trim().replace(/&amp;/gi, '&');
+  if (u.startsWith('//')) u = 'https:' + u;
+  else if (u.startsWith('/')) u = 'https://' + host + u;
+  u = u.replace(/^http:\/\//i, 'https://');
+  return /^https:\/\/[^\s]+$/i.test(u) && u.length <= 2000 ? u : '';
+}
+
+/** A link's visible words, one line, no square brackets (they would break the
+ *  [words](url) form the description keeps them in). */
+const sgyAnchorLabel = (inner) => sgyHtmlToText(inner).replace(/[[\]]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200);
+
 function sgyLinksInHtml(html, host, selfUrl) {
   const out = [];
   const seen = new Set();
   const self = String(selfUrl || '').replace(/\/+$/, '');
-  const re = /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  let m;
-  while ((m = re.exec(String(html || ''))) && out.length < SGY_ATTACH_PER_TASK) {
-    let u = m[1].trim().replace(/&amp;/gi, '&');
-    if (u.startsWith('//')) u = 'https:' + u;
-    else if (u.startsWith('/')) u = 'https://' + host + u;
-    u = u.replace(/^http:\/\//i, 'https://');
-    if (!/^https:\/\//i.test(u) || u.length > 2000) continue;
+  for (const m of String(html || '').matchAll(SGY_ANCHOR_RE)) {
+    if (out.length >= SGY_ATTACH_PER_TASK) break;
+    const u = sgyAnchorUrl(m[1], host);
     const key = u.replace(/\/+$/, '');
-    if (key === self || seen.has(key)) continue;
+    if (!u || key === self || seen.has(key)) continue;
     seen.add(key);
-    out.push({ title: sgyHtmlToText(m[2]).replace(/\s+/g, ' ').slice(0, 200), url: u });
+    out.push({ title: sgyAnchorLabel(m[2]), url: u });
   }
   return out;
+}
+
+/** The description as text, with every link KEPT (Gabe, 10/11: "Haha" stays a
+ *  link you can press in the description, as well as an attachment). A link whose
+ *  words differ from its address becomes [words](url), which the app draws as
+ *  those words, linked; one that shows its own address becomes the bare URL. */
+function sgyDescriptionText(html, host) {
+  // Re-escaped because the result goes back through sgyHtmlToText, which would
+  // otherwise read a "<" in the words as a tag or an "&lt" in the URL as an entity.
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // No <a> at all = exactly the old text, so other descriptions do not "change".
+  const withLinks = String(html || '').replace(SGY_ANCHOR_RE, (all, href, inner) => {
+    const u = sgyAnchorUrl(href, host);
+    const label = sgyAnchorLabel(inner);
+    if (!u) return inner;
+    if (!label || label.replace(/\/+$/, '') === u.replace(/\/+$/, '')) return esc(u);
+    return '[' + esc(label) + '](' + esc(u) + ')';
+  });
+  return sgyHtmlToText(withLinks);
 }
 
 function sgyAssignmentFromEvent(e, host, course) {
@@ -1269,7 +1299,7 @@ function sgyAssignmentFromEvent(e, host, course) {
   return {
     id,
     title,
-    description: sgyHtmlToText(e.description),
+    description: sgyDescriptionText(e.description, host),
     url,
     date: when.date,
     time: when.time,
@@ -1535,6 +1565,8 @@ exports.sgyFetch = onCall(
       for (const [e, realm] of kept) {
         const a = sgyAssignmentFromEvent(e, host, realm ? realmName.get(realm) || '' : '');
         if (!a) continue;
+        // TEMPORARY (10/11/26), sandbox only: the calendar copy of the description.
+        if (host === 'app.schoology.com') console.log('sgy event desc probe', a.id, JSON.stringify(String(e.description || '').slice(0, 400)));
         const prev = byId.get(a.id);
         if (!prev || a.date > prev.date) byId.set(a.id, a);
       }
@@ -1561,8 +1593,24 @@ exports.sgyFetch = onCall(
           // pace the rest of this function keeps (Schoology: 50 requests / 5 s).
           await sgySleep(SGY_SPACING_MS * SGY_ATTACH_WORKERS);
           try {
-            const obj = await sgyJson(`/sections/${sid}/assignments/${aid}?with_attachments=1`, tok);
+            // richtext=1: the description as HTML. Without it Schoology sends plain
+            // text with every link removed (seen 10/11/26: "...FILTHY Haha", no URL).
+            // If Schoology refuses the flag, fall back to the plain read so the
+            // attachments still come in.
+            const path = `/sections/${sid}/assignments/${aid}?with_attachments=1`;
+            const obj = (await sgyJson(path + '&richtext=1', tok)) || (await sgyJson(path, tok));
             const a = byId.get(aid);
+            const html = obj && typeof obj.description === 'string' ? obj.description : '';
+            // TEMPORARY (10/11/26), sandbox only, never a real school: what the
+            // assignment record's description actually looks like. Remove once seen.
+            if (host === 'app.schoology.com') console.log('sgy desc probe', aid, JSON.stringify(html.slice(0, 400)));
+            // The calendar list can carry the description without its links; the
+            // assignment record has them. Used only when it does hold a link, so
+            // no other task's instructions read as "changed".
+            if (/<a\b[^>]*\bhref/i.test(html)) {
+              const d = sgyDescriptionText(html, host);
+              if (d) a.description = d;
+            }
             // Attached files and links first, then the links hidden in the
             // description (this read's copy of it is HTML too), one per URL.
             const merged = [
@@ -1645,6 +1693,182 @@ exports.sgyFetch = onCall(
   }
 );
 
+// GRADES (Gabe, 10/11/26): the Grades tab. One read of the student's own gradebook
+// through their own connection: every course, its grading periods, the categories
+// (Engagement, Quizzes, Tests...) with their weights, and every graded assignment.
+// Nothing is stored here and nothing is logged: grades pass through to the student.
+// A refusal is ANSWERED ({ blocked: true }), never thrown and never "forget the
+// connection": a school hiding grades from students is a setting, not an expired token.
+/** Every { cutoff, title } list inside a grading-scales response, as
+ *  [{ id, levels: [{ cutoff, title }] }] with levels highest cutoff first. */
+function sgyReadScales(json) {
+  const out = [];
+  const walk = (node, id) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      const levels = node
+        .filter((x) => x && typeof x === 'object' && numOrNull(x.cutoff) !== null)
+        .map((x) => ({ cutoff: numOrNull(x.cutoff), title: String(x.title ?? x.letter ?? x.name ?? x.description ?? '').trim() }))
+        .filter((x) => x.title);
+      if (levels.length >= 2 && levels.length === node.length) {
+        out.push({ id: id == null ? '' : String(id), levels: levels.sort((a, b) => b.cutoff - a.cutoff) });
+        return;
+      }
+      for (const x of node) walk(x, id);
+      return;
+    }
+    const here = node.id != null ? node.id : id;
+    for (const v of Object.values(node)) walk(v, here);
+  };
+  walk(json, null);
+  return out;
+}
+
+const SGY_GRADES_SECTIONS_MAX = 20;
+const SGY_GRADES_ASSIGN_PAGES = 3;
+const numOrNull = (v) => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+exports.sgyGrades = onCall(
+  { region: 'us-central1', secrets: [SGY_KEY, SGY_SECRET], timeoutSeconds: 120 },
+  async (req) => {
+    if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+    const tok = (await admin.database().ref(`sgyPrivate/tokens/${req.auth.uid}`).get()).val();
+    if (!tok || !tok.token) throw new HttpsError('failed-precondition', 'Schoology isn’t connected.');
+    try {
+      // Paged by enrollment: one page can hold only some of the student's courses.
+      const raw = [];
+      let next = `/users/${tok.sgyUid}/grades`;
+      for (let page = 0; next && page < SGY_MAX_PAGES; page++) {
+        if (page) await sgySleep(SGY_SPACING_MS);
+        let json;
+        try {
+          json = await sgyJson(next, tok);
+        } catch (err) {
+          if (err instanceof SgyAuthError) return { blocked: true };
+          throw err;
+        }
+        if (json === null && page === 0) return { blocked: true };
+        const list = sgyList(json, 'section');
+        raw.push(...list);
+        const link = json && json.links && typeof json.links.next === 'string' ? json.links.next : '';
+        next = link && list.length ? link : '';
+      }
+
+      const bySection = new Map();
+      for (const s of raw) {
+        if (!s || s.section_id == null) continue;
+        const k = String(s.section_id);
+        if (!bySection.has(k)) bySection.set(k, { ...s, period: [], final_grade: [] });
+        const into = bySection.get(k);
+        into.period.push(...sgyList(s, 'period'));
+        into.final_grade.push(...sgyList(s, 'final_grade'));
+        if (Array.isArray(s.grading_category) && !(into.grading_category || []).length) into.grading_category = s.grading_category;
+      }
+
+      const courses = [];
+      for (const [sid, s] of [...bySection].slice(0, SGY_GRADES_SECTIONS_MAX)) {
+        // Everything beyond the grades themselves is best effort: a refused name or
+        // weight read must cost that detail, never the whole gradebook.
+        const side = async (path) => {
+          await sgySleep(SGY_SPACING_MS);
+          try {
+            return await sgyJson(path, tok);
+          } catch {
+            return null;
+          }
+        };
+        const obj = await side(`/sections/${sid}`);
+        const name = obj && typeof obj === 'object' ? String(obj.course_title || obj.section_title || obj.title || '').trim() : '';
+
+        const catInfo = new Map(); // id -> { title, weight }
+        for (const c of Array.isArray(s.grading_category) ? s.grading_category : []) {
+          if (c && c.id != null) catInfo.set(String(c.id), { title: String(c.title || '').trim(), weight: null });
+        }
+        const cats = await side(`/sections/${sid}/grading_categories`);
+        for (const c of sgyList(cats, 'grading_category')) {
+          if (!c || c.id == null) continue;
+          const prev = catInfo.get(String(c.id)) || { title: '', weight: null };
+          catInfo.set(String(c.id), { title: String(c.title || prev.title || '').trim(), weight: numOrNull(c.weight) });
+        }
+
+        // Titles and due dates live on the assignments, not in the grade rows.
+        const meta = new Map(); // assignment id -> { title, due }
+        let anext = `/sections/${sid}/assignments?limit=${SGY_PAGE_LIMIT}`;
+        for (let page = 0; anext && page < SGY_GRADES_ASSIGN_PAGES; page++) {
+          const j = await side(anext);
+          const list = sgyList(j, 'assignment');
+          for (const a of list) {
+            if (a && a.id != null) meta.set(String(a.id), { title: String(a.title || '').trim(), due: typeof a.due === 'string' ? a.due.slice(0, 10) : '' });
+          }
+          const link = j && j.links && typeof j.links.next === 'string' ? j.links.next : '';
+          anext = link && list.length ? link : '';
+        }
+
+        // THE SCHOOL'S OWN LETTERS (Gabe, 10/11/26): Cobalt never invents a letter. The
+        // section's grading scales say what each cutoff is called at THIS school
+        // (some use A/B/C, Heschel's show things like PC and L). The response shape is
+        // not documented, so any list of { cutoff, title } found anywhere inside it is
+        // read, grouped by the scale's id when it has one. No scale found = no letters.
+        const scaleJson = await side(`/sections/${sid}/grading_scales`);
+        const scales = sgyReadScales(scaleJson);
+        if (!scales.length) console.warn('sgy scales none', Object.keys(scaleJson && typeof scaleJson === 'object' ? scaleJson : {}).slice(0, 6));
+
+        const periods = [];
+        for (const p of s.period) {
+          if (!p) continue;
+          const pid = String(p.period_id ?? '');
+          const fin = s.final_grade.find((f) => f && String(f.period_id) === pid) || null;
+          const catPct = {};
+          for (const c of fin && Array.isArray(fin.grading_category) ? fin.grading_category : []) {
+            if (c && c.category_id != null) catPct[String(c.category_id)] = numOrNull(c.grade);
+          }
+          const assignments = [];
+          for (const a of sgyList(p, 'assignment')) {
+            if (!a || a.assignment_id == null) continue;
+            const m = meta.get(String(a.assignment_id));
+            assignments.push({
+              id: String(a.assignment_id),
+              title: (m && m.title) || 'Assignment',
+              cat: a.category_id != null ? String(a.category_id) : '',
+              earned: numOrNull(a.grade),
+              max: numOrNull(a.max_points),
+              exc: numOrNull(a.exception) || 0,
+              ts: numOrNull(a.timestamp) || 0,
+              due: (m && m.due) || '',
+            });
+          }
+          periods.push({
+            id: pid,
+            title: String(p.period_title || '').trim() || 'Grading period',
+            final: fin ? numOrNull(fin.grade) : null,
+            catPct,
+            assignments,
+          });
+        }
+        if (!periods.length) continue;
+        const wanted = s.final_grade.find((f) => f && f.scale_id != null);
+        const scale = scales.find((x) => wanted && x.id === String(wanted.scale_id)) || scales[0] || null;
+        courses.push({
+          id: sid,
+          name: name || 'Course',
+          scale: scale ? { levels: scale.levels } : null,
+          categories: [...catInfo].map(([id, c]) => ({ id, title: c.title || 'Other', weight: c.weight })),
+          periods,
+        });
+      }
+      return { host: tok.host, courses, fetchedAt: Date.now() };
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      console.error('sgyGrades failed', err && err.message);
+      throw new HttpsError('unavailable', 'Couldn’t reach Schoology. Try again in a moment.');
+    }
+  }
+);
+
 exports.sgyDisconnect = onCall({ region: 'us-central1' }, async (req) => {
   if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
   const db = admin.database();
@@ -1663,6 +1887,11 @@ exports.sgyDisconnect = onCall({ region: 'us-central1' }, async (req) => {
 // with the ids as "file-attachment". The section is looked up here, among the
 // student's own sections, so the app never has to have stored it.
 const SGY_PHOTO_MAX_BYTES = 6 * 1024 * 1024; // the client sends ~1 MB JPEGs; this is the hard stop
+// VOICE TOO (Gabe, 10/11): a recording made in the popup (webm/ogg) or an audio
+// file the student picks. Sent as-is, no conversion; 7 MB stays under a callable's
+// 10 MB request once base64 adds its third.
+const SGY_AUDIO_MAX_BYTES = 7 * 1024 * 1024;
+const SGY_AUDIO_MIME = /^audio\/(webm|ogg|mpeg|mp3|mp4|x-m4a|m4a|aac|wav|x-wav|wave)$/;
 const SGY_PHOTO_MAX_FILES = 5;
 
 /** A signed request with a body, for Schoology's writes. No redirect following:
@@ -1717,11 +1946,15 @@ exports.sgySubmitPhoto = onCall(
     };
 
     if (d.step === 'upload') {
-      const mime = String(d.mime || '');
-      if (!/^image\/(jpeg|png|webp)$/.test(mime)) throw new HttpsError('invalid-argument', 'That isn’t a photo Cobalt can send.');
+      const mime = String(d.mime || '').split(';')[0].trim().toLowerCase(); // "audio/webm;codecs=opus" → "audio/webm"
+      const audio = SGY_AUDIO_MIME.test(mime);
+      if (!audio && !/^image\/(jpeg|png|webp)$/.test(mime)) throw new HttpsError('invalid-argument', 'That isn’t a photo or recording Cobalt can send.');
       const bytes = Buffer.from(String(d.data || ''), 'base64');
-      if (!bytes.length || bytes.length > SGY_PHOTO_MAX_BYTES) throw new HttpsError('invalid-argument', 'That photo is too large to send.');
-      const name = String(d.name || 'photo.jpg').replace(/[^\w .()-]/g, '_').slice(0, 80) || 'photo.jpg';
+      if (!bytes.length || bytes.length > (audio ? SGY_AUDIO_MAX_BYTES : SGY_PHOTO_MAX_BYTES)) {
+        throw new HttpsError('invalid-argument', audio ? 'That recording is too long to send (7 MB at most).' : 'That photo is too large to send.');
+      }
+      const fallback = audio ? 'recording.webm' : 'photo.jpg';
+      const name = String(d.name || fallback).replace(/[^\w .()-]/g, '_').slice(0, 80) || fallback;
       const md5 = require('crypto').createHash('md5').update(bytes).digest('hex');
 
       const slot = await sgySend('POST', SGY_API + '/upload', tok, JSON.stringify({ filename: name, filesize: bytes.length, md5_checksum: md5 }), 'application/json');
@@ -1731,13 +1964,13 @@ exports.sgySubmitPhoto = onCall(
       const where = slotJson && typeof slotJson.upload_location === 'string' ? slotJson.upload_location.replace(/^http:/i, 'https:') : '';
       if (!fileId || !where) {
         console.warn('sgy upload slot', slot.status, slotJson ? '' : await slot.text().catch(() => ''));
-        throw new HttpsError('unavailable', 'Schoology wouldn’t take the photo. Try again.');
+        throw new HttpsError('unavailable', 'Schoology wouldn’t take the file. Try again.');
       }
       const put = await sgySend('PUT', where, tok, bytes, mime);
       if (put.status === 401) return expired();
       if (!put.ok) {
         console.warn('sgy upload put', put.status, (await put.text().catch(() => '')).slice(0, 300));
-        throw new HttpsError('unavailable', 'Schoology wouldn’t take the photo. Try again.');
+        throw new HttpsError('unavailable', 'Schoology wouldn’t take the file. Try again.');
       }
       return { fileId };
     }
@@ -1759,9 +1992,35 @@ exports.sgySubmitPhoto = onCall(
         throw new HttpsError('unavailable', 'Couldn’t reach Schoology. Try again in a moment.');
       }
       if (!sid) throw new HttpsError('not-found', 'Schoology couldn’t find this assignment in your classes.');
+      const uidS = /^\d+$/.test(String(tok.sgyUid || '')) ? String(tok.sgyUid) : '';
+
+      // A TEACHER CAN'T HAND IN (Gabe, 10/11: two test hand-ins said "Submitted" and
+      // nothing appeared). Schoology answers OK to a submission from a course's own
+      // teacher (an admin enrollment) and keeps nothing, so say so instead of
+      // claiming success. Only a positive admin flag blocks; an unreadable roster
+      // carries on.
+      if (uidS) {
+        try {
+          const enr = await sgyJson(`/sections/${sid}/enrollments?limit=200`, tok);
+          const me = sgyList(enr, 'enrollment').find((e) => e && String(e.uid) === uidS);
+          console.log('sgy submit role', JSON.stringify({ sid, found: !!me, admin: me ? me.admin : null }));
+          if (me && Number(me.admin) === 1) {
+            throw new HttpsError(
+              'failed-precondition',
+              'You’re a teacher in this course on Schoology, and Schoology only keeps submissions from students. Try it from a student account.'
+            );
+          }
+        } catch (err) {
+          if (err instanceof HttpsError) throw err;
+        }
+      }
+
       const hand = async (action, body) => {
         const res = await sgySend('POST', `${SGY_API}/sections/${sid}/submissions/${aid}/${action}`, tok, JSON.stringify(body), 'application/json');
         if (res.status === 401) return expired();
+        // What Schoology said to a hand-in that "worked", for diagnosing ones that
+        // then never show up.
+        if (res.ok) console.log('sgy submit', action, res.status, (await res.clone().text().catch(() => '')).slice(0, 400));
         if (!res.ok) {
           // 403 here is about THIS assignment (submissions off, closed, or not a
           // dropbox), never the connection, so the token is kept.
@@ -1774,19 +2033,41 @@ exports.sgySubmitPhoto = onCall(
       };
       const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const asHtml = () => ({ body: esc.split(/\r?\n/).map((l) => `<p>${l || '&nbsp;'}</p>`).join('') });
+      // READ IT BACK before saying "Submitted" (Gabe, 10/11). Schoology lists a
+      // student's revisions on the assignment; an answer that parses as an EMPTY list
+      // means the hand-in did not land. Any other shape is logged and trusted, so an
+      // unfamiliar response can never block a real submission.
+      const landed = async () => {
+        if (!uidS) return;
+        let v = null;
+        try {
+          v = await sgyJson(`/sections/${sid}/submissions/${aid}/${uidS}`, tok);
+        } catch {
+          return;
+        }
+        console.log('sgy submit verify', JSON.stringify(v).slice(0, 600));
+        if (v && Array.isArray(v.revision) && v.revision.length === 0) {
+          throw new HttpsError(
+            'failed-precondition',
+            'Schoology said OK, but no submission shows on the assignment. Check that it takes submissions and that you’re enrolled as a student.'
+          );
+        }
+      };
+
       // Text alone is a normal text submission, the same as Schoology's own Create tab.
       if (!ids.length) {
         await hand('create', asHtml());
+        await landed();
         return { ok: true, textAs: 'submission' };
       }
       await hand('file', { 'file-attachment': { id: ids } });
+      await landed();
       if (!text) return { ok: true };
       // TEXT WITH PHOTOS = A COMMENT ON THE SUBMISSION (Gabe, 10/10): the private
       // student-teacher thread Schoology shows beside the submission when grading,
       // so the teacher reads it with the photos. Schoology documents reading these
       // comments, not posting them, so if it refuses, the text goes in as its own
       // text submission instead and the student is told; it is never dropped.
-      const uidS = /^\d+$/.test(String(tok.sgyUid || '')) ? String(tok.sgyUid) : '';
       if (uidS) {
         const c = await sgySend(
           'POST',

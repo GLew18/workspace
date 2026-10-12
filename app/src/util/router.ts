@@ -17,7 +17,7 @@
 //     its normal opening behaviour rather than showing a blank tab.
 
 /** The signed-in tabs, exactly as mountTabs knows them (see main.ts). */
-const TABS = new Set(['dashboard', 'tasks', 'focus', 'bookmarks', 'settings', 'notifications']);
+const TABS = new Set(['dashboard', 'tasks', 'grades', 'focus', 'bookmarks', 'settings', 'notifications']);
 
 /** Settings' own side tabs, lowercased. The labels live in settings/view.ts; these
  *  are their slugs, and SETTINGS_LABEL maps back to the label it renders. */

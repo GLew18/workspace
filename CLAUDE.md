@@ -50,6 +50,8 @@ Not yet covered: the `npm run build:deploy && firebase deploy --only hosting ...
 
 ## UI conventions
 
+**Every toolbox has the same spacing, app-wide (Gabe, 10/11, "really important").** A "toolbox" is any cluster of small icon controls (task row, grade rows, course rows, any new one). Every child is a 22px box with a 14px glyph, children sit exactly 2px apart (one flex wrapper with `gap: 2px`, the `.task-actions` recipe), and that includes the ✕. Never space children with ad-hoc margins or a wider parent gap, and measure the gap between the last two children, not just the first two.
+
 **Every input looks the same, app-wide (standing rule, Gabe 9/12/26).** Text inputs, textareas, and selects all get one look: the dark surface background, a quiet border, and the accent blue on focus. Never a native/white box, never a one-off color. The canonical recipe (also the app-wide default in `app/src/ui/theme.css`, so any field with no look-class of its own gets it automatically):
 ```css
 background: var(--surface);
@@ -68,9 +70,19 @@ Same continuity rule already applies to every ✕ close/dismiss button (see `.dl
 
 **Every pencil and every DELETE ✕ looks the same (Gabe, 10/10).** One glyph (13px, weight 400) resting on `var(--text-dim)`. On hover only the glyph changes: the pencil goes `var(--text)`, the delete ✕ goes `var(--red)`. Never a red background, tint or border. The shared rules are the "ICON BUTTONS" block at the end of `components.css`; add any new pencil or delete ✕ to its selector lists.
 
+## The landing artifacts: ASK every time (Gabe, 10/11)
+
+Whenever a change touches the landing (`app/src/landing/`, `app/src/ui/landing.css`, or anything the landing or its demo renders), finish the change, then ask with `AskUserQuestion`: **"Do you want these changes applied to the landing artifacts?"** Yes / No. Never update them unasked, and never skip the question. The artifacts:
+- Cobalt Landing: https://claude.ai/artifact/V5Y1Vvt5MUK19CSaweXsKN
+- Cobalt Landing Snapshot: https://claude.ai/artifact/5vN8izhGm1dv7TRk8KK3VH
+
+How each is rebuilt (worked out 10/11):
+- **Cobalt Landing** is the real site build with relative paths. From `app/`: `npx vite build --base ./ --outDir <scratchpad>/landing-art --emptyOutDir` (never into `dist/`), set its `<title>` to `Cobalt Landing`, then publish `index.html` to that URL with `files` = every file in `assets/` and `icons/` plus `manifest.webmanifest` (NOT `music/`), and `null` for the previous version's asset paths so stale chunks don't pile up.
+- **Cobalt Landing Snapshot** is seven 1440px screenshots of the live site (`tile-00.jpg`…`tile-06.jpg`) stacked in one page. Rebuilding it needs a browser to capture them; when the browser is locked, say so and leave it.
+
 ## The landing demo
 
 `app/src/landing/demo/` drives a real, miniature Cobalt in the hero. Two standing rules:
 - **The demo may never show something the real app does not do.** Fabricated chrome is allowed only where the browser itself owns it (the mini player's Picture-in-Picture title bar) and must be labelled as such in the code.
 - **No dead beats.** The ghost cursor never parks doing nothing.
-- **Every UI or behavior change reaches the demo in the same change (Gabe, 9/23).** The demo mounts the real views, so most changes carry over by themselves. What does NOT carry over is anything the demo hard-codes: the scripted scenes' selectors (`demo/script.ts`), the replica header (`demo/shell.ts`), Dan's seed data and dates (`demo/seed.ts`), and the landing marquee (`landing/view.ts` FUNCTIONS). Check all four on every UI change, then run `app/demosmoke.html` on the dev server; it must end in PASS. The `/land-integrate` skill (`.claude/skills/land-integrate/`) is the checklist for this, including the landing's feature strip, sample rows and copy (Gabe, 10/10). (In Claude's hidden browser pane it stops at the Focus time-wheel scene. Confirmed 9/24 as a pane limit, not a demo bug: a hidden page never delivers native scroll events, and the wheel only saves its value on one. With scroll events emulated, the full loop completes, and a virtual-clock run of all 10 scenes showed zero cursor jumps.)
+- **Every UI or behavior change reaches the demo in the same change (Gabe, 9/23).** The demo mounts the real views, so most changes carry over by themselves. What does NOT carry over is anything the demo hard-codes: the scripted scenes' selectors (`demo/script.ts`), the replica header (`demo/shell.ts`), Dan's seed data and dates (`demo/seed.ts`), and the landing marquee (`landing/view.ts` FUNCTIONS). Check all four on every UI change, then run `app/demosmoke.html` on the dev server; it must end in PASS. The `/landupdate` skill (`.claude/skills/landupdate/`) is the checklist for this, and also sweeps the whole landing for drift, including the landing's feature strip, sample rows and copy (Gabe, 10/10). (In Claude's hidden browser pane it stops at the Focus time-wheel scene. Confirmed 9/24 as a pane limit, not a demo bug: a hidden page never delivers native scroll events, and the wheel only saves its value on one. With scroll events emulated, the full loop completes, and a virtual-clock run of all 10 scenes showed zero cursor jumps.)

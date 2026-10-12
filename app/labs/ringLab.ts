@@ -45,7 +45,7 @@ const root = document.getElementById('lab')!;
 root.className = 'rl';
 root.innerHTML =
   `<header class="rl-head"><h1>Focus Ring Skins</h1>` +
-  `<p>Every skin is a bundle of three looks. The Shop only shows the work look; the other two take over during a session, with the same one-second fade the standard ring uses. The last five minutes wins over rest.</p></header>`;
+  `<p>Every skin is a bundle of three looks. The Shop only shows the work look; the other two take over during a session, with the same one-second fade the standard ring uses. A rest stays in its rest look to the end; only work blocks turn to the last-five-minutes look.</p></header>`;
 
 const skins: Array<[string | undefined, string]> = [[undefined, 'Standard'], ...RING_SKINS.map((s) => [s.id, s.name] as [string, string])];
 for (const [id, name] of skins) {

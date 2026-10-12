@@ -104,6 +104,8 @@ export async function buildDemoShell(): Promise<DemoShell> {
   // it) but has no panel here: visitors can't click the demo and the cursor never
   // picks it.
   const { nav, btns: navBtns, tasksCount } = createAppTabs((id) => controller.goToTab(id));
+  // Grades is left off the landing for now (Gabe, 10/11): drop its tab from the replica bar.
+  navBtns.get('grades')?.remove();
   const n = danDueTodayCount();
   tasksCount.textContent = String(n);
   if (n > 0) tasksCount.classList.add('on');

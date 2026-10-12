@@ -175,7 +175,7 @@
 /* ---- THE THREE LOOKS (Gabe, 10/10) ----------------------------------------
    Every skin is a bundle: work (what the Shop shows), LAST FIVE MINUTES (hotter)
    and REST (Pomodoro breaks, calm). focus/view.ts marks the ring wrap .urgent or
-   .rest; last five minutes wins over rest. Same 1s fades as the standard ring. */
+   .rest (never both: a rest is never urgent). Same 1s fades as the standard ring. */
 
 /* Gradient skins: the alternates are their own arcs, cross-faded over the work arc. */
 .focus-ring .ring-alt {

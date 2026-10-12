@@ -337,6 +337,9 @@ export class FocusView {
   private focusMode: 'straight' | 'pomodoro' = 'straight';
   private pomoPlan: PomoPlan = { ...POMO_PRESETS[0] };
   private customPomoPresets: CustomPomoPreset[] = [];
+  // Built-in presets the user removed (Gabe, 10/11: defaults can be deleted too).
+  // "s<seconds>" for Straight, "p<rounds-work-rest>" for Pomodoro; persisted.
+  private hiddenPresets = new Set<string>();
   private initFocusWheels?: (tries?: number) => void; // positions the length carousel after mount
   private initPomoWheels?: () => void; // same, for the Pomodoro carousel
   // Active-session state — owned by the running overlay/widget, snapshotted at start.
@@ -738,6 +741,7 @@ export class FocusView {
       .filter(([k]) => k.startsWith('pomo_'))
       .map(([, v]) => v as CustomPomoPreset)
       .filter((p) => p.rounds > 0 && p.rounds <= 6 && p.work > 0 && p.rest > 0);
+    this.hiddenPresets = new Set<string>((focus['hiddenPresets'] as { ids?: string[] } | undefined)?.ids ?? []);
     // Favorited track ids live in a single 'favorites' record; playlists in 'playlist_*'.
     this.favorites = new Set<string>((focus['favorites'] as { ids?: string[] } | undefined)?.ids ?? []);
     this.customPlaylists = loadPlaylists(focus);
@@ -757,6 +761,13 @@ export class FocusView {
     const focus = await this.data.getFocusAll<Record<string, unknown>>();
     this.favorites = new Set<string>((focus['favorites'] as { ids?: string[] } | undefined)?.ids ?? []);
     this.customPlaylists = loadPlaylists(focus);
+  }
+
+  /** Remove (or bring back) a built-in preset, and persist the list. */
+  private setPresetHidden(id: string, hidden: boolean): void {
+    if (hidden) this.hiddenPresets.add(id);
+    else this.hiddenPresets.delete(id);
+    void this.data.putFocus('hiddenPresets', { ids: [...this.hiddenPresets] });
   }
 
   /** Favorited library tracks, in library order. */
@@ -1093,24 +1104,28 @@ export class FocusView {
     const drawPresets = () => {
       presetRow.replaceChildren();
       const all = [
-        ...PRESET_MINS.map((mins) => ({ label: presetLabel(mins * 60), seconds: mins * 60, key: '' })),
+        ...PRESET_MINS.filter((mins) => !this.hiddenPresets.has('s' + mins * 60)).map((mins) => ({
+          label: presetLabel(mins * 60),
+          seconds: mins * 60,
+          key: '',
+        })),
         ...this.customPresets.map((c) => ({ label: presetLabel(c.seconds), seconds: c.seconds, key: c.key })),
       ].sort((a, b) => a.seconds - b.seconds);
       for (const p of all) {
         const btn = el('button', { class: `focus-preset${p.key ? ' custom' : ''}`, text: p.label });
         btn.dataset.seconds = String(p.seconds);
         btn.addEventListener('click', () => jumpTo(p.seconds));
-        if (p.key) {
-          // User-made presets get a small × to remove them (defaults are permanent).
-          const del = el('span', { class: 'focus-preset-del', text: '×', title: 'Remove preset' });
-          del.addEventListener('click', (e) => {
-            e.stopPropagation(); // removing must not also jump the carousel
+        // Every preset gets a small × to remove it, built-in ones included.
+        const del = el('span', { class: 'focus-preset-del', text: '✕', title: 'Remove preset' });
+        del.addEventListener('click', (e) => {
+          e.stopPropagation(); // removing must not also jump the carousel
+          if (p.key) {
             this.customPresets = this.customPresets.filter((c) => c.key !== p.key);
             void this.data.removeFocus(p.key);
-            drawPresets();
-          });
-          btn.append(del);
-        }
+          } else this.setPresetHidden('s' + p.seconds, true);
+          drawPresets();
+        });
+        btn.append(del);
         if (p.seconds === this.selectedSeconds) btn.classList.add('active');
         presetRow.append(btn);
       }
@@ -1123,6 +1138,12 @@ export class FocusView {
     const addPreset = el('button', { class: 'focus-add-preset', text: '+ Preset' });
     addPreset.addEventListener('click', async () => {
       const seconds = this.selectedSeconds;
+      // Re-adding a removed built-in brings that one back.
+      if (this.hiddenPresets.has('s' + seconds)) {
+        this.setPresetHidden('s' + seconds, false);
+        drawPresets();
+        return;
+      }
       const exists =
         PRESET_MINS.some((mins) => mins * 60 === seconds) ||
         this.customPresets.some((c) => c.seconds === seconds);
@@ -1528,7 +1549,7 @@ export class FocusView {
     const drawPresets = () => {
       presetRow.replaceChildren();
       const all = [
-        ...POMO_PRESETS.map((p) => ({ ...p, key: '' })),
+        ...POMO_PRESETS.filter((p) => !this.hiddenPresets.has('p' + pomoKey(p))).map((p) => ({ ...p, key: '' })),
         ...this.customPomoPresets,
       ].sort((a, b) => a.work - b.work || a.rest - b.rest || a.rounds - b.rounds);
       for (const p of all) {
@@ -1539,16 +1560,16 @@ export class FocusView {
         );
         btn.dataset.plan = pomoKey(p);
         btn.addEventListener('click', () => jumpTo(p));
-        if (p.key) {
-          const del = el('span', { class: 'focus-preset-del', text: '×', title: 'Remove preset' });
-          del.addEventListener('click', (e) => {
-            e.stopPropagation();
+        const del = el('span', { class: 'focus-preset-del', text: '✕', title: 'Remove preset' });
+        del.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (p.key) {
             this.customPomoPresets = this.customPomoPresets.filter((c) => c.key !== p.key);
             void this.data.removeFocus(p.key);
-            drawPresets();
-          });
-          btn.append(del);
-        }
+          } else this.setPresetHidden('p' + pomoKey(p), true);
+          drawPresets();
+        });
+        btn.append(del);
         if (pomoKey(p) === pomoKey(this.pomoPlan)) btn.classList.add('active');
         presetRow.append(btn);
       }
@@ -1558,6 +1579,11 @@ export class FocusView {
     const addPreset = el('button', { class: 'focus-add-preset', text: '+ Preset' });
     addPreset.addEventListener('click', async () => {
       const key = pomoKey(this.pomoPlan);
+      if (this.hiddenPresets.has('p' + key)) {
+        this.setPresetHidden('p' + key, false);
+        drawPresets();
+        return;
+      }
       if (POMO_PRESETS.some((p) => pomoKey(p) === key) || this.customPomoPresets.some((p) => pomoKey(p) === key)) return;
       const preset: CustomPomoPreset = { key: 'pomo_' + genId(), ...this.pomoPlan };
       this.customPomoPresets = [...this.customPomoPresets, preset];
@@ -4604,12 +4630,13 @@ export class FocusView {
    * one stale reference means the class lands on a node nobody is looking at.
    */
   private syncUrgent(remaining: number): void {
-    // Pomodoro: EVERY block goes red in its own last five minutes, exactly like a
-    // whole straight session does (Gabe, 10/10). A block of five minutes or less
-    // would be red from its first second, so it keeps its own color instead.
+    // Pomodoro: every WORK block goes red in its own last five minutes, exactly
+    // like a whole straight session does (Gabe, 10/10). A REST never does: it stays
+    // green to the end (Gabe, 10/11). A block of five minutes or less would be red
+    // from its first second, so it keeps its own color instead.
     const ph = this.phaseAt(remaining);
     const urgent = ph
-      ? ph.len > 300 && ph.left <= 300 && ph.left > 0
+      ? ph.i % 2 === 0 && ph.len > 300 && ph.left <= 300 && ph.left > 0
       : remaining <= 300 && remaining > 0;
     this.ringWrap?.classList.toggle('urgent', urgent);
     for (const doc of [document, this.pipWindow?.document]) {

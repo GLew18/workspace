@@ -375,7 +375,7 @@ const sceneQuickAdd: Scene = {
   },
 };
 
-/** Scene 5 — Dan shapes the "get cobalt premium" task: due today, very high
+/** Scene 5 — Dan shapes the "get cobalt plus" task: due today, very high
  *  priority; then builds a real `cobalt` course in Settings (name, color,
  *  parse word `cob`) and tags the task with it by typing the parse word. */
 const scenePremiumAndCourse: Scene = {
@@ -581,12 +581,16 @@ const sceneEssayAttachments: Scene = {
     const text = sub.querySelector<HTMLTextAreaElement>('.photo-submit-text')!;
     await cur.click(text);
     await cur.typeInto(text, 'Outline attached, final draft by Friday');
-    await cur.waitUntil(() => !send.disabled, 2000, 'Submit enabled once there is a photo');
+    await cur.wait(300);
+    expect(send.disabled, 'Submit waits for the "I’m sure" box');
+    const ack = sub.querySelector<HTMLInputElement>('.photo-submit-ack-box')!;
+    await cur.click(ack);
+    await cur.waitUntil(() => ack.checked && !send.disabled, 2000, 'Submit enabled once the box is ticked');
     await cur.wait(400);
     await cur.click(send);
     await cur.waitUntil(() => !sub.isConnected || sub.classList.contains('closing'), 5000, 'submission handed in');
     await cur.waitFor('.toast', shell.body);
-    await cur.wait(1400); // let "Submitted to Schoology" read
+    await cur.wait(1400); // let "Submitted your files and text to …" read
   },
 };
 
@@ -827,6 +831,25 @@ const sceneFocusSetup: Scene = {
     const setupScroller = shell.body.querySelector<HTMLElement>('.app')!;
     await cur.scrollBy(setupScroller, -setupScroller.scrollTop, 400);
 
+    // STRAIGHT | POMODORO (Gabe, 10/11): flip to Pomodoro, pick the 50m / 10m
+    // plan (25/5 is already lit by default, so a fresh pick reads), then flip
+    // back to Straight for the rest of the scene.
+    beat('focus-pomodoro-switch');
+    await cur.click(shell.body.querySelector<HTMLElement>('.focus-mode-seg .tasks-mode-opt[data-mode="pomodoro"]')!);
+    const pomoPreset = await cur.waitFor<HTMLElement>('.focus-pomo-preset[data-plan="3-50-10"]', shell.body);
+    await cur.waitUntil(() => pomoPreset.offsetParent !== null, 2000, 'Pomodoro panel showing');
+    await cur.wait(500);
+    await cur.click(pomoPreset);
+    await cur.waitUntil(() => pomoPreset.classList.contains('active'), 2000, '50m / 10m plan picked');
+    await cur.wait(850);
+    await cur.click(shell.body.querySelector<HTMLElement>('.focus-mode-seg .tasks-mode-opt[data-mode="straight"]')!);
+    await cur.waitUntil(
+      () => shell.body.querySelector<HTMLElement>('.focus-carousel')!.offsetParent !== null,
+      2000,
+      'back on Straight'
+    );
+    await cur.wait(400);
+
     // 1:45 on the H/M wheels, then "+ Preset" — the button appears carrying
     // data-seconds=6300, which doubles as the dial's own verification.
     const cols = [...shell.body.querySelectorAll<HTMLElement>('.focus-wheel-col')];
@@ -892,8 +915,8 @@ const sceneFocusSetup: Scene = {
     );
     await cur.wait(500); // the row landed — let cause and effect read
     await pressImportPlus(
-      () => [...shell.body.querySelectorAll<HTMLElement>('.focus-import-task')].find((r) => (r.textContent ?? '').includes('get cobalt premium')),
-      'get cobalt premium'
+      () => [...shell.body.querySelectorAll<HTMLElement>('.focus-import-task')].find((r) => (r.textContent ?? '').includes('get cobalt plus')),
+      'get cobalt plus'
     );
     // Setup-screen rows (see SETUP_ROW); the session's are SESSION_ROW.
     await cur.waitUntil(() => shell.body.querySelectorAll(SETUP_ROW).length >= 2, 4000, 'both imports landed in the session list');
@@ -973,15 +996,15 @@ const sceneFocusSession: Scene = {
     const looseRows = (): HTMLElement[] =>
       [...ov.querySelectorAll<HTMLElement>(SESSION_ROW)].filter((r) => {
         const txt = r.textContent ?? '';
-        return txt.includes('get cobalt premium') || txt.includes('study for algebra 2 test');
+        return txt.includes('get cobalt plus') || txt.includes('study for algebra 2 test');
       });
     beat('reorder-start');
     let rows = looseRows();
     expect(rows.length === 2, 'expected the two loose session todos');
-    const orderBefore = rows.map((r) => (r.textContent ?? '').includes('premium') ? 'prem' : 'math').join(',');
+    const orderBefore = rows.map((r) => (r.textContent ?? '').includes('cobalt plus') ? 'prem' : 'math').join(',');
     await cur.dragRow(rows[0], rows[0].querySelector('.focus-todo-handle')!, rows[1]);
     await cur.waitUntil(() => {
-      const now = looseRows().map((r) => (r.textContent ?? '').includes('premium') ? 'prem' : 'math').join(',');
+      const now = looseRows().map((r) => (r.textContent ?? '').includes('cobalt plus') ? 'prem' : 'math').join(',');
       return now !== orderBefore && now.length === orderBefore.length;
     }, 4000, 'loose todos reordered by drag');
     await cur.wait(400);
@@ -989,7 +1012,7 @@ const sceneFocusSession: Scene = {
     // Append to the premium todo's title (dblclick → the editor opens with the
     // text; typing appends; Enter commits).
     const premText = await cur.fresh(
-      () => [...ov.querySelectorAll<HTMLElement>(TODO_TEXT)].find((t) => (t.textContent ?? '').includes('get cobalt premium')),
+      () => [...ov.querySelectorAll<HTMLElement>(TODO_TEXT)].find((t) => (t.textContent ?? '').includes('get cobalt plus')),
       'premium todo'
     );
     beat('premium-append-dblclick');
@@ -1002,7 +1025,7 @@ const sceneFocusSession: Scene = {
     // and which hid the highlight the gesture is known by. retype() shows the
     // selection, holds it, then replaces it, exactly as typing over one does.
     await cur.wait(420); // the highlight reads before a key lands on it
-    await cur.retype(editor, 'get cobalt premium right after completing homework');
+    await cur.retype(editor, 'get cobalt plus right after completing homework');
     cur.pressKey(editor, 'Enter');
     await cur.waitUntil(
       () => [...ov.querySelectorAll<HTMLElement>(TODO_TEXT)].some((t) => /right after completing homework/.test(t.textContent ?? '')),

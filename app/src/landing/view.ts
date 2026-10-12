@@ -15,7 +15,6 @@ import { el } from '../util/dom';
 import { createWordmark, STONE_SVG } from '../ui/laurel';
 import type { Data } from '../db';
 import { createSandbox, createGamifySandbox } from './sandbox';
-import { buildFocusDemo } from './focusDemo';
 import { TasksView } from '../tasks/render';
 import { BookmarksView, registerLocalFavicons } from '../bookmarks/view';
 import { LANDING_FAVICONS } from './favicons';
@@ -181,7 +180,7 @@ const FEATURES: Feature[] = [
     urlPath: 'tasks',
     title: 'Your assignments, finally organized',
     blurb: 'Every Schoology assignment, test, and quiz, auto-imported, translated and grouped by due date. Check off, add, or edit tasks, view descriptions, set priorities, and attach links, with instant navigation to Schoology.',
-    bullets: ['Quizzes, tests & exams auto-detected', 'Double-click to edit anything', 'Priorities, attachments, description & Schoology navigation'],
+    bullets: ['Quizzes, tests & exams auto-detected', 'Double-click to edit anything', 'Priorities, attachments & handing in to Schoology'],
   },
   {
     id: 'focus',
@@ -190,8 +189,8 @@ const FEATURES: Feature[] = [
     kind: 'focus',
     urlPath: 'focus',
     title: 'Your unwavering focus, finally possible',
-    blurb: 'A deep-work timer that pulls in what you’re working on and counts down while you go. Complete with a simple ring style, instant add & trim buttons, and music curated specifically for focus so you can get things done without distraction.',
-    bullets: ['A live, ticking countdown', 'Check tasks off as you go', 'Built-in focus music'],
+    blurb: 'A deep-work timer that pulls in what you’re working on and counts down while you go. Complete with a ring you can customize, instant add & trim buttons, and music curated specifically for focus so you can get things done without distraction.',
+    bullets: ['Straight or Pomodoro timer', 'Check tasks off as you go', 'Built-in focus music'],
   },
   {
     id: 'bookmarks',
@@ -611,6 +610,7 @@ const FN_CAMERA = FN_SVG('<path d="M3 8a2 2 0 0 1 2-2h2.5l1.5-2h6l1.5 2H19a2 2 0
 const FN_MAIL = FN_SVG('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>');
 const FN_DUP = FN_SVG('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>');
 const FN_BOX_CHECK = FN_SVG('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12l3 3 5-6"/>');
+const FN_FILTER = FN_SVG('<path d="M4 5h16l-6 8v6l-4-2v-4z"/>');
 
 // Schoology navigation and descriptions were here and came out on 9/2/26 (Gabe):
 // opening a link and reading an assignment's instructions are things Schoology
@@ -630,6 +630,7 @@ const FUNCTIONS: Array<[string, string]> = [
   // session — and listing a thing beside the thing that contains it pads the count
   // with something that reads as a claim and is really a restatement.
   [FN_BOX_CHECK, 'Bulk selecting'],
+  [FN_FILTER, 'Task filter'], // the Tasks tab's Filter popup (10/11)
   // …then the things a whole tab does.
   [FN_TARGET, 'Focus sessions'],
   [FN_MARK, 'Bookmark groups'],
@@ -744,7 +745,7 @@ function finalCtaSection(opts: LandingOpts): HTMLElement {
     el('h2', { class: 'lp-final-title', text: 'Stop chasing due dates.' }),
     el('p', {
       class: 'lp-final-sub',
-      text: 'One sign-in, and every Schoology assignment lands in a single organized list.',
+      text: 'Connect Schoology once, and every assignment lands in a single organized list.',
     })
   );
   const actions = el('div', { class: 'lp-final-actions' });
@@ -849,15 +850,17 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
     card.append(row);
     track.append(card);
     mounts.push(() => {
-      if (f.kind === 'focus') {
-        frame.body.append(buildFocusDemo());
-        frame.body.classList.remove('loading');
-        return;
-      }
+      // All three mount the REAL view over the shared sandbox (Focus in its sample
+      // mode, like the hero demo), so a change to the app reaches the card by itself.
       sandbox
-        .then((data) => {
+        .then(async (data) => {
           if (f.kind === 'tasks') new TasksView(data, { host: frame.body }).mount(frame.body);
-          else void new BookmarksView(data, { host: frame.body }).mount(frame.body);
+          else if (f.kind === 'focus') {
+            const { FocusView } = await import('../focus/view');
+            const panel = el('div', { class: 'app' });
+            frame.body.append(panel);
+            await new FocusView(data, { host: frame.body }).mount(panel);
+          } else void new BookmarksView(data, { host: frame.body }).mount(frame.body);
           frame.body.classList.remove('loading');
         })
         .catch(() => {
@@ -1241,7 +1244,7 @@ function gamifySection(): HTMLElement {
     el('h2', { class: 'lp-h2', text: 'Cosmetics' }),
     el('p', {
       class: 'lp-sub',
-      text: 'Every Schoology assignment you check off earns Gems, and finishing early earns more. Spend them in the Shop on cosmetics for the whole app.',
+      text: 'Every Schoology assignment you check off earns Gems, and finishing early earns more. Spend them in the Shop on cosmetics for the whole app, from check-off animations to focus ring skins.',
     })
   );
 
@@ -1457,7 +1460,7 @@ function compareSection(): HTMLElement {
   // The disarming line: Cobalt is a companion, not a replacement. Pre-empts the
   // "is this allowed?" question from parents and school in one sentence.
   sec.append(
-    el('p', { class: 'lp-vs-foot', text: 'You will still open Schoology to submit work. Cobalt handles everything before that.' })
+    el('p', { class: 'lp-vs-foot', text: 'Hand in photos, recordings and text without opening Schoology.' })
   );
   return sec;
 }

@@ -32,6 +32,7 @@ import { formatMetaDate, formatShortDate, formatTimeOfDay, formatDate, todayStr 
 import { getPrefs, setPrefsCache, PREFS_EVENT, type AppPrefs, type PinnedAction } from '../prefs';
 import { genId } from '../util/ids';
 import { buildQuickAdd } from './quickadd';
+import { TaskFilter } from './filter';
 import {
   makeTask, duplicateTask, clearTranslation, groupTasks, dueBadge, sortTasks, compareForCalendar, type TaskGroup,
 } from './store';
@@ -43,6 +44,8 @@ import { classifyByRules, learnCorrection } from '../schoology/classify';
 import { recordManualLabelForTask } from '../schoology/extension';
 import { BADGE_ASSESSMENT_RE } from '../schoology/events';
 import { emailTeacherUrl } from './teachers';
+import { MAIL_BTN_SVG, SCHOOLOGY_SVG } from './rowIcons';
+export { SCHOOLOGY_SVG };
 import { photoSubmitAssignment, openPhotoSubmit } from '../schoology/submitPhoto';
 import { parseDateTime, isPastDate, PAST_DATE_MSG, isPastTime, PAST_TIME_MSG } from './parser';
 import { shiftSelect } from '../util/select';
@@ -128,10 +131,6 @@ const INFO_BTN_SVG =
  *  the color emoji the translation line under the title wears. */
 const DUP_BTN_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
-/** ✉ for the ⋯ menu's "Email teacher", line art like the rest (Gabe, 10/10). The
- *  menu wears the same icons as the row, so a control looks the same in both. */
-const MAIL_BTN_SVG =
-  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>';
 const CLIP_BTN_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>';
 
@@ -143,10 +142,6 @@ const FOLDER_BTN_SVG =
 const TRASH_SVG =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 11v6M14 11v6"/></svg>';
 
-// External-link / open-in-Schoology glyph. Exported for the Task Archives, whose
-// rows carried the same ↗ back to the assignment.
-export const SCHOOLOGY_SVG =
-  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>';
 
 // The List ⇄ Calendar toggle's two faces.
 const CAL_SVG =
@@ -274,6 +269,9 @@ export class TasksView {
   private calMounted = false;
   private calJumped = false;
   private modeSeg!: HTMLElement;
+  /** The Filter (courses / priorities / folders switched off). Tasks tab only: never
+   *  built in excerpt mode, so the dashboard cards always show everything. */
+  private filter: TaskFilter | null = null;
   /** Where each time grid was last scrolled to, by scope ('' = the main calendar,
    *  else a folder id). The grid is rebuilt on every task write, and without this
    *  a translation landing in the background would throw you back to 7am. Kept per
@@ -384,6 +382,9 @@ export class TasksView {
     // re-syncs on open, every 30 minutes and on returning to the tab, so the manual
     // refresh had nothing left to do.
     header.append(this.modeSeg);
+    // FILTER (Gabe, 10/11/26): hide courses, priorities or folders from this tab.
+    this.filter = new TaskFilter(this.data, () => this.folders, () => this.render(), this.sample?.host);
+    header.append(el('div', { class: 'tasks-filter-wrap' }, [this.filter.button()]));
     // Settings changes (week start, density, colors…) repaint the calendar live.
     window.addEventListener(PREFS_EVENT, () => this.render()); // mount runs once per session
     // Esc clears the multi-select (unless an inline editor owns the keyboard).
@@ -393,7 +394,8 @@ export class TasksView {
     });
     const quickAdd = buildQuickAdd((parsed) => this.addTask(parsed), () => this.folders);
     this.listEl = el('div', { class: 'task-list' });
-    panel.append(this.bannerHost, header, quickAdd, this.listEl);
+    panel.append(this.bannerHost, header, this.filter.stripEl(), quickAdd, this.listEl);
+    void this.filter.load();
     this.watchQuickAdd(quickAdd);
 
     // The student changed which languages get translated → every task's stored
@@ -600,7 +602,7 @@ export class TasksView {
     // back to the main list rather than vanishing.)
     const loose: TaskMap = {};
     for (const [id, t] of Object.entries(this.map)) {
-      if (!this.liveFolder(t) && !this.completingIds.has(id)) loose[id] = t;
+      if (!this.liveFolder(t) && !this.completingIds.has(id) && this.passes(t)) loose[id] = t;
     }
     const groups = groupTasks(loose);
     if (!groups.length && !this.folders.length) {
@@ -614,6 +616,14 @@ export class TasksView {
       );
       for (const t of g.tasks) this.listEl.append(this.renderTask(t, g));
     }
+    if (this.filter?.active && !this.listEl.children.length) {
+      this.listEl.append(el('div', { class: 'empty-state', text: 'Everything here is hidden by your filter. Use Show all above to bring it back.' }));
+    }
+  }
+
+  /** Does the Tasks-tab filter let this task through? Always yes in excerpt mode. */
+  private passes(t: Task): boolean {
+    return !this.filter || this.excerpt !== undefined || this.filter.passes(t);
   }
 
   /** Excerpt render: one flat, sorted list of the matching tasks, folders and
@@ -727,7 +737,7 @@ export class TasksView {
    *  row onto a day to give it that date (calDropTarget). */
   private calNoDate(host: HTMLElement, filter: (t: Task) => boolean): void {
     const tasks = Object.values(this.map).filter(
-      (t) => !t.dueDate && !this.completingIds.has(t.id) && !isSpentCompleted(t, todayStr()) && filter(t)
+      (t) => !t.dueDate && !this.completingIds.has(t.id) && !isSpentCompleted(t, todayStr()) && filter(t) && this.passes(t)
     );
     if (!tasks.length) return;
     const group = groupTasks(Object.fromEntries(tasks.map((t) => [t.id, t]))).find((g) => g.key === 'none');
@@ -845,6 +855,7 @@ export class TasksView {
     for (const t of Object.values(this.map)) {
       if (!t.dueDate || this.completingIds.has(t.id) || isSpentCompleted(t, today)) continue;
       if (filter && !filter(t)) continue;
+      if (!this.passes(t)) continue;
       (by.get(t.dueDate) ?? by.set(t.dueDate, []).get(t.dueDate)!).push(t);
     }
     // Open work first, then time, then the list's hierarchy (see compareForCalendar
@@ -1169,9 +1180,14 @@ export class TasksView {
    *  whole scoped calendar in calendar mode. */
   private renderFolders(bodyMode: 'list' | 'cal' = 'list'): void {
     if (!this.folders.length) return;
+    // A filter hides folders whose tasks are all filtered out (and the label with them).
+    const shownFolders = this.filter?.active
+      ? this.folders.filter((f) => folderMembers(f, this.map).some((t) => this.passes(t)))
+      : this.folders;
+    if (!shownFolders.length) return;
     this.listEl.append(el('div', { class: 'task-folders-label', text: 'Folders' }));
-    for (const f of this.folders) {
-      const members = folderMembers(f, this.map);
+    for (const f of shownFolders) {
+      const members = folderMembers(f, this.map).filter((t) => this.passes(t));
       // What the head COUNTS is what the body SHOWS: still-open tasks. Counting
       // every member (completed included) made a check-off leave the number
       // frozen — 10 tasks stayed "10 tasks" until a reload purged the completed
@@ -3817,17 +3833,21 @@ export class TasksView {
 
 /** Build a text block where any http(s) URL is a real, clickable link (new tab)
  *  instead of inert text — used by the ⓘ Description popup. Built with DOM nodes
- *  (never innerHTML), so the surrounding description text can't inject markup. */
+ *  (never innerHTML), so the surrounding description text can't inject markup.
+ *  A Schoology link hidden behind words arrives as [words](url) and is drawn as
+ *  those words, linked (Gabe, 10/11). The space allowed between ] and ( is for a
+ *  translation that put one there. */
 export function linkifyText(text: string, cls: string): HTMLElement {
   const box = el('div', { class: cls });
   let last = 0;
-  for (const m of text.matchAll(/https?:\/\/\S+/g)) {
+  for (const m of text.matchAll(/\[([^\]\n]{1,200})\]\s?\((https?:\/\/[^\s)]+)\)|https?:\/\/\S+/g)) {
     const start = m.index ?? 0;
     // Trailing punctuation is almost always the sentence's, not the URL's.
-    const url = m[0].replace(/[.,;:!?)\]]+$/, '');
+    const raw = m[1] ? m[0] : m[0].replace(/[.,;:!?)\]]+$/, '');
+    const url = m[1] ? m[2] : raw;
     if (start > last) box.append(text.slice(last, start));
-    box.append(el('a', { href: url, target: '_blank', rel: 'noopener', text: url }));
-    last = start + url.length;
+    box.append(el('a', { href: url, target: '_blank', rel: 'noopener', text: m[1] ? m[1].trim() : url }));
+    last = start + raw.length;
   }
   box.append(text.slice(last));
   return box;

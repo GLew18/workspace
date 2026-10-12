@@ -30,6 +30,7 @@ import './ui/settings.css';
 import './ui/notifylog.css';
 import './ui/bookmarks.css';
 import './ui/tests.css';
+import './ui/grades.css';
 import './ui/landing.css';
 import './ui/auth.css';
 import './ui/onboarding.css';
@@ -123,13 +124,14 @@ import { DashboardView } from './dashboard/view';
 import { TasksView } from './tasks/render';
 import { FocusView } from './focus/view';
 import { createWordmark } from './ui/laurel';
-import { createAppTabs, TESTS_TAB_ON } from './ui/appTabs';
+import { createAppTabs, GRADES_TAB_ON, TESTS_TAB_ON } from './ui/appTabs';
 import { el, textInput, showToast } from './util/dom';
 import { initRegistry } from './courses/registry';
 import { initLearn } from './courses/learn';
 import { SettingsView } from './settings/view';
 import { BookmarksView } from './bookmarks/view';
 import { TestsView } from './tests/view';
+import { GradesView } from './grades/view';
 import { loadTeachers } from './tasks/teachers';
 import { loadPhotoSubmit } from './schoology/submitPhoto';
 import { detectExtension } from './bookmarks/shortcuts';
@@ -467,6 +469,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   const dashboardView = new DashboardView(data, displayName, (id) => controller.goToTab(id));
   const tasksView = new TasksView(data);
   const testsView = new TestsView(data, user.email || '');
+  const gradesView = new GradesView(data, (id) => controller.goToTab(id));
   const focusView = new FocusView(data);
   activeFocusView = focusView; // sign-out tears this down (music, widget, overlay)
   controller = mountTabs(
@@ -477,6 +480,7 @@ async function renderApp(user: AuthUser): Promise<void> {
       // re-tests the sticky add bar, which now that every tab opens at its top can
       // be left wearing a pinned shadow at scroll zero (see TasksView.onShow).
       { id: 'tasks', label: 'Tasks', render: (p) => tasksView.mount(p), onShow: () => tasksView.onShow() },
+      ...(GRADES_TAB_ON ? [{ id: 'grades', label: 'Grades', render: (p: HTMLElement) => gradesView.mount(p), onShow: () => gradesView.onShow() }] : []),
       ...(TESTS_TAB_ON ? [{ id: 'tests', label: 'Tests', render: (p: HTMLElement) => testsView.mount(p), onShow: () => testsView.onShow() }] : []),
       { id: 'focus', label: 'Focus', render: (p) => void focusView.mount(p) },
       { id: 'bookmarks', label: 'Bookmarks', render: (p) => void new BookmarksView(data).mount(p) },
