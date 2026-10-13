@@ -321,8 +321,8 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
 
       const h1 = el('h1', { class: 'rise d1' });
       h1.append('Connect ', el('span', { class: 'g', text: 'Schoology' }));
-      // No caption until Schoology has answered (Gabe, 10/9); reveal() fills it in.
-      const sub = el('p', { class: 'onb-sub rise d2', style: 'display:none' });
+      // Tells the student what to type (Gabe, 10/12); reveal() replaces it with the result line.
+      const sub = el('p', { class: 'onb-sub rise d2', text: 'Type in your school’s Schoology URL. Then press connect, login and authorize your account.' });
 
       // CONNECT WITH SCHOOLOGY (Gabe, 10/7/26), the ONLY way in since 10/9/26: the
       // real connection, through the school's own Schoology approve screen. No card,
@@ -347,6 +347,8 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       if (draft.connected) {
         // Back-navigation after connecting: no replay, just the result and Continue.
         stage.classList.add('done');
+        // Going Back and returning keeps the assignments in the picture (Gabe, 10/12).
+        draft.found.forEach((t) => chips.append(el('span', { class: 'onb-chip', text: t })));
         sub.textContent = connectedLine(draft.foundCount);
         sub.style.display = '';
         sc.append(visual, h1, sub, btn);
@@ -406,14 +408,13 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       // in, and the courses screen is filled from the student's real sections.
       if (sgyResumePending) {
         sgyResumePending = false;
-        picker.setBusy(true);
-        apiStatus.textContent = 'Finishing the connection…';
+        picker.setBusy(true, 'Finishing the connection…');
         void (async () => {
           try {
             const st = await finishSchoologyConnectIfReturning();
             if (!st) throw new Error('That Schoology connection expired. Try connecting again.');
             if (st.firstName) draft.name = capitalizeName(st.firstName);
-            if (alive()) apiStatus.textContent = 'Connected. Reading your assignments…';
+            if (alive()) picker.setBusy(true, 'Reading your assignments…');
             const p = await fetchSgyApiPayload();
             if (!alive()) return;
             const names = [...new Set((p?.courses ?? []).map((c) => c.name.trim()).filter(Boolean))];
@@ -649,7 +650,9 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
             if (index !== mine) return;
             draft.schedule = v;
             // The schedule names every course exactly: add any the list lacks.
-            const have = new Set(draft.courses.map((c) => c.name.toLowerCase()));
+            // Renamed courses still answer to their old names (aliases), so fixing a
+            // name on the courses screen never makes the schedule add the original again.
+            const have = new Set(draft.courses.flatMap((c) => [c.name, ...(c.aliases ?? [])]).map((n) => n.toLowerCase()));
             for (const name of currentCourses(blocks)) {
               if (have.has(name.toLowerCase())) continue;
               draft.courses.push({

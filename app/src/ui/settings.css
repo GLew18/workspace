@@ -361,7 +361,7 @@
 .course-name:focus {
   outline: none;
   background: var(--surface);
-  border-color: var(--border-strong);
+  border-color: var(--accent); /* the app-wide focus look: accent border + glow (theme.css) */
 }
 /* Open in Schoology / Email teacher: identical to the Tasks row icons (22px box,
    dim, surface2 + white on hover, cyan for Schoology), 2px apart. */
@@ -1354,12 +1354,6 @@
 .ngd-chev { flex: none; color: var(--text-dim); font-size: 16px; }
 /* player */
 .ngd-head { display: flex; align-items: center; gap: 10px; margin: 0 24px 12px 0; }
-.ngd-back {
-  flex: none; background: none; border: 1px solid var(--border-strong); border-radius: 8px;
-  color: var(--text-dim); font-family: inherit; font-size: 11.5px; font-weight: 600;
-  padding: 5px 10px; cursor: pointer;
-}
-.ngd-back:hover { color: var(--text); border-color: var(--text-dim); }
 .ngd-head-title { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; } /* matches bm-modal-title */
 .ngd-stage { border-radius: 12px; overflow: hidden; }
 .ngd-stage svg { display: block; width: 100%; height: auto; }
@@ -1579,21 +1573,6 @@ a.settings-credits-lic:hover { color: var(--accent); border-color: var(--accent)
   padding: 18px 24px;
   border-bottom: 1px solid var(--border);
 }
-.credits-page-back {
-  flex: none;
-  width: 38px;
-  height: 38px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-strong);
-  color: var(--text-dim);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-.credits-page-back:hover { color: var(--text); border-color: var(--accent); }
-.credits-page-back svg { width: 20px; height: 20px; }
 .credits-page-title { font-size: 20px; font-weight: 700; color: var(--text); }
 .credits-page-body {
   flex: 1;

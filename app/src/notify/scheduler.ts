@@ -75,6 +75,13 @@ const dueMsOf = (t: { dueDate?: string; dueTime?: string }): number | null => {
   return Number.isNaN(ms) ? null : ms;
 };
 
+/** The digests name the work, one line each: "• Essay outline (History)". */
+function digestList(tasks: { title: string; course?: string }[]): string {
+  const lines = tasks.slice(0, 15).map((t) => `• ${t.title}${t.course ? ` (${t.course})` : ''}`);
+  if (tasks.length > 15) lines.push(`• …and ${tasks.length - 15} more`);
+  return lines.join('\n');
+}
+
 export interface SchedulerOpts {
   /** Runs after a notification click focuses the window (e.g. jump to Tasks). */
   onClick?: () => void;
@@ -128,7 +135,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
     const r = resolve(ch);
     if (!r.popup && !r.gmail) return;
     if (alreadySent(key)) return;
-    const claim = markSent(key, todayStr());
+    const claim = markSent(key, todayStr(), { title, body, popup: r.popup, gmail: r.gmail });
     // `name` is the bare task title. When several of these fire at once the
     // burst grouper lists the NAMES under one heading, so the per-item
     // "Due soon:" prefix never shows up inside the combined body.
@@ -235,7 +242,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
         const agendaMs = new Date(`${today}T${pad(settings.dailyAgenda.hour)}:${pad(settings.dailyAgenda.minute)}:00`).getTime();
         if (!Number.isNaN(agendaMs) && now >= agendaMs && now - agendaMs <= DIGEST_CATCHUP_MS) {
           const n = dueToday.length;
-          fire(`agenda|${today}`, `Good morning, ${n} task${n === 1 ? '' : 's'} due today`, 'Open Cobalt to see them.', settings.dailyAgenda.channels);
+          fire(`agenda|${today}`, `Good morning, ${n} task${n === 1 ? '' : 's'} due today`, `${digestList(dueToday)}\n\nOpen Cobalt to see them.`, settings.dailyAgenda.channels);
         }
       }
     }
@@ -249,7 +256,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
         const fireMs = new Date(`${today}T${pad(hour24)}:${pad(settings.tomorrow.minute)}:00`).getTime();
         if (!Number.isNaN(fireMs) && now >= fireMs && now - fireMs <= DIGEST_CATCHUP_MS) {
           const n = dueTmr.length;
-          fire(`tomorrow|${today}`, `Heads-up: ${n} task${n === 1 ? '' : 's'} due tomorrow`, 'Open Cobalt to plan ahead.', settings.tomorrow.channels);
+          fire(`tomorrow|${today}`, `Heads-up: ${n} task${n === 1 ? '' : 's'} due tomorrow`, `${digestList(dueTmr)}\n\nOpen Cobalt to plan ahead.`, settings.tomorrow.channels);
         }
       }
     }
@@ -370,7 +377,7 @@ export function startNotificationScheduler(data: Data, opts: SchedulerOpts = {})
     .getNotifySent()
     .then((seed) => {
       if (stopped) return;
-      attachLedger(seed, (key, day) => data.claimNotifySent(key, day));
+      attachLedger(seed, (key, day, info) => data.claimNotifySent(key, day, info));
     })
     .catch(() => {
       /* offline / rules — fall back to the local ledger, i.e. today's behavior */

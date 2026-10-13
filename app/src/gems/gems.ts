@@ -123,6 +123,32 @@ async function persist(): Promise<void> {
   subscribers.forEach((cb) => cb());
 }
 
+/**
+ * GEMS FOR GRADES (Gabe, 10/12). A newly posted grade pays by how well it went, once
+ * per assignment, ever. Only grades that came from Schoology can pay (a what-if never
+ * reaches here), and only grades that arrive AFTER the student started using the
+ * Grades tab (grades/view.ts passes just the unseen ones), so nothing pays
+ * retroactively. PLACEHOLDER AMOUNTS, like the completion rewards above.
+ */
+const GRADE_GEMS: Array<[number, number]> = [
+  [97, 20], [93, 18], [90, 15], [87, 12], [83, 10], [80, 8], [77, 6], [73, 4], [70, 3], [60, 1],
+];
+export function awardGradeGems(items: { id: string; pct: number }[]): void {
+  if (!data) return;
+  let earned = 0;
+  for (const { id, pct } of items) {
+    const key = 'g_' + id;
+    if (record.paidOut[key]) continue;
+    record.paidOut[key] = true;
+    earned += (GRADE_GEMS.find(([cut]) => pct >= cut - 1e-9) ?? [0, 0])[1];
+  }
+  if (earned > 0) {
+    balance += earned;
+    showGemsToast(earned);
+  }
+  void persist();
+}
+
 function gemsForCompletion(task: Task, completedAt: string, nthToday: number): number {
   const doneDate = formatDate(new Date(completedAt));
   // The day right before the due date is day 1 early and earns nothing extra;

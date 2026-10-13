@@ -582,12 +582,13 @@ const sceneEssayAttachments: Scene = {
     await cur.click(text);
     await cur.typeInto(text, 'Outline attached, final draft by Friday');
     await cur.wait(300);
-    expect(send.disabled, 'Submit waits for the "I’m sure" box');
-    const ack = sub.querySelector<HTMLInputElement>('.photo-submit-ack-box')!;
-    await cur.click(ack);
-    await cur.waitUntil(() => ack.checked && !send.disabled, 2000, 'Submit enabled once the box is ticked');
+    expect(!send.disabled, 'Submit is enabled once there is something to hand in');
     await cur.wait(400);
     await cur.click(send);
+    // The red "Are you sure?" popup (10/12): Dan answers Yes.
+    const sure = await cur.waitFor<HTMLElement>('.bm-backdrop.confirm-submit', shell.body);
+    await cur.wait(700);
+    await cur.click(sure.querySelector<HTMLElement>('.bm-btn-danger')!);
     await cur.waitUntil(() => !sub.isConnected || sub.classList.contains('closing'), 5000, 'submission handed in');
     await cur.waitFor('.toast', shell.body);
     await cur.wait(1400); // let "Submitted your files and text to …" read

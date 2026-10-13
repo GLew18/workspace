@@ -96,6 +96,8 @@ export interface NotifySettings {
   tomorrow: { channels: Channels; hour: number; minute: number };
   newAssignment: { channels: Channels; mode: 'each' | 'batched'; intervalMins: number };
   focusSession: { channels: Channels };
+  /** A new grade has been posted (Gabe, 10/12). Fired from the Grades view's reads. */
+  newGrade: { channels: Channels };
 }
 
 export const DEFAULT_NOTIFY_SETTINGS: NotifySettings = {
@@ -111,6 +113,7 @@ export const DEFAULT_NOTIFY_SETTINGS: NotifySettings = {
   tomorrow: { channels: { popup: false, gmail: false }, hour: 8, minute: 0 },
   newAssignment: { channels: { popup: false, gmail: false }, mode: 'each', intervalMins: 60 },
   focusSession: { channels: { popup: true, gmail: false } },
+  newGrade: { channels: { popup: true, gmail: false } },
 };
 
 /** Read a Channels object from stored data, falling back to `dflt` per field. */
@@ -141,9 +144,10 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
     tomorrow: { channels: { ...d.tomorrow.channels }, hour: d.tomorrow.hour, minute: d.tomorrow.minute },
     newAssignment: { channels: { ...d.newAssignment.channels }, mode: d.newAssignment.mode, intervalMins: d.newAssignment.intervalMins },
     focusSession: { channels: { ...d.focusSession.channels } },
+    newGrade: { channels: { ...d.newGrade.channels } },
   };
   const deriveMaster = (): void => {
-    const kids = [out.dueSoon.channels, out.dailyAgenda.channels, out.tomorrow.channels, out.newAssignment.channels, out.focusSession.channels];
+    const kids = [out.dueSoon.channels, out.dailyAgenda.channels, out.tomorrow.channels, out.newAssignment.channels, out.focusSession.channels, out.newGrade.channels];
     out.master = { popup: kids.every((c) => c.popup), gmail: kids.every((c) => c.gmail) };
   };
   if (!raw || typeof raw !== 'object') {
@@ -195,6 +199,7 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
     out.tomorrow.channels = readChannels((r.tomorrow as { channels?: unknown } | undefined)?.channels, d.tomorrow.channels);
     out.newAssignment.channels = readChannels((r.newAssignment as { channels?: unknown } | undefined)?.channels, d.newAssignment.channels);
     out.focusSession.channels = readChannels((r.focusSession as { channels?: unknown } | undefined)?.channels, d.focusSession.channels);
+    out.newGrade.channels = readChannels((r.newGrade as { channels?: unknown } | undefined)?.channels, d.newGrade.channels);
   } else {
     // OLD shape — the single {enabled} master and {email.enabled} were hard gates, so
     // fold them INTO each child's channels: a child was effectively popping up only if
@@ -541,7 +546,15 @@ interface Ledger {
 /** Cloud claimer, installed by attachLedger(). Null in local mode. Resolves true
  *  only for whichever sender (tab, device, or the Cloud Function) claimed the key
  *  first. */
-let ledgerWrite: ((key: string, day: string) => Promise<boolean>) | null = null;
+let ledgerWrite: ((key: string, day: string, info?: SentInfo) => Promise<boolean>) | null = null;
+
+/** What a send said, stored beside its ledger key so every OTHER device can log it too. */
+export interface SentInfo {
+  title: string;
+  body: string;
+  popup: boolean;
+  gmail: boolean;
+}
 /** In-memory view: localStorage seed, then merged with the cloud copy. */
 let ledger: Ledger = loadLocal();
 
@@ -568,7 +581,7 @@ function saveLocal(l: Ledger): void {
  */
 export function attachLedger(
   seed: Record<string, unknown>,
-  write: (key: string, day: string) => Promise<boolean>
+  write: (key: string, day: string, info?: SentInfo) => Promise<boolean>
 ): void {
   // The Function writes {at: <ms>} per key; we write 'YYYY-MM-DD'. Only the KEY
   // matters for dedupe, but the value drives pruning, so normalize on the way in
@@ -681,7 +694,7 @@ if (typeof window !== 'undefined') {
 
 /** Record `key` as sent today, pruning entries older than LEDGER_KEEP_DAYS.
  *  Returns the cloud claim (null in local mode): send only if it resolves true. */
-export function markSent(key: string, todayISO: string): Promise<boolean> | null {
+export function markSent(key: string, todayISO: string, info?: SentInfo): Promise<boolean> | null {
   ledger[key] = todayISO;
   const cutoff = new Date(todayISO + 'T00:00:00');
   cutoff.setDate(cutoff.getDate() - LEDGER_KEEP_DAYS);
@@ -695,5 +708,5 @@ export function markSent(key: string, todayISO: string): Promise<boolean> | null
   // address, a second device) read the cloud ledger once at startup and so never
   // saw the others' sends. Now each sender must atomically claim the key in the
   // shared ledger, and only the one that wins sends.
-  return ledgerWrite ? ledgerWrite(key, todayISO) : null;
+  return ledgerWrite ? ledgerWrite(key, todayISO, info) : null;
 }

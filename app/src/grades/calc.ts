@@ -21,6 +21,12 @@ export interface GAssign {
   exc: number;
   ts: number; // unix seconds the grade last changed
   due: string; // 'YYYY-MM-DD' | ''
+  /** The teacher's comment on this grade, when there is one. */
+  comment?: string;
+  /** A made-up (what-if) grade the student added; never from Schoology. */
+  whatif?: boolean;
+  /** A what-if the grade-goal preview generated (End preview removes it). */
+  preview?: boolean;
 }
 export interface GPeriod {
   id: string;
@@ -194,17 +200,22 @@ export const lastChange = (assigns: GAssign[]): number => assigns.reduce((m, a) 
 export interface Edits {
   /** assignment id -> a score (and out-of) to pretend. */
   set: Map<string, { earned: number; max: number }>;
+  /** Made-up grades added with + inside a category. */
+  added: GAssign[];
 }
 
-export const emptyEdits = (): Edits => ({ set: new Map() });
-export const hasEdits = (e: Edits): boolean => e.set.size > 0;
+export const emptyEdits = (): Edits => ({ set: new Map(), added: [] });
+export const hasEdits = (e: Edits): boolean => e.set.size > 0 || e.added.length > 0;
 
 /** The assignments as the what-if sees them. */
 export function applyEdits(assigns: GAssign[], e: Edits): GAssign[] {
-  return assigns.map((a) => {
-    const v = e.set.get(a.id);
-    return v === undefined ? a : { ...a, earned: v.earned, max: v.max, exc: 0 };
-  });
+  return [
+    ...assigns.map((a) => {
+      const v = e.set.get(a.id);
+      return v === undefined ? a : { ...a, earned: v.earned, max: v.max, exc: 0 };
+    }),
+    ...e.added,
+  ];
 }
 
 /** The grade to show for the edited assignments: Schoology's number moved by the

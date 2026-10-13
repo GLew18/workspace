@@ -92,13 +92,16 @@ export async function buildDemoShell(): Promise<DemoShell> {
   headerLeft.append(brand);
 
   const userBox = el('div', { class: 'app-user' });
+  const refreshBtn = el('button', { class: 'icon-btn' }); // the app's ↻ Refresh (10/12)
+  refreshBtn.innerHTML =
+    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>';
   const suggestBtn = el('button', { class: 'icon-btn' });
   suggestBtn.innerHTML = BULB_SVG;
   const bellBtn = el('button', { class: 'icon-btn' });
   bellBtn.innerHTML = BELL_SVG;
   const gearBtn = el('button', { class: 'icon-btn' });
   gearBtn.innerHTML = GEAR_SVG;
-  userBox.append(suggestBtn, bellBtn, gearBtn); // no name, as in the app (10/4)
+  userBox.append(refreshBtn, suggestBtn, bellBtn, gearBtn); // no name, as in the app (10/4)
   // The top-bar tabs come from the SAME builder the real header uses, so the
   // demo's bar can never drift from the app's. Store is in the bar (the app has
   // it) but has no panel here: visitors can't click the demo and the cursor never

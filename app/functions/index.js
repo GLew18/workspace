@@ -137,12 +137,21 @@ function reminderBody(t, remaining, a, sameDay, untimed) {
 }
 
 /** A Firestore Trigger-Email doc. */
+/** The digest emails name the work, one line each: "• Essay outline (History)". */
+function digestList(tasks) {
+  const lines = tasks.slice(0, 15).map((t) => `• ${t.title}${t.course ? ` (${t.course})` : ''}`);
+  if (tasks.length > 15) lines.push(`• …and ${tasks.length - 15} more`);
+  return lines.join('\n');
+}
+
 function mailDoc(to, subject, body) {
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const html =
     `<div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:15px;color:#212c42;line-height:1.5">` +
     `<p style="margin:0 0 6px;font-weight:600;font-size:16px">${esc(subject)}</p>` +
-    `<p style="margin:0;color:#4a5568">${esc(body)}</p>` +
+    `<p style="margin:0;color:#4a5568">${esc(body)
+      .replace(/\n/g, '<br>')
+      .replace(/Open Cobalt to/g, 'Open <a href="https://cobaltstudy.com" style="color:#3d7fe8;font-weight:600">Cobalt</a> to')}</p>` +
     `<p style="margin:18px 0 0;font-size:12px;color:#94a3b8">Sent by Cobalt · manage in Settings ▸ Notifications</p>` +
     `</div>`;
   return { to: [to], replyTo: HELP_EMAIL, message: { subject, text: body, html } };
@@ -344,7 +353,7 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
       const dueToday = tasks.filter((t) => t && !t.completed && t.dueDate === today);
       if (dueToday.length && due(nowMin, view.agHour * 60 + view.agMinute)) {
         const n = dueToday.length;
-        fire(`agenda|${today}`, `Good morning, ${n} task${n === 1 ? '' : 's'} due today`, 'Open Cobalt to see them.', view.dailyAgenda);
+        fire(`agenda|${today}`, `Good morning, ${n} task${n === 1 ? '' : 's'} due today`, `${digestList(dueToday)}\n\nOpen Cobalt to see them.`, view.dailyAgenda);
       }
     }
 
@@ -353,7 +362,7 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
       const dueTmr = tasks.filter((t) => t && !t.completed && t.dueDate === tomorrow);
       if (dueTmr.length && due(nowMin, (view.tmHour + 12) * 60 + view.tmMinute)) {
         const n = dueTmr.length;
-        fire(`tomorrow|${today}`, `Heads-up: ${n} task${n === 1 ? '' : 's'} due tomorrow`, 'Open Cobalt to plan ahead.', view.tomorrow);
+        fire(`tomorrow|${today}`, `Heads-up: ${n} task${n === 1 ? '' : 's'} due tomorrow`, `${digestList(dueTmr)}\n\nOpen Cobalt to plan ahead.`, view.tomorrow);
       }
     }
 
@@ -671,6 +680,12 @@ function safeCalendarFeedUrl(raw) {
     if (host === 'calendar.google.com') {
       return /^\/calendar\/ical\/[^/]+\/(private-[0-9a-f]+|public)\/basic\.ics$/i.test(u.pathname) ? u.toString() : null;
     }
+    // TEMPORARY (Gabe, 10/12/26): a Schoology calendar feed (the iCal link), kept
+    // until the Schoology API is approved. Host is schoology.com or a subdomain and
+    // the path is a /calendar/feed/ one, nothing else on the host.
+    if (host === 'schoology.com' || host.endsWith('.schoology.com')) {
+      return /\/calendar\/feed\//i.test(u.pathname) ? u.toString() : null;
+    }
     return null;
   } catch {
     return null;
@@ -685,7 +700,7 @@ exports.fetchSchoologyIcal = onCall({ region: 'us-central1' }, async (req) => {
   if (!url) {
     throw new HttpsError(
       'invalid-argument',
-      'That is not a Google Calendar address. It looks like https://calendar.google.com/calendar/ical/…/basic.ics'
+      'That is not a calendar address Cobalt can read. It looks like https://calendar.google.com/calendar/ical/…/basic.ics or webcal://<school>.schoology.com/calendar/feed/ical/…'
     );
   }
 
@@ -1839,6 +1854,8 @@ exports.sgyGrades = onCall(
               exc: numOrNull(a.exception) || 0,
               ts: numOrNull(a.timestamp) || 0,
               due: (m && m.due) || '',
+              // The teacher's note on this grade, when there is one.
+              comment: typeof a.comment === 'string' ? a.comment.trim().slice(0, 1000) : '',
             });
           }
           periods.push({

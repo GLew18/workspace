@@ -47,7 +47,7 @@ export async function initRegistry(d: Data): Promise<void> {
     // saved with parseWords: [] reads back with parseWords undefined. Normalize here
     // — the single point where stored courses enter the app — so every consumer can
     // safely treat parseWords as an array.
-    courses = stored.list.map((c) => ({ ...c, parseWords: Array.isArray(c.parseWords) ? c.parseWords : [] }));
+    courses = stored.list.map((c) => ({ ...c, parseWords: Array.isArray(c.parseWords) ? c.parseWords : [], ...(Array.isArray(c.aliases) ? {} : { aliases: [] }) }));
     hydratedFromStore = true;
   } else {
     // No stored courses. Seed defaults IN MEMORY only — never write them to the
@@ -69,6 +69,13 @@ export function onRegistryChange(cb: () => void): () => void {
   return () => subscribers.delete(cb);
 }
 
+/** A course by its current name OR any name it used to have (case-insensitive). */
+export function courseByAnyName(name: string): CourseConfig | undefined {
+  const l = name.trim().toLowerCase();
+  if (!l) return undefined;
+  return courses.find((c) => c.name.toLowerCase() === l) ?? courses.find((c) => (c.aliases ?? []).some((a) => a.toLowerCase() === l));
+}
+
 export function getCourses(): CourseConfig[] {
   return courses;
 }
@@ -80,7 +87,7 @@ export function getCourseNames(): string[] {
 /** Color for a course name — user config first, static catalog as fallback. */
 export function getCourseColor(name: string): string {
   if (!name) return DEFAULT_COURSE_COLOR;
-  const hit = courses.find((c) => c.name.toLowerCase() === name.toLowerCase());
+  const hit = courseByAnyName(name);
   return hit ? hit.color : staticColor(name);
 }
 
@@ -96,7 +103,7 @@ export function matchCourseStrict(input: string): string {
   const raw = input.trim();
   if (!raw) return '';
   const lower = raw.toLowerCase();
-  const byName = courses.find((c) => c.name.toLowerCase() === lower);
+  const byName = courseByAnyName(lower);
   if (byName) return byName.name;
   return matchByParseWords(raw); // explicit parse words only; '' if none match
 }

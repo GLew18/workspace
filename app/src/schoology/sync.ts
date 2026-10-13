@@ -21,6 +21,7 @@
 
 import type { Data } from '../db';
 import type { Task, Note, ScheduleItem, SchoologySettings } from '../types';
+import { parseIcal, taskEvents, scheduleEvents, type IcalEvent } from './ical';
 import { classifyBatch } from './classify';
 import {
   loadLabels,
@@ -36,6 +37,7 @@ import { getTaskFolders, patchTaskFolder } from '../tasks/folders';
 import { genId } from '../util/ids';
 import { todayStr, addDays } from '../util/dates';
 import { getPrefs } from '../prefs';
+import { firebaseConfig } from '../firebase';
 
 // #region Types — the result of a sync + the persistent "already imported" ledger
 export interface SyncResult {
@@ -51,12 +53,111 @@ interface SeenLedger {
 }
 // #endregion
 
+// #region Fetching — proxy the feed (dev) and download/validate the iCal text
+/**
+ * webcal:// is what Schoology's Copy button hands out, and it is the right thing
+ * for a student to paste — but it is NOT a network protocol. It is https with the
+ * scheme swapped, a signal to the OS meaning "open this in a calendar app".
+ * `fetch()` refuses it outright ("URL scheme webcal is not supported"), which
+ * surfaced as a bogus "Couldn't reach that link" on a perfectly good URL.
+ *
+ * So we swap it back for the request only. Apple Calendar and Google Calendar do
+ * exactly the same thing. Nothing about what the user pastes or sees changes.
+ */
+function toHttps(url: string): string {
+  return url
+    .trim()
+    .replace(/^webcal:\/\//i, 'https://')
+    // http:// is upgraded too. The CLIENT's isSchoologyIcalUrl tolerates http, but
+    // the Cloud Function deliberately does NOT (a server fetch has no excuse to
+    // leave TLS). Without this line a pasted http:// link would validate, work on
+    // localhost via the dev proxy, and then be refused in production — precisely
+    // the works-in-dev-fails-deployed trap this whole change exists to remove.
+    .replace(/^http:\/\//i, 'https://');
+}
+
+/** Is this the dev server, where vite.config's /sgy proxy exists? */
+const onDevProxy = (): boolean =>
+  location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+
+/** Route the feed through the Vite dev proxy to dodge CORS (single-school in dev). */
+function toFetchUrl(url: string): string {
+  const https = toHttps(url);
+  if (onDevProxy()) {
+    const m = https.match(/^https?:\/\/[^/]+(\/.*)$/);
+    if (m) return '/sgy' + m[1];
+  }
+  return https;
+}
+
+/**
+ * Fetch the feed THROUGH THE SERVER, for every origin that isn't the dev server.
+ *
+ * Schoology sends no Access-Control-Allow-Origin header, so a browser on a
+ * deployed origin is forbidden to read the response — the request fails before
+ * the app sees anything ("blocked by CORS policy", confirmed in a real browser).
+ * Server-to-server requests aren't subject to CORS, so the fetchSchoologyIcal
+ * Cloud Function makes the identical request and hands back the body.
+ *
+ * It returns the RAW TEXT and nothing else. Every judgement about that text —
+ * valid iCal? empty calendar? login page? — stays in fetchIcal below, so the dev
+ * path and the deployed path produce identical messages from one piece of logic.
+ */
+async function fetchIcalViaFunction(url: string): Promise<{ ok: boolean; status: number; text: string }> {
+  const { initializeApp, getApps, getApp } = await import('firebase/app');
+  const { getFunctions, httpsCallable } = await import('firebase/functions');
+  const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  const fn = httpsCallable(getFunctions(app, 'us-central1'), 'fetchSchoologyIcal');
+  const res = await fn({ url: toHttps(url) });
+  return res.data as { ok: boolean; status: number; text: string };
+}
+
+export async function fetchIcal(url: string): Promise<string> {
+  let text: string;
+  let status = 200;
+  try {
+    if (onDevProxy()) {
+      const res = await fetch(toFetchUrl(url));
+      status = res.status;
+      text = res.ok ? await res.text() : '';
+    } else {
+      const r = await fetchIcalViaFunction(url);
+      status = r.status;
+      text = r.ok ? r.text : '';
+    }
+  } catch (err) {
+    // The callable throws its own sentences (bad link / not signed in / Schoology
+    // unreachable); surface those rather than burying them under a generic one.
+    const msg = (err as { message?: string }).message || '';
+    throw new Error(msg && !/internal/i.test(msg)
+      ? msg
+      : 'Couldn’t reach that link. Check the URL and your connection.');
+  }
+  if (!text) throw new Error(`That link returned an error (${status}).`);
+  // A real calendar feed must declare itself. HTML pages / wrong URLs won't —
+  // so this catches "valid-looking but not actually iCal" links.
+  if (!/BEGIN:VCALENDAR/i.test(text)) {
+    // An EMPTY Schoology feed isn't an error and isn't a bad link: Schoology
+    // serves a human-readable "There are no events in this calendar" page instead
+    // of an empty calendar file. Say that, rather than blaming the link.
+    if (/no events in this calendar/i.test(text)) {
+      throw new Error('That calendar is empty. Schoology has nothing scheduled on it yet.');
+    }
+    throw new Error('That link isn’t a valid iCal calendar feed.');
+  }
+  return text;
+}
+// #endregion
+
 // #region Source — the real Schoology connection, shaped for the pipeline below
 // Task ids stay 'ical_assign_<id>' and every import keeps source 'schoology-ical'
 // and importedVia 'ext': legacy names from the iCal/extension days, but stored on
 // every existing task, so renaming them would need a data migration.
 interface SourceEvent {
-  assignmentId: string;
+  /** Where it came from: the Schoology connection ('ext', the default) or the
+   *  temporary iCal link ('feed'). */
+  via?: 'ext' | 'feed';
+  assignmentId?: string;
   summary: string;
   description: string;
   url: string;
@@ -102,7 +203,20 @@ async function apiSource(data: Data): Promise<SgyPayload | null> {
 
 // #region Builders — stable dedup key + new-task factory
 /** Stable logical id for dedup. */
-const logicalKey = (e: SourceEvent): string => 'assign_' + e.assignmentId;
+const logicalKey = (e: SourceEvent): string =>
+  e.assignmentId ? 'assign_' + e.assignmentId : 'evt_' + e.summary.trim().toLowerCase().replace(/\s+/g, ' ');
+
+/** An iCal event, shaped like a Schoology-connection event. */
+const eventFromFeed = (e: IcalEvent): SourceEvent => ({
+  via: 'feed',
+  assignmentId: e.assignmentId,
+  summary: e.summary,
+  description: e.description,
+  url: e.url,
+  date: e.date,
+  time: e.time,
+  kind: e.kind === 'assessment' ? 'assessment' : 'assignment',
+});
 
 /** The one URL comparison every attachment dedup here uses. */
 const urlKey = (u: string): string => u.trim().replace(/\/+$/, '');
@@ -134,7 +248,7 @@ function newTask(key: string, e: SourceEvent, course: string): Task {
     timeLabel: '',
     course,
     source: 'schoology-ical',
-    importedVia: 'ext',
+    importedVia: e.via ?? 'ext',
     completed: false,
     completedAt: null,
     priority: 'normal',
@@ -184,16 +298,36 @@ export interface SyncOptions {
 /** Full import pass. Returns counts; throws when Schoology can't be read (not
  *  connected, the read failed, or it sent nothing). */
 export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncResult> {
+  const settings = await data.getProfile<SchoologySettings>('schoology');
   const sgy = await apiSource(data);
-  if (!sgy) {
+  if (!sgy && !settings?.icalUrl) {
     throw new Error(
       (await getSgyApiState(data))?.connected
         ? 'Schoology didn’t send any assignments just now. Try again in a minute.'
         : 'Connect Schoology first.'
     );
   }
+  // TEMPORARY iCal link (Gabe, 10/12/26): kept until Schoology approves the API.
+  // Read when a link is saved; a feed failure is fatal only when the connection
+  // cannot carry the sync alone. Connection entries win over the feed's.
+  let feedEvents: IcalEvent[] = [];
+  let feedRead = false;
+  if (settings?.icalUrl) {
+    try {
+      feedEvents = parseIcal(await fetchIcal(settings.icalUrl));
+      feedRead = true;
+    } catch (err) {
+      if (!sgy) throw err;
+    }
+  }
   const sourceTasks = new Map<string, SourceEvent>();
-  for (const e of eventsFromSgy(sgy)) sourceTasks.set(logicalKey(e), e);
+  for (const e of taskEvents(feedEvents)) {
+    const ev = eventFromFeed(e);
+    const key = logicalKey(ev);
+    const prev = sourceTasks.get(key);
+    if (!prev || ev.date > prev.date) sourceTasks.set(key, ev); // latest day wins
+  }
+  if (sgy) for (const e of eventsFromSgy(sgy)) sourceTasks.set(logicalKey(e), e);
   const today = todayStr();
 
   // Settings ▸ Tasks ▸ Import: which event types come in, and how far ahead.
@@ -349,7 +483,11 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
       if (cur.dueDate !== e.date) delete next.manualOrder;
       changed = true;
     }
-    if ((cur.details ?? '') !== e.description) {
+    // The feed and the connection flatten instructions and links slightly
+    // differently, so the feed may not rewrite them on a task the connection wrote
+    // (otherwise two devices would flip them back and forth).
+    const weakFieldsOk = e.via !== 'feed' || cur.importedVia !== 'ext';
+    if (weakFieldsOk && (cur.details ?? '') !== e.description) {
       remember('details', cur.details ?? '');
       if (e.description) next.details = e.description;
       else delete next.details; // delete, not undefined — Firebase rejects undefined fields
@@ -372,7 +510,7 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
         changes.add(fresh.length === 1 ? 'an attachment' : 'attachments');
       }
     }
-    if ((cur.schoologyUrl ?? '') !== e.url) {
+    if (weakFieldsOk && (cur.schoologyUrl ?? '') !== e.url) {
       remember('schoologyUrl', cur.schoologyUrl ?? '');
       if (e.url) next.schoologyUrl = e.url;
       else delete next.schoologyUrl;
@@ -403,7 +541,7 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
     }
     if (!changed && quiet) altered.push(next);
     if (changed) {
-      next.importedVia = 'ext';
+      if (e.via !== 'feed') next.importedVia = 'ext';
       next.feedUpdated = [...changes]; // surfaces the ✱ "updated" badge on the task row
       // Never store an empty ghost. Today every branch that sets `changed` also
       // calls remember(), so this is always populated here; the check is what keeps
@@ -427,7 +565,8 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
   // coverage window. A task outside that window is left alone.
   const allSourceKeys = new Set(sourceTasks.keys());
   const covered = (t: Task): boolean => {
-    const c = sgy.coverage;
+    if (feedRead) return true;
+    const c = sgy?.coverage;
     return !!c && t.dueDate >= c.from && t.dueDate <= c.to;
   };
   const gone = Object.entries(existing)
@@ -448,18 +587,26 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
 
   // --- schedule (dashboard card): latest day per title, from the API's schedule
   // posts (Gabe, 10/10/26: the card stays, the feed it used to come from does not).
-  if (Array.isArray(sgy.schedule)) {
+  if (sgy && Array.isArray(sgy.schedule)) {
     const byTitle = new Map<string, ScheduleItem>();
     for (const e of sgy.schedule) {
       const prev = byTitle.get(e.title);
       if (!prev || e.date > prev.date) byTitle.set(e.title, e);
     }
     await data.setProfile('schedule', { list: [...byTitle.values()] });
+  } else if (feedRead) {
+    const byTitle = new Map<string, IcalEvent>();
+    for (const e of scheduleEvents(feedEvents)) {
+      const prev = byTitle.get(e.summary);
+      if (!prev || e.date > prev.date) byTitle.set(e.summary, e);
+    }
+    const list: ScheduleItem[] = [...byTitle.values()].map((e) => ({ id: e.id, title: e.summary, date: e.date, url: e.url }));
+    await data.setProfile('schedule', { list });
   }
 
   // --- sync state ---
-  // Written whole, so a leftover iCal link from before 10/9/26 is dropped too.
   await data.setProfile('schoology', {
+    ...(settings?.icalUrl ? { icalUrl: settings.icalUrl } : {}),
     lastSyncAt: new Date().toISOString(),
     lastSyncCount: byKey.size,
   } satisfies SchoologySettings);

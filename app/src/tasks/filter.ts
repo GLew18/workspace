@@ -16,11 +16,14 @@ import { el } from '../util/dom';
 import { getCourses } from '../courses/registry';
 import { PRIORITIES } from './priorities';
 import { openPopup } from '../ui/popup';
+import { FILTER_WIDTH_KEY } from '../util/resize';
 import { todayStr, addDays, addMonths } from '../util/dates';
 
 /** Stands for "no course" / "no folder" in the hidden lists. */
 const NONE = '__none';
 const KEY = 'taskFilter';
+/** More courses than this and the Filter card shows a button instead of the list. */
+const MAX_INLINE_COURSES = 15;
 
 interface Saved {
   courses?: string[];
@@ -64,6 +67,9 @@ export class TaskFilter {
   private strip: HTMLElement | null = null;
   /** The open Filter popup's body, null when closed. */
   private body: HTMLElement | null = null;
+  /** The second card listing every course (only when there are too many to inline). */
+  private coursesBody: HTMLElement | null = null;
+  private courseRows: (() => HTMLElement[]) | null = null;
 
   constructor(
     private data: Data,
@@ -162,6 +168,7 @@ export class TaskFilter {
     this.save();
     this.sync();
     this.fill();
+    this.fillCourses();
     this.onChange();
   }
 
@@ -170,7 +177,34 @@ export class TaskFilter {
     this.save();
     this.sync();
     this.fill();
+    this.fillCourses();
     this.onChange();
+  }
+
+  private fillCourses(): void {
+    const b = this.coursesBody;
+    if (!b || !b.isConnected || !this.courseRows) return;
+    const scroll = b.scrollTop;
+    b.replaceChildren(el('div', { class: 'tf-group' }, this.courseRows()));
+    b.scrollTop = scroll;
+  }
+
+  /** Second card: every course, for when the list is too long for the Filter card. */
+  private openCourses(): void {
+    openPopup(
+      'Filter by course',
+      (body, close) => {
+        this.coursesBody = body;
+        body.classList.add('tf-body', 'tf-courses-body');
+        body.closest('.popup')?.classList.add('tf-popup', 'tf-courses-popup');
+        this.fillCourses();
+        const done = el('button', { class: 'tf-done', type: 'button', text: 'Done' });
+        done.addEventListener('click', () => close());
+        body.after(el('div', { class: 'tf-foot' }, [done]));
+      },
+      this.host,
+      FILTER_WIDTH_KEY
+    );
   }
 
   /** The Filter card: the app's own popup, centered over a dimmed screen. */
@@ -191,7 +225,8 @@ export class TaskFilter {
         this.allBtn = all;
         body.after(el('div', { class: 'tf-foot' }, [all, done]));
       },
-      this.host
+      this.host,
+      FILTER_WIDTH_KEY
     );
   }
 
@@ -228,10 +263,21 @@ export class TaskFilter {
     };
 
     const dim = 'var(--text-dim)';
-    section('Courses', [
+    const courseRows = (): HTMLElement[] => [
       ...getCourses().map((c) => row(c.name, dot(c.color), !this.hiddenCourses.has(c.name.toLowerCase()), this.hiddenCourses, c.name.toLowerCase())),
       row('No course', dot(dim), !this.hiddenCourses.has(NONE), this.hiddenCourses, NONE),
-    ]);
+    ];
+    this.courseRows = courseRows;
+    if (getCourses().length > MAX_INLINE_COURSES) {
+      // Too many to list without making the card tall: one button opens them in a second card.
+      const hidden = this.hiddenCourses.size;
+      const more = el('button', { class: 'tf-row tf-more', type: 'button' }, [
+        el('span', { class: 'tf-label', text: `All courses (${getCourses().length})` + (hidden ? ` · ${hidden} hidden` : '') }),
+        el('span', { class: 'tf-chev', text: '›' }),
+      ]);
+      more.addEventListener('click', () => this.openCourses());
+      section('Courses', [more]);
+    } else section('Courses', courseRows());
     section(
       'Priority',
       PRIORITIES.map((p) => row(p.label, arrow(p.arrow, p.color), !this.hiddenPriorities.has(p.key), this.hiddenPriorities, p.key))

@@ -31,6 +31,13 @@ async function mailApi() {
 /** Queue one email through the Trigger Email extension. Best-effort: never throws
  *  (a failed queue must not break the desktop-notification path). No-op when
  *  Firebase isn't configured (local mode) or no recipient is given. */
+/** The body as HTML: line breaks kept, and "Open Cobalt to…" links Cobalt to the app. */
+function bodyHtml(body: string): string {
+  return escapeHtml(body)
+    .replace(/\n/g, '<br>')
+    .replace(/Open Cobalt to/g, 'Open <a href="https://cobaltstudy.com" style="color:#3d7fe8;font-weight:600">Cobalt</a> to');
+}
+
 export async function queueEmail(to: string, subject: string, body: string): Promise<void> {
   if (!hasFirebaseConfig || !to) return;
   try {
@@ -38,7 +45,7 @@ export async function queueEmail(to: string, subject: string, body: string): Pro
     const html =
       `<div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:15px;color:#212c42;line-height:1.5">` +
       `<p style="margin:0 0 6px;font-weight:600;font-size:16px">${escapeHtml(subject)}</p>` +
-      `<p style="margin:0;color:#4a5568">${escapeHtml(body)}</p>` +
+      `<p style="margin:0;color:#4a5568">${bodyHtml(body)}</p>` +
       `<p style="margin:18px 0 0;font-size:12px;color:#94a3b8">Sent by Cobalt · manage in Settings ▸ Notifications</p>` +
       `</div>`;
     await addDoc(collection(db, MAIL_COLLECTION), {

@@ -238,6 +238,10 @@ export interface CourseConfig {
   name: string; // canonical/display name
   color: string; // hex
   parseWords: string[]; // lowercased keywords/teacher names/room numbers → this course
+  /** Names this course had before the student renamed it (Schoology's own title
+   *  included). An import or the schedule that still says the old name belongs to
+   *  THIS course; it must never spawn a second one. Absent = never renamed. */
+  aliases?: string[];
 }
 
 /** A current/upcoming-week schedule entry (from Schoology "Schedule" calendar posts). */
@@ -250,6 +254,7 @@ export interface ScheduleItem {
 
 /** Schoology connection + sync state, stored at profile/schoology. */
 export interface SchoologySettings {
+  icalUrl?: string; // TEMPORARY (10/12/26): the iCal link, until the Schoology API is approved
   lastSyncAt: string | null; // ISO
   lastSyncCount?: number;
 }

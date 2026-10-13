@@ -20,6 +20,7 @@ import { getCourses, replaceCourses } from '../courses/registry';
 import { buildCourseRow } from '../courses/courseRow';
 import { nextCourseColor } from '../courses/colors';
 import { runSync } from '../schoology/sync';
+import { isSchoologyIcalUrl } from '../schoology/ical';
 import { SCHEDULE_FEED_KEY, type ScheduleFeed, isGoogleCalendarIcalUrl, refreshFeed, saveFeed, readCache } from '../schedule/feed';
 import {
   getSgyApiState,
@@ -119,6 +120,7 @@ interface SettingsOpts {
 
 interface Draft {
   name: string;
+  icalUrl: string; // TEMPORARY (10/12/26): until the Schoology API is approved
   courses: CourseConfig[];
   endSound: string;
   endVolume: number; // 0..1, the Focus end-sound Volume slider
@@ -141,6 +143,10 @@ const HELP: Record<string, { title: string; text: string }> = {
   name: {
     title: 'Your name',
     text: 'What Cobalt calls you, in your greeting and across the app. It’s always capitalized, and you can change it anytime.',
+  },
+  ical: {
+    title: 'Schoology calendar link',
+    text: 'Your personal Schoology calendar (iCal) link. Cobalt uses it to import your assignments automatically. Find it in Schoology under Settings → your calendar feed, then paste it here.\n\nIt’s read-only and has no password in it. Cobalt never sees your Schoology login, and you can reset the link in Schoology anytime.\n\nThis is temporary: once Cobalt’s Schoology connection is approved, signing in replaces it.',
   },
   gcal: {
     title: 'Google Calendar link',
@@ -169,9 +175,14 @@ export class SettingsView {
   // #region State & lifecycle — fields, constructor, full-page render (mount)
   private data: Data;
   private opts: SettingsOpts;
+  private icalInput?: HTMLTextAreaElement;
+  private icalErr?: HTMLElement;
+  private icalStatusEl?: HTMLElement;
+  private syncIcalBtn?: () => void; // refreshes the iCal button's label to match the field
   private statusEl?: HTMLElement; // the "Last synced …" caption under Sync now
   private draft: Draft = {
     name: '',
+    icalUrl: '',
     courses: [],
     endSound: DEFAULT_END_SOUND,
     endVolume: DEFAULT_END_VOLUME,
@@ -208,6 +219,7 @@ export class SettingsView {
     const savedSound = profile['focusEndSound'] as { key: string; volume?: number; enabled?: boolean } | undefined;
     this.draft = {
       name: account?.displayName || this.opts.displayName,
+      icalUrl: this.schoologyMeta.icalUrl ?? '',
       courses: getCourses().map((c) => ({ ...c, parseWords: [...(c.parseWords ?? [])] })),
       endSound: savedSound?.key || DEFAULT_END_SOUND,
       endVolume: savedSound?.volume ?? DEFAULT_END_VOLUME,
@@ -439,6 +451,71 @@ export class SettingsView {
     const notify = this.draft.notify;
     await this.data.setProfile('notifications', notify);
     window.dispatchEvent(new CustomEvent(NOTIFY_SETTINGS_EVENT, { detail: notify }));
+  }
+
+  /** The calendar link is the ONE gated field: validate, confirm a change to an
+   *  existing link (it re-imports everything), then commit + sync. */
+  private applyIcal(): void {
+    const prev = (this.schoologyMeta?.icalUrl || '').trim();
+    const next = this.draft.icalUrl.trim().replace(/^webcal:\/\//i, 'https://');
+    // Reject anything that is not a real Schoology calendar feed before anything
+    // persists (a YouTube link is a valid URL). Empty = removing the link.
+    if (next && !isSchoologyIcalUrl(next)) {
+      this.setIcalError(true);
+      return;
+    }
+    this.setIcalError(false);
+    if (prev && next !== prev) {
+      this.confirmDanger(
+        next
+          ? 'Change your Schoology link? This re-imports your assignments from the new feed.'
+          : 'Remove your Schoology link? Cobalt will stop importing your assignments from it.',
+        () => void this.commitIcal(next)
+      );
+      return;
+    }
+    void this.commitIcal(next);
+  }
+
+  private async commitIcal(icalUrl: string): Promise<void> {
+    this.setIcalError(false);
+    const schoology = { ...(this.schoologyMeta || { lastSyncAt: null }) } as SchoologySettings;
+    if (icalUrl) schoology.icalUrl = icalUrl;
+    else delete schoology.icalUrl;
+    await this.data.setProfile('schoology', schoology);
+    this.schoologyMeta = schoology;
+    this.draft.icalUrl = icalUrl;
+    if (this.icalInput) this.icalInput.value = icalUrl; // reflect webcal→https normalization
+    this.syncIcalBtn?.(); // link now matches what's saved → button returns to "Sync now"
+    if (!icalUrl) {
+      this.setIcalStatus('Not synced yet.');
+      return;
+    }
+    this.setIcalStatus('Syncing…');
+    try {
+      const r = await runSync(this.data);
+      this.schoologyMeta = (await this.data.getProfile<SchoologySettings>('schoology')) || this.schoologyMeta;
+      this.setIcalStatus(
+        `Synced: ${r.added} new${r.updated ? `, ${r.updated} updated` : ''}${r.removed ? `, ${r.removed} removed` : ''}${r.skipped - r.updated > 0 ? `, ${r.skipped - r.updated} unchanged` : ''}.`
+      );
+    } catch (err) {
+      this.setIcalStatus('Sync failed: ' + (err as Error).message, true);
+    }
+  }
+
+  private setIcalStatus(text: string, isError = false): void {
+    if (!this.icalStatusEl) return;
+    this.icalStatusEl.textContent = text;
+    this.icalStatusEl.classList.toggle('settings-status-error', isError);
+  }
+
+  /** Toggle the inline "invalid iCal link" warning on the link field. */
+  private setIcalError(on: boolean): void {
+    if (this.icalErr)
+      this.icalErr.textContent = on
+        ? 'That is not a Schoology calendar link. It looks like webcal://yourschool.schoology.com/calendar/feed/ical/…'
+        : '';
+    this.icalInput?.classList.toggle('invalid', on);
   }
 
   /** Re-run the Schoology import now (the Sync now button). */
@@ -773,6 +850,46 @@ export class SettingsView {
     const apiSlot = el('div');
     sec.append(apiSlot);
     void this.renderSgyApi(apiSlot);
+
+    // TEMPORARY iCal link (Gabe, 10/12/26), back where it was until the Schoology
+    // API is approved. The button's label reflects whether the typed link differs
+    // from what's saved: an unsaved change reads "Save & sync", else "Sync now".
+    sec.append(this.labelWithHelp('Calendar (iCal) link', 'ical'));
+    const icalInput = textInput({
+      class: 'settings-input',
+      placeholder: 'webcal://… or https://…/ical.ics',
+      value: this.draft.icalUrl,
+    });
+    this.icalInput = icalInput;
+    const icalErr = el('div', { class: 'settings-field-error' });
+    this.icalErr = icalErr;
+    const icalBtn = el('button', { class: 'settings-save settings-ical-btn', text: 'Sync now' }) as HTMLButtonElement;
+    const icalBtnLabel = () => {
+      const saved = (this.schoologyMeta?.icalUrl || '').trim();
+      const typed = this.draft.icalUrl.trim().replace(/^webcal:\/\//i, 'https://');
+      const changed = typed !== saved;
+      icalBtn.textContent = changed ? (typed ? 'Save & sync' : 'Remove link') : 'Sync now';
+      icalBtn.classList.toggle('changed', changed);
+      icalBtn.disabled = !typed && !saved;
+    };
+    this.syncIcalBtn = icalBtnLabel;
+    icalBtn.addEventListener('click', () => this.applyIcal());
+    icalInput.addEventListener('input', () => {
+      this.draft.icalUrl = icalInput.value;
+      this.setIcalError(false);
+      icalBtnLabel();
+    });
+    const icalActions = el('div', { class: 'settings-ical-actions' });
+    icalActions.append(icalBtn);
+    const icalStatus = el('div', { class: 'settings-status' });
+    this.icalStatusEl = icalStatus;
+    this.setIcalStatus(
+      this.schoologyMeta?.icalUrl && this.schoologyMeta.lastSyncAt
+        ? `Last synced ${formatSyncTime(this.schoologyMeta.lastSyncAt)} · ${this.schoologyMeta.lastSyncCount ?? 0} assignments`
+        : 'Not synced yet.'
+    );
+    icalBtnLabel();
+    sec.append(icalInput, icalErr, icalActions, icalStatus);
 
     const p = this.draft.prefs;
     const save = (): void => void this.savePrefs();
@@ -1518,6 +1635,7 @@ export class SettingsView {
       n.tomorrow.channels,
       n.newAssignment.channels,
       n.focusSession.channels,
+      n.newGrade.channels,
     ];
     const syncMasterFromChildren = (): void => {
       n.master.popup = CHILD_CHANNELS.every((c) => c.popup);
@@ -2112,6 +2230,26 @@ export class SettingsView {
     fsCard.append(fsDetail);
     previewRefreshers.push(refreshFs);
 
+    // --- New-grade card (Gabe, 10/12): fired by the Grades view when a grade is posted ---
+    const grCard = el('div', { class: 'ncard' });
+    const grChan = channelGrid(() => n.newGrade.channels, childToggle(n.newGrade.channels));
+    grCard.append(this.notifyBar('target', 'New grades', 'A heads-up the moment a teacher posts a grade.', grChan.el));
+    const grDetail = el('div', { class: 'ncard-detail' });
+    const grInner = el('div', { class: 'ncard-detail-inner' });
+    const grToast = buildToast();
+    const grMail = buildMail();
+    const refreshGr = (): void => {
+      grToast.set('New grade: Essay outline', 'History: graded 94/100.');
+      grMail.set('New grade: Essay outline', 'History: graded 94/100.');
+    };
+    const grCap = el('div', { class: 'nwheel-cap', text: 'Cobalt checks while it is open, and when you press Refresh.' });
+    const grTest = buildTest(() => grToast.get());
+    const grEmailTest = buildTest(() => grToast.get(), 'gmail');
+    grInner.append(grCap, grToast.el, grTest, grMail.el, grEmailTest);
+    grDetail.append(grInner);
+    grCard.append(grDetail);
+    previewRefreshers.push(refreshGr);
+
     // --- "Troubleshoot" button (top) — opens the animated fix-it guides ---
     const howToBtn = el('button', { class: 'notify-howto', text: 'Notifications not allowed? Open the fix-it guides →' }) as HTMLButtonElement;
     howToBtn.addEventListener('click', () => this.openNotifyGuides());
@@ -2123,11 +2261,15 @@ export class SettingsView {
     tasksTypes.append(dueCard, agCard, tmCard, naCard);
     const focusTypes = el('div', { class: 'ntypes' });
     focusTypes.append(fsCard);
+    const gradeTypes = el('div', { class: 'ntypes' });
+    gradeTypes.append(grCard);
 
     const groups = el('div', { class: 'ngroups' });
     groups.append(
       el('div', { class: 'settings-group-label', text: '📚 Tasks' }),
       tasksTypes,
+      el('div', { class: 'settings-group-label', text: '📊 Grades' }),
+      gradeTypes,
       el('div', { class: 'settings-group-label', text: '🎯 Focus' }),
       focusTypes
     );
@@ -2159,11 +2301,13 @@ export class SettingsView {
       tmChan.sync();
       naChan.sync();
       fsChan.sync();
+      grChan.sync();
       vis(dueCard, n.dueSoon.channels, dueToast, dueTest, dueMail, dueEmailTest);
       vis(agCard, n.dailyAgenda.channels, agToast, agTest, agMail, agEmailTest);
       vis(tmCard, n.tomorrow.channels, tmToast, tmTest, tmMail, tmEmailTest);
       vis(naCard, n.newAssignment.channels, naToast, naTest, naMail, naEmailTest);
       vis(fsCard, n.focusSession.channels, fsToast, fsTest, fsMail, fsEmailTest);
+      vis(grCard, n.newGrade.channels, grToast, grTest, grMail, grEmailTest);
       refreshPreviews();
     };
 
@@ -2265,7 +2409,7 @@ export class SettingsView {
       const g = guides()[gi];
       card.style.setProperty('--gda', g.color); // guide accent colors the tag + dots
       const head = el('div', { class: 'ngd-head' });
-      const back = el('button', { class: 'ngd-back', text: '‹ All causes' });
+      const back = el('button', { class: 'back-btn', text: '‹ All causes' });
       back.addEventListener('click', () => {
         gi = -1;
         render();
@@ -2318,9 +2462,7 @@ export class SettingsView {
     document.addEventListener('keydown', onKey);
 
     const bar = el('div', { class: 'credits-page-bar' });
-    const back = el('button', { class: 'credits-page-back', title: 'Back' });
-    back.innerHTML =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>';
+    const back = el('button', { class: 'back-btn', text: '‹ Back' });
     back.addEventListener('click', close);
     bar.append(back, el('div', { class: 'credits-page-title', text: 'Music credits' }));
 

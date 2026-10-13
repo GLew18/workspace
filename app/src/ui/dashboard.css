@@ -513,13 +513,6 @@
   font-weight: 500;
   opacity: 0.75;
 }
-.dash-sched-bar {
-  flex: none;
-  align-self: stretch;
-  width: 4px;
-  border-radius: 2px;
-  background: var(--c);
-}
 .dash-sched-main {
   flex: 1;
   min-width: 0;
@@ -527,7 +520,7 @@
 .dash-sched-name {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--c); /* the course's color; no divider bar (Gabe, 10/12) */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

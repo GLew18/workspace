@@ -329,7 +329,7 @@ export async function applySgyPayload(data: Data, payload: SgyPayload): Promise<
   // list (names, colors, parse words) with seeds. Labels/tasks still apply;
   // only seeding waits, and the next run picks it up.
   if (registryHydratedFromStore()) {
-    const have = new Set(getCourses().map((c) => c.name.toLowerCase().trim()));
+    const have = new Set(getCourses().flatMap((c) => [c.name, ...(c.aliases ?? [])]).map((n) => n.toLowerCase().trim()));
     // Seed from the labels too, not just the course list: courseTextNear can name a
     // course the nav never listed, and a task stamped with a course the registry
     // lacks renders gray and is missing from Settings.

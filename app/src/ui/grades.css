@@ -100,6 +100,7 @@
 }
 .grades-ago.fresh {
   color: var(--course, var(--accent));
+  font-weight: 700;
 }
 .grades-clock {
   display: inline-flex;
@@ -117,9 +118,10 @@
   opacity: 0.5;
 }
 .grades-course {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   width: 100%;
   text-align: left;
   color: var(--text);
@@ -142,18 +144,10 @@
   min-width: 0;
 }
 .grades-course-name {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 650;
   overflow-wrap: anywhere;
-}
-.grades-course-name::before {
-  content: '';
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--course, var(--text-dim));
-  margin-right: 8px;
+  color: var(--course, var(--text));
 }
 .grades-course-sub {
   color: var(--text-dim);
@@ -166,7 +160,7 @@
   flex: none;
 }
 .grades-course-pct {
-  font-size: 24px;
+  font-size: 52px;
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: -0.01em;
@@ -233,6 +227,50 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+}
+.grades-banner-name {
+  color: var(--course, var(--text));
+}
+.grades-banner-r .grades-label {
+  text-align: right;
+}
+.grades-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.grades-goal-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.grades-goal-row .bm-btn {
+  margin-left: auto;
+}
+.grades-goal-status {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.grades-goal-status:empty {
+  display: none;
+}
+.grades-wi-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+.grades-add-foot {
+  flex: 1 1 100%;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .grades-banner-r {
   display: flex;
@@ -382,10 +420,94 @@
 }
 .grades-assign {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 14px 16px;
+}
+.grades-assign-comment {
+  flex: 1 1 100%;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.grades-assign.whatif {
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+.grades-tag {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin-right: 4px;
+}
+.grades-tag.new {
+  background: #ef4444;
+  color: #fff;
+}
+.grades-tag.whatif {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+}
+.grades-tools {
+  display: flex;
+  gap: 2px; /* same spacing as .task-actions */
+}
+.grades-edit,
+.grades-del,
+.grades-cat-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.grades-cat-add {
+  color: var(--text-dim);
+  font-size: 17px;
+  line-height: 1;
+}
+.grades-cat-add:hover {
+  color: var(--text);
+}
+.grades-add-row .grades-score-in {
+  width: 96px;
+}
+.grades-add-name {
+  min-width: 0;
+  width: 100%;
+}
+.grades-add-row .grades-score {
+  flex-wrap: wrap;
+}
+/* The red "new grade" dot: on a course card (corner) and beside a folder's name. */
+.grades-new-dot {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+.grades-new-dot.inline {
+  position: static;
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 8px;
 }
 .grades-assign + .grades-assign {
   border-top: 1px solid var(--border);

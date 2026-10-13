@@ -99,7 +99,7 @@ export function buildSchoolAddress(opts: {
   onPick: (host: string) => void;
   /** Pre-filled address, e.g. the school an expired connection used. */
   value?: string;
-}): { el: HTMLElement; setBusy: (busy: boolean) => void } {
+}): { el: HTMLElement; setBusy: (busy: boolean, label?: string) => void } {
   const wrap = el('div', { style: 'display:flex;flex-direction:column;gap:8px;width:100%' });
   const input = textInput({ class: opts.inputClass, placeholder: 'school.schoology.com', value: opts.value ?? '' });
   input.setAttribute('aria-label', 'Your school’s Schoology address');
@@ -141,11 +141,12 @@ export function buildSchoolAddress(opts: {
   wrap.append(input, btn, sandbox, err);
   return {
     el: wrap,
-    setBusy(b: boolean) {
+    /** While busy, the Connect button itself is the progress line (Gabe, 10/12). */
+    setBusy(b: boolean, label = 'Opening Schoology…') {
       btn.disabled = b;
       sandbox.disabled = b;
       input.disabled = b;
-      btn.textContent = b ? 'Opening Schoology…' : 'Connect';
+      btn.textContent = b ? label : 'Connect';
     },
   };
 }

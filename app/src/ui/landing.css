@@ -897,6 +897,12 @@ html[data-kbd] .landing :is(button, a):focus-visible {
    `host`): pin it to the bottom of the "phone", not the whole page. Only the
    positioning context changes — the slide/fade animation is inherited from .toast
    verbatim, so the frame and the real app animate identically. */
+/* The Focus card runs the real session screen inside the frame: its full-screen overlay
+   and floats anchor to the frame, not the page (same reason as .lp-demoshell-body). */
+.lp-frame-body :is(.focus-overlay, .focus-music-panel, .focus-music-menu, .focus-songwin-backdrop, .row-menu-back, .selbar, .cal-pop) {
+  position: absolute;
+}
+.lp-frame-body .focus-overlay { justify-content: safe center; }
 .lp-frame-body .toast {
   position: absolute;
   bottom: 14px;

@@ -407,6 +407,12 @@ async function renderApp(user: AuthUser): Promise<void> {
     '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1v.2h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>';
   suggestBtn.addEventListener('click', () => openSuggestionBox(controller.current()));
 
+  // ↻ Refresh (Gabe, 10/12): re-reads Schoology (tasks, schedule) and the grades in
+  // place, so nobody has to reload the whole page. Wired below, once the views exist.
+  const refreshBtn = el('button', { class: 'icon-btn', 'aria-label': 'Refresh', title: 'Refresh tasks and grades' });
+  refreshBtn.innerHTML =
+    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>';
+
   // The 🗄 Task Archives icon that sat here came out on 9/23 (Gabe): finished work is
   // shown in place in the Tasks list, crossed out, until its due date passes (9/26).
 
@@ -419,7 +425,30 @@ async function renderApp(user: AuthUser): Promise<void> {
   // putting it left of the rest keeps the three navigating icons adjacent.
   // No account name up here (Gabe, 10/4): it did nothing, and its width threw the
   // gaps either side of the tabs out of balance. The account is in Settings.
-  userBox.append(suggestBtn, bellBtn, settingsBtn);
+  // "● Synced just now" beside the ↻ (Gabe, 10/12): when Schoology was last read,
+  // ticking forward by the minute, then hours and days.
+  const syncedLabel = el('span', { class: 'synced-label' });
+  syncedLabel.hidden = true;
+  syncedLabel.append(el('span', { class: 'synced-dot' }), el('span', { class: 'synced-text' }));
+  let lastSyncedAt: number | null = null;
+  const paintSynced = (): void => {
+    if (lastSyncedAt === null) return;
+    const mins = Math.floor((Date.now() - lastSyncedAt) / 60_000);
+    const hrs = Math.floor(mins / 60);
+    const days = Math.floor(hrs / 24);
+    syncedLabel.lastElementChild!.textContent =
+      mins < 1 ? 'Synced just now' : mins < 60 ? `Synced ${mins} min ago` : hrs < 24 ? `Synced ${hrs} hr ago` : `Synced ${days} day${days === 1 ? '' : 's'} ago`;
+    syncedLabel.hidden = false;
+  };
+  const markSynced = (at = Date.now()): void => {
+    lastSyncedAt = at;
+    paintSynced();
+  };
+  window.setInterval(paintSynced, 30_000);
+  void data.getProfile<SchoologySettings>('schoology').then((s) => {
+    if (s?.lastSyncAt && lastSyncedAt === null) markSynced(new Date(s.lastSyncAt).getTime());
+  });
+  userBox.append(syncedLabel, refreshBtn, suggestBtn, bellBtn, settingsBtn);
 
   // --- The main tabs: in the header's centre column, a bottom bar on phones
   // (src/ui/appTabs.ts; the hamburger drawer they replaced is gone, Gabe 10/2).
@@ -471,6 +500,21 @@ async function renderApp(user: AuthUser): Promise<void> {
   const testsView = new TestsView(data, user.email || '');
   const gradesView = new GradesView(data, (id) => controller.goToTab(id));
   const focusView = new FocusView(data);
+  // Red dot on the Grades tab while a newly graded assignment hasn't been looked at.
+  const gradesDot = el('span', { class: 'nav-newdot', title: 'New grade', 'aria-label': 'New grade' });
+  navBtns.get('grades')?.append(gradesDot);
+  if (GRADES_TAB_ON) gradesView.watchNew((n) => gradesDot.classList.toggle('on', n > 0));
+  refreshBtn.addEventListener('click', () => {
+    if (refreshBtn.classList.contains('spinning')) return;
+    refreshBtn.classList.add('spinning');
+    void (async () => {
+      const linked = !!(await data.getProfile<SchoologySettings>('schoology'))?.icalUrl || !!(await getSgyApiState(data).catch(() => null))?.connected;
+      await Promise.allSettled([linked ? runSync(data) : Promise.resolve(), GRADES_TAB_ON ? gradesView.refresh() : Promise.resolve()]);
+      data.refresh();
+      refreshBtn.classList.remove('spinning');
+      markSynced();
+    })();
+  });
   activeFocusView = focusView; // sign-out tears this down (music, widget, overlay)
   controller = mountTabs(
     tabsHost,
@@ -523,28 +567,17 @@ async function renderApp(user: AuthUser): Promise<void> {
   // reads this cached answer — which needs to already exist by the first click.
   void detectExtension();
 
-  // iCal LINKS RETIRED (10/9/26): Schoology connects only by signing in now. A
-  // stored feed link is a secret nothing reads any more, so it is deleted once,
-  // and a student who relied on it is told how to reconnect.
-  void (async () => {
-    const sgy = await data.getProfile<SchoologySettings & { icalUrl?: string }>('schoology');
-    if (!sgy || !('icalUrl' in sgy)) return;
-    const rest = { ...sgy };
-    delete rest.icalUrl;
-    await data.setProfile('schoology', rest);
-    if (!(await getSgyApiState(data))?.connected) {
-      showToast('Schoology now connects by signing in. Connect it in Settings to keep your assignments coming in.');
-    }
-  })().catch(() => {});
-
   // Background sync — driven by Settings ▸ Tasks ▸ Syncing: an on-open sync
   // (optional) plus a background re-sync at the chosen interval while the app
   // stays open. Failures are silent (the next tick / Settings retries). A true
   // server cron for when the app is CLOSED comes with Firebase later.
   const syncIfLinked = async () => {
-    if (!(await getSgyApiState(data))?.connected) return;
+    // Linked = the Schoology connection, or the temporary iCal link (10/12/26).
+    const linked = !!(await data.getProfile<SchoologySettings>('schoology'))?.icalUrl || !!(await getSgyApiState(data))?.connected;
+    if (!linked) return;
     try {
       await runSync(data);
+      markSynced();
     } catch {
       /* offline / Schoology unreachable — the next tick or Refresh retries */
     }

@@ -75,7 +75,22 @@ export function buildCourseRow(c: CourseConfig, ctx: CourseRowCtx): HTMLElement 
     c.name = name.value;
     drawRecs(); // suggestions follow the name as it's typed
   });
-  name.addEventListener('blur', () => ctx.onSave());
+  // A rename is an edit of THIS course, not a new one: keep the old name as an alias
+  // so the schedule or Schoology still saying it lands here (see CourseConfig.aliases).
+  let startName = c.name;
+  name.addEventListener('focus', () => {
+    startName = c.name;
+  });
+  name.addEventListener('blur', () => {
+    const was = startName.trim();
+    const now = c.name.trim();
+    if (was && now && was.toLowerCase() !== now.toLowerCase() && was.toLowerCase() !== 'new course') {
+      const have = (c.aliases ??= []);
+      if (!have.some((x) => x.toLowerCase() === was.toLowerCase())) have.push(was);
+    }
+    startName = c.name;
+    ctx.onSave();
+  });
 
   const del = el('button', { class: 'course-del', title: 'Remove', text: '✕' });
   del.addEventListener('click', () => {

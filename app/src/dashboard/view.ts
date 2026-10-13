@@ -612,7 +612,7 @@ export class DashboardView {
   }
 
   /** One schedule row: start time with the end time beneath it (Gabe, 10/7),
-   *  the color bar, name + meta, and "N min left" while it is on. `pinned` is
+   *  name (in the course's color, Gabe 10/12: no divider bar) + meta, and "N min left" while it is on. `pinned` is
    *  the duplicate at the top of the card, which never dims as past. */
   private buildBlockRow(b: ScheduleBlock, now: number, pinned: boolean): HTMLElement {
     const isNow = b.start <= now && now < b.end;
@@ -627,7 +627,6 @@ export class DashboardView {
       el('span', { class: 'dash-sched-t-end', text: formatWallClock(b.end) })
     );
     row.append(time);
-    row.append(el('span', { class: 'dash-sched-bar' }));
     const main = el('div', { class: 'dash-sched-main' });
     main.append(el('div', { class: 'dash-sched-name', text: b.name }));
     const meta = [b.period, b.detail, b.room && (/^\d/.test(b.room) ? `Room ${b.room}` : b.room), b.teachers.join(', ')].filter(Boolean).join(' · ');

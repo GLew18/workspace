@@ -576,7 +576,8 @@
 }
 .onb-field:focus {
   outline: none;
-  border-color: var(--gold);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--gold-glow); /* the app-wide focus look (theme.css) */
 }
 /* ==================== the guide slideshow (slideGuide.ts) ====================
    The player chrome is Cobalt-dark; the SCENES inside copy the real site's
@@ -926,7 +927,7 @@
 }
 .onb-route-status {
   font-size: 12.5px;
-  color: var(--accent);
+  color: var(--red);
   margin-top: 8px;
 }
 .onb-route-status:empty {

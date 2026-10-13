@@ -159,6 +159,22 @@ export interface WidthGripOptions {
  *  height (the folder picker's long names, attachment URLs). Append the returned
  *  element to the box itself; the box is made `position: relative` here so the
  *  grip can ride its edge. */
+/** Popups other than the Filter card share a width key of their own (Gabe, 10/12:
+ *  "about 80% smaller"). The first time it is read, it is seeded at 80% of whatever
+ *  width the old shared key held, so a width someone already dragged to shrinks by
+ *  the same fifth instead of resetting. The old key stays the Filter card's. */
+export const POPUP_WIDTH_KEY = 'ws:popupWidth2';
+export const FILTER_WIDTH_KEY = 'ws:popupWidth';
+export function migratePopupWidth(): void {
+  try {
+    if (localStorage.getItem(POPUP_WIDTH_KEY)) return;
+    const old = parseInt(localStorage.getItem(FILTER_WIDTH_KEY) || '', 10);
+    if (old) localStorage.setItem(POPUP_WIDTH_KEY, String(Math.round(old * 0.8)));
+  } catch {
+    /* storage blocked: the default width applies */
+  }
+}
+
 export function makeWidthGrip(opts: WidthGripOptions): HTMLElement {
   const { box, storageKey, min = 300, max = 900 } = opts;
 

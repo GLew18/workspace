@@ -7,7 +7,7 @@ import type { GAssign, GCourse, GradesPayload } from './calc';
 let n = 0;
 const A = (cat: string, title: string, daysAgo: number, earned: number | null, max: number, exc = 0): GAssign => {
   const due = addDays(todayStr(), -daysAgo);
-  return { id: 'a' + ++n, title, cat, earned, max, exc, ts: Math.floor(new Date(due + 'T12:00:00').getTime() / 1000), due };
+  return { id: 'a' + ++n, title, cat, earned, max, exc, ts: Math.floor(new Date(due + 'T12:00:00').getTime() / 1000), due, ...(n % 4 === 2 ? { comment: 'Good reasoning. Show one more step on question 3 next time.' } : {}) };
 };
 
 const SCALE = {

@@ -337,8 +337,10 @@ export class Data {
   }
   /** Claim one notification key: true only for the ONE caller (any tab, device or
    *  the Cloud Function) that got there first. Same node the Function claims. */
-  async claimNotifySent(key: string, day: string): Promise<boolean> {
-    return this.backend.claim('notifySent', key, { at: Date.now(), day });
+  async claimNotifySent(key: string, day: string, info?: { title: string; body: string; popup: boolean; gmail: boolean }): Promise<boolean> {
+    // title/body/channels ride along (as the Cloud Function's entries do) so the other
+    // devices can show this send in their own notification log.
+    return this.backend.claim('notifySent', key, { at: Date.now(), day, ...info });
   }
 
   // --- focus collection (custom music, hidden built-ins, settings) --------

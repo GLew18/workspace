@@ -17,7 +17,7 @@
 import { el } from '../util/dom';
 import { createWordmark } from '../ui/laurel';
 
-const UPDATED = 'October 11, 2026';
+const UPDATED = 'October 12, 2026';
 
 /** The one public contact address, for support, suggestions and data requests.
  *  A forwarding alias on the cobaltstudy.com domain, so no personal address is
@@ -114,7 +114,7 @@ const SECTIONS: Section[] = [
       'Your Gems balance, the tasks that earned them, and the cosmetics you own and use.',
       'Which courses, priorities and folders you have switched off in the Tasks filter, so it is the same on every device.',
       'If you connect Schoology, your Schoology name, your school’s Schoology address, when you connected, your teachers’ names and school email addresses, and your sync history.',
-      'If you add your class schedule, its Google Calendar feed link and any schedule link you save. Treat a calendar feed link like a password: anyone who has it can read that calendar.',
+      'If you add your class schedule, its Google Calendar feed link and any schedule link you save. If you paste your Schoology calendar link into Settings, that link too. Treat a calendar feed link like a password: anyone who has it can read that calendar.',
     ],
   },
   {
@@ -127,7 +127,7 @@ const SECTIONS: Section[] = [
     heading: 'Connecting Schoology',
     paragraphs: [
       'You connect Schoology by approving Cobalt on your school’s own Schoology page, so Cobalt never sees your Schoology password. Cobalt’s server then keeps a private access key for your account, which your browser never receives, and uses it to read your upcoming assignments (the next 60 days, including any files your teacher attached), your class names, and your teachers’ names and school email addresses (so “Email teacher” can address a message) from Schoology. Cobalt also saves your Schoology name, your school’s Schoology address, and when you connected. The access key is deleted when you disconnect, or when Schoology expires it after about 90 days.',
-      'When you open the Grades tab, Cobalt’s server uses the same access key to read your grades from Schoology (your courses, grading categories and the score on each assignment) and sends them straight to your screen. Cobalt does not store your grades: they are not saved in your account, on Cobalt’s servers, or in your browser, and they are gone when you close the tab. Cobalt does not use grades for anything but showing them to you.',
+      'When you open the Grades tab, Cobalt’s server uses the same access key to read your grades from Schoology (your courses, grading categories and the score on each assignment) and sends them straight to your screen. Cobalt does not store your grades: they are not saved in your account, on Cobalt’s servers, or in your browser, and they are gone when you close the tab. To tell you when a new grade is posted, Cobalt saves only which assignments have been graded and when, never the scores or the assignment names. Cobalt does not use grades for anything but showing them to you.',
       'If you use “Submit photo to Schoology” on an assignment, the photos you pick are shrunk on your device, sent through a Cobalt server function, and handed in to that assignment in Schoology under your account, using the same access key. Cobalt does not keep a copy of the photos; they pass straight through to Schoology. This is the only way Cobalt changes anything in Schoology, and it happens only when you press Submit.',
     ],
   },

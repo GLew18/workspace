@@ -396,12 +396,14 @@ const LP_FOLDER_SVG = (color: string) =>
 // checkable against the app — nothing here is aspirational.
 const VS_ROWS: Array<{ sch: string; cob: string }> = [
   { sch: 'Assignments scattered across course pages', cob: 'Every assignment in one list, grouped by day' },
-  { sch: 'Nothing to check off', cob: 'One-click check-off with a satisfying glide' },
+  { sch: 'Nothing to check off', cob: 'One-click check-off with a creative animation' },
   { sch: 'Deadlines are easy to miss', cob: 'Popup and email reminders, on your schedule' },
   { sch: 'Foreign titles remain cryptic', cob: '185 languages translated automatically' },
   { sch: 'No priorities on your work', cob: 'Five priority levels, color-coded on every task' },
   { sch: 'Your study links live somewhere else', cob: 'Attach links to any task and open them in one click' },
   { sch: 'Slow pages, dated design', cob: 'Instant, dark, and clean' },
+  { sch: 'No gamification or rewards', cob: 'Purchase cosmetic items with earned currency' },
+  { sch: 'Slow submission process', cob: 'Comprehensive batch submitting directly through Cobalt' }
 ];
 // #endregion
 
@@ -454,7 +456,8 @@ export function renderLanding(opts: LandingOpts): HTMLElement {
  *  check-off effects). Automate and Enjoy came out (Gabe, 10/4): Cobalt does not
  *  automate anything, and "Enjoy your Schoology workflow" read oddly. Each word
  *  holds for 3 seconds (Gabe, 10/4). */
-const HERO_WORDS = ['Revolutionize', 'Streamline', 'Organize', 'Simplify', 'Improve', 'Gamify', 'Supercharge'];
+const HERO_WORDS = ['Revolutionize', 'Streamline', 'Organize', 'Simplify', 'Improve', 'Gamify', 'Supercharge', 
+'Upgrade', 'Enhance', 'Curate', 'Optimize', 'Transform'];
 const HERO_WORD_MS = 3000;
 
 /** "<Word> / your Schoology workflow". The verb gets its own line, so a shorter or
@@ -821,6 +824,35 @@ function demoSection(root: HTMLElement): HTMLElement {
  *  rebuilt, so a preview keeps whatever a visitor did in it. */
 const CAR_MS = 650;
 
+/** The Focus card shows a session that is already RUNNING, not the setup screen: bring in
+ *  two sample tasks through the real Import panel, then press the real Start button.
+ *  Everything after that (ring, controls, music, the task bar and its Import) is the
+ *  app's own session screen, so it can't drift from it. */
+async function startSampleSession(body: HTMLElement): Promise<void> {
+  const until = async <T,>(find: () => T | null | undefined, ms = 3000): Promise<T | null> => {
+    for (let t = 0; t < ms; t += 50) {
+      const v = find();
+      if (v) return v;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return null;
+  };
+  try {
+    const toggle = await until(() => body.querySelector<HTMLElement>('.focus-import'));
+    toggle?.click();
+    for (let n = 0; n < 2; n++) {
+      const add = await until(() => body.querySelectorAll<HTMLElement>('.focus-import-task .focus-import-add:not(.imported)')[0]);
+      if (!add) break;
+      add.click();
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    toggle?.click(); // tuck the panel away again
+  } catch {
+    /* a session with no imported rows still starts */
+  }
+  (await until(() => body.querySelector<HTMLElement>('.focus-start')))?.click();
+}
+
 function featuresSection(sandbox: Promise<Data>): HTMLElement {
   const sec = el('section', { class: 'lp-section lp-features lp-reveal', id: 'play' });
   sec.append(
@@ -860,6 +892,30 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
             const panel = el('div', { class: 'app' });
             frame.body.append(panel);
             await new FocusView(data, { host: frame.body }).mount(panel);
+            // A session you can't leave (Gabe, 10/12): the setup screen stays hidden, Minimize
+            // and End Session do nothing here, and if the clock runs out a fresh one starts.
+            panel.style.display = 'none';
+            frame.body.addEventListener(
+              'click',
+              (e) => {
+                if ((e.target as HTMLElement).closest('.focus-min-btn, .focus-ctrl.danger')) {
+                  e.stopImmediatePropagation();
+                  e.preventDefault();
+                }
+              },
+              true
+            );
+            let starting = false;
+            const keepRunning = async (): Promise<void> => {
+              if (starting || !frame.body.isConnected || frame.body.querySelector('.focus-overlay')) return;
+              starting = true;
+              panel.style.display = '';
+              await startSampleSession(frame.body);
+              panel.style.display = 'none';
+              starting = false;
+            };
+            await startSampleSession(frame.body);
+            new MutationObserver(() => void keepRunning()).observe(frame.body, { childList: true });
           } else void new BookmarksView(data, { host: frame.body }).mount(frame.body);
           frame.body.classList.remove('loading');
         })
@@ -1457,11 +1513,6 @@ function compareSection(): HTMLElement {
   });
 
   sec.append(rigid(grid, 1030)); // .lp-vs max-width
-  // The disarming line: Cobalt is a companion, not a replacement. Pre-empts the
-  // "is this allowed?" question from parents and school in one sentence.
-  sec.append(
-    el('p', { class: 'lp-vs-foot', text: 'Hand in photos, recordings and text without opening Schoology.' })
-  );
   return sec;
 }
 // #endregion

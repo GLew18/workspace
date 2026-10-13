@@ -798,7 +798,7 @@
    nothing. */
 
 /* ---- Submit photo to Schoology (schoology/submitPhoto.ts) ---- */
-.photo-submit-modal { max-width: 480px; width: calc(100% - 32px); }
+.photo-submit-modal { max-width: 384px; width: calc(100% - 32px); }
 /* The picker button, full width under the note (Gabe, 10/10: popup first). */
 .photo-submit-pick {
   display: block;
@@ -947,25 +947,6 @@
 .photo-submit-audio { width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   .photo-submit-rec-dot { animation: none; }
-}
-/* "Yes, I'm sure" — the box Submit waits for. */
-.photo-submit-ack {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  margin-top: 12px;
-  font-size: 13.5px;
-  line-height: 1.4;
-  color: var(--text);
-  cursor: pointer;
-}
-.photo-submit-ack-box {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  margin: 1px 0 0;
-  accent-color: var(--accent);
-  cursor: pointer;
 }
 .photo-submit-trim:empty { display: none; }
 /* The optional text box: the app-wide field look (theme.css), full width. */

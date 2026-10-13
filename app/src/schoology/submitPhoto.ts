@@ -15,6 +15,8 @@ import type { Task } from '../types';
 import { el, fadeRemove, showToast, textInput } from '../util/dom';
 import { getSgyApiState, sgyErrorText } from './api';
 import { firebaseConfig } from '../firebase';
+import { confirmDialog } from '../ui/confirm';
+import { makeWidthGrip, migratePopupWidth, POPUP_WIDTH_KEY } from '../util/resize';
 
 const TASK_PREFIX = 'ical_assign_';
 const MAX_PHOTOS = 5; // photos AND recordings together: one submission, five files
@@ -120,22 +122,25 @@ export function openPhotoSubmit(task: Task, demo?: DemoOpts): void {
   // would be asked for camera and microphone access by a marketing page.
   const camBtn = el('button', { class: 'bm-btn', type: 'button', text: '📷 Take photo' }) as HTMLButtonElement;
   const recBtn = el('button', { class: 'bm-btn', type: 'button', text: '🎙 Record' }) as HTMLButtonElement;
+  // CAMERA ROLL (Gabe, 10/12): an images-only picker. On a phone it opens the photo
+  // library straight away; on a computer it is the same file dialog, filtered to
+  // pictures (there is no web route into Google Photos).
+  const libBtn = el('button', { class: 'bm-btn', type: 'button', text: '🖼 Camera roll' }) as HTMLButtonElement;
+  const libPicker = el('input', { type: 'file', accept: 'image/*', multiple: true }) as HTMLInputElement;
   const tools = el('div', { class: 'photo-submit-tools' });
   tools.append(pickBtn);
-  if (!demo) tools.append(camBtn, recBtn);
+  // The camera roll is for phones and tablets; a computer already has Open File Explorer.
+  const touch = window.matchMedia?.('(pointer: coarse)').matches;
+  if (!demo) tools.append(...(touch ? [libBtn] : []), camBtn, recBtn);
   const live = el('div', { class: 'photo-submit-live' }); // the camera or the recorder, while one is open
   live.hidden = true;
   const strip = el('div', { class: 'photo-submit-strip' });
   const note = el('div', { class: 'bm-modal-note photo-submit-trim' });
   const text = textInput({ class: 'photo-submit-text', placeholder: 'Add text to hand in (optional)' });
   const status = el('div', { class: 'photo-submit-status' });
-  // THE CONFIRMATION (Gabe, 10/11): a submission can't be taken back, so Submit
-  // waits for this box. A checkbox, not a second popup: the question sits right
-  // over the button it guards.
-  const ack = el('label', { class: 'photo-submit-ack' });
-  const ackBox = el('input', { type: 'checkbox', class: 'photo-submit-ack-box' }) as HTMLInputElement;
-  ack.append(ackBox, el('span', { text: 'Yes, I’m sure I want to submit this. It can’t be taken back.' }));
-  box.append(tools, live, strip, note, text, ack, status);
+  // THE CONFIRMATION (Gabe, 10/12): pressing Submit opens a red Yes / No popup, since a
+  // submission can't be taken back (see the send handler below).
+  box.append(tools, live, strip, note, text, status);
 
   const row = el('div', { class: 'bm-modal-footer' });
   row.append(el('div', { class: 'bm-modal-spacer' }));
@@ -143,17 +148,20 @@ export function openPhotoSubmit(task: Task, demo?: DemoOpts): void {
   const send = el('button', { class: 'bm-btn bm-btn-primary', text: 'Submit' }) as HTMLButtonElement;
   row.append(cancel, send);
   box.append(row);
+  // Same width as every other popup: they share one remembered width (ui/popup.ts).
+  migratePopupWidth();
+  if (!demo) box.append(makeWidthGrip({ box, storageKey: POPUP_WIDTH_KEY, min: 240 }));
   back.append(box);
 
   // "Submitted your files to “Essay”" (Gabe, 10/11): what went, and where. No
   // trailing ": title", and no account of how Schoology filed the text.
   const doneText = (hasFiles: boolean, hasText: boolean): string =>
     `Submitted your ${hasFiles && hasText ? 'files and text' : hasFiles ? 'files' : 'text'} to “${task.title}”`;
-  const ready = (): boolean => (files.length > 0 || !!text.value.trim()) && !liveOpen() && ackBox.checked;
+  const ready = (): boolean => (files.length > 0 || !!text.value.trim()) && !liveOpen();
   const full = (): boolean => files.length >= MAX_PHOTOS;
   const sync = (): void => {
     send.disabled = busy || !ready();
-    pickBtn.hidden = camBtn.hidden = recBtn.hidden = full() || liveOpen();
+    pickBtn.hidden = libBtn.hidden = camBtn.hidden = recBtn.hidden = full() || liveOpen();
   };
   /** Add files from any source, keeping to the five-file limit. */
   const addFiles = (more: File[]): void => {
@@ -213,8 +221,13 @@ export function openPhotoSubmit(task: Task, demo?: DemoOpts): void {
     addFiles(all.filter((f) => (f.type.startsWith('image/') || isAudio(f)) && !tooBig.includes(f)));
     if (tooBig.length) note.textContent = `${tooBig[0].name} is over 7 MB, too long to send. Try a shorter recording.`;
   });
+  libBtn.addEventListener('click', () => libPicker.click());
+  libPicker.addEventListener('change', () => {
+    const all = [...(libPicker.files ?? [])];
+    libPicker.value = '';
+    addFiles(all.filter((f) => f.type.startsWith('image/')));
+  });
   text.addEventListener('input', sync);
-  ackBox.addEventListener('change', sync);
 
   // --- the camera and the recorder ------------------------------------------
   // Only one is open at a time, in the panel under the buttons. Whatever stream it
@@ -406,12 +419,26 @@ export function openPhotoSubmit(task: Task, demo?: DemoOpts): void {
   };
   document.addEventListener('keydown', onEsc);
 
-  // A deliberate CLICK, never Enter: this one cannot be undone.
+  // A deliberate CLICK, never Enter: this one cannot be undone. Pressing Submit asks
+  // "Are you sure?" in the app's red Yes / No popup; only Yes sends.
   send.addEventListener('click', () => {
     if (busy || !ready()) return;
+    confirmDialog({
+      title: 'Are you sure you want to submit this?',
+      note: 'Your teacher sees it right away, and a submission can’t be taken back.',
+      backdropClass: 'confirm-submit',
+      host: demo ? host : undefined,
+      buttons: [
+        { label: 'No', kind: 'cancel' },
+        { label: 'Yes', kind: 'danger', onClick: () => submit() },
+      ],
+    });
+  });
+  const submit = (): void => {
+    if (busy || !ready()) return;
     busy = true;
-    send.disabled = cancel.disabled = pickBtn.disabled = camBtn.disabled = recBtn.disabled = true;
-    text.disabled = ackBox.disabled = true;
+    send.disabled = cancel.disabled = pickBtn.disabled = libBtn.disabled = camBtn.disabled = recBtn.disabled = true;
+    text.disabled = true;
     status.classList.remove('error');
     void (async () => {
       if (demo) {
@@ -450,14 +477,14 @@ export function openPhotoSubmit(task: Task, demo?: DemoOpts): void {
         showToast(doneText(ids.length > 0, !!text.value.trim()));
       } catch (err) {
         busy = false;
-        cancel.disabled = pickBtn.disabled = camBtn.disabled = recBtn.disabled = text.disabled = ackBox.disabled = false;
+        cancel.disabled = pickBtn.disabled = libBtn.disabled = camBtn.disabled = recBtn.disabled = text.disabled = false;
         sync();
         send.textContent = 'Try again';
         status.textContent = sgyErrorText(err);
         status.classList.add('error');
       }
     })();
-  });
+  };
 
   host.append(back);
   sync();

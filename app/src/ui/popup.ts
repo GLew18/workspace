@@ -10,7 +10,7 @@
 // Styles: .popup-backdrop / .popup / .popup-body in ui/components.css.
 
 import { el, enterConfirms, fadeRemove } from '../util/dom';
-import { makeWidthGrip } from '../util/resize';
+import { makeWidthGrip, migratePopupWidth, POPUP_WIDTH_KEY } from '../util/resize';
 
 /**
  * EVERY TRANSIENT OVERLAY CURRENTLY ON SCREEN (Gabe, 8/27).
@@ -84,8 +84,11 @@ export function popupDoc(): Document {
 export function openPopup(
   title: string,
   build: (body: HTMLElement, close: () => void) => void,
-  host?: HTMLElement
+  host?: HTMLElement,
+  /** The Filter card passes its own key; every other popup shares the default. */
+  widthKey: string = POPUP_WIDTH_KEY
 ): void {
+  migratePopupWidth();
   const backdrop = el('div', { class: 'popup-backdrop' });
   const box = el('div', { class: 'popup' });
   box.append(el('h3', { text: title }));
@@ -94,7 +97,7 @@ export function openPopup(
   // Every popup (folder picker, priority, attachments, details) shares ONE
   // width — drag the right edge once and they all remember it. Width is the
   // pinch here, not height: long folder names and URLs are what get squeezed.
-  box.append(makeWidthGrip({ box, storageKey: 'ws:popupWidth' }));
+  box.append(makeWidthGrip({ box, storageKey: widthKey, min: 240 }));
   // These popups have no primary action: clicking a row IS the save in the
   // pickers, and attachments auto-saves. (This used to look for a
   // [data-enter-primary] element; nothing ever set that attribute after
