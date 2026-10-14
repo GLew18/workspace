@@ -2,6 +2,8 @@
 
 ## Deploying (standing rule, Gabe 9/3/26)
 
+**ALWAYS DEPLOY. EVERY TIME. NO EXCEPTIONS (Gabe, 10/12).** Gabe audits on the deployed site (`https://cobaltstudy.com`), never on localhost, so a change that is not deployed cannot be audited and does not count as done. Finish the change, run the deploy below, verify it on the live site, and only then send the done message. Never stop at "built locally" and never wait to be asked. If the build is blocked by someone else's unfinished edit, fix the blocker or ask, but do not leave the change undeployed.
+
 **Any change a visitor can see ships to the live site in the same session, without being asked.** Gabe should never have to request a deploy for work that is already finished and verified.
 
 **Deploying is part of the change, not a follow-up (reinforced 9/24).** Gabe, verbatim: *"I should expect it to be deployed. Always deployed."* A done message for a visible change is only sent after the deploy has run and been verified on `https://cobaltstudy.com`, and it says so in one line. He should never have to open the site to find out whether it went out. This includes fixes made after an audit.
