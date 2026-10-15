@@ -19,7 +19,7 @@
 
 import type { Data } from '../db';
 import type { Task } from '../types';
-import { getCourses, addCourse, registryHydratedFromStore } from '../courses/registry';
+import { getCourses, addCourse, registryHydratedFromStore, canonicalCourseName } from '../courses/registry';
 import { DEFAULT_COURSE_COLOR } from '../courses/maps';
 import { saveSections, saveTeachers } from '../tasks/teachers';
 
@@ -351,7 +351,7 @@ export async function applySgyPayload(data: Data, payload: SgyPayload): Promise<
   const tasks = await data.getTasksAll();
   const changed: Task[] = [];
   for (const id of Object.keys(scrapedLabels)) {
-    const course = labelFor(labels, id);
+    const course = canonicalCourseName(labelFor(labels, id));
     if (!course) continue;
     const t = tasks[TASK_ID_PREFIX + id];
     if (!t) continue; // never imported, or deleted — labels wait in the store either way

@@ -9,6 +9,7 @@
 // Algebra 2/Trig") and the database rejects that in a key.
 
 import type { Data } from '../db';
+import { courseByAnyName } from '../courses/registry';
 import type { Task } from '../types';
 import type { SgyTeacher, SgyCourse } from '../schoology/extension';
 
@@ -38,8 +39,8 @@ export async function saveSections(data: Data, host: string, list: SgyCourse[]):
 
 /** The course's own page on Schoology, or null when it was never seen there. */
 export function schoologyCourseUrl(course: string): string | null {
-  const c = course.trim().toLowerCase();
-  const hit = c ? sections.find((x) => x.name.trim().toLowerCase() === c) : undefined;
+  const names = namesOf(course);
+  const hit = names.size ? sections.find((x) => names.has(x.name.trim().toLowerCase())) : undefined;
   return hit && sectionHost ? `https://${sectionHost}/course/${hit.id}` : null;
 }
 
@@ -50,8 +51,16 @@ export async function saveTeachers(data: Data, list: SgyTeacher[]): Promise<void
 
 /** The teachers of a course, by exact (case-insensitive) name. */
 export function teachersOf(course: string): SgyTeacher[] {
-  const c = course.trim().toLowerCase();
-  return c ? cache.filter((t) => t.course.trim().toLowerCase() === c) : [];
+  const names = namesOf(course);
+  return names.size ? cache.filter((t) => names.has(t.course.trim().toLowerCase())) : [];
+}
+
+/** Every name a course answers to (lowercased): the one asked, its current name and
+ *  its old ones. Teachers and Schoology pages are filed under Schoology's own name,
+ *  which a renamed course no longer shows (Gabe, 10/14). */
+function namesOf(course: string): Set<string> {
+  const hit = courseByAnyName(course);
+  return new Set([course, hit?.name, ...(hit?.aliases ?? [])].filter((n): n is string => !!n && !!n.trim()).map((n) => n.trim().toLowerCase()));
 }
 
 /**

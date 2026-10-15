@@ -76,6 +76,14 @@ export function courseByAnyName(name: string): CourseConfig | undefined {
   return courses.find((c) => c.name.toLowerCase() === l) ?? courses.find((c) => (c.aliases ?? []).some((a) => a.toLowerCase() === l));
 }
 
+/** The course's CURRENT name for any name it has had. Schoology keeps calling a
+ *  renamed course by its original name, so every import maps through this: a
+ *  student's rename is the course, not a second one (Gabe, 10/14). Unknown names
+ *  come back unchanged. */
+export function canonicalCourseName(name: string): string {
+  return courseByAnyName(name)?.name ?? name;
+}
+
 export function getCourses(): CourseConfig[] {
   return courses;
 }

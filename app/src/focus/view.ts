@@ -3238,7 +3238,7 @@ export class FocusView {
     this.leftRO?.disconnect();
     this.leftRO = null;
     const apply = (): void => {
-      const h = left.getBoundingClientRect().height;
+      const h = left.offsetHeight; // layout height, so a scaled landing frame doesn't shrink it
       if (h > 0) stage.style.setProperty('--focus-left-h', `${Math.round(h)}px`);
     };
     apply(); // best-effort immediate; the observer below keeps it honest

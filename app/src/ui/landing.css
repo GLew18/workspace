@@ -893,13 +893,39 @@ html[data-kbd] .landing :is(button, a):focus-visible {
 .lp-frame-body .focus-modal-back {
   position: absolute;
 }
+/* THE FOCUS CARD (Gabe, 10/14). The real session screen, at the size of a real window:
+   the frame gets a 1100x740 design size (the scaler shrinks it to fit the column), no
+   padding, and the same px corrections the hero demo's frame gets, because focus.css
+   sizes the two columns from the visitor's WINDOW, not from this frame. */
+.lp-frame.lp-frame-focus {
+  width: 1100px;
+  height: 740px;
+}
+.lp-frame-focus .lp-frame-body {
+  padding: 0;
+  overflow: hidden;
+}
+.lp-frame-focus .focus-stage {
+  grid-template-columns: minmax(0, 1fr) minmax(440px, 560px);
+  max-width: 1040px;
+  gap: 60px;
+  align-items: center;
+}
+.lp-frame-focus .focus-right .focus-task-panel {
+  height: var(--focus-left-h, 540px);
+  max-height: none;
+}
+.lp-frame-focus .focus-music-menu { max-height: 380px; }
+.lp-frame-focus .focus-songwin { max-height: 430px; }
+.lp-frame-focus .focus-import-body { max-height: 190px; }
+.lp-frame-focus .popup { max-height: 560px; }
 /* The task-completion undo toast also mounts into the frame (see showUndoToast's
    `host`): pin it to the bottom of the "phone", not the whole page. Only the
    positioning context changes — the slide/fade animation is inherited from .toast
    verbatim, so the frame and the real app animate identically. */
 /* The Focus card runs the real session screen inside the frame: its full-screen overlay
    and floats anchor to the frame, not the page (same reason as .lp-demoshell-body). */
-.lp-frame-body :is(.focus-overlay, .focus-music-panel, .focus-music-menu, .focus-songwin-backdrop, .row-menu-back, .selbar, .cal-pop) {
+.lp-frame-body :is(.focus-overlay, .focus-min-btn, .focus-music-panel, .focus-music-menu, .focus-songwin-backdrop, .row-menu-back, .selbar, .cal-pop) {
   position: absolute;
 }
 .lp-frame-body .focus-overlay { justify-content: safe center; }

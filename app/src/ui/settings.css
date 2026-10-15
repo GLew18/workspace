@@ -331,6 +331,7 @@
    current color onto the button's background itself. */
 .course-color {
   flex: none;
+  margin-right: 6px; /* keeps the swatch clear of the name box's focus glow */
   appearance: none;
   -webkit-appearance: none;
   width: 18px;

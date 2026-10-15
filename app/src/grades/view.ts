@@ -193,22 +193,39 @@ export class GradesView {
       const have: Record<string, number> = first ? {} : { ...(saved as Record<string, number>) };
       const fresh = first ? [] : pending.filter(({ a }) => have[a.id] !== a.ts);
       if (!first && !fresh.length) return;
+      const cfg = normalizeNotifySettings(await this.data.getProfile('notifications')).newGrade;
+      // BATCHED (Gabe, 10/14): hold new grades until the chosen interval has passed
+      // since the last batch. Nothing is recorded meanwhile, so they stay "fresh" and
+      // the next read after the interval sends them all in one message.
+      const now = Date.now();
+      if (!first && cfg.mode === 'batched') {
+        const last = (await this.data.getProfile<number>('gradesBatchAt').catch(() => 0)) || 0;
+        if (now - last < cfg.intervalMins * 60_000) return;
+      }
       for (const { a } of pending) have[a.id] = a.ts;
       const keep = new Set(this.allCourses().flatMap((c) => c.periods.flatMap((p) => p.assignments.map((a) => a.id))));
       for (const id of Object.keys(have)) if (keep.size && !keep.has(id)) delete have[id];
       await this.data.setProfile('gradesNotified', have);
       if (!fresh.length) return;
-      const ch = normalizeNotifySettings(await this.data.getProfile('notifications')).newGrade.channels;
+      if (cfg.mode === 'batched') await this.data.setProfile('gradesBatchAt', now);
+      const ch = cfg.channels;
       if (!ch.popup && !ch.gmail) return;
       const text = (a: GAssign): string =>
         a.exc === 1 ? 'Excused' : a.exc === 3 ? 'Missing' : a.earned !== null && a.max ? `${a.earned}/${a.max}` : 'Graded';
       const goTo = (): void => this.goToTab('grades');
-      if (fresh.length <= 3) {
+      if (cfg.mode === 'each' && fresh.length <= 3) {
         for (const { c, a } of fresh) {
           sendNotification(`New grade: ${a.title}`, `${displayName(c.name)}: ${text(a)}`, { popup: ch.popup, gmail: ch.gmail, name: a.title, onClick: goTo });
         }
+      } else if (fresh.length === 1) {
+        const { c, a } = fresh[0];
+        sendNotification(`New grade: ${a.title}`, `${displayName(c.name)}: ${text(a)}`, { popup: ch.popup, gmail: ch.gmail, name: a.title, onClick: goTo });
       } else {
-        sendNotification(`${fresh.length} new grades`, fresh.map(({ a }) => a.title).join(', '), { popup: ch.popup, gmail: ch.gmail, onClick: goTo });
+        sendNotification(
+          `${fresh.length} new grades`,
+          fresh.map(({ c, a }) => `${a.title} (${displayName(c.name)}): ${text(a)}`).join('\n'),
+          { popup: ch.popup, gmail: ch.gmail, onClick: goTo }
+        );
       }
     } catch {
       /* a failed announcement never blocks the grades */

@@ -37,6 +37,7 @@ import { getTaskFolders, patchTaskFolder } from '../tasks/folders';
 import { genId } from '../util/ids';
 import { todayStr, addDays } from '../util/dates';
 import { getPrefs } from '../prefs';
+import { canonicalCourseName } from '../courses/registry';
 import { firebaseConfig } from '../firebase';
 
 // #region Types — the result of a sync + the persistent "already imported" ledger
@@ -365,7 +366,7 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
   // heuristic engine only handles what has neither.
   const labels = await loadLabels(data);
   const trueCourse = (e: SourceEvent): string =>
-    e.course || (e.assignmentId ? labelFor(labels, e.assignmentId) : '');
+    canonicalCourseName(e.course || (e.assignmentId ? labelFor(labels, e.assignmentId) : ''));
 
   // Classify (incl. the AI call) only the items with no ground-truth label — this
   // also shrinks the batch the classifier ever sees.

@@ -31,6 +31,21 @@ async function mailApi() {
 /** Queue one email through the Trigger Email extension. Best-effort: never throws
  *  (a failed queue must not break the desktop-notification path). No-op when
  *  Firebase isn't configured (local mode) or no recipient is given. */
+/** Every email ends with a way back in (Gabe, 10/14): "Open Cobalt to <what fits>."
+ *  Digests already say it; the rest get the line that suits their subject. */
+function withClosing(subject: string, body: string): string {
+  if (/Open Cobalt to/.test(body)) return body;
+  const many = /multiple|^\d+ new|^\d+ /i.test(subject);
+  const what = /grade/i.test(subject)
+    ? 'see your grades'
+    : /^Focus session/i.test(subject)
+      ? 'start your next session'
+      : /^Due soon|assignment/i.test(subject)
+        ? many ? 'see them' : 'see it'
+        : 'see more';
+  return `${body}\n\nOpen Cobalt to ${what}.`;
+}
+
 /** The body as HTML: line breaks kept, and "Open Cobalt to…" links Cobalt to the app. */
 function bodyHtml(body: string): string {
   return escapeHtml(body)
@@ -38,8 +53,9 @@ function bodyHtml(body: string): string {
     .replace(/Open Cobalt to/g, 'Open <a href="https://cobaltstudy.com" style="color:#3d7fe8;font-weight:600">Cobalt</a> to');
 }
 
-export async function queueEmail(to: string, subject: string, body: string): Promise<void> {
+export async function queueEmail(to: string, subject: string, bodyIn: string): Promise<void> {
   if (!hasFirebaseConfig || !to) return;
+  const body = withClosing(subject, bodyIn);
   try {
     const { db, collection, addDoc } = await mailApi();
     const html =

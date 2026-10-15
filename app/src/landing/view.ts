@@ -878,7 +878,11 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
       label // pushed to the column's bottom edge by CSS (margin-top: auto)
     );
     const frame = deviceFrame();
-    row.append(text, scaleToFit(frame.frame, 620)); // copy LEFT, frame RIGHT
+    // The Focus card is a real session screen, which is laid out for a full window
+    // (~1100px wide). Give its frame that design size and let the fit-scaler shrink
+    // the whole thing, so it keeps the app's own proportions instead of being squeezed.
+    if (f.kind === 'focus') frame.frame.classList.add('lp-frame-focus');
+    row.append(text, scaleToFit(frame.frame, f.kind === 'focus' ? 1100 : 620)); // copy LEFT, frame RIGHT
     card.append(row);
     track.append(card);
     mounts.push(() => {
@@ -909,9 +913,7 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
             const keepRunning = async (): Promise<void> => {
               if (starting || !frame.body.isConnected || frame.body.querySelector('.focus-overlay')) return;
               starting = true;
-              panel.style.display = '';
               await startSampleSession(frame.body);
-              panel.style.display = 'none';
               starting = false;
             };
             await startSampleSession(frame.body);

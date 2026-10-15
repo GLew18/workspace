@@ -144,6 +144,21 @@ function digestList(tasks) {
   return lines.join('\n');
 }
 
+/** Every email ends with a way back in (Gabe, 10/14): "Open Cobalt to <what fits>."
+ *  Digests already say it; the rest get the line that suits their subject. */
+function withClosing(subject, body) {
+  if (/Open Cobalt to/.test(body)) return body;
+  const many = /multiple|^\d+ new|^\d+ /i.test(subject);
+  const what = /grade/i.test(subject)
+    ? 'see your grades'
+    : /^Focus session/i.test(subject)
+      ? 'start your next session'
+      : /^Due soon|assignment/i.test(subject)
+        ? many ? 'see them' : 'see it'
+        : 'see more';
+  return `${body}\n\nOpen Cobalt to ${what}.`;
+}
+
 function mailDoc(to, subject, body) {
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const html =
@@ -401,7 +416,7 @@ exports.sendReminders = onSchedule({ schedule: 'every 5 minutes', timeZone: TZ }
       }
       if (s.gmail) {
         // EMAIL: queue via the Trigger Email extension — to the Auth account email.
-        await fs.collection(MAIL_COLLECTION).add(mailDoc(authEmail, s.title, s.body)).catch(() => {});
+        await fs.collection(MAIL_COLLECTION).add(mailDoc(authEmail, s.title, withClosing(s.title, s.body))).catch(() => {});
       }
     }
   }

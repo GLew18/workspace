@@ -2236,16 +2236,62 @@ export class SettingsView {
     grCard.append(this.notifyBar('target', 'New grades', 'A heads-up the moment a teacher posts a grade.', grChan.el));
     const grDetail = el('div', { class: 'ncard-detail' });
     const grInner = el('div', { class: 'ncard-detail-inner' });
+    grInner.append(el('div', { class: 'nopt-label', text: 'How new grades arrive' }));
+    const grSeg = el('div', { class: 'nseg' });
+    const grSegArrive = el('button', { class: 'nseg-btn', text: 'As they arrive' }) as HTMLButtonElement;
+    const grSegBatch = el('button', { class: 'nseg-btn', text: 'Batched' }) as HTMLButtonElement;
+    grSeg.append(grSegArrive, grSegBatch);
+    const grIntervalWrap = el('div', { class: 'na-interval' });
+    grIntervalWrap.append(el('div', { class: 'nopt-label', text: 'Send new grades together every' }));
+    const grGrid = el('div', { class: 'nlead-grid' });
+    const grCap = el('div', { class: 'nwheel-cap' });
     const grToast = buildToast();
     const grMail = buildMail();
     const refreshGr = (): void => {
-      grToast.set('New grade: Essay outline', 'History: graded 94/100.');
-      grMail.set('New grade: Essay outline', 'History: graded 94/100.');
+      const batched = n.newGrade.mode === 'batched';
+      grSegArrive.classList.toggle('active', !batched);
+      grSegBatch.classList.toggle('active', batched);
+      grIntervalWrap.style.display = batched ? '' : 'none';
+      if (batched) {
+        grToast.set('3 new grades', `Posted in the last ${intervalLabel(n.newGrade.intervalMins)}.`);
+        grMail.set('3 new grades', `Posted in the last ${intervalLabel(n.newGrade.intervalMins)}.`);
+      } else {
+        grToast.set('New grade: Essay outline', 'History: 94/100.');
+        grMail.set('New grade: Essay outline', 'History: 94/100.');
+      }
+      grCap.innerHTML = batched
+        ? `Sends the new grades together every <b>${intervalLabel(n.newGrade.intervalMins)}</b>, while Cobalt is open.`
+        : 'Cobalt checks while it is open, and when you press Refresh.';
     };
-    const grCap = el('div', { class: 'nwheel-cap', text: 'Cobalt checks while it is open, and when you press Refresh.' });
+    const drawGrGrid = (): void => {
+      grGrid.replaceChildren();
+      for (const [mins, label] of INTERVALS) {
+        const bt = el('button', { class: 'nlead', text: label }) as HTMLButtonElement;
+        bt.setAttribute('aria-pressed', String(n.newGrade.intervalMins === mins));
+        bt.addEventListener('click', () => {
+          n.newGrade.intervalMins = mins;
+          drawGrGrid();
+          refreshGr();
+          save();
+        });
+        grGrid.append(bt);
+      }
+    };
+    drawGrGrid();
+    grIntervalWrap.append(grGrid, grCap);
+    grSegArrive.addEventListener('click', () => {
+      n.newGrade.mode = 'each';
+      refreshGr();
+      save();
+    });
+    grSegBatch.addEventListener('click', () => {
+      n.newGrade.mode = 'batched';
+      refreshGr();
+      save();
+    });
     const grTest = buildTest(() => grToast.get());
     const grEmailTest = buildTest(() => grToast.get(), 'gmail');
-    grInner.append(grCap, grToast.el, grTest, grMail.el, grEmailTest);
+    grInner.append(grSeg, grIntervalWrap, grToast.el, grTest, grMail.el, grEmailTest);
     grDetail.append(grInner);
     grCard.append(grDetail);
     previewRefreshers.push(refreshGr);

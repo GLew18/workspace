@@ -97,7 +97,7 @@ export interface NotifySettings {
   newAssignment: { channels: Channels; mode: 'each' | 'batched'; intervalMins: number };
   focusSession: { channels: Channels };
   /** A new grade has been posted (Gabe, 10/12). Fired from the Grades view's reads. */
-  newGrade: { channels: Channels };
+  newGrade: { channels: Channels; mode: 'each' | 'batched'; intervalMins: number };
 }
 
 export const DEFAULT_NOTIFY_SETTINGS: NotifySettings = {
@@ -113,7 +113,7 @@ export const DEFAULT_NOTIFY_SETTINGS: NotifySettings = {
   tomorrow: { channels: { popup: false, gmail: false }, hour: 8, minute: 0 },
   newAssignment: { channels: { popup: false, gmail: false }, mode: 'each', intervalMins: 60 },
   focusSession: { channels: { popup: true, gmail: false } },
-  newGrade: { channels: { popup: true, gmail: false } },
+  newGrade: { channels: { popup: true, gmail: false }, mode: 'each', intervalMins: 60 },
 };
 
 /** Read a Channels object from stored data, falling back to `dflt` per field. */
@@ -144,7 +144,7 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
     tomorrow: { channels: { ...d.tomorrow.channels }, hour: d.tomorrow.hour, minute: d.tomorrow.minute },
     newAssignment: { channels: { ...d.newAssignment.channels }, mode: d.newAssignment.mode, intervalMins: d.newAssignment.intervalMins },
     focusSession: { channels: { ...d.focusSession.channels } },
-    newGrade: { channels: { ...d.newGrade.channels } },
+    newGrade: { channels: { ...d.newGrade.channels }, mode: d.newGrade.mode, intervalMins: d.newGrade.intervalMins },
   };
   const deriveMaster = (): void => {
     const kids = [out.dueSoon.channels, out.dailyAgenda.channels, out.tomorrow.channels, out.newAssignment.channels, out.focusSession.channels, out.newGrade.channels];
@@ -188,6 +188,8 @@ export function normalizeNotifySettings(raw: unknown): NotifySettings {
   const tm = r.tomorrow as { hour?: unknown; minute?: unknown } | undefined;
   if (tm) { if (typeof tm.hour === 'number') out.tomorrow.hour = digestHour(tm.hour, d.tomorrow.hour); if (typeof tm.minute === 'number') out.tomorrow.minute = digestMin(tm.minute, d.tomorrow.minute); }
   const na = r.newAssignment as { mode?: unknown; intervalMins?: unknown } | undefined;
+  const ng = r.newGrade as { mode?: unknown; intervalMins?: unknown } | undefined;
+  if (ng) { out.newGrade.mode = ng.mode === 'batched' ? 'batched' : 'each'; if (typeof ng.intervalMins === 'number' && ng.intervalMins >= 30) out.newGrade.intervalMins = ng.intervalMins; }
   if (na) { out.newAssignment.mode = na.mode === 'batched' ? 'batched' : 'each'; if (typeof na.intervalMins === 'number' && na.intervalMins >= 30) out.newAssignment.intervalMins = na.intervalMins; }
 
   if (r.master) {

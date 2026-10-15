@@ -74,7 +74,7 @@ Same continuity rule already applies to every ✕ close/dismiss button (see `.dl
 
 ## The landing artifacts: ASK every time (Gabe, 10/11)
 
-Whenever a change touches the landing (`app/src/landing/`, `app/src/ui/landing.css`, or anything the landing or its demo renders), finish the change, then ask with `AskUserQuestion`: **"Do you want these changes applied to the landing artifacts?"** Yes / No. Never update them unasked, and never skip the question. The artifacts:
+**ALWAYS APPLY (Gabe, 10/14: "it should always apply to landing").** Whenever a change touches the landing (`app/src/landing/`, `app/src/ui/landing.css`, or anything the landing or its demo renders), rebuild and republish the Cobalt Landing artifact in the same session, after the deploy, without asking. This replaces the old ask-every-time rule. The Snapshot needs a browser, so when it is locked, say so and leave it. The artifacts:
 - Cobalt Landing: https://claude.ai/artifact/V5Y1Vvt5MUK19CSaweXsKN
 - Cobalt Landing Snapshot: https://claude.ai/artifact/5vN8izhGm1dv7TRk8KK3VH
 
