@@ -1180,7 +1180,7 @@ export class FocusView {
     };
 
     // What will you work on? — assembled checklist + free-text add + task import.
-    wrap.append(el('div', { class: 'focus-label', text: 'What are you working on?' }));
+    wrap.append(el('div', { class: 'focus-label focus-section-label', text: 'What are you working on?' }));
 
     // The assembled checklist for this session.
     const todoList = el('div', { class: 'focus-todo-list' });
@@ -1370,7 +1370,7 @@ export class FocusView {
     wrap.append(addRow, todoList, importUI.button, importUI.panel);
 
     // Music
-    wrap.append(el('div', { class: 'focus-label', text: 'Focus music' }));
+    wrap.append(el('div', { class: 'focus-label focus-section-label', text: 'Focus music' }));
     const musicList = el('div', { class: 'focus-music-list' });
     const drawMusic = () => {
       musicList.replaceChildren();

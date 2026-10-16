@@ -200,6 +200,16 @@
   font-size: 12px;
   min-height: 14px;
 }
+/* An empty error line takes no space, so it can't add a gap of its own above the
+   import section (Gabe, 10/15: the three setup sections sit equidistant). */
+.focus-field-error:empty {
+  display: none;
+}
+/* The three setup sections (length / what you're working on / music) are isolated
+   by ONE shared gap: 8px flex gap + this margin = 56px above both labels. */
+.focus-label.focus-section-label {
+  margin-top: 48px;
+}
 /* "+ title" affordance shown when a focus todo has only a course, no title. */
 .focus-todo-text.empty {
   color: var(--text-dim);

@@ -425,30 +425,7 @@ async function renderApp(user: AuthUser): Promise<void> {
   // putting it left of the rest keeps the three navigating icons adjacent.
   // No account name up here (Gabe, 10/4): it did nothing, and its width threw the
   // gaps either side of the tabs out of balance. The account is in Settings.
-  // "● Synced just now" beside the ↻ (Gabe, 10/12): when Schoology was last read,
-  // ticking forward by the minute, then hours and days.
-  const syncedLabel = el('span', { class: 'synced-label' });
-  syncedLabel.hidden = true;
-  syncedLabel.append(el('span', { class: 'synced-dot' }), el('span', { class: 'synced-text' }));
-  let lastSyncedAt: number | null = null;
-  const paintSynced = (): void => {
-    if (lastSyncedAt === null) return;
-    const mins = Math.floor((Date.now() - lastSyncedAt) / 60_000);
-    const hrs = Math.floor(mins / 60);
-    const days = Math.floor(hrs / 24);
-    syncedLabel.lastElementChild!.textContent =
-      mins < 1 ? 'Synced just now' : mins < 60 ? `Synced ${mins} min ago` : hrs < 24 ? `Synced ${hrs} hr ago` : `Synced ${days} day${days === 1 ? '' : 's'} ago`;
-    syncedLabel.hidden = false;
-  };
-  const markSynced = (at = Date.now()): void => {
-    lastSyncedAt = at;
-    paintSynced();
-  };
-  window.setInterval(paintSynced, 30_000);
-  void data.getProfile<SchoologySettings>('schoology').then((s) => {
-    if (s?.lastSyncAt && lastSyncedAt === null) markSynced(new Date(s.lastSyncAt).getTime());
-  });
-  userBox.append(syncedLabel, refreshBtn, suggestBtn, bellBtn, settingsBtn);
+  userBox.append(refreshBtn, suggestBtn, bellBtn, settingsBtn);
 
   // --- The main tabs: in the header's centre column, a bottom bar on phones
   // (src/ui/appTabs.ts; the hamburger drawer they replaced is gone, Gabe 10/2).
@@ -512,7 +489,6 @@ async function renderApp(user: AuthUser): Promise<void> {
       await Promise.allSettled([linked ? runSync(data) : Promise.resolve(), GRADES_TAB_ON ? gradesView.refresh() : Promise.resolve()]);
       data.refresh();
       refreshBtn.classList.remove('spinning');
-      markSynced();
     })();
   });
   activeFocusView = focusView; // sign-out tears this down (music, widget, overlay)
@@ -577,7 +553,6 @@ async function renderApp(user: AuthUser): Promise<void> {
     if (!linked) return;
     try {
       await runSync(data);
-      markSynced();
     } catch {
       /* offline / Schoology unreachable — the next tick or Refresh retries */
     }

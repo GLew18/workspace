@@ -34,15 +34,16 @@ import { runSync } from '../schoology/sync';
 import { replaceCourses, getCourseColor } from '../courses/registry';
 import { buildCourseRow } from '../courses/courseRow';
 import { nextCourseColor } from '../courses/colors';
-import { BADGE_ASSESSMENT_RE } from '../schoology/events';
 import {
   startSchoologyConnect,
   finishSchoologyConnectIfReturning,
   fetchSgyApiPayload,
   sgyErrorText,
+  type SgyApiState,
   buildSchoolAddress,
+  watchSchoologyConnect,
 } from '../schoology/api';
-import { todayStr } from '../util/dates';
+import { addDays, todayStr } from '../util/dates';
 import { genId } from '../util/ids';
 import { openGcalGuide } from './gcalGuide';
 import { buildLanguagePicker } from '../settings/languagePicker';
@@ -88,6 +89,16 @@ const SGY_LOGO =
   '<text x="50" y="51" text-anchor="middle" dominant-baseline="central" ' +
   'font-family="Inter, Helvetica, Arial, sans-serif" font-size="56" font-weight="700" fill="#38383B">S</text>' +
   '</svg>';
+
+/** New courses, each given the next colour from Settings' colour rule (yellow, red,
+ *  blue, green…) instead of the flat grey an unknown course name would get. */
+function freshCourses(names: string[]): CourseConfig[] {
+  const out: CourseConfig[] = [];
+  for (const name of names) {
+    out.push({ id: 'course_' + genId(), name, color: nextCourseColor(out.map((c) => c.color)), parseWords: [] });
+  }
+  return out;
+}
 
 export function runOnboarding({ data, email, fallbackName, onDone, preview }: OnboardingOpts): void {
   // Draft state. NOTHING is written until the payoff screen commits it, so a
@@ -322,7 +333,7 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       const h1 = el('h1', { class: 'rise d1' });
       h1.append('Connect ', el('span', { class: 'g', text: 'Schoology' }));
       // Tells the student what to type (Gabe, 10/12); reveal() replaces it with the result line.
-      const sub = el('p', { class: 'onb-sub rise d2', text: 'Type in your school’s Schoology URL. Then press connect, login and authorize your account.' });
+      const sub = el('p', { class: 'onb-sub rise d2', text: 'Type in your school’s Schoology URL. No unique URL? Just type app.schoology.com. Then press connect, login and authorize your account.' });
 
       // CONNECT WITH SCHOOLOGY (Gabe, 10/7/26), the ONLY way in since 10/9/26: the
       // real connection, through the school's own Schoology approve screen. No card,
@@ -331,18 +342,42 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       const btn = cta('Continue');
       const apiCard = el('div', { class: 'rise d2', style: 'width:100%;max-width:420px;margin-top:18px' });
       const apiStatus = el('div', { class: 'onb-route-status' });
+      let stopListen: (() => void) | null = null;
       const startApi = (host: string): void => {
         picker.setBusy(true); // the button itself says "Opening Schoology…"
         apiStatus.textContent = '';
         // Leaves the page on success; Schoology sends the student back here.
-        startSchoologyConnect(host).catch((e) => {
-          picker.setBusy(false);
-          apiStatus.textContent = sgyErrorText(e);
-        });
+        startSchoologyConnect(host).then(
+          (how) => {
+            if (how !== 'tab') return; // leaving the page
+            picker.setBusy(false);
+            picker.setNote('Schoology opened in a new tab. Log in there and approve Cobalt. Come back here if it asks you to log in first.');
+            // The new tab finishes the connection; this one carries on from here, and
+            // reopens the approval by itself if a login made Schoology forget it.
+            stopListen?.();
+            stopListen = watchSchoologyConnect(data, host, (st) => {
+              stopListen?.();
+              stopListen = null;
+              picker.setNote('');
+              void afterConnect(st);
+            });
+          },
+          (e) => {
+            picker.setBusy(false);
+            apiStatus.textContent = sgyErrorText(e);
+          }
+        );
       };
       // The school's own Schoology address (Gabe, 10/10/26), shared with Settings.
       const picker = buildSchoolAddress({ inputClass: 'onb-field', btnClass: 'onb-route-btn', onPick: startApi });
-      apiCard.append(picker.el, apiStatus);
+      // SAMPLE-DATA FALLBACK (Gabe, 10/15/26): while Schoology has not approved Cobalt,
+      // a reviewer's login is refused after they authorize. Rather than a dead end, they
+      // can carry on with made-up courses and assignments (marked "Sample"). Remove this
+      // once the app is approved.
+      const sampleBtn = el('button', { class: 'onb-route-btn', type: 'button', text: 'Continue with sample data' }) as HTMLButtonElement;
+      sampleBtn.style.display = 'none';
+      sampleBtn.style.marginTop = '8px';
+      apiCard.append(picker.el, apiStatus, sampleBtn);
 
       if (draft.connected) {
         // Back-navigation after connecting: no replay, just the result and Continue.
@@ -404,8 +439,101 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         if (draft.connected) go(index + 1);
       });
 
-      // Finishing a Schoology approval (see sgyResumePending above): real titles fly
-      // in, and the courses screen is filled from the student's real sections.
+      sampleBtn.addEventListener('click', () => {
+        sampleBtn.disabled = true;
+        const SAMPLE: [string, string, number, Task['priority']][] = [
+          ['Honors Algebra 2/Trig', 'Sample: Problem set 4.2', -1, 'high'],
+          ['Honors Algebra 2/Trig', 'Sample: Quiz on logarithms', 1, 'highest'],
+          ['Honors Algebra 2/Trig', 'Sample: Unit 5 test', 6, 'highest'],
+          ['Honors Algebra 2/Trig', 'Sample: HW 5.1 to 5.4', 2, 'normal'],
+          ['Honors Algebra 2/Trig', 'Sample: Desmos graphing activity', 9, 'low'],
+          ['AP Biology', 'Sample: Lab write-up, enzyme rates', 0, 'high'],
+          ['AP Biology', 'Sample: Read chapter 12', 1, 'normal'],
+          ['AP Biology', 'Sample: Cell respiration FRQ', 4, 'high'],
+          ['AP Biology', 'Sample: Unit 4 test', 11, 'highest'],
+          ['AP Biology', 'Sample: Vocabulary flashcards', 3, 'low'],
+          ['US History', 'Sample: Read chapter 9 & annotate', 0, 'normal'],
+          ['US History', 'Sample: DBQ essay outline', 3, 'high'],
+          ['US History', 'Sample: Primary source analysis', 5, 'normal'],
+          ['US History', 'Sample: Unit 5 test', 8, 'highest'],
+          ['US History', 'Sample: Timeline project', 14, 'normal'],
+          ['English 11', 'Sample: Hw #9, Absolutism and the English Civil War', 1, 'normal'],
+          ['English 11', 'Sample: Essay draft, The Great Gatsby', 4, 'high'],
+          ['English 11', 'Sample: Vocabulary quiz', 2, 'low'],
+          ['English 11', 'Sample: Read chapters 5 to 6', 5, 'normal'],
+          ['English 11', 'Sample: Presentation slides', 10, 'high'],
+          ['Spanish 3', 'Sample: Verb conjugation worksheet', 0, 'normal'],
+          ['Spanish 3', 'Sample: Oral presentation', 7, 'high'],
+          ['Spanish 3', 'Sample: Capítulo 6 quiz', 3, 'high'],
+          ['Spanish 3', 'Sample: Write a short story', 12, 'normal'],
+          ['Chemistry', 'Sample: Stoichiometry problem set', 2, 'high'],
+          ['Chemistry', 'Sample: Lab safety quiz', 4, 'low'],
+          ['Chemistry', 'Sample: Periodic trends test', 9, 'highest'],
+          ['Chemistry', 'Sample: Lab report, titration', 6, 'normal'],
+          ['Studio Art', 'Sample: Self-portrait sketch', 5, 'normal'],
+          ['Studio Art', 'Sample: Color theory reflection', 13, 'low'],
+        ];
+        const names = [...new Set(SAMPLE.map((r) => r[0]))];
+        draft.courses = freshCourses(names);
+        draft.coursesFrom = 'schoology';
+        const today = todayStr();
+        const tasks: Task[] = SAMPLE.map(([course, title, days, priority]) => ({
+          id: 'manual_' + genId(),
+          title,
+          dueDate: addDays(today, days),
+          dueTime: '',
+          timeLabel: '',
+          course,
+          source: 'manual',
+          completed: false,
+          completedAt: null,
+          priority,
+          addedAt: new Date().toISOString(),
+          notes: [],
+          translationChecked: true,
+        }));
+        // Tells the Grades tab to show the sample gradebook (it has no real connection to read).
+        void data.setProfile('sampleData', true);
+        void data.putTasksBulk(tasks).then(() => {
+          if (!alive()) return;
+          apiStatus.textContent = '';
+          sampleBtn.style.display = 'none';
+          reveal(tasks.filter((x) => x.dueDate >= today).slice(0, 6).map((x) => x.title), tasks.length);
+        });
+      });
+
+      // After the connection exists: real titles fly in, and the courses screen is
+      // filled from the student's real sections. Run by the tab that came back from
+      // Schoology, or by this one when another tab announces it finished.
+      async function afterConnect(st: SgyApiState): Promise<void> {
+        try {
+          if (st.firstName) draft.name = capitalizeName(st.firstName);
+          if (alive()) picker.setBusy(true, 'Reading your assignments…');
+          const p = await fetchSgyApiPayload();
+          if (!alive()) return;
+          const names = [...new Set((p?.courses ?? []).map((c) => c.name.trim()).filter(Boolean))];
+          if (names.length) {
+            draft.courses = freshCourses(names);
+            draft.coursesFrom = 'schoology';
+          }
+          draft.apiConnected = true;
+          const today = todayStr();
+          const upcoming = (p?.assignments ?? [])
+            .filter((a) => a.date >= today)
+            .sort((a, b) => a.date.localeCompare(b.date));
+          reveal(
+            upcoming.slice(0, 6).map((a) => a.title),
+            upcoming.length
+          );
+        } catch (e) {
+          if (!alive()) return;
+          picker.setBusy(false);
+          apiStatus.textContent = sgyErrorText(e);
+          if (/approved Cobalt/i.test(apiStatus.textContent)) sampleBtn.style.display = '';
+        }
+      }
+
+      // Finishing a Schoology approval (see sgyResumePending above).
       if (sgyResumePending) {
         sgyResumePending = false;
         picker.setBusy(true, 'Finishing the connection…');
@@ -413,28 +541,12 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
           try {
             const st = await finishSchoologyConnectIfReturning();
             if (!st) throw new Error('That Schoology connection expired. Try connecting again.');
-            if (st.firstName) draft.name = capitalizeName(st.firstName);
-            if (alive()) picker.setBusy(true, 'Reading your assignments…');
-            const p = await fetchSgyApiPayload();
-            if (!alive()) return;
-            const names = [...new Set((p?.courses ?? []).map((c) => c.name.trim()).filter(Boolean))];
-            if (names.length) {
-              draft.courses = names.map((name) => ({ id: 'course_' + genId(), name, color: getCourseColor(name), parseWords: [] }));
-              draft.coursesFrom = 'schoology';
-            }
-            draft.apiConnected = true;
-            const today = todayStr();
-            const upcoming = (p?.assignments ?? [])
-              .filter((a) => a.date >= today)
-              .sort((a, b) => a.date.localeCompare(b.date));
-            reveal(
-              upcoming.slice(0, 6).map((a) => a.title),
-              upcoming.length
-            );
+            await afterConnect(st);
           } catch (e) {
             if (!alive()) return;
             picker.setBusy(false);
             apiStatus.textContent = sgyErrorText(e);
+            if (/approved Cobalt/i.test(apiStatus.textContent)) sampleBtn.style.display = '';
           }
         })();
       }
@@ -843,12 +955,6 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
           for (const t of imported) {
             const row = el('div', { class: 'onb-imp-row' });
             row.append(el('span', { class: 'onb-imp-title', text: t.title }));
-            const assess = BADGE_ASSESSMENT_RE.exec(t.title);
-            if (assess) {
-              const word = assess[1].toLowerCase();
-              const label = (word === 'quizzes' ? 'quiz' : word.replace(/s$/, '')).toUpperCase();
-              row.append(el('span', { class: 'badge', text: label }));
-            }
             if (t.course) {
               row.append(
                 el('span', {

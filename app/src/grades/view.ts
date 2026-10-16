@@ -84,7 +84,10 @@ export class GradesView {
   private openCats = new Set<string>();
   /** The grade each course's goal card is aimed at, and the percentage its preview needs. */
   private goal = new Map<string, number>();
-  private goalPct = new Map<string, number>();
+  /** The one category the goal is aimed at, how many assignments it will be, what each
+   *  is out of in points (unset = typical), and the sentence the last Preview produced. */
+  private goalCat = new Map<string, string>();
+  private goalWorth = new Map<string, number>();
   /** The graph's timescale, and the trend number on every course with it. */
   private range: RangeId = 'month';
   private host = '';
@@ -110,6 +113,7 @@ export class GradesView {
 
   mount(panel: HTMLElement): void {
     this.panel = panel;
+    this.resetTrials();
     this.off?.();
     this.off = onRegistryChange(() => this.paint());
     this.paint();
@@ -291,6 +295,16 @@ export class GradesView {
         this.state = { kind: 'ready', payload: sample };
       } else {
         const sgy = await getSgyApiState(this.data).catch(() => null);
+        if (!sgy?.connected && (await this.data.getProfile<boolean>('sampleData').catch(() => false))) {
+          // Sample data (onboarding's fallback while Schoology has not approved Cobalt):
+          // a made-up gradebook, so no new-grade gems or notifications for it.
+          this.state = { kind: 'ready', payload: (await import('./sample')).sampleGrades() };
+          this.host = '';
+          this.loadedAt = Date.now();
+          this.loading = false;
+          this.paint();
+          return;
+        }
         if (!sgy?.connected) {
           this.state = { kind: 'notConnected' };
         } else {
@@ -336,6 +350,7 @@ export class GradesView {
       if (open) root.append(this.detail(open));
       else {
         this.openId = null;
+        this.resetTrials(); // leaving a course drops every practice grade and goal
         root.append(this.grid(courses));
       }
     }
@@ -431,6 +446,16 @@ export class GradesView {
 
   // #region One course ------------------------------------------------------------
 
+  /** Practice grades live only while a course page is open (Gabe, 10/15). */
+  private resetTrials(): void {
+    this.edits.clear();
+    this.adding = null;
+    this.openCats.clear();
+    this.goal.clear();
+    this.goalCat.clear();
+    this.goalWorth.clear();
+  }
+
   private editsFor(id: string): Edits {
     let e = this.edits.get(id);
     if (!e) this.edits.set(id, (e = emptyEdits()));
@@ -485,12 +510,12 @@ export class GradesView {
       this.trendEl(windowSeries(series(c.categories, base), this.days())),
     ]);
     if (edited) {
-      const reset = el('button', { class: 'grades-link', type: 'button', text: 'Reset what-if' });
+      const reset = el('button', { class: 'grades-link', type: 'button', text: 'Reset practice' });
       reset.addEventListener('click', () => {
         this.edits.set(key, emptyEdits());
         this.paint();
       });
-      bannerR.append(el('span', { class: 'grades-banner-was', text: now === null ? 'What-if' : 'What-if · now ' + fmtPct(now) }), reset);
+      bannerR.append(el('span', { class: 'grades-banner-was', text: now === null ? 'Practice' : 'Practice · now ' + fmtPct(now) }), reset);
     }
     root.append(
       el('div', { class: 'grades-card grades-banner' + (edited ? ' whatif' : '') }, [
@@ -686,7 +711,7 @@ export class GradesView {
         this.paint();
       });
       if (unseen.length) toggle.querySelector('.grades-cat-name')?.append(el('span', { class: 'grades-new-dot inline', title: unseen.length + ' new', 'aria-label': 'New grade' }));
-      const plus = el('button', { class: 'grades-cat-add', type: 'button', title: 'Add a what-if grade', 'aria-label': 'Add a what-if grade to ' + cat.title, text: '+' });
+      const plus = el('button', { class: 'grades-cat-add', type: 'button', title: 'Add a practice grade', 'aria-label': 'Add a practice grade to ' + cat.title, text: '+' });
       plus.addEventListener('click', () => {
         this.openCats.add(ck);
         this.markSeen(items);
@@ -701,11 +726,16 @@ export class GradesView {
       block.append(head);
       if (open) {
         const body = el('div', { class: 'grades-assigns' });
-        const sorted = [...items].filter((a) => !a.whatif).sort((a, b) => (b.due || '9999').localeCompare(a.due || '9999') || b.ts - a.ts);
-        const made = items.filter((a) => a.whatif);
+        // Everything pretend goes in ONE group at the bottom (Gabe, 10/15): made-up
+        // grades AND real ones whose score was edited. Real, untouched grades keep
+        // their normal order above it.
+        const edSet = this.editsFor(key).set;
+        const pretend = (a: GAssign): boolean => !!a.whatif || edSet.has(a.id);
+        const sorted = [...items].filter((a) => !pretend(a)).sort((a, b) => (b.due || '9999').localeCompare(a.due || '9999') || b.ts - a.ts);
+        const made = items.filter(pretend);
         if (!sorted.length && !made.length && this.adding !== ck) body.append(el('div', { class: 'grades-note', text: 'Nothing graded here yet.' }));
         for (const a of sorted) body.append(this.assignRow(c, key, a));
-        if (made.length || this.adding === ck) body.append(el('div', { class: 'grades-wi-divider' }, [el('span', { class: 'grades-tag whatif', text: 'What-if grades' }), el('span', { text: 'Not real. They only change the numbers you see here.' })]));
+        if (made.length || this.adding === ck) body.append(el('div', { class: 'grades-wi-divider' }, [el('span', { class: 'grades-wi-head', text: 'Practice grades' }), el('span', { text: 'Not real. They only change the numbers you see here.' })]));
         for (const a of made) body.append(this.assignRow(c, key, a));
         if (this.adding === ck) body.append(this.addForm(key, cat.id));
         block.append(body);
@@ -718,13 +748,12 @@ export class GradesView {
   private assignRow(c: GCourse, key: string, a: GAssign): HTMLElement {
     const ed = this.editsFor(key);
     const overridden = ed.set.has(a.id) || !!a.whatif;
-    const row = el('div', { class: 'grades-assign' + (a.whatif ? ' whatif' : '') });
+    const row = el('div', { class: 'grades-assign' + (overridden ? ' whatif' : '') });
 
     // Beside the title: open it in Schoology, and email the teacher about it. Nothing
     // else belongs here: the row is for reading a grade.
     const titleLine = el('div', { class: 'grades-assign-title' }, [el('span', { class: 'grades-assign-t', text: a.title })]);
     if (this.fresh.has(a.id) || this.isUnseen(a)) titleLine.append(el('span', { class: 'grades-tag new', text: 'New' }));
-    if (overridden) titleLine.append(el('span', { class: 'grades-tag whatif', text: 'What-if', title: 'Not a real grade' }));
     if (this.host && !a.whatif) {
       const link = el('a', { class: 'grades-open grades-open-sgy', href: `https://${this.host}/assignment/${a.id}`, target: '_blank', rel: 'noopener noreferrer', title: 'Open in Schoology', 'aria-label': 'Open ' + a.title + ' in Schoology' });
       link.innerHTML = SCHOOLOGY_SVG;
@@ -744,7 +773,7 @@ export class GradesView {
     const left = el('div', { class: 'grades-assign-l' }, [titleLine, meta]);
 
     if (overridden && !a.whatif) {
-      const b = el('button', { class: 'grades-mini', type: 'button', text: 'Undo what-if' });
+      const b = el('button', { class: 'grades-mini', type: 'button', text: 'Undo' });
       b.addEventListener('click', () => {
         ed.set.delete(a.id);
         this.paint();
@@ -760,7 +789,7 @@ export class GradesView {
   /** The "+" row: name, score and out-of for a made-up grade in this category. */
   private addForm(key: string, catId: string): HTMLElement {
     const ed = this.editsFor(key);
-    const name = el('input', { class: 'grades-input grades-add-name', type: 'text', placeholder: 'Name (optional)', 'aria-label': 'Name of the what-if grade' }) as HTMLInputElement;
+    const name = el('input', { class: 'grades-input grades-add-name', type: 'text', placeholder: 'Name (optional)', 'aria-label': 'Name of the practice grade' }) as HTMLInputElement;
     const earned = el('input', { class: 'grades-input grades-score-in', type: 'number', min: '0', step: 'any', placeholder: 'Score', 'aria-label': 'Score' }) as HTMLInputElement;
     const max = el('input', { class: 'grades-input grades-score-in', type: 'number', min: '0', step: 'any', value: '100', 'aria-label': 'Out of' }) as HTMLInputElement;
     const add = el('button', { class: 'bm-btn bm-btn-primary', type: 'button', text: 'Add' });
@@ -772,7 +801,7 @@ export class GradesView {
         earned.focus();
         return;
       }
-      ed.added.push({ id: 'wi_' + ++this.addSeq, title: name.value.trim() || 'What-if grade', cat: catId, earned: en, max: mn, exc: 0, ts: 0, due: '', whatif: true });
+      ed.added.push({ id: 'wi_' + ++this.addSeq, title: name.value.trim() || 'Practice grade', cat: catId, earned: en, max: mn, exc: 0, ts: 0, due: '', whatif: true });
       this.adding = null;
       this.paint();
     };
@@ -787,7 +816,7 @@ export class GradesView {
     });
     queueMicrotask(() => name.focus());
     return el('div', { class: 'grades-assign grades-add-row' }, [
-      el('div', { class: 'grades-assign-l' }, [name, el('span', { class: 'grades-tag whatif', text: 'What-if · not saved' })]),
+      el('div', { class: 'grades-assign-l' }, [name]),
       el('div', { class: 'grades-score' }, [earned, el('span', { class: 'grades-score-of', text: '/' }), max]),
       el('div', { class: 'grades-add-foot' }, [cancel, add]),
     ]);
@@ -853,12 +882,12 @@ export class GradesView {
     }
     btn.addEventListener('click', edit);
     const tools = el('div', { class: 'grades-tools' });
-    const pen = el('button', { class: 'grades-edit', type: 'button', title: 'Edit this grade (what-if)', 'aria-label': 'Edit ' + a.title + ' as a what-if' });
+    const pen = el('button', { class: 'grades-edit', type: 'button', title: 'Edit this grade', 'aria-label': 'Edit ' + a.title });
     pen.innerHTML = PENCIL;
     pen.addEventListener('click', edit);
     tools.append(pen);
     if (a.whatif) {
-      const del = el('button', { class: 'grades-del', type: 'button', title: 'Remove this what-if grade', 'aria-label': 'Remove ' + a.title, text: '✕' });
+      const del = el('button', { class: 'grades-del', type: 'button', title: 'Remove this practice grade', 'aria-label': 'Remove ' + a.title, text: '✕' });
       del.addEventListener('click', () => {
         ed.added = ed.added.filter((x) => x.id !== a.id);
         this.paint();
@@ -871,89 +900,107 @@ export class GradesView {
   // #endregion
 
   // #region What-if grades (under everything else)
-  /** The grade goal, up under the banner: pick the grade you want, press Preview, and
-   *  Cobalt adds what-if grades to every category showing what you would need. End
-   *  preview takes all of them away again. Nothing here changes your real grade. */
+  /** The grade goal, up under the banner: pick the grade you want, ONE category and what
+   *  the next assignment is out of, and the big box under them says what you need on it.
+   *  It updates as you change anything. Nothing is added to the course or saved. */
   private goalCard(c: GCourse, key: string, base: GAssign[], now: number | null): HTMLElement {
     const ed = this.editsFor(key);
     const card = el('div', { class: 'grades-card grades-goal' });
-    const previewing = ed.added.some((a) => a.preview);
     const weighted = c.categories.filter((k) => (k.weight ?? 0) > 0 && base.some((a) => a.cat === k.id));
     const cats = weighted.length ? weighted : c.categories.filter((k) => base.some((a) => a.cat === k.id));
-    const head = el('div', { class: 'grades-card-head' }, [el('h3', { class: 'grades-h', text: 'Grade goal' }), el('span', { class: 'grades-tag whatif', text: 'What-if · not saved' })]);
-    card.append(head);
+    card.append(el('div', { class: 'grades-card-head' }, [el('h3', { class: 'grades-h', text: 'Grade goal' })]));
     if (now === null || !cats.length) {
       card.append(el('div', { class: 'grades-note', text: 'A goal needs some graded work first.' }));
       return card;
     }
+    const lo = Math.min(99, Math.floor(now) + 1);
     let target = this.goal.get(key) ?? null;
     if (target === null) {
       const up = nextLevel(now, c.scale);
-      target = up ? up.cutoff : Math.min(100, Math.floor(now) + 1);
-      this.goal.set(key, target);
+      target = up ? up.cutoff : lo;
     }
+    target = Math.max(lo, Math.min(100, target));
+    this.goal.set(key, target);
 
-    const levels = c.scale ? c.scale.levels.filter((l) => l.cutoff > now + 1e-9).slice(-4) : [];
-    const pick = el('div', { class: 'grades-chips' });
-    if (levels.length) {
-      for (const l of levels) {
-        const b = el('button', { class: 'grades-chip' + (Math.abs((target ?? 0) - l.cutoff) < 1e-6 ? ' on' : ''), type: 'button', text: `${l.title} (${l.cutoff}%)`, disabled: previewing ? 'true' : undefined });
-        b.addEventListener('click', () => {
-          this.goal.set(key, l.cutoff);
-          this.paint();
-        });
-        pick.append(b);
-      }
-    } else {
-      const i = el('input', { class: 'grades-input grades-wi-num', type: 'number', min: '0', max: '100', step: 'any', value: String(target), 'aria-label': 'Grade you want, percent' }) as HTMLInputElement;
-      i.disabled = previewing;
-      i.addEventListener('input', () => {
-        const n = Number(i.value);
-        if (i.value !== '' && Number.isFinite(n) && n >= 0) this.goal.set(key, n);
-      });
-      pick.append(i, el('span', { class: 'grades-score-of', text: '%' }));
-    }
+    const chosen = cats.find((k) => k.id === this.goalCat.get(key)) ?? cats[0];
+    const typical = typicalMax(base.filter((a) => a.cat === chosen.id));
 
-    const status = el('div', { class: 'grades-goal-status' });
-    const btn = el('button', { class: 'bm-btn ' + (previewing ? '' : 'bm-btn-primary'), type: 'button', text: previewing ? 'End preview' : 'Start preview' });
-    btn.addEventListener('click', () => {
-      if (previewing) {
-        this.edits.set(key, emptyEdits());
-        this.paint();
-        return;
-      }
+    // The big answer box.
+    const big = el('div', { class: 'grades-goal-big' });
+    const sub = el('div', { class: 'grades-goal-sub' });
+    const result = el('div', { class: 'grades-goal-result' }, [big, sub]);
+    const update = (): void => {
       const t = this.goal.get(key) ?? 0;
-      const plan = this.planGoal(c, base, ed, cats, t, now);
-      if (plan.kind !== 'ok') {
-        status.textContent = plan.kind === 'already' ? 'You are already at or above that grade.' : `Out of reach: full marks on one more assignment in every category gets ${gradeText(Math.round(plan.best * 100) / 100, c.scale)}.`;
-        return;
+      const w = this.goalWorth.get(key) ?? typical;
+      const plan = this.planGoal(c, base, ed, [chosen], t, now, 1, () => w);
+      result.classList.remove('bad', 'done');
+      if (plan.kind === 'already') {
+        result.classList.add('done');
+        big.textContent = 'Already there';
+        sub.textContent = 'You are at or above that grade.';
+      } else if (plan.kind === 'impossible') {
+        result.classList.add('bad');
+        big.textContent = 'Out of reach';
+        sub.textContent = `Full marks on one more ${chosen.title} assignment gets ${gradeText(Math.round(plan.best * 100) / 100, c.scale)}.`;
+      } else {
+        const pts = Math.ceil(((w * plan.pct) / 100) * 100) / 100;
+        big.textContent = fmtPct(Math.ceil(plan.pct * 100) / 100);
+        sub.textContent = `${pts} / ${w} points on one more ${chosen.title} assignment`;
       }
-      for (const k of cats) {
-        const worth = typicalMax(base.filter((a) => a.cat === k.id));
-        ed.added.push({ id: 'wp_' + k.id, title: 'Needed for ' + fmtPct(t), cat: k.id, earned: Math.ceil(worth * plan.pct) / 100, max: worth, exc: 0, ts: 0, due: '', whatif: true, preview: true });
-        this.openCats.add(key + ':' + k.id);
-      }
-      this.goalPct.set(key, plan.pct);
+    };
+
+    // The grade you want: a slider, with the letter it lands on beside it.
+    const label = (v: number): string => {
+      const l = letterFor(v, c.scale);
+      return fmtPct(v) + (l ? ` (${l})` : '');
+    };
+    const slider = el('input', { class: 'grades-goal-slider', type: 'range', min: String(lo), max: '100', step: '1', value: String(Math.round(target)), 'aria-label': 'Grade you want, percent' }) as HTMLInputElement;
+    const val = el('span', { class: 'grades-goal-val', text: label(target) });
+    slider.addEventListener('input', () => {
+      const n = Number(slider.value);
+      this.goal.set(key, n);
+      val.textContent = label(n);
+      update();
+    });
+
+    // ONE category: several at once would mean many combinations of good and bad scores.
+    const select = el('select', { class: 'grades-input grades-goal-select', 'aria-label': 'Category of the next assignment' }) as HTMLSelectElement;
+    for (const k of cats) select.append(el('option', { value: k.id, text: k.title }));
+    select.value = chosen.id;
+    select.addEventListener('change', () => {
+      this.goalCat.set(key, select.value);
+      this.goalWorth.delete(key);
       this.paint();
     });
-    if (previewing) {
-      const pct = this.goalPct.get(key);
-      status.textContent = pct === undefined ? 'Previewing.' : `Previewing ${fmtPct(target)}: about ${fmtPct(Math.ceil(pct * 100) / 100)} on one more assignment in every category. Open a category to see the grade needed.`;
-    }
-    card.append(el('div', { class: 'grades-goal-row' }, [el('span', { class: 'grades-wi-label', text: 'I want' }), pick, btn]), status);
+
+    const worthIn = el('input', { class: 'grades-input grades-wi-num', type: 'number', min: '1', step: 'any', placeholder: String(typical), value: this.goalWorth.has(key) ? String(this.goalWorth.get(key)) : '', 'aria-label': 'Points the assignment is out of' }) as HTMLInputElement;
+    worthIn.addEventListener('input', () => {
+      const n = Number(worthIn.value);
+      if (worthIn.value !== '' && Number.isFinite(n) && n > 0) this.goalWorth.set(key, n);
+      else this.goalWorth.delete(key);
+      update();
+    });
+
+    const row = (lab: string, ...kids: (HTMLElement | string)[]): HTMLElement => el('div', { class: 'grades-goal-row' }, [el('span', { class: 'grades-wi-label', text: lab }), ...kids]);
+    update();
+    card.append(
+      row('I want', slider, val),
+      row('Category', select, el('span', { class: 'grades-score-of', text: 'out of' }), worthIn, el('span', { class: 'grades-score-of', text: 'pts' })),
+      result
+    );
     return card;
   }
 
-  /** The one percentage that, scored on one more assignment in EVERY category, lands
+  /** The one percentage that, scored on `n` more assignments in EVERY chosen category, lands
    *  the course on `t`. The grade only rises with that percentage, so it is found by
    *  halving the range. */
-  private planGoal(c: GCourse, base: GAssign[], ed: Edits, cats: GCategory[], t: number, now: number | null): { kind: 'ok'; pct: number } | { kind: 'already' } | { kind: 'impossible'; best: number } {
+  private planGoal(c: GCourse, base: GAssign[], ed: Edits, cats: GCategory[], t: number, now: number | null, n: number, worthFor: (k: GCategory) => number): { kind: 'ok'; pct: number } | { kind: 'already' } | { kind: 'impossible'; best: number } {
     const real = applyEdits(base, { set: ed.set, added: ed.added.filter((a) => !a.preview) });
     const here = shownGrade(c.categories, base, real, now);
     const at = (pct: number): number | null => {
-      const extra = cats.map((k) => {
-        const worth = typicalMax(base.filter((a) => a.cat === k.id));
-        return { id: '_p' + k.id, title: '', cat: k.id, earned: (worth * pct) / 100, max: worth, exc: 0, ts: 0, due: '' } as GAssign;
+      const extra = cats.flatMap((k) => {
+        const worth = worthFor(k);
+        return Array.from({ length: n }, (_, i) => ({ id: `_p${k.id}_${i}`, title: '', cat: k.id, earned: (worth * pct) / 100, max: worth, exc: 0, ts: 0, due: '' }) as GAssign);
       });
       return shownGrade(c.categories, real, [...real, ...extra], here);
     };

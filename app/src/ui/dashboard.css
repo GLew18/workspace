@@ -54,6 +54,7 @@
    being a warning and becomes furniture. */
 .dash-overdue {
   display: none;
+  margin-top: 12px; /* nested in Current Tasks, under its heading */
   background: rgba(239, 68, 68, 0.07);
   border: 1px solid rgba(239, 68, 68, 0.4);
   border-left: 4px solid var(--red);

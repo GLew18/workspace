@@ -44,10 +44,63 @@ export async function getSgyApiState(data: Data): Promise<SgyApiState | null> {
   return s && typeof s === 'object' ? s : null;
 }
 
-/** Leaves the app: full-page redirect to the school's Schoology approve screen. */
-export async function startSchoologyConnect(host: string): Promise<void> {
-  const { url } = await callable<{ url: string }>('sgyConnectStart', { host, returnTo: location.origin });
-  location.assign(url);
+/** Opens the school's Schoology approve screen in a NEW tab, so Cobalt stays open
+ *  behind it and a student who logs into the wrong account can just close the tab
+ *  (Gabe, 10/15/26). The tab is opened before the server call so the click still
+ *  counts as a user gesture; if the browser blocks it, this falls back to leaving the
+ *  page. Resolves 'tab' (Cobalt is still here, waiting) or 'page' (we are leaving). */
+export async function startSchoologyConnect(host: string, allowPage = true): Promise<'tab' | 'page' | 'blocked'> {
+  let win: Window | null = null;
+  try {
+    // A NAMED tab, so a second attempt reuses the same Schoology tab.
+    win = window.open('about:blank', 'cobalt-schoology');
+  } catch {
+    win = null;
+  }
+  try {
+    const { url } = await callable<{ url: string }>('sgyConnectStart', { host, returnTo: location.origin });
+    if (win && !win.closed) {
+      win.location.href = url;
+      return 'tab';
+    }
+    if (!allowPage) return 'blocked';
+    location.assign(url);
+    return 'page';
+  } catch (e) {
+    try {
+      win?.close();
+    } catch {
+      /* already gone */
+    }
+    throw e;
+  }
+}
+
+const SGY_CHANNEL = 'cobalt-sgy';
+
+/** Tells Cobalt's other tabs that this one just finished a Schoology connection. */
+function announceSgyConnected(state: SgyApiState): void {
+  try {
+    const bc = new BroadcastChannel(SGY_CHANNEL);
+    bc.postMessage({ type: 'connected', state });
+    bc.close();
+  } catch {
+    /* no BroadcastChannel: the other tab just keeps waiting, the student can press Connect again */
+  }
+}
+
+/** Runs cb when ANOTHER Cobalt tab finishes a Schoology connection (the new tab the
+ *  approve screen opened in). Returns the unsubscribe. */
+export function onSgyConnectedElsewhere(cb: (state: SgyApiState) => void): () => void {
+  try {
+    const bc = new BroadcastChannel(SGY_CHANNEL);
+    bc.onmessage = (e) => {
+      if (e.data && e.data.type === 'connected') cb(e.data.state as SgyApiState);
+    };
+    return () => bc.close();
+  } catch {
+    return () => {};
+  }
 }
 
 /** Schoology just sent the student back here. Finish the connection and clean the
@@ -61,7 +114,13 @@ export async function finishSchoologyConnectIfReturning(): Promise<SgyApiState |
   for (const k of ['sgy', 'oauth_token', 'oauth_verifier']) q.delete(k);
   const qs = q.toString();
   history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
-  return callable<SgyApiState>('sgyConnectFinish', { token, verifier });
+  const st = await callable<SgyApiState>('sgyConnectFinish', { token, verifier });
+  announceSgyConnected(st);
+  // This is the tab startSchoologyConnect opened: its job is done, so hand the student
+  // back to the Cobalt tab behind it. (Only works when the browser kept the link to
+  // the tab that opened it; otherwise this tab simply carries on as Cobalt.)
+  if (window.opener) setTimeout(() => window.close(), 600);
+  return st;
 }
 
 export async function disconnectSchoology(): Promise<void> {
@@ -76,6 +135,50 @@ export async function fetchSgyApiPayload(): Promise<SgyPayload | null> {
 /** The student's gradebook (Grades tab), read by the server. Never stored. */
 export async function fetchSgyGrades(): Promise<unknown> {
   return callable<unknown>('sgyGrades', {});
+}
+
+/** While the Schoology tab is open: when the student comes back to this tab without a
+ *  connection, either the connection finished (the server says so) or Schoology made
+ *  them log in first and forgot the approval request. In the second case the approval
+ *  is reopened in the same Schoology tab, so nobody presses Connect twice. Gives up
+ *  after 3 reopenings. Returns the stop function. */
+export function watchSchoologyConnect(data: Data, host: string, onConnected: (st: SgyApiState) => void): () => void {
+  const opened = Date.now();
+  let tries = 0;
+  let busy = false;
+  let stopped = false;
+  const done = (st: SgyApiState): void => {
+    stop();
+    onConnected(st);
+  };
+  const check = async (): Promise<void> => {
+    if (stopped || busy || document.visibilityState !== 'visible' || Date.now() - opened < 4000) return;
+    busy = true;
+    try {
+      const st = await getSgyApiState(data);
+      if (stopped) return;
+      if (st?.connected) done(st);
+      else if (tries < 3) {
+        tries++;
+        await startSchoologyConnect(host, false);
+      }
+    } catch {
+      /* offline or refused: the next return to this tab tries again */
+    } finally {
+      busy = false;
+    }
+  };
+  const onVis = (): void => void check();
+  document.addEventListener('visibilitychange', onVis);
+  window.addEventListener('focus', onVis);
+  const off = onSgyConnectedElsewhere(done);
+  function stop(): void {
+    stopped = true;
+    document.removeEventListener('visibilitychange', onVis);
+    window.removeEventListener('focus', onVis);
+    off();
+  }
+  return stop;
 }
 
 // #region School address — the student types their school's Schoology address
@@ -99,7 +202,7 @@ export function buildSchoolAddress(opts: {
   onPick: (host: string) => void;
   /** Pre-filled address, e.g. the school an expired connection used. */
   value?: string;
-}): { el: HTMLElement; setBusy: (busy: boolean, label?: string) => void } {
+}): { el: HTMLElement; setBusy: (busy: boolean, label?: string) => void; setNote: (text: string) => void } {
   const wrap = el('div', { style: 'display:flex;flex-direction:column;gap:8px;width:100%' });
   const input = textInput({ class: opts.inputClass, placeholder: 'school.schoology.com', value: opts.value ?? '' });
   input.setAttribute('aria-label', 'Your school’s Schoology address');
@@ -118,6 +221,7 @@ export function buildSchoolAddress(opts: {
     opts.onPick('app.schoology.com');
   });
   const err = el('div', { style: 'font-size:12px;color:var(--red)' });
+  const note = el('div', { style: 'font-size:12px;color:var(--text-dim)' });
   const submit = (): void => {
     if (btn.disabled) return;
     const host = schoologyHost(input.value);
@@ -138,9 +242,12 @@ export function buildSchoolAddress(opts: {
     submit();
   });
   input.addEventListener('input', () => (err.textContent = ''));
-  wrap.append(input, btn, sandbox, err);
+  wrap.append(input, btn, sandbox, err, note);
   return {
     el: wrap,
+    setNote(text: string) {
+      note.textContent = text;
+    },
     /** While busy, the Connect button itself is the progress line (Gabe, 10/12). */
     setBusy(b: boolean, label = 'Opening Schoology…') {
       btn.disabled = b;

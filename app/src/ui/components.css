@@ -2814,7 +2814,7 @@ body:has(.selbar:not([hidden])) .toast {
   border-radius: var(--dlg-radius);
   padding: var(--dlg-pad); /* matches .bm-modal, the app-wide dialog reference */
   width: 100%;
-  max-width: 336px; /* 80% of the old 420px (Gabe, 10/12); the Filter cards keep their own width below */
+  max-width: 420px; /* back to 420, the .bm-modal width (Gabe, 10/15: 336 read as very narrow on his Mac); the Filter cards keep their own width below */
   max-height: 80vh;
   box-shadow: var(--dlg-shadow); /* matches .bm-modal */
   /* The BODY scrolls, not the card: an edge-anchored width grip (and the title)
@@ -3732,30 +3732,6 @@ html .task-test-badge .task-test-badge-x:hover {
   cursor: pointer;
 }
 
-/* "● Synced just now": green dot + small dim text left of the ↻ (Gabe, 10/12). */
-.synced-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-right: 4px;
-  font-size: 12px;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-.synced-label[hidden] {
-  display: none;
-}
-.synced-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--green);
-}
-@media (max-width: 900px) {
-  .synced-label {
-    display: none;
-  }
-}
 /* The top bar's ↻ Refresh spins while it works (Gabe, 10/12). */
 .icon-btn.spinning svg {
   animation: ws-spin 0.7s linear infinite;

@@ -209,8 +209,9 @@ export class DashboardView {
     // OVERDUE sits ABOVE Current Tasks (Gabe, 8/11) and shouts in red: it is the
     // one thing on this screen that is already going wrong. It rides the same
     // Settings toggle as the tasks card, since it is the same family of card.
+    // NESTED INSIDE Current Tasks (Gabe, 10/15): a card within the card, between the
+    // heading and the list. It is appended in renderDue(), not here.
     this.overdueBox = el('div', { class: 'dash-overdue' });
-    if (this.sample || prefs.tasksCard) wrap.append(this.overdueBox);
 
     this.dueBox = el('div', { class: 'dash-due' });
     if (this.sample || prefs.tasksCard) wrap.append(this.dueBox);
@@ -295,7 +296,7 @@ export class DashboardView {
     const link = el('button', { class: 'dash-due-link', text: 'Current Tasks' });
     link.addEventListener('click', () => this.goToTab('tasks'));
     header.append(link);
-    this.dueBox.append(header);
+    this.dueBox.append(header, this.overdueBox);
     if (!this.dueBody) {
       this.dueBody = el('div', { class: 'dash-due-list' });
       // todayStr() is read per render (not captured), so a session left open

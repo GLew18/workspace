@@ -279,8 +279,12 @@ export function groupTasks(map: TaskMap): TaskGroup[] {
 
   const byDate = new Map<string, Task[]>();
   const noDate: Task[] = [];
+  const tests: Task[] = [];
   for (const t of active) {
-    if (!t.dueDate) noDate.push(t);
+    // Tests, quizzes and exams live in their own group at the very bottom
+    // (Gabe, 10/15), not in their day. The row still shows its due date.
+    if (isAssessmentTask(t)) tests.push(t);
+    else if (!t.dueDate) noDate.push(t);
     else (byDate.get(t.dueDate) ?? byDate.set(t.dueDate, []).get(t.dueDate)!).push(t);
   }
 
@@ -306,6 +310,11 @@ export function groupTasks(map: TaskMap): TaskGroup[] {
   }
 
   if (noDate.length) groups.push({ key: 'none', header: 'No Due Date', tone: 'none', tasks: noDate });
+  if (tests.length) {
+    // Soonest first; open before finished within a date (sortTasks already did that).
+    tests.sort((a, b) => Number(!!a.completed) - Number(!!b.completed) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
+    groups.push({ key: 'tests', header: 'Tests', tone: 'none', tasks: tests });
+  }
   return groups;
 }
 

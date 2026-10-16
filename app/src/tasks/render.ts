@@ -34,7 +34,7 @@ import { genId } from '../util/ids';
 import { buildQuickAdd } from './quickadd';
 import { TaskFilter } from './filter';
 import {
-  makeTask, duplicateTask, clearTranslation, groupTasks, dueBadge, sortTasks, compareForCalendar, type TaskGroup,
+  makeTask, duplicateTask, clearTranslation, groupTasks, isAssessmentTask, sortTasks, compareForCalendar, type TaskGroup,
 } from './store';
 import { PRIORITIES, priorityDef } from './priorities';
 import {
@@ -42,7 +42,6 @@ import {
 } from '../courses/registry';
 import { classifyByRules, learnCorrection } from '../schoology/classify';
 import { recordManualLabelForTask } from '../schoology/extension';
-import { BADGE_ASSESSMENT_RE } from '../schoology/events';
 import { emailTeacherUrl } from './teachers';
 import { MAIL_BTN_SVG, SCHOOLOGY_SVG } from './rowIcons';
 export { SCHOOLOGY_SVG };
@@ -631,18 +630,28 @@ export class TasksView {
    *  chips, badges, buttons, editing and multi-select are identical by
    *  construction rather than by imitation. */
   private renderExcerpt(): void {
-    const hits = Object.values(this.map).filter(
+    // OPEN TASKS ONLY (Gabe, 10/15): a ticked task leaves the dashboard card; the
+    // Tasks tab is where finished work stays visible.
+    const match = Object.values(this.map).filter(
       (t) => !t.completed && !this.completingIds.has(t.id) && this.excerpt!.filter(t)
     );
-    this.excerpt!.onCount?.(hits.length);
-    if (!hits.length) {
+    const plain = sortTasks(match.filter((t) => !isAssessmentTask(t)));
+    const tests = sortTasks(match.filter((t) => isAssessmentTask(t)));
+    this.excerpt!.onCount?.(match.length);
+    if (!match.length) {
       this.listEl.append(el('div', { class: 'dash-due-empty', text: this.excerpt!.empty }));
       return;
     }
     // ONE synthetic group: these rows are already one date's worth, so a ⋮⋮ drop
     // reorders within the excerpt exactly as it would within that date's group.
-    const group: TaskGroup = { key: 'excerpt', header: '', tone: 'red', tasks: sortTasks(hits) };
+    const group: TaskGroup = { key: 'excerpt', header: '', tone: 'red', tasks: plain };
     for (const t of group.tasks) this.listEl.append(this.renderTask(t, group));
+    // Tests sit last under their own header, as in the Tasks tab (Gabe, 10/15).
+    if (tests.length) {
+      this.listEl.append(el('div', { class: 'task-group-header tone-none', text: 'Tests' }));
+      const tg: TaskGroup = { key: 'excerpt-tests', header: 'Tests', tone: 'none', tasks: tests };
+      for (const t of tests) this.listEl.append(this.renderTask(t, tg));
+    }
   }
 
   // --- calendar mode (the big-project port) --------------------------------
@@ -2413,51 +2422,9 @@ export class TasksView {
     // so those three restated what two other things already said. OVR stays
     // because it is the one state the date alone doesn't shout: a past date
     // reads the same as any other until you do the arithmetic.
-    const badge = dueBadge(task);
-    if (badge?.state === 'OVR')
-      metaWrap.append(el('span', { class: `task-due-badge ${badge.state}`, text: badge.label }));
-    // Assessment badge — QUIZ / TEST / EXAM (BADGE_ASSESSMENT_RE).
-    //
-    // IMPORTED TASKS ONLY (Gabe, 8/21). The badge is a claim about what a piece of
-    // work IS, made by pattern-matching its title, and on a title the student typed
-    // themselves that claim is almost always unwanted: "test your hypothesis",
-    // "study for the test" and "test the code" all earn a TEST pill for tasks that
-    // are not tests. On a Schoology import the same pattern is reliable, because the
-    // text is a teacher's assignment name and a real test is posted as one.
-    //
-    // So the badge follows the SOURCE of the words rather than the words alone. It
-    // still checks at render time (covering old imports and translations), and the
-    // hover ✕ still dismisses it for good, because even a teacher writes "practice
-    // test" sometimes.
-    const assess = task.source === 'manual' ? null :
-      BADGE_ASSESSMENT_RE.exec(task.title) ||
-      // The TRANSLATED title may only speak for a badge the student has not
-      // rejected (Gabe, 8/20). The pill is the one output with no original beside
-      // it: it says TEST on its own authority, from text the app guessed the
-      // language of. If the student hid that translation with the globe, they have
-      // said it was wrong, and a claim derived from it cannot outlive it.
-      (task.translatedTitle && !task.translationHidden
-        ? BADGE_ASSESSMENT_RE.exec(task.translatedTitle)
-        : null);
-    if (assess && !task.assessmentDismissed) {
-      const word = assess[1].toLowerCase();
-      // Singularize the plural forms: quizzes → quiz, tests → test.
-      const label = (word === 'quizzes' ? 'quiz' : word.replace(/s$/, '')).toUpperCase();
-      const pill = el('span', { class: 'task-test-badge', text: label });
-      const x = el('button', { class: 'task-test-badge-x', text: '✕', title: 'Not actually a ' + label.toLowerCase() + '? Remove this badge' });
-      x.addEventListener('click', (ev) => {
-        ev.stopPropagation(); // the row itself has click/dblclick behaviors
-        // PER TASK ON PURPOSE, never bulk (Gabe, 8/8). This pill isn't stored: it
-        // is re-derived from the title on every render, and the only saved field
-        // is this suppression flag. Across a selection the other rows either have
-        // no badge (a permanent flag written for nothing, which would pre-silence
-        // the badge if a teacher later renamed that task to "Unit 4 Test") or have
-        // one for a DIFFERENT word, so dismissing "test" would silence "quiz".
-        this.save({ ...task, assessmentDismissed: true });
-      });
-      pill.append(x);
-      metaWrap.append(pill);
-    }
+    // No OVR pill (Gabe, 10/15): the overdue group header and the red date say it.
+    // No TEST/QUIZ pill (Gabe, 10/15): assessments are grouped under "Tests" at the
+    // bottom of the list (groupTasks), and "Not a test" lives in the ⋯ menu.
     bottom.append(metaWrap);
 
     // Actions — two clusters, Schoology first (Gabe, 10/10): LEFT is Schoology,
@@ -3141,6 +3108,19 @@ export class TasksView {
           if (detailReadings) this.askingIds.add(this.vkey(DETAILS_SLOT, task.id));
           this.render();
         },
+      });
+    }
+
+    // NOT A TEST (Gabe, 10/15): the way out of the Tests group when a title only
+    // sounds like one ("practice test"). Menu only. Per task, never bulk: it writes
+    // a permanent flag (assessmentDismissed).
+    if (isAssessmentTask(task)) {
+      out.push({
+        id: 'notATest',
+        label: 'Not a test',
+        iconHtml: '✕',
+        auto: false,
+        run: () => this.save({ ...task, assessmentDismissed: true }),
       });
     }
 

@@ -249,22 +249,70 @@
 .grades-goal-row .bm-btn {
   margin-left: auto;
 }
-.grades-goal-status {
-  color: var(--text-dim);
-  font-size: 13px;
+.grades-goal-row .grades-wi-label {
+  flex: none;
+  min-width: 64px;
 }
-.grades-goal-status:empty {
-  display: none;
+.grades-goal-slider {
+  flex: 1;
+  min-width: 140px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.grades-goal-slider:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.grades-goal-val {
+  flex: none;
+  min-width: 96px;
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.grades-goal-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 18px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-align: center;
+}
+.grades-goal-big {
+  color: var(--course, var(--accent));
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.grades-goal-sub {
+  color: var(--text-dim);
+  font-size: 15px;
+}
+.grades-goal-result.bad .grades-goal-big {
+  color: var(--text-dim);
+}
+.grades-goal-result.done .grades-goal-big {
+  color: var(--green);
 }
 .grades-wi-divider {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   padding: 10px 16px;
   border-top: 1px solid var(--border);
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
   color: var(--text-dim);
   font-size: 12.5px;
+}
+.grades-wi-head {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
 }
 .grades-add-foot {
   flex: 1 1 100%;

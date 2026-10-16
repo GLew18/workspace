@@ -53,24 +53,16 @@ export class NotificationLogView {
     const entries = readNotifyLog();
     host.replaceChildren();
 
-    // Title over description, then "Clear all" off to the right — the same page
-    // head shape Settings uses, so the two screens read as one app.
-    const head = el('div', { class: 'nlog-head' });
-    const headText = el('div', { class: 'nlog-head-text' });
-    headText.append(
-      el('div', { class: 'nlog-title', text: 'Notifications' }),
-      el('div', {
-        class: 'nlog-desc',
-        text: 'Everything Cobalt has sent you on this device, newest first.',
-      })
-    );
-    head.append(headText);
+    // No page title (Gabe, 10/15): every other tab opens straight onto its content,
+    // so this one does too. Only "Clear all" remains, right-aligned, when there is
+    // something to clear.
     if (entries.length) {
+      const head = el('div', { class: 'nlog-head' });
       const clear = el('button', { class: 'nlog-clear', text: 'Clear all' });
       clear.addEventListener('click', () => clearNotifyLog());
       head.append(clear);
+      host.append(head);
     }
-    host.append(head);
 
     if (!entries.length) {
       const empty = el('div', { class: 'nlog-empty' });

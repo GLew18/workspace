@@ -75,7 +75,12 @@ export function closePlusScreen(): void {
   currentClose?.();
 }
 
+/** TEMPORARY SWITCH (Gabe, 10/15/26): Cobalt Plus is hidden while PowerSchool reviews
+ *  the app. Set to false to bring the Settings button and the screen back. */
+export const PLUS_HIDDEN = true;
+
 export function openPlusScreen(opts: PlusScreenOpts = {}): void {
+  if (PLUS_HIDDEN) return;
   if (current?.isConnected) return;
   // `current` is dropped the moment a close starts, but the node stays on screen
   // for the fade; a call during those 250ms must not stack a second copy.

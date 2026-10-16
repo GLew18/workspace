@@ -38,7 +38,7 @@
      what makes that free. The gradient is anchored to the viewport rather than to
      the element, so any box painting this shows exactly the pixels that would have
      been there anyway, at any scroll position, with no seam to line up. */
-  --page-bg: linear-gradient(165deg, #11285f 0%, #0c1e4b 50%, #0a1736 100%) fixed; /* a touch lighter (Gabe, 10/14) */
+  --page-bg: linear-gradient(165deg, #11285f 0%, #0c1e4b 50%, #0a1736 100%) fixed; /* a touch lighter (Gabe, 10/14); a further bump on 10/15 was reverted */
   /* THE SAME SURFACE, FLAT, for boxes that cannot use the gradient itself.
      `fixed` only stays anchored to the viewport while the box is painted with the
      page; give it to a position:sticky element and Chrome promotes that element to

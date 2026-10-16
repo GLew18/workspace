@@ -18,7 +18,7 @@ import { DEFAULT_TRANSLATE_FROM } from './util/languages';
 // the row by a pin either.
 // 'delete' is a ⋯-menu action like 'readings', never pinnable (see PINNABLE).
 // 'emailTeacher' is the same kind of entry: menu only, never pinnable.
-export type PinnedAction = 'translate' | 'readings' | 'emailTeacher' | 'submitPhoto' | 'attach' | 'folder' | 'duplicate' | 'delete';
+export type PinnedAction = 'translate' | 'readings' | 'emailTeacher' | 'notATest' | 'submitPhoto' | 'attach' | 'folder' | 'duplicate' | 'delete';
 export const PINNABLE: PinnedAction[] = ['translate', 'attach', 'folder', 'duplicate'];
 
 export interface AppPrefs {

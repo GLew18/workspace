@@ -1176,9 +1176,6 @@ function staticTaskRow(t: ShowTask, s: StudentSetup): HTMLElement {
   chip.style.color = s.courseColors[t.course];
   meta.append(chip, el('span', { class: 'meta-dot', text: '·' }), el('span', { class: 'meta-date', text: t.due }));
   metaWrap.append(meta);
-  // The assessment badge sits INSIDE the meta wrap, right after the meta line —
-  // the real position (tasks/render.ts), not out by the action cluster.
-  if (t.quiz) metaWrap.append(el('span', { class: 'task-test-badge', text: 'QUIZ' }));
   bottom.append(metaWrap);
 
   // Action cluster, mirroring the REAL row's rules (see tasks/render.ts, 8/13):

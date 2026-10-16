@@ -10,7 +10,7 @@
 import type { Data } from '../db';
 import type { CourseConfig, SchoologySettings } from '../types';
 import { el, textInput, escapeHtml, enterConfirms, fadeRemove, escapeCloses } from '../util/dom';
-import { createPlusSidebarButton } from '../plus/view';
+import { createPlusSidebarButton, PLUS_HIDDEN } from '../plus/view';
 import { openAtTop } from '../ui/tabs';
 import { confirmDanger, confirmDialog } from '../ui/confirm';
 import { genId } from '../util/ids';
@@ -27,6 +27,7 @@ import {
   startSchoologyConnect,
   disconnectSchoology,
   buildSchoolAddress,
+  watchSchoologyConnect,
   sgyErrorText,
 } from '../schoology/api';
 import {
@@ -285,10 +286,10 @@ export class SettingsView {
     // Today that's Notifications; future premium tabs just join this set.
     const PREMIUM_TABS = new Set(['Notifications']);
     const premWrap = el('div', { class: 'settings-side-prem' });
-    premWrap.append(el('div', { class: 'settings-side-subhead', text: 'Premium' }));
+    if (!PLUS_HIDDEN) premWrap.append(el('div', { class: 'settings-side-subhead', text: 'Premium' }));
     // "Cobalt Plus" opens the upgrade screen (plus/view.ts). It sits under the
     // subhead, above the premium tabs, and is not a tab itself.
-    premWrap.append(createPlusSidebarButton());
+    if (!PLUS_HIDDEN) premWrap.append(createPlusSidebarButton());
     tabs.forEach(([label], i) => {
       const b = el('button', { class: 'settings-side-btn' }) as HTMLButtonElement;
       if (PREMIUM_TABS.has(label)) b.classList.add('premium');
@@ -816,10 +817,20 @@ export class SettingsView {
         onPick: (h) => {
           picker.setBusy(true);
           err.textContent = '';
-          startSchoologyConnect(h).catch((e) => {
-            picker.setBusy(false);
-            fail(e);
-          }); // leaves the page on success
+          startSchoologyConnect(h).then(
+            (how) => {
+              if (how !== 'tab') return; // leaving the page
+              picker.setBusy(false);
+              picker.setNote('Schoology opened in a new tab. Log in there and approve Cobalt. Come back here if it asks you to log in first.');
+              // The new tab finishes the connection; this one reloads to show it, and
+              // reopens the approval by itself if a login made Schoology forget it.
+              watchSchoologyConnect(this.data, h, () => location.reload());
+            },
+            (e) => {
+              picker.setBusy(false);
+              fail(e);
+            }
+          );
         },
       });
       row.append(main, ctrl);
