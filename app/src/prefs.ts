@@ -33,8 +33,12 @@ export interface AppPrefs {
    *  single decision, not two. Off by default — today's new-tab behavior. */
   openLinksInNewWindow: boolean;
   dash: {
-    /** Use the display name inside the rotating greeting. */
+    /** Show the greeting at the top of the dashboard (Gabe, 10/16: on by default). */
+    greet: boolean;
+    /** Child of `greet`: use the display name in it ("Let's lock in, Dan") or not ("Let's lock in"). */
     greetName: boolean;
+    /** Show the Upcoming Tests card (tests and quizzes due in the next 7 days). */
+    testsCard: boolean;
     /** Show the daily quote under the greeting. */
     quote: boolean;
     /** Which quote flavor rotates (library in src/quotes.ts; 'mixed' blends all). */
@@ -43,6 +47,11 @@ export interface AppPrefs {
     tasksCard: boolean;
     /** Show the weekly Schedule card. */
     scheduleCard: boolean;
+    /** Show the Recently Graded Courses card. */
+    gradesCard: boolean;
+    /** SMART CONTENT (Gabe, 10/16): a card with nothing to show (no open tasks, no new
+     *  grades) hides itself. Off: the card stays, with a line like "No tasks today". */
+    smart: boolean;
   };
   sync: {
     /** Background re-sync while the app is open. */
@@ -149,7 +158,7 @@ export const DEFAULT_PREFS: AppPrefs = {
   timeFormat: '12h',
   openTo: 'dashboard',
   openLinksInNewWindow: false,
-  dash: { greetName: true, quote: true, quoteStyle: 'modern', tasksCard: true, scheduleCard: true },
+  dash: { greet: true, testsCard: true, greetName: true, quote: true, quoteStyle: 'modern', tasksCard: true, scheduleCard: true, gradesCard: true, smart: true },
   sync: { auto: true, intervalMins: 30, onOpen: true },
   importPrefs: { assignments: true, assessments: true, quizzes: true, windowDays: 30 },
   tasks: { allowEdit: true, pinnedActions: [], translateFrom: [...DEFAULT_TRANSLATE_FROM] },
@@ -175,11 +184,15 @@ export function normalizePrefs(raw: unknown): AppPrefs {
     openTo: pick(r.openTo, ['dashboard', 'tasks', 'focus', 'bookmarks'] as const, d.openTo),
     openLinksInNewWindow: bool(r.openLinksInNewWindow, d.openLinksInNewWindow),
     dash: {
+      greet: bool(r.dash?.greet, d.dash.greet),
+      testsCard: bool(r.dash?.testsCard, d.dash.testsCard),
       greetName: bool(r.dash?.greetName, d.dash.greetName),
       quote: bool(r.dash?.quote, d.dash.quote),
       quoteStyle: pick(r.dash?.quoteStyle, ['stoic', 'modern', 'literary', 'science', 'mixed'] as const, d.dash.quoteStyle),
       tasksCard: bool(r.dash?.tasksCard, d.dash.tasksCard),
       scheduleCard: bool(r.dash?.scheduleCard, d.dash.scheduleCard),
+      gradesCard: bool(r.dash?.gradesCard, d.dash.gradesCard),
+      smart: bool(r.dash?.smart, d.dash.smart),
     },
     sync: {
       auto: bool(r.sync?.auto, d.sync.auto),

@@ -39,7 +39,8 @@
   color: var(--gold);
 }
 
-.dash-due {
+.dash-due,
+.dash-graded {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -556,4 +557,17 @@
 }
 .dash-schedule-link-err:empty {
   display: none;
+}
+
+/* NEW GRADES (Gabe, 10/16): an excerpt of the Grades tab. The cells are the Grades
+   tab's own (.grades-grid / .grades-course); only the heading is styled here. */
+.dash-graded-count {
+  margin-left: 8px;
+}
+.dash-graded .dash-schedule-header {
+  display: flex;
+  align-items: center;
+}
+.dash-graded .grades-grid {
+  margin-top: 12px;
 }

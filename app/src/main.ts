@@ -116,7 +116,7 @@ import {
   hasPasswordProvider,
   sendSetPasswordEmail,
 } from './auth';
-import { openAuthScreen } from './ui/authScreen';
+import { LocalBackend } from './backend';
 import { Data } from './db';
 import { mountTabs, type TabController } from './ui/tabs';
 import { parsePath, setRoute, resetRoute, onNavigate, type Route } from './util/router';
@@ -143,7 +143,7 @@ import { runOnboarding } from './onboarding/view';
 import { setStorageUser, scopedKey } from './util/userScope';
 import { renderLanding } from './landing/view';
 import { runSync } from './schoology/sync';
-import { finishSchoologyConnectIfReturning, getSgyApiState, sgyErrorText } from './schoology/api';
+import { finishReturnAtBoot, takeJustConnected, getSgyApiState, sgyErrorText } from './schoology/api';
 import { startNotificationScheduler } from './notify/scheduler';
 import { setEmailSink } from './notify/notify';
 import { NotificationLogView } from './notify/logView';
@@ -155,7 +155,6 @@ import { capitalizeName } from './util/names';
 import { getPrefs, setPrefsCache, normalizePrefs, DEFAULT_PREFS, PREFS_EVENT } from './prefs';
 import { openSuggestionBox } from './suggest';
 import type { SchoologySettings, TaskMap } from './types';
-import { todayStr } from './util/dates';
 import { renderPrivacyPage } from './legal/privacy';
 // #endregion
 
@@ -242,12 +241,30 @@ function renderSignIn(): void {
       // Same screen, different starting mode: "Get started" assumes a new student,
       // "Log in" assumes a returning one. Whether onboarding actually runs is still
       // decided by the account's own `onboarded` flag below, never by this choice.
-      onTryNow: () => openAuthScreen('signup'),
-      onLogIn: () => openAuthScreen('login'),
+      // NO LOGIN SCREEN (Gabe, 10/16): both buttons open the onboarding, whose Connect
+      // Schoology step is the login. A returning student goes through the same step
+      // and lands straight in the app because their account is already onboarded.
+      onTryNow: () => startSignedOutOnboarding(),
+      onLogIn: () => startSignedOutOnboarding(),
     })
   );
 }
 // #endregion
+
+/** The onboarding for a visitor who is not signed in yet: Welcome, what Cobalt does,
+ *  Connect Schoology. Nothing is saved (a throwaway local store), and connecting
+ *  leaves the page for Schoology and returns signed in. */
+function startSignedOutOnboarding(): void {
+  document.body.classList.remove('app-mode');
+  root.replaceChildren();
+  runOnboarding({
+    data: Data.createWithBackend(new LocalBackend('__signedout__')),
+    email: '',
+    fallbackName: '',
+    signedOut: true,
+    onDone: () => location.reload(),
+  });
+}
 
 // #region renderApp() — the signed-in UI: boot data, header, tabs, sync
 async function renderApp(user: AuthUser): Promise<void> {
@@ -429,14 +446,14 @@ async function renderApp(user: AuthUser): Promise<void> {
 
   // --- The main tabs: in the header's centre column, a bottom bar on phones
   // (src/ui/appTabs.ts; the hamburger drawer they replaced is gone, Gabe 10/2).
-  // "Tasks" carries a red count of what's due TODAY (Gabe, 8/10) — the one number
-  // worth seeing from any tab. Red, not the bell's gold, because this is a
-  // deadline rather than a message. Hidden at zero: an empty badge is noise.
-  const { nav: tabsNav, btns: navBtns, tasksCount } = createAppTabs((id) => controller.goToTab(id));
+  // "Tasks" carries a red count of NEWLY POSTED tasks (Gabe, 10/16), the same meaning
+  // as the red count on Grades. It used to count what was due today; the dashboard
+  // already lists that. Each new task wears a solid red dot, and leaving the Tasks tab
+  // clears them (see the tab-change hook below). Hidden at zero: an empty badge is noise.
+  const { nav: tabsNav, btns: navBtns, tasksCount, gradesCount } = createAppTabs((id) => controller.goToTab(id));
   header.append(headerLeft, tabsNav, userBox);
   const paintTasksCount = (tasks: TaskMap): void => {
-    const today = todayStr();
-    const n = Object.values(tasks).filter((t) => !t.completed && t.dueDate === today).length;
+    const n = Object.values(tasks).filter((t) => t.newlyPosted).length;
     tasksCount.textContent = n > 99 ? '99+' : String(n);
     tasksCount.classList.toggle('on', n > 0);
   };
@@ -471,6 +488,7 @@ async function renderApp(user: AuthUser): Promise<void> {
 
   // --- Tabs + their views: each tab's content is built by its own module ---
   let controller: TabController;
+  let prevTab = '';
   const notifyLogView = new NotificationLogView();
   const dashboardView = new DashboardView(data, displayName, (id) => controller.goToTab(id));
   const tasksView = new TasksView(data);
@@ -478,9 +496,11 @@ async function renderApp(user: AuthUser): Promise<void> {
   const gradesView = new GradesView(data, (id) => controller.goToTab(id));
   const focusView = new FocusView(data);
   // Red dot on the Grades tab while a newly graded assignment hasn't been looked at.
-  const gradesDot = el('span', { class: 'nav-newdot', title: 'New grade', 'aria-label': 'New grade' });
-  navBtns.get('grades')?.append(gradesDot);
-  if (GRADES_TAB_ON) gradesView.watchNew((n) => gradesDot.classList.toggle('on', n > 0));
+  if (GRADES_TAB_ON)
+    gradesView.watchNew((n) => {
+      gradesCount.textContent = n > 99 ? '99+' : String(n);
+      gradesCount.classList.toggle('on', n > 0);
+    });
   refreshBtn.addEventListener('click', () => {
     if (refreshBtn.classList.contains('spinning')) return;
     refreshBtn.classList.add('spinning');
@@ -519,6 +539,20 @@ async function renderApp(user: AuthUser): Promise<void> {
     // callback runs on every switch, which is the only hook that is actually true to
     // the name "on change".
     (id) => {
+      // Leaving Tasks ends "new": the dots and the count go and never come back.
+      if (prevTab === 'tasks' && id !== 'tasks') {
+        const seenNow = Object.values(data.getTasks()).filter((t) => t.newlyPosted);
+        if (seenNow.length) {
+          void data.putTasksBulk(
+            seenNow.map((t) => {
+              const next = { ...t };
+              delete next.newlyPosted; // delete, not undefined: Firebase rejects undefined
+              return next;
+            })
+          );
+        }
+      }
+      prevTab = id;
       dropSelections();
       // …and every open popup, for the same reason and on the same hook (Gabe,
       // 8/27). A popup mounts on <body> rather than inside its tab's panel, so
@@ -565,13 +599,14 @@ async function renderApp(user: AuthUser): Promise<void> {
   armSyncTimer();
   // BACK FROM SCHOOLOGY'S APPROVE SCREEN (?sgy=return&oauth_token=…): finish the
   // connection, then import straight away so the student sees their work land.
-  void finishSchoologyConnectIfReturning().then(
+  // (finishReturnAtBoot already did the finishing, before sign-in; this takes its result.)
+  void Promise.resolve(takeJustConnected()).then(
     async (st) => {
       if (!st) return;
-      showToast(st.name ? `Schoology connected as ${st.name}. Importing your assignments…` : 'Schoology connected. Importing your assignments…');
+      // No "importing" toasts (Gabe, 10/16): the assignments simply appear. Only a
+      // failure is worth saying.
       try {
-        const r = await runSync(data);
-        showToast(`Schoology import done: ${r.added} new, ${r.updated} updated.`);
+        await runSync(data);
       } catch (err) {
         showToast(sgyErrorText(err));
       }
@@ -854,7 +889,9 @@ if (isPrivacyPath()) {
   root.replaceChildren();
   root.append(renderPrivacyPage());
 } else {
-onAuth((user) => {
+// Back from Schoology's approve screen? Finish the connection FIRST: for a new visitor
+// it is what signs them in, so the listener below must not run before it.
+void finishReturnAtBoot().then(() => onAuth((user) => {
   if (user) {
     // A SIGNED-IN USER MAKES THE SIGN-IN SCREEN OBSOLETE, however they got there.
     //
@@ -900,7 +937,7 @@ onAuth((user) => {
     renderSignIn();
     openPlusFromUrl();
   }
-});
+}));
 }
 // #endregion
 

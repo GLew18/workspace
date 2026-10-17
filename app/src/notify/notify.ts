@@ -452,8 +452,15 @@ export function sendNotification(
      * Renaming it to "Your creations and edits" is what made the wider reach wrong.)
      */
     fromEdit?: boolean;
+    /** A Settings Test button: delivered, but NEVER written to the 🔔 log, because the
+     *  log is a record of real assignments and grades (Gabe, 10/16). */
+    test?: boolean;
   } = {}
 ): void {
+  if (opts.test) {
+    deliver(title, body, opts, false);
+    return;
+  }
   if (opts.fromEdit && !notifyEdits) {
     // THE PARENT SAID NO, so nothing happens at all: not delivered, and NOT LOGGED
     // (Gabe, 8/22). It used to write a silent row, on the reasoning that the log is

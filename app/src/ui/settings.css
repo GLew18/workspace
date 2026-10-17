@@ -162,33 +162,6 @@
   height: 19px;
   flex: none;
 }
-/* PREMIUM group: paid-tier tabs live at the bottom of the sidebar under a
-   "Premium" subheader in their own bordered block. NEUTRAL on purpose (Gabe,
-   8/13): the full violet theme (shell glow, violet section) was tried and
-   pulled the same day. The ONE violet mark is the ACTIVE state: sitting on a
-   premium tab swaps the blue for violet (hover is the standard white tint,
-   same as every other tab; Gabe settled on this after trying violet-on-hover). */
-.settings-side-prem {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin-top: 24px; /* clear air between the free tabs and the premium block */
-  padding: 7px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-}
-.settings-side-subhead {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  padding: 2px 12px 3px; /* left-aligns with the button labels' 12px inset */
-}
-.settings-side-btn.premium.active {
-  color: #a78bfa; /* lighter violet: #8b5cf6 sits below 4.5:1 on this navy */
-  background: rgba(139, 92, 246, 0.18);
-}
 
 /* The per-tab page head (.settings-page-head / -title / -desc) is GONE, and its
    rules with it (Gabe, 8/26). It printed the tab's name a second time directly
@@ -1445,7 +1418,10 @@
    ID specificity (1,1,0), which outranks the (0,2,1) above and left that one tab
    sitting 8px lower than the rest. Matching the id here takes it to (1,2,0). */
 .settings-section > *:first-child,
-#sec-notify > .settings-status:first-child {
+#sec-notify > .settings-status:first-child,
+/* Courses opens on a wrapper whose own header would otherwise collapse its 22px
+   margin through the wrapper and start that tab lower than the rest. */
+.settings-section > .settings-gcal:first-child > .settings-group-label:first-child {
   margin-top: 0;
 }
 .settings-group-label {

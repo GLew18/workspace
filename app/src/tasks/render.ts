@@ -648,7 +648,8 @@ export class TasksView {
     for (const t of group.tasks) this.listEl.append(this.renderTask(t, group));
     // Tests sit last under their own header, as in the Tasks tab (Gabe, 10/15).
     if (tests.length) {
-      this.listEl.append(el('div', { class: 'task-group-header tone-none', text: 'Tests' }));
+      // No subheader when the card is nothing BUT tests (the Upcoming Tests card).
+      if (plain.length) this.listEl.append(el('div', { class: 'task-group-header tone-none', text: 'Tests' }));
       const tg: TaskGroup = { key: 'excerpt-tests', header: 'Tests', tone: 'none', tasks: tests };
       for (const t of tests) this.listEl.append(this.renderTask(t, tg));
     }
@@ -2325,6 +2326,9 @@ export class TasksView {
       });
       title.append(upd);
     }
+    // Schoology posted this since the student last left the Tasks tab (Gabe, 10/16):
+    // a solid red dot, in the ✱'s place. main.ts clears the flag on leaving Tasks.
+    if (task.newlyPosted) title.append(el('span', { class: 'new-dot', title: 'Newly posted', 'aria-label': 'Newly posted' }));
 
     // ONE LINE UNDER THE TITLE, in one of two states (Gabe, 8/21).
     //
@@ -3441,10 +3445,10 @@ export class TasksView {
     this.popup('What changed on Schoology', (body, close) => {
       body.append(
         buildFeedDiff(task) ??
-          el('div', { class: 'fd-note', text: 'This task changed, but the earlier version was not recorded.' })
+          el('div', { class: 'fd-note', text: 'This task changed.' })
       );
       const row = el('div', { class: 'fd-actions' });
-      const ok = el('button', { class: 'bm-btn', text: 'Got it' });
+      const ok = el('button', { class: 'bm-btn bm-btn-primary', text: 'Got it' });
       ok.addEventListener('click', () => {
         const next = { ...task };
         delete next.feedUpdated; // delete, not undefined — Firebase rejects undefined

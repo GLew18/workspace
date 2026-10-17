@@ -15,10 +15,12 @@
 
 import type { Data } from '../db';
 import { el } from '../util/dom';
-import { getCourseColor, getCourses, onRegistryChange } from '../courses/registry';
+import { todayStr } from '../util/dates';
+import { openPopup } from '../ui/popup';
+import { courseByAnyName, getCourseColor, onRegistryChange } from '../courses/registry';
 import { emailTeacherUrlFor } from '../tasks/teachers';
 import { MAIL_BTN_SVG, SCHOOLOGY_SVG } from '../tasks/rowIcons';
-import { awardGradeGems } from '../gems/gems';
+import { awardGradeGrowth } from '../gems/gems';
 import { fetchSgyGrades, getSgyApiState, sgyErrorText } from '../schoology/api';
 import { normalizeNotifySettings, sendNotification } from '../notify/notify';
 import {
@@ -34,6 +36,7 @@ import {
   letterFor,
   letterScale,
   monotoneCurve,
+  dayMsOf,
   nextLevel,
   points,
   RANGES,
@@ -51,6 +54,7 @@ import {
   type GradesPayload,
   type SeriesPoint,
 } from './calc';
+import { readGradesCache, writeGradesCache } from './cache';
 
 const STALE_MS = 5 * 60_000;
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -67,6 +71,7 @@ const CLOCK =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
 const PENCIL =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+const CALC = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2.5"/><rect x="8" y="6" width="8" height="4" rx="1"/><path d="M8.5 14h.01M12 14h.01M15.5 14h.01M8.5 17.5h.01M12 17.5h.01M15.5 17.5h.01"/></svg>';
 const CARET = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 
 export class GradesView {
@@ -82,12 +87,6 @@ export class GradesView {
   /** What-if edits, per course. Gone with the page: never saved. */
   private edits = new Map<string, Edits>();
   private openCats = new Set<string>();
-  /** The grade each course's goal card is aimed at, and the percentage its preview needs. */
-  private goal = new Map<string, number>();
-  /** The one category the goal is aimed at, how many assignments it will be, what each
-   *  is out of in points (unset = typical), and the sentence the last Preview produced. */
-  private goalCat = new Map<string, string>();
-  private goalWorth = new Map<string, number>();
   /** The graph's timescale, and the trend number on every course with it. */
   private range: RangeId = 'month';
   private host = '';
@@ -105,10 +104,24 @@ export class GradesView {
   /** Titles of grades that are new or were new this visit (what the graph marks red). */
   private newTitles = new Set<string>();
   private onNew: ((n: number) => void) | null = null;
+  /** The highest real grade per course the student has been paid gems for (profile gradesGemBase). */
+  private gemBase: Record<string, number> | null = null;
 
-  constructor(data: Data, goToTab: (id: string) => void) {
+  /** The landing's sample gradebook: shown as-is, never read, saved or announced. */
+  private sample: GradesPayload | null;
+  /** Where popups mount (the landing's device frame); the page body when unset. */
+  private popHost: HTMLElement | undefined;
+
+  /** The landing card's shorter graph (same picture, fewer pixels tall). */
+  private compactGraph: boolean;
+
+  constructor(data: Data, goToTab: (id: string) => void, opts: { sample?: GradesPayload; host?: HTMLElement; compactGraph?: boolean } = {}) {
     this.data = data;
+    this.compactGraph = opts.compactGraph ?? false;
     this.goToTab = goToTab;
+    this.sample = opts.sample ?? null;
+    if (this.sample) this.seen = sampleSeen(this.sample); // the demo shows two new grades
+    this.popHost = opts.host;
   }
 
   mount(panel: HTMLElement): void {
@@ -146,9 +159,7 @@ export class GradesView {
   }
 
   private isUnseen(a: GAssign): boolean {
-    if (!this.seen || a.whatif || a.earned === null) return false;
-    const t = this.seen[a.id];
-    return t === undefined || a.ts > t;
+    return isUnseenGrade(a, this.seen);
   }
 
   private unseenIn(items: GAssign[]): GAssign[] {
@@ -243,24 +254,45 @@ export class GradesView {
   }
 
   /** Gems for newly posted grades (gems/gems.ts decides the amounts and pays each once). */
-  private payGrades(): void {
-    const list: { id: string; pct: number }[] = [];
+  /** GEMS FOR A RISING GRADE (Gabe, 10/16). Each course remembers the highest grade
+   *  the student has been paid for; opening a course whose grade is now above that
+   *  pays gems by how far it rose (any rise pays, a bigger rise pays more), then the
+   *  mark moves up. The first read of a course just sets the mark, so nothing pays for
+   *  grades earned before this existed. High-water mark, so a dip and a recovery can't
+   *  be farmed. Practice grades never count: only the real grade is compared. */
+  private async initGemBase(): Promise<void> {
+    if (this.gemBase) return;
+    const saved = await this.data.getProfile<Record<string, number>>('gradesGemBase').catch(() => undefined);
+    const base: Record<string, number> = saved && typeof saved === 'object' ? { ...saved } : {};
+    let changed = false;
     for (const c of this.allCourses()) {
-      for (const p of c.periods) {
-        for (const a of this.unseenIn(p.assignments)) {
-          const pt = points(a);
-          if (pt && pt.m > 0 && a.exc === 0) list.push({ id: a.id, pct: (pt.e / pt.m) * 100 });
-        }
+      const now = headline(defaultPeriod(c), c.categories);
+      if (now !== null && base[c.id] === undefined) {
+        base[c.id] = now;
+        changed = true;
       }
     }
-    if (list.length) awardGradeGems(list);
+    this.gemBase = base;
+    if (changed) void this.data.setProfile('gradesGemBase', base).catch(() => {});
+  }
+
+  private claimGrowth(c: GCourse): void {
+    if (this.sample || !this.gemBase) return;
+    const now = headline(defaultPeriod(c), c.categories);
+    if (now === null) return;
+    const was = this.gemBase[c.id];
+    if (was !== undefined && now <= was) return;
+    if (was !== undefined) awardGradeGrowth(now - was);
+    this.gemBase[c.id] = now;
+    void this.data.setProfile('gradesGemBase', this.gemBase).catch(() => {});
   }
 
   private saveSeen(): void {
-    if (!this.seen) return;
+    if (!this.seen || this.sample) return;
     const keep = new Set(this.allCourses().flatMap((c) => c.periods.flatMap((p) => p.assignments.map((a) => a.id))));
     for (const id of Object.keys(this.seen)) if (keep.size && !keep.has(id)) delete this.seen[id];
     void this.data.setProfile('gradesSeen', this.seen).catch(() => {});
+    window.dispatchEvent(new Event(GRADES_SEEN_EVENT));
   }
 
   private markSeen(items: GAssign[]): void {
@@ -281,30 +313,35 @@ export class GradesView {
   // #region Loading ---------------------------------------------------------------
 
   private async load(force: boolean): Promise<void> {
+    if (this.sample) {
+      this.state = { kind: 'ready', payload: this.sample };
+      this.host = '';
+      this.loadedAt = Date.now();
+      this.paint();
+      return;
+    }
     if (this.loading) return;
     if (!force && this.state.kind === 'ready' && Date.now() - this.loadedAt < STALE_MS) return;
     this.loading = true;
+    // INSTANT, LIKE TASKS (Gabe, 10/16): the Schoology read takes many seconds (about
+    // five requests per course), so the last gradebook is kept on this device and
+    // painted at once while the fresh read runs behind it.
+    if (this.state.kind !== 'ready') {
+      const cached = readGradesCache(this.data.uid);
+      if (cached) {
+        this.state = { kind: 'ready', payload: cached };
+        this.host = cached.host ?? '';
+        this.paint();
+      }
+    }
     // Keep what is on screen while a re-read runs; only a first load shows the skeleton.
     if (this.state.kind !== 'ready') {
       this.state = { kind: 'loading' };
       this.paint();
     }
     try {
-      const sample = await devSample();
-      if (sample) {
-        this.state = { kind: 'ready', payload: sample };
-      } else {
+      {
         const sgy = await getSgyApiState(this.data).catch(() => null);
-        if (!sgy?.connected && (await this.data.getProfile<boolean>('sampleData').catch(() => false))) {
-          // Sample data (onboarding's fallback while Schoology has not approved Cobalt):
-          // a made-up gradebook, so no new-grade gems or notifications for it.
-          this.state = { kind: 'ready', payload: (await import('./sample')).sampleGrades() };
-          this.host = '';
-          this.loadedAt = Date.now();
-          this.loading = false;
-          this.paint();
-          return;
-        }
         if (!sgy?.connected) {
           this.state = { kind: 'notConnected' };
         } else {
@@ -315,10 +352,11 @@ export class GradesView {
       }
       this.host = this.state.kind === 'ready' ? this.state.payload.host ?? '' : '';
       this.loadedAt = Date.now();
+      if (this.state.kind === 'ready' && this.host) writeGradesCache(this.data.uid, this.state.payload);
       if (this.state.kind === 'ready') {
         await this.initSeen();
+        await this.initGemBase();
         void this.notifyNewGrades();
-        this.payGrades();
       }
       this.onNew?.(this.totalUnseen());
     } catch (err) {
@@ -391,16 +429,9 @@ export class GradesView {
   }
 
   private card(c: GCourse, p: GPeriod): HTMLElement {
-    const name = displayName(c.name);
-    const color = getCourseColor(name);
-    const now = headline(p, c.categories);
-    const btn = el('button', { class: 'grades-card grades-course', type: 'button' });
-    btn.style.setProperty('--course', color);
-    btn.append(el('span', { class: 'grades-course-name', text: name }), gradeEl(now, c.scale, 'grades-course-pct'));
-    if (this.courseUnseen(c) > 0) btn.append(el('span', { class: 'grades-new-dot', title: 'New grade', 'aria-label': 'New grade' }));
-    const ts = lastChange(p.assignments);
-    if (ts) btn.append(agoEl('Updated ', ts));
+    const btn = courseCard(c, p, this.courseUnseen(c));
     btn.addEventListener('click', () => {
+      this.claimGrowth(c);
       this.openId = c.id;
       this.paint();
       this.panel?.scrollTo?.({ top: 0 });
@@ -451,9 +482,6 @@ export class GradesView {
     this.edits.clear();
     this.adding = null;
     this.openCats.clear();
-    this.goal.clear();
-    this.goalCat.clear();
-    this.goalWorth.clear();
   }
 
   private editsFor(id: string): Edits {
@@ -504,18 +532,26 @@ export class GradesView {
     const comments = base.filter((a) => a.comment).length;
     const counts = [plural(cats, 'category', 'categories'), plural(base.length, 'assignment')];
     if (comments) counts.push(plural(comments, 'comment'));
+    // The course-wide grade goal: the same calculator as a category's, aimed at the
+    // course grade, with the category to fill left for the student to pick.
+    const courseCalc = el('button', { class: 'grades-cat-add grades-cat-calc', type: 'button', title: 'Grade goal: what do I need?', 'aria-label': 'Grade goal for the whole course' });
+    courseCalc.innerHTML = CALC;
+    courseCalc.addEventListener('click', () => this.openGoalPopup(c, key, base, null, now));
     const bannerR = el('div', { class: 'grades-banner-r' }, [
-      el('span', { class: 'grades-label', text: 'Course grade' }),
+      el('div', { class: 'grades-banner-labelrow' }, [courseCalc, el('span', { class: 'grades-label', text: 'Course grade' })]),
       gradeEl(shown, c.scale, 'grades-banner-grade'),
       this.trendEl(windowSeries(series(c.categories, base), this.days())),
     ]);
     if (edited) {
-      const reset = el('button', { class: 'grades-link', type: 'button', text: 'Reset practice' });
+      const reset = el('button', { class: 'bm-btn bm-btn-primary grades-reset', type: 'button', text: 'Undo practice' });
       reset.addEventListener('click', () => {
         this.edits.set(key, emptyEdits());
         this.paint();
       });
-      bannerR.append(el('span', { class: 'grades-banner-was', text: now === null ? 'Practice' : 'Practice · now ' + fmtPct(now) }), reset);
+      bannerR.append(
+        el('span', { class: 'grades-banner-was', text: now === null ? 'Practice grade' : 'Real grade ' + gradeText(now, c.scale) }),
+        reset
+      );
     }
     root.append(
       el('div', { class: 'grades-card grades-banner' + (edited ? ' whatif' : '') }, [
@@ -527,16 +563,20 @@ export class GradesView {
         bannerR,
       ])
     );
-    root.append(this.goalCard(c, key, base, now));
 
     this.newTitles = new Set(c.periods.flatMap((q) => q.assignments).filter((a) => this.fresh.has(a.id) || this.isUnseen(a)).map((a) => a.title));
-    root.append(this.graphCard(series(c.categories, base), color, c.scale));
+    // A practice grade (an edited real one, or one added) draws a dotted BRANCH on the graph,
+    // from where it changes the history, through every later point at its new value.
+    // Added grades land on today.
+    const today = todayStr();
+    const edit = edited ? series(c.categories, mod.map((a) => (a.whatif && !a.due ? { ...a, due: today } : a))) : null;
+    root.append(this.graphCard(series(c.categories, base), color, c.scale, edit));
     root.append(this.categories(c, p, key, mod));
     return root;
   }
 
   // #region Graph
-  private graphCard(pts: SeriesPoint[], color: string, scale: GScale | null | undefined): HTMLElement {
+  private graphCard(pts: SeriesPoint[], color: string, scale: GScale | null | undefined, edit: SeriesPoint[] | null = null): HTMLElement {
     const head = el('div', { class: 'grades-card-head' }, [el('h3', { class: 'grades-h', text: 'Over time' }), this.rangeSeg()]);
     const card = el('div', { class: 'grades-card grades-graphcard' }, [head]);
     const win = windowSeries(pts, RANGES.find((r) => r.id === this.range)?.days ?? null);
@@ -545,12 +585,27 @@ export class GradesView {
       return card;
     }
     const W = 760;
-    const H = 220;
+    const H = this.compactGraph ? 130 : 220;
     const L = 44;
     const R = 14;
     const T = 14;
     const B = 28;
-    const vals = win.pts.map((q) => q.pct);
+    // The dotted branch: the first point where the practice history departs from the real
+    // one, and everything after it. It starts at the last point the two share.
+    let branch: { ms: number; pct: number; title: string; fake: boolean }[] = [];
+    if (edit && edit.length) {
+      let k = 0;
+      while (k < edit.length && k < pts.length && edit[k].date === pts[k].date && Math.abs(edit[k].pct - pts[k].pct) < 1e-6) k++;
+      if (k < edit.length) {
+        const from = Math.max(0, k - 1);
+        const editCurve = monotoneCurve(edit.map((q) => dayMsOf(q.date)), edit.map((q) => q.pct));
+        branch = edit.slice(from).map((q, i) => ({ ms: dayMsOf(q.date), pct: q.pct, title: q.title, fake: from + i >= k }));
+        const inside = branch.filter((b) => b.ms >= win.start);
+        if (inside.length && inside.length < branch.length && inside[0].ms > win.start) inside.unshift({ ms: win.start, pct: editCurve.at(win.start), title: '', fake: false });
+        branch = inside;
+      }
+    }
+    const vals = win.pts.map((q) => q.pct).concat(branch.map((b) => b.pct));
     const lo = Math.max(0, Math.floor((Math.min(...vals) - 4) / 5) * 5);
     const hi = Math.min(100, Math.max(lo + 10, Math.ceil((Math.max(...vals) + 2) / 5) * 5));
     const t0 = win.start;
@@ -616,6 +671,19 @@ export class GradesView {
     d += ` H${xAt(t1).toFixed(1)}`;
     add('path', { d: `${d} V${H - B} H${first_} Z`, fill: color, opacity: '0.12' });
     add('path', { d, fill: 'none', stroke: color, 'stroke-width': '2.5', 'stroke-linejoin': 'round' });
+    // PRACTICE BRANCH (Gabe, 10/16): dotted, through the practice history's points, then
+    // flat to today like the real line. Hollow dots mark the points practice created.
+    if (branch.length >= 2) {
+      const bc = monotoneCurve(branch.map((b) => b.ms), branch.map((b) => b.pct));
+      let bd = `M${xAt(branch[0].ms).toFixed(1)} ${y(branch[0].pct).toFixed(1)}`;
+      for (const g of bc.segs) bd += ` C${xAt(g.c1x).toFixed(1)} ${y(g.c1y).toFixed(1)} ${xAt(g.c2x).toFixed(1)} ${y(g.c2y).toFixed(1)} ${xAt(g.x1).toFixed(1)} ${y(g.y1).toFixed(1)}`;
+      bd += ` H${xAt(t1).toFixed(1)}`;
+      add('path', { d: bd, fill: 'none', stroke: color, 'stroke-width': '2.5', 'stroke-dasharray': '2 6', 'stroke-linecap': 'round' });
+    }
+    for (const b of branch) {
+      if (!b.fake) continue;
+      add('circle', { cx: String(xAt(b.ms)), cy: String(y(b.pct)), r: '5', fill: 'var(--bg)', stroke: color, 'stroke-width': '2.5', 'stroke-dasharray': '3 3' });
+    }
     const real = win.pts.filter((q) => q.src);
     for (const q of real) {
       const isNew = q.src ? this.newTitles.has(q.src.title) : false;
@@ -638,8 +706,10 @@ export class GradesView {
       // Snap to a change when the pointer is close to one; otherwise read the line.
       let near: (typeof real)[number] | null = null;
       for (const q of real) if (Math.abs(xAt(q.ms) - px) * (r.width / W) < 12) near = q;
-      const shownPct = near ? near.pct : curve.at(ms);
-      const gx = near ? xAt(near.ms) : px;
+      let onPractice: (typeof branch)[number] | null = null;
+      for (const b of branch) if (b.fake && Math.abs(xAt(b.ms) - px) * (r.width / W) < 12) onPractice = b;
+      const shownPct = onPractice ? onPractice.pct : near ? near.pct : curve.at(ms);
+      const gx = onPractice ? xAt(onPractice.ms) : near ? xAt(near.ms) : px;
       guide.setAttribute('x1', String(gx));
       guide.setAttribute('x2', String(gx));
       cursor.setAttribute('cx', String(gx));
@@ -650,7 +720,10 @@ export class GradesView {
       // the course's color), then the day. No dividers.
       const letter = letterFor(shownPct, scale);
       tip.replaceChildren(el('div', { class: 'grades-tip-t', text: fmtPct(Math.round(shownPct * 100) / 100) + (letter ? ` (${letter})` : '') }));
-      if (near?.src) {
+      if (onPractice) {
+        tip.append(el('div', { class: 'grades-tip-task', text: onPractice.title || 'Practice grade' }));
+        tip.append(el('div', { class: 'grades-tip-s', text: 'Practice, not real · ' + dateLabel(onPractice.ms) }));
+      } else if (near?.src) {
         tip.append(el('div', { class: 'grades-tip-task', text: near.src.title }));
         const dl = near.src.delta;
         tip.append(el('div', { class: 'grades-tip-s', text: dateLabel(near.ms) + (dl ? `  ·  ${dl >= 0 ? '+' : '−'}${Math.abs(Math.round(dl * 100) / 100)}` : '') }));
@@ -710,7 +783,7 @@ export class GradesView {
         }
         this.paint();
       });
-      if (unseen.length) toggle.querySelector('.grades-cat-name')?.append(el('span', { class: 'grades-new-dot inline', title: unseen.length + ' new', 'aria-label': 'New grade' }));
+      if (unseen.length) toggle.querySelector('.grades-cat-name')?.append(newBadge(unseen.length, 'inline'));
       const plus = el('button', { class: 'grades-cat-add', type: 'button', title: 'Add a practice grade', 'aria-label': 'Add a practice grade to ' + cat.title, text: '+' });
       plus.addEventListener('click', () => {
         this.openCats.add(ck);
@@ -718,9 +791,13 @@ export class GradesView {
         this.adding = ck;
         this.paint();
       });
+      const calc = el('button', { class: 'grades-cat-add grades-cat-calc', type: 'button', title: 'Grade goal: what do I need?', 'aria-label': 'Grade goal for ' + cat.title });
+      calc.innerHTML = CALC;
+      calc.addEventListener('click', () => this.openGoalPopup(c, key, p.assignments, cat, headline(p, c.categories)));
       head.append(
         toggle,
         el('span', { class: 'grades-pill', text: pct === null ? 'N/A' : gradeText(pct, c.scale) }),
+        calc,
         plus
       );
       block.append(head);
@@ -753,7 +830,7 @@ export class GradesView {
     // Beside the title: open it in Schoology, and email the teacher about it. Nothing
     // else belongs here: the row is for reading a grade.
     const titleLine = el('div', { class: 'grades-assign-title' }, [el('span', { class: 'grades-assign-t', text: a.title })]);
-    if (this.fresh.has(a.id) || this.isUnseen(a)) titleLine.append(el('span', { class: 'grades-tag new', text: 'New' }));
+    if (this.fresh.has(a.id) || this.isUnseen(a)) titleLine.append(el('span', { class: 'new-dot', title: 'New grade', 'aria-label': 'New grade' }));
     if (this.host && !a.whatif) {
       const link = el('a', { class: 'grades-open grades-open-sgy', href: `https://${this.host}/assignment/${a.id}`, target: '_blank', rel: 'noopener noreferrer', title: 'Open in Schoology', 'aria-label': 'Open ' + a.title + ' in Schoology' });
       link.innerHTML = SCHOOLOGY_SVG;
@@ -773,7 +850,7 @@ export class GradesView {
     const left = el('div', { class: 'grades-assign-l' }, [titleLine, meta]);
 
     if (overridden && !a.whatif) {
-      const b = el('button', { class: 'grades-mini', type: 'button', text: 'Undo' });
+      const b = el('button', { class: 'bm-btn bm-btn-primary grades-mini', type: 'button', text: 'Undo' });
       b.addEventListener('click', () => {
         ed.set.delete(a.id);
         this.paint();
@@ -833,15 +910,17 @@ export class GradesView {
       const max = el('input', { class: 'grades-input grades-score-in', type: 'number', min: '0', step: 'any', value: a.max === null ? '' : String(a.max) }) as HTMLInputElement;
       earned.setAttribute('aria-label', 'Score for ' + a.title);
       max.setAttribute('aria-label', 'Points ' + a.title + ' is out of');
-      let done = false;
+      const save = el('button', { class: 'bm-btn bm-btn-primary', type: 'button', text: 'Save' });
+      const cancel = el('button', { class: 'bm-btn', type: 'button', text: 'Cancel' });
       const commit = (): void => {
-        if (done) return;
-        done = true;
         const e = earned.value.trim();
         const m = max.value.trim();
         const en = Number(e);
         const mn = Number(m);
-        if (e === '' || !Number.isFinite(en) || en < 0 || !Number.isFinite(mn) || mn <= 0) return this.paint();
+        if (e === '' || !Number.isFinite(en) || en < 0 || !Number.isFinite(mn) || mn <= 0) {
+          earned.focus();
+          return;
+        }
         const mine = a.whatif ? ed.added.find((x) => x.id === a.id) : undefined;
         if (mine) {
           mine.earned = en;
@@ -849,27 +928,30 @@ export class GradesView {
         } else ed.set.set(a.id, { earned: en, max: mn });
         this.paint();
       };
-      const onKey = (ev: KeyboardEvent): void => {
-        if (ev.key === 'Enter') commit();
-        else if (ev.key === 'Escape') {
-          done = true;
-          this.paint();
-        }
-      };
-      earned.addEventListener('keydown', onKey);
-      max.addEventListener('keydown', onKey);
-      // Leaving the pair (not just hopping from one box to the other) commits.
-      wrap.addEventListener('focusout', (ev) => {
-        const to = ev.relatedTarget as Node | null;
-        if (!to || !wrap.contains(to)) commit();
-      });
-      wrap.replaceChildren(earned, el('span', { class: 'grades-score-of', text: '/' }), max);
+      save.addEventListener('click', commit);
+      cancel.addEventListener('click', () => this.paint());
+      for (const i of [earned, max])
+        i.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') commit();
+          else if (ev.key === 'Escape') cancel.click();
+        });
+      // The same layout as "+ add a grade": title, score / out-of, Cancel and Save.
+      const row = wrap.closest('.grades-assign') as HTMLElement | null;
+      const left = row?.querySelector(':scope > .grades-assign-l');
+      if (!row || !left) return;
+      row.classList.add('grades-add-row');
+      row.replaceChildren(
+        el('div', { class: 'grades-assign-l' }, [el('span', { class: 'grades-assign-t', text: a.title })]),
+        el('div', { class: 'grades-score' }, [earned, el('span', { class: 'grades-score-of', text: '/' }), max]),
+        el('div', { class: 'grades-add-foot' }, [cancel, save])
+      );
       earned.focus();
       earned.select();
     };
 
     const pt = points(a);
-    const btn = el('button', { class: 'grades-score-pill' + (overridden ? ' whatif' : '') + (isMissing(a) ? ' missing' : ''), type: 'button', title: 'Click to try a different score or out-of' });
+    // Only the pencil edits a grade (Gabe, 10/16): the pill itself is just the score.
+    const btn = el('div', { class: 'grades-score-pill' + (overridden ? ' whatif' : '') + (isMissing(a) ? ' missing' : '') });
     if (isMissing(a)) btn.append(el('span', { class: 'grades-score-main', text: 'Missing' }));
     else if (a.earned === null) btn.append(el('span', { class: 'grades-score-main', text: 'N/A' }));
     else {
@@ -880,7 +962,6 @@ export class GradesView {
         btn.append(el('span', { class: 'grades-score-sub', text: fmtPct(pct) + (l ? ` (${l})` : '') }));
       }
     }
-    btn.addEventListener('click', edit);
     const tools = el('div', { class: 'grades-tools' });
     const pen = el('button', { class: 'grades-edit', type: 'button', title: 'Edit this grade', 'aria-label': 'Edit ' + a.title });
     pen.innerHTML = PENCIL;
@@ -900,123 +981,154 @@ export class GradesView {
   // #endregion
 
   // #region What-if grades (under everything else)
-  /** The grade goal, up under the banner: pick the grade you want, ONE category and what
-   *  the next assignment is out of, and the big box under them says what you need on it.
-   *  It updates as you change anything. Nothing is added to the course or saved. */
-  private goalCard(c: GCourse, key: string, base: GAssign[], now: number | null): HTMLElement {
+  /** THE GRADE GOAL CALCULATOR (Gabe, 10/16), in two forms.
+   *
+   *  CATEGORY (the little calculator beside a category's "+"): `fixed` is that category
+   *  and the goal is the CATEGORY's grade. It first aimed at the course, so a student
+   *  holding 100% in a category was told to score 125% to "get 100".
+   *
+   *  COURSE (the calculator in the banner, beside the course grade): `fixed` is null,
+   *  the goal is the whole COURSE's grade, and the student picks which category the
+   *  practice grades go in, because nothing has decided that yet.
+   *
+   *  Either way: pick how many assignments and what each is out of, and the grade you
+   *  want (1 to 150%, below where you are is fine); it fills the category with practice
+   *  grades that land exactly there. */
+  private openGoalPopup(c: GCourse, key: string, base: GAssign[], fixed: GCategory | null, now: number | null): void {
     const ed = this.editsFor(key);
-    const card = el('div', { class: 'grades-card grades-goal' });
-    const weighted = c.categories.filter((k) => (k.weight ?? 0) > 0 && base.some((a) => a.cat === k.id));
-    const cats = weighted.length ? weighted : c.categories.filter((k) => base.some((a) => a.cat === k.id));
-    card.append(el('div', { class: 'grades-card-head' }, [el('h3', { class: 'grades-h', text: 'Grade goal' })]));
-    if (now === null || !cats.length) {
-      card.append(el('div', { class: 'grades-note', text: 'A goal needs some graded work first.' }));
-      return card;
-    }
-    const lo = Math.min(99, Math.floor(now) + 1);
-    let target = this.goal.get(key) ?? null;
-    if (target === null) {
-      const up = nextLevel(now, c.scale);
-      target = up ? up.cutoff : lo;
-    }
-    target = Math.max(lo, Math.min(100, target));
-    this.goal.set(key, target);
-
-    const chosen = cats.find((k) => k.id === this.goalCat.get(key)) ?? cats[0];
-    const typical = typicalMax(base.filter((a) => a.cat === chosen.id));
-
-    // The big answer box.
-    const big = el('div', { class: 'grades-goal-big' });
-    const sub = el('div', { class: 'grades-goal-sub' });
-    const result = el('div', { class: 'grades-goal-result' }, [big, sub]);
-    const update = (): void => {
-      const t = this.goal.get(key) ?? 0;
-      const w = this.goalWorth.get(key) ?? typical;
-      const plan = this.planGoal(c, base, ed, [chosen], t, now, 1, () => w);
-      result.classList.remove('bad', 'done');
-      if (plan.kind === 'already') {
-        result.classList.add('done');
-        big.textContent = 'Already there';
-        sub.textContent = 'You are at or above that grade.';
-      } else if (plan.kind === 'impossible') {
-        result.classList.add('bad');
-        big.textContent = 'Out of reach';
-        sub.textContent = `Full marks on one more ${chosen.title} assignment gets ${gradeText(Math.round(plan.best * 100) / 100, c.scale)}.`;
-      } else {
-        const pts = Math.ceil(((w * plan.pct) / 100) * 100) / 100;
-        big.textContent = fmtPct(Math.ceil(plan.pct * 100) / 100);
-        sub.textContent = `${pts} / ${w} points on one more ${chosen.title} assignment`;
+    const choices: GCategory[] = fixed ? [fixed] : c.categories.length ? c.categories : [{ id: '', title: 'Assignments', weight: null } as GCategory];
+    let cat = choices[0];
+    const kept = (k: GCategory): GAssign[] => applyEdits(base, { set: ed.set, added: ed.added.filter((a) => !(a.preview && a.cat === k.id)) });
+    /** Where the student stands on the thing the goal is about, to pick a sensible default goal. */
+    const standing = (): number | null => (fixed ? categoryPct(cat.id, kept(cat)) : shownGrade(c.categories, base, kept(cat), now));
+    const startFor = (): number => {
+      const st = standing();
+      return st === null ? 90 : (nextLevel(st, c.scale)?.cutoff ?? Math.min(150, Math.floor(st) + 1));
+    };
+    const typicalFor = (): number => typicalMax(base.filter((a) => a.cat === cat.id));
+    openPopup(fixed ? `Grade goal: ${fixed.title}` : 'Grade goal: whole course', (body, close) => {
+      const num = (value: string, min: string, max: string, label: string): HTMLInputElement =>
+        el('input', { class: 'grades-input grades-wi-num', type: 'number', min, max, step: 'any', value, 'aria-label': label }) as HTMLInputElement;
+      const count = num('1', '1', '10', 'How many assignments');
+      const worth = num(String(typicalFor()), '1', '1000', 'Points each assignment is out of');
+      const want = num(String(Math.round(startFor())), '1', '150', fixed ? 'The category grade you want' : 'The course grade you want');
+      const row = (lab: string, ...kids: (HTMLElement | string)[]): HTMLElement => el('div', { class: 'grades-goal-row' }, [el('span', { class: 'grades-wi-label', text: lab }), ...kids]);
+      const big = el('div', { class: 'grades-goal-big' });
+      const sub = el('div', { class: 'grades-goal-sub' });
+      const result = el('div', { class: 'grades-goal-result' }, [big, sub]);
+      const create = el('button', { class: 'bm-btn bm-btn-primary', type: 'button', text: 'Create practice grades' }) as HTMLButtonElement;
+      const cancel = el('button', { class: 'bm-btn', type: 'button', text: 'Cancel' });
+      let plan: number | null = null;
+      let n = 1;
+      let w = typicalFor();
+      const update = (): void => {
+        n = Math.max(1, Math.min(10, Math.round(Number(count.value) || 1)));
+        w = Number(worth.value) > 0 ? Number(worth.value) : typicalFor();
+        const t = Math.max(1, Math.min(150, Number(want.value) || 0));
+        result.classList.remove('bad', 'done');
+        plan = fixed ? this.planCategory(base, ed, cat, t, n, w) : this.planCourse(c, base, ed, cat, t, now, n, w);
+        create.disabled = plan === null;
+        const goalOf = fixed ? cat.title : 'the course';
+        if (plan === null) {
+          result.classList.add('bad');
+          big.textContent = 'Out of reach';
+          sub.textContent = `No score on ${n} ${cat.title} assignment${n === 1 ? '' : 's'} gets ${goalOf} to ${fmtPct(t)}.`;
+        } else if (plan === 0) {
+          result.classList.add('done');
+          big.textContent = 'Already there';
+          sub.textContent = `${fixed ? cat.title : 'Your course grade'} stays at ${fmtPct(t)} or above even with a zero on ${n === 1 ? 'one more' : n + ' more'}.`;
+        } else {
+          const each = Math.round(((w * plan) / 100) * 100) / 100;
+          big.textContent = fmtPct(plan);
+          sub.textContent = `${each} / ${w} points on each of ${n} ${cat.title} assignment${n === 1 ? '' : 's'}`;
+        }
+      };
+      for (const i of [count, worth, want]) i.addEventListener('input', update);
+      update();
+      create.addEventListener('click', () => {
+        if (plan === null) return;
+        // Replace any earlier goal grades for this category, so it never piles up.
+        ed.added = ed.added.filter((a) => !(a.preview && a.cat === cat.id));
+        for (let i = 0; i < n; i++) {
+          ed.added.push({ id: 'wi_' + ++this.addSeq, title: n === 1 ? 'Goal grade' : `Goal grade ${i + 1}`, cat: cat.id, earned: Math.round(((w * plan) / 100) * 100) / 100, max: w, exc: 0, ts: 0, due: '', whatif: true, preview: true });
+        }
+        this.openCats.add(key + ':' + cat.id);
+        close();
+        this.paint();
+      });
+      cancel.addEventListener('click', close);
+      const rows: HTMLElement[] = [];
+      if (!fixed) {
+        const pick = el('select', { class: 'grades-input grades-goal-pick', 'aria-label': 'Which category the practice grades go in' }) as HTMLSelectElement;
+        for (const k of choices) pick.append(el('option', { value: k.id, text: k.title }));
+        pick.addEventListener('change', () => {
+          cat = choices.find((k) => k.id === pick.value) ?? choices[0];
+          worth.value = String(typicalFor());
+          want.value = String(Math.round(startFor()));
+          update();
+        });
+        rows.push(row('Category', pick));
       }
-    };
-
-    // The grade you want: a slider, with the letter it lands on beside it.
-    const label = (v: number): string => {
-      const l = letterFor(v, c.scale);
-      return fmtPct(v) + (l ? ` (${l})` : '');
-    };
-    const slider = el('input', { class: 'grades-goal-slider', type: 'range', min: String(lo), max: '100', step: '1', value: String(Math.round(target)), 'aria-label': 'Grade you want, percent' }) as HTMLInputElement;
-    const val = el('span', { class: 'grades-goal-val', text: label(target) });
-    slider.addEventListener('input', () => {
-      const n = Number(slider.value);
-      this.goal.set(key, n);
-      val.textContent = label(n);
-      update();
-    });
-
-    // ONE category: several at once would mean many combinations of good and bad scores.
-    const select = el('select', { class: 'grades-input grades-goal-select', 'aria-label': 'Category of the next assignment' }) as HTMLSelectElement;
-    for (const k of cats) select.append(el('option', { value: k.id, text: k.title }));
-    select.value = chosen.id;
-    select.addEventListener('change', () => {
-      this.goalCat.set(key, select.value);
-      this.goalWorth.delete(key);
-      this.paint();
-    });
-
-    const worthIn = el('input', { class: 'grades-input grades-wi-num', type: 'number', min: '1', step: 'any', placeholder: String(typical), value: this.goalWorth.has(key) ? String(this.goalWorth.get(key)) : '', 'aria-label': 'Points the assignment is out of' }) as HTMLInputElement;
-    worthIn.addEventListener('input', () => {
-      const n = Number(worthIn.value);
-      if (worthIn.value !== '' && Number.isFinite(n) && n > 0) this.goalWorth.set(key, n);
-      else this.goalWorth.delete(key);
-      update();
-    });
-
-    const row = (lab: string, ...kids: (HTMLElement | string)[]): HTMLElement => el('div', { class: 'grades-goal-row' }, [el('span', { class: 'grades-wi-label', text: lab }), ...kids]);
-    update();
-    card.append(
-      row('I want', slider, val),
-      row('Category', select, el('span', { class: 'grades-score-of', text: 'out of' }), worthIn, el('span', { class: 'grades-score-of', text: 'pts' })),
-      result
-    );
-    return card;
+      body.append(
+        ...rows,
+        row('Assignments', count),
+        row('Each out of', worth, el('span', { class: 'grades-score-of', text: 'pts' })),
+        row(fixed ? 'Category grade I want' : 'Course grade I want', want, el('span', { class: 'grades-score-of', text: '%' })),
+        result,
+        el('div', { class: 'grades-add-foot', style: 'margin-top:12px' }, [cancel, create])
+      );
+    }, this.popHost);
   }
 
-  /** The one percentage that, scored on `n` more assignments in EVERY chosen category, lands
-   *  the course on `t`. The grade only rises with that percentage, so it is found by
-   *  halving the range. */
-  private planGoal(c: GCourse, base: GAssign[], ed: Edits, cats: GCategory[], t: number, now: number | null, n: number, worthFor: (k: GCategory) => number): { kind: 'ok'; pct: number } | { kind: 'already' } | { kind: 'impossible'; best: number } {
-    const real = applyEdits(base, { set: ed.set, added: ed.added.filter((a) => !a.preview) });
-    const here = shownGrade(c.categories, base, real, now);
+  /** The one percentage that, scored on `n` assignments of `worth` points each in this
+   *  category (on top of what is already there, practice grades included, goal grades
+   *  for this category excluded), makes the CATEGORY's grade `t`. Straight points
+   *  arithmetic: (earned + n*worth*p) / (possible + n*worth) = t. 0 when the category
+   *  is already at or above `t` with zeros; null when it would take more than 1000%
+   *  (a high goal may need extra credit, a silly one is out of reach). Rounded UP to
+   *  the hundredth so the result never lands a hair under the goal. */
+  private planCategory(base: GAssign[], ed: Edits, cat: GCategory, t: number, n: number, worth: number): number | null {
+    const kept = applyEdits(base, { set: ed.set, added: ed.added.filter((a) => !(a.preview && a.cat === cat.id)) });
+    let e = 0;
+    let m = 0;
+    for (const a of kept) {
+      if (a.cat !== cat.id) continue;
+      const p = points(a);
+      if (p) {
+        e += p.e;
+        m += p.m;
+      }
+    }
+    const added = n * worth;
+    const pct = (((t / 100) * (m + added) - e) / added) * 100;
+    if (pct <= 0) return 0;
+    if (pct > 1000) return null;
+    return Math.ceil(pct * 100) / 100;
+  }
+
+  /** The same, for the whole COURSE's grade: the one percentage on `n` assignments in
+   *  `cat` that lands the course on `t`. The course grade only rises with that
+   *  percentage, so it is found by halving (up to 1000%), then rounded up to the
+   *  hundredth. 0 when the course is already there; null when no score can. */
+  private planCourse(c: GCourse, base: GAssign[], ed: Edits, cat: GCategory, t: number, now: number | null, n: number, worth: number): number | null {
+    const kept = applyEdits(base, { set: ed.set, added: ed.added.filter((a) => !(a.preview && a.cat === cat.id)) });
+    const here = shownGrade(c.categories, base, kept, now);
     const at = (pct: number): number | null => {
-      const extra = cats.flatMap((k) => {
-        const worth = worthFor(k);
-        return Array.from({ length: n }, (_, i) => ({ id: `_p${k.id}_${i}`, title: '', cat: k.id, earned: (worth * pct) / 100, max: worth, exc: 0, ts: 0, due: '' }) as GAssign);
-      });
-      return shownGrade(c.categories, real, [...real, ...extra], here);
+      const extra = Array.from({ length: n }, (_, i) => ({ id: `_p${i}`, title: '', cat: cat.id, earned: (worth * pct) / 100, max: worth, exc: 0, ts: 0, due: '' }) as GAssign);
+      return shownGrade(c.categories, kept, [...kept, ...extra], here);
     };
     const lo = at(0);
-    const hi = at(100);
-    if (lo === null || hi === null) return { kind: 'impossible', best: 0 };
-    if (lo >= t) return { kind: 'already' };
-    if (hi < t) return { kind: 'impossible', best: hi };
+    const hi = at(1000);
+    if (lo === null || hi === null || hi < t) return null;
+    if (lo >= t) return 0;
     let a = 0;
-    let b = 100;
-    for (let i = 0; i < 30; i++) {
+    let b = 1000;
+    for (let i = 0; i < 40; i++) {
       const m = (a + b) / 2;
       if ((at(m) ?? 0) >= t) b = m;
       else a = m;
     }
-    return { kind: 'ok', pct: b };
+    return Math.ceil(b * 100) / 100;
   }
   // #endregion
 
@@ -1024,11 +1136,58 @@ export class GradesView {
 }
 
 // #region Small builders
+/** Fired whenever the saved "seen" record changes, so the dashboard's New Grades card
+ *  repaints (Gabe, 10/16). */
+export const GRADES_SEEN_EVENT = 'cobalt:grades-seen';
+
+/** A real, scored grade the student has not looked at yet. `seen` maps assignment id
+ *  to the grade time already seen; null (not read yet) means nothing counts as new. */
+export function isUnseenGrade(a: GAssign, seen: Record<string, number> | null | undefined): boolean {
+  if (!seen || a.whatif || a.earned === null) return false;
+  const t = seen[a.id];
+  return t === undefined || a.ts > t;
+}
+
+/** The landing's sample gradebook: its two newest grades are the unseen ones. */
+export function sampleSeen(payload: GradesPayload): Record<string, number> {
+  const all = (payload.courses ?? []).flatMap((c) => c.periods.flatMap((p) => p.assignments));
+  const newest = new Set([...all].sort((a, b) => b.ts - a.ts).slice(0, 2).map((a) => a.id));
+  const seen: Record<string, number> = {};
+  for (const a of all) if (!newest.has(a.id)) seen[a.id] = a.ts;
+  return seen;
+}
+
+/** One course cell, exactly as the Grades tab draws it. The dashboard's New Grades
+ *  card pastes these in, so the two can never drift. The caller adds the click. */
+export function courseCard(c: GCourse, p: GPeriod, unseen: number): HTMLButtonElement {
+  const name = displayName(c.name);
+  const btn = el('button', { class: 'grades-card grades-course', type: 'button' }) as HTMLButtonElement;
+  btn.style.setProperty('--course', getCourseColor(name));
+  const head = el('span', { class: 'grades-course-head' }, [el('span', { class: 'grades-course-name', text: name })]);
+  if (unseen > 0) head.append(newBadge(unseen, 'card'));
+  btn.append(head, gradeEl(headline(p, c.categories), c.scale, 'grades-course-pct'));
+  const ts = lastChange(p.assignments);
+  if (ts) btn.append(agoEl('Updated ', ts));
+  return btn;
+}
+
+/** The red numbered circle (same look as the Tasks tab's) for new grades. */
+function newBadge(n: number, where: 'card' | 'inline'): HTMLElement {
+  return el('span', {
+    class: `count-badge nav-count on grades-new-badge ${where}`,
+    title: `${n} new grade${n === 1 ? '' : 's'}`,
+    'aria-label': `${n} new grade${n === 1 ? '' : 's'}`,
+    text: n > 99 ? '99+' : String(n),
+  });
+}
+
 /** Schoology's section title, resolved to the student's own Cobalt course name when
  *  one matches (so the color and the Tasks tab agree), else as Schoology says it. */
-function displayName(name: string): string {
-  const lower = name.trim().toLowerCase();
-  const hit = getCourses().find((k) => k.name.toLowerCase() === lower);
+export function displayName(name: string): string {
+  // By current name OR any name the course used to have: Schoology keeps calling a
+  // renamed course by its original title, and the student's rename must show here
+  // too (Gabe, 10/16: course changes apply everywhere, perpetually).
+  const hit = courseByAnyName(name);
   return hit ? hit.name : name.trim();
 }
 
@@ -1061,7 +1220,7 @@ function clock(): HTMLElement {
 }
 
 /** "2 days ago" style. */
-function ago(ms: number): string {
+export function ago(ms: number): string {
   const s = Math.max(0, (Date.now() - ms) / 1000);
   const m = Math.floor(s / 60);
   const h = Math.floor(m / 60);
@@ -1123,8 +1282,4 @@ export function areaSpark(win: Windowed | null, color: string): HTMLElement {
 
 /** Local-only sample gradebook for looking at the screen without a connection:
  *  `npm run dev`, then add ?gradesSample=1. Absent from the production bundle. */
-async function devSample(): Promise<GradesPayload | null> {
-  if (!import.meta.env.DEV || !/[?&]gradesSample=1/.test(location.search)) return null;
-  return (await import('./sample')).sampleGrades();
-}
 // #endregion

@@ -56,6 +56,10 @@ export interface Task {
    *  'due date', 'due time', 'instructions', 'link'), accumulating across syncs
    *  until the user dismisses the ✱ badge on the task row by clicking it. */
   feedUpdated?: string[];
+  /** Schoology just posted this task and the student has not opened the Tasks tab since
+   *  (Gabe, 10/16). Shows the solid red dot and counts on the Tasks tab; main.ts clears
+   *  it when they leave Tasks. */
+  newlyPosted?: boolean;
   /**
    * WHAT THE TASK SAID BEFORE (Gabe, 8/22) — the ghost the ✱ badge opens.
    *

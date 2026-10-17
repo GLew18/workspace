@@ -55,22 +55,26 @@ export interface AppTabs {
   nav: HTMLElement;
   /** One button per tab id; the tab controller toggles `.active` on these. */
   btns: Map<string, HTMLElement>;
-  /** The red due-today circle on Tasks (`.count-badge.nav-count`, shown via `.on`). */
+  /** The red new-tasks circle on Tasks (`.count-badge.nav-count`, shown via `.on`). */
   tasksCount: HTMLElement;
+  /** The same red circle on Grades: how many new grades are unseen (Gabe, 10/16). */
+  gradesCount: HTMLElement;
 }
 
 export function createAppTabs(onPick: (id: string) => void, tabs: AppTabDef[] = APP_TABS): AppTabs {
   const nav = el('nav', { class: 'app-tabs', 'aria-label': 'Main' });
   const btns = new Map<string, HTMLElement>();
-  const tasksCount = el('span', { class: 'count-badge nav-count' });
+  const tasksCount = el('span', { class: 'count-badge nav-count', title: 'New tasks' });
+  const gradesCount = el('span', { class: 'count-badge nav-count', title: 'New grades' });
   for (const t of tabs) {
     const b = el('button', { class: 'app-tab', 'data-tab': t.id });
     b.innerHTML = ICONS[t.id] ?? '';
     b.append(el('span', { class: 'app-tab-label', text: t.label }));
     if (t.id === 'tasks') b.append(tasksCount);
+    if (t.id === 'grades') b.append(gradesCount);
     b.addEventListener('click', () => onPick(t.id));
     btns.set(t.id, b);
     nav.append(b);
   }
-  return { nav, btns, tasksCount };
+  return { nav, btns, tasksCount, gradesCount };
 }

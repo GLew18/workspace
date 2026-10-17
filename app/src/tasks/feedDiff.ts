@@ -198,6 +198,15 @@ function feedParts(task: Task): { fields: FeedPart[]; leftovers: string[] } {
   return { fields, leftovers: changed.filter((c) => !spokenFor.has(String(c).toLowerCase())) };
 }
 
+/** One change with no earlier version, said plainly (Gabe, 10/16): added things say
+ *  "added", the rest say "changed". No "nothing to compare against" preamble. */
+function plainChange(c: string): string {
+  if (c === 'an attachment') return 'A new attachment was added.';
+  if (c === 'attachments') return 'New attachments were added.';
+  const s = String(c);
+  return `The ${s} was changed.`;
+}
+
 /**
  * The body of the "what changed" popup. Returns null when there is nothing left to
  * show: no recorded ghost at all, or every recorded change turned out to be a
@@ -231,15 +240,7 @@ export function buildFeedDiff(task: Task): HTMLElement | null {
   const body = el('div', { class: 'fd-body' });
   for (const b of blocks) body.append(b);
   if (leftovers.length) {
-    body.append(
-      el('div', {
-        class: 'fd-note fd-leftovers',
-        // No em dash: a comma does the job (Gabe's rule).
-        text: blocks.length
-          ? `Also changed, with no earlier version recorded: ${leftovers.join(', ')}.`
-          : `Changed on Schoology: ${leftovers.join(', ')}. The earlier version was not recorded, so there is nothing to compare against.`,
-      })
-    );
+    body.append(el('div', { class: 'fd-note fd-leftovers', text: leftovers.map(plainChange).join(' ') }));
   }
   return body;
 }

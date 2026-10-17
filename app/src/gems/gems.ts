@@ -124,28 +124,22 @@ async function persist(): Promise<void> {
 }
 
 /**
- * GEMS FOR GRADES (Gabe, 10/12). A newly posted grade pays by how well it went, once
- * per assignment, ever. Only grades that came from Schoology can pay (a what-if never
- * reaches here), and only grades that arrive AFTER the student started using the
- * Grades tab (grades/view.ts passes just the unseen ones), so nothing pays
- * retroactively. PLACEHOLDER AMOUNTS, like the completion rewards above.
+ * GEMS FOR A RISING GRADE (Gabe, 10/16, replacing the per-assignment bands of 10/12,
+ * which paid by how HIGH a grade was and so favored strong students). Now any rise in
+ * a course's grade pays, and a bigger rise pays more: 10 gems plus 3 per percentage
+ * point (10 + 3 per point, Gabe 10/16), capped at 40. Rises under 0.05 points are rounding noise and pay nothing.
+ * grades/view.ts decides WHEN: as the student opens the course, so the toast arrives
+ * where the good news is. PLACEHOLDER AMOUNTS, like the completion rewards above.
  */
-const GRADE_GEMS: Array<[number, number]> = [
-  [97, 20], [93, 18], [90, 15], [87, 12], [83, 10], [80, 8], [77, 6], [73, 4], [70, 3], [60, 1],
-];
-export function awardGradeGems(items: { id: string; pct: number }[]): void {
-  if (!data) return;
-  let earned = 0;
-  for (const { id, pct } of items) {
-    const key = 'g_' + id;
-    if (record.paidOut[key]) continue;
-    record.paidOut[key] = true;
-    earned += (GRADE_GEMS.find(([cut]) => pct >= cut - 1e-9) ?? [0, 0])[1];
-  }
-  if (earned > 0) {
-    balance += earned;
-    showGemsToast(earned);
-  }
+const GRADE_RISE_MIN = 0.05;
+const GRADE_RISE_PER_POINT = 3;
+const GRADE_RISE_CAP = 40;
+const GRADE_RISE_BASE = 10;
+export function awardGradeGrowth(rise: number): void {
+  if (!data || !(rise >= GRADE_RISE_MIN)) return;
+  const earned = Math.min(GRADE_RISE_CAP, GRADE_RISE_BASE + Math.floor(rise * GRADE_RISE_PER_POINT));
+  balance += earned;
+  showGemsToast(earned);
   void persist();
 }
 

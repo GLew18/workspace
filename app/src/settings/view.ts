@@ -10,7 +10,6 @@
 import type { Data } from '../db';
 import type { CourseConfig, SchoologySettings } from '../types';
 import { el, textInput, escapeHtml, enterConfirms, fadeRemove, escapeCloses } from '../util/dom';
-import { createPlusSidebarButton, PLUS_HIDDEN } from '../plus/view';
 import { openAtTop } from '../ui/tabs';
 import { confirmDanger, confirmDialog } from '../ui/confirm';
 import { genId } from '../util/ids';
@@ -48,6 +47,8 @@ import { focusSessionLive } from '../focus/persist';
 import { NOTIFY_GUIDES_MAC, NOTIFY_GUIDES_WINDOWS } from './notifyGuides';
 import {
   chosenNotifyEmail,
+  defaultNotifyEmail,
+  schoologyNotifyEmail,
   clearNotifyEmail,
   confirmNotifyEmail,
   onNotifyEmailChange,
@@ -86,6 +87,8 @@ const NAV_ICONS: Record<string, string> = {
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.5 4-7 8-7s8 2.5 8 7"/></svg>',
   // NOTE: these keys ARE the tab labels — NAV_ICONS[label] and DESCS[label] both
   // look up by the visible string, so renaming a tab means renaming all three.
+  Dashboard:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>',
   Tasks:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8l10-4 10 4-10 4z"/><path d="M6 10v5c0 1.6 3 3 6 3s6-1.4 6-3v-5"/></svg>',
   Courses:
@@ -237,12 +240,14 @@ export class SettingsView {
     // Build every section once; the side tabs reveal one at a time (like the app
     // sidebar / most settings pages), instead of one long scrolling column.
     const secProfile = this.sectionProfile();
+    const secDashboard = this.sectionDashboard();
     const secSchool = this.sectionSchoology();
     const secCourses = this.sectionCourses();
     const secSound = this.sectionSound();
     const secNotify = this.sectionNotify();
     const tabs: [string, HTMLElement][] = [
       ['Profile', secProfile],
+      ['Dashboard', secDashboard],
       ['Tasks', secSchool],
       ['Courses', secCourses],
       ['Focus', secSound],
@@ -256,6 +261,21 @@ export class SettingsView {
     // sentence nobody re-reads after the first visit. Between them they pushed ~60px
     // of dead space above every tab, which is exactly where the first REAL setting
     // now sits, level with the "Settings" title in the sidebar.
+
+    // EVERY TAB OPENS ON A HEADER AT THE SAME HEIGHT (Gabe, 10/16). Courses and Focus
+    // already opened on one; the other four opened on a bare field, so the tabs
+    // started at different heights and only some had a title. The headers are the
+    // same group labels used lower down, and the first-child rule in settings.css
+    // zeroes their top margin, so all six sit level with the "Settings" title.
+    const OPENING: Record<string, string> = {
+      Profile: '🔗 Schoology',
+      Dashboard: '🏠 Dashboard',
+      Tasks: '📅 Calendar',
+      Notifications: '🔔 Notifications',
+    };
+    for (const [label, sec] of tabs) {
+      if (OPENING[label]) sec.prepend(el('div', { class: 'settings-group-label', text: OPENING[label] }));
+    }
 
     const content = el('div', { class: 'settings-content' });
     for (const [, sec] of tabs) content.append(sec);
@@ -278,28 +298,16 @@ export class SettingsView {
       content.scrollTop = 0;
       openAtTop(content);
     };
-    // PREMIUM group (Gabe, 8/13): paid-tier tabs sit at the bottom of the
-    // sidebar under their own "Premium" subheader in a separated block. The
-    // block is NEUTRAL: a full violet theme was tried and pulled the same day;
-    // the one violet mark is the ACTIVE state on these buttons (settings.css),
-    // violet where every other tab goes blue. Hover is the standard white.
-    // Today that's Notifications; future premium tabs just join this set.
-    const PREMIUM_TABS = new Set(['Notifications']);
-    const premWrap = el('div', { class: 'settings-side-prem' });
-    if (!PLUS_HIDDEN) premWrap.append(el('div', { class: 'settings-side-subhead', text: 'Premium' }));
-    // "Cobalt Plus" opens the upgrade screen (plus/view.ts). It sits under the
-    // subhead, above the premium tabs, and is not a tab itself.
-    if (!PLUS_HIDDEN) premWrap.append(createPlusSidebarButton());
+    // Every tab sits in ONE list (Gabe, 10/16): Notifications used to hang in a
+    // separate "Premium" block. There is no premium tier for now.
     tabs.forEach(([label], i) => {
       const b = el('button', { class: 'settings-side-btn' }) as HTMLButtonElement;
-      if (PREMIUM_TABS.has(label)) b.classList.add('premium');
       b.innerHTML = NAV_ICONS[label] ?? '';
       b.append(el('span', { text: label }));
       b.addEventListener('click', () => show(i));
       navButtons.push(b);
-      (PREMIUM_TABS.has(label) ? premWrap : side).append(b);
+      side.append(b);
     });
-    side.append(premWrap);
 
     const shell = el('div', { class: 'settings-shell' });
     shell.append(side, content);
@@ -494,10 +502,10 @@ export class SettingsView {
     }
     this.setIcalStatus('Syncing…');
     try {
-      const r = await runSync(this.data);
+      await runSync(this.data);
       this.schoologyMeta = (await this.data.getProfile<SchoologySettings>('schoology')) || this.schoologyMeta;
       this.setIcalStatus(
-        `Synced: ${r.added} new${r.updated ? `, ${r.updated} updated` : ''}${r.removed ? `, ${r.removed} removed` : ''}${r.skipped - r.updated > 0 ? `, ${r.skipped - r.updated} unchanged` : ''}.`
+        this.schoologyMeta?.lastSyncAt ? `Last synced ${formatSyncTime(this.schoologyMeta.lastSyncAt)}` : 'Synced.'
       );
     } catch (err) {
       this.setIcalStatus('Sync failed: ' + (err as Error).message, true);
@@ -523,10 +531,10 @@ export class SettingsView {
   private async syncNow(): Promise<void> {
     this.setSyncStatus('Syncing…');
     try {
-      const r = await runSync(this.data);
+      await runSync(this.data);
       this.schoologyMeta = (await this.data.getProfile<SchoologySettings>('schoology')) || this.schoologyMeta;
       this.setSyncStatus(
-        `Synced: ${r.added} new${r.updated ? `, ${r.updated} updated` : ''}${r.removed ? `, ${r.removed} removed` : ''}${r.skipped - r.updated > 0 ? `, ${r.skipped - r.updated} unchanged` : ''}.`
+        this.schoologyMeta?.lastSyncAt ? `Last synced ${formatSyncTime(this.schoologyMeta.lastSyncAt)}` : 'Synced.'
       );
     } catch (err) {
       this.setSyncStatus('Sync failed: ' + (err as Error).message, true);
@@ -544,80 +552,73 @@ export class SettingsView {
   // #region Field builders — the Profile / Schoology / Courses sections + their status
   // --- sections -----------------------------------------------------------
 
-  private sectionProfile(): HTMLElement {
-    const sec = el('section', { class: 'settings-section', id: 'sec-profile' });
+  /** The Dashboard tab (Gabe, 10/16): everything about what the dashboard shows. It used
+   *  to be a group inside Profile; with Smart Content and the card switches it earned
+   *  its own tab. */
+  /** Repaints the Dashboard tab's greeting preview (the name is edited in Profile). */
+  private refreshDashPreview: (() => void) | null = null;
 
-    // Login email — read-only (set by how you signed in). Self-explanatory, no help.
-    sec.append(el('div', { class: 'settings-label', text: 'Account' }));
-    const email = el('div', { class: 'settings-readonly' });
-    email.textContent = this.opts.email || 'Signed in locally';
-    sec.append(email);
-
-    // Display name — editable.
-    const nameLabel = el('div', { class: 'settings-label', text: 'Display name' });
-    nameLabel.style.marginTop = '14px';
-    sec.append(nameLabel);
-    const input = textInput({ class: 'settings-input', value: this.draft.name });
-    input.addEventListener('input', () => {
-      this.draft.name = input.value;
-      refreshPreview();
-    });
-    // Save when you leave the field (and tidy the display to the capitalized form).
-    input.addEventListener('blur', () => {
-      void this.saveName().then(() => {
-        input.value = this.draft.name;
-        refreshPreview();
-      });
-    });
-    sec.append(input);
-
+  private sectionDashboard(): HTMLElement {
+    const sec = el('section', { class: 'settings-section', id: 'sec-dashboard' });
     const p = this.draft.prefs;
     const save = (): void => void this.savePrefs();
-
-    // --- Preferences ---
-    sec.append(el('div', { class: 'settings-group-label', text: '⚙️ Preferences' }));
-    sec.append(
-      this.prefRow(
-        'Time format',
-        'How due times, sync, and Focus show the clock.',
-        this.prefSeg([['12h', '12-hour'], ['24h', '24-hour']], () => p.timeFormat, (v) => {
-          p.timeFormat = v;
-          save();
-        })
-      )
-    );
-    sec.append(
-      this.prefRow(
-        'Open Cobalt to',
-        'Which tab greets you when the app loads.',
-        this.prefSeg(
-          // Same order as the sidebar: Focus outranks Bookmarks (Gabe, 8/12).
-          [['dashboard', 'Dashboard'], ['tasks', 'Tasks'], ['focus', 'Focus'], ['bookmarks', 'Bookmarks']],
-          () => p.openTo,
-          (v) => {
-            p.openTo = v;
-            save();
-          }
-        )
-      )
-    );
-    sec.append(
-      this.prefRow(
-        'Open links in a new window',
-        'Attachments and bookmarks open in their own window instead of a new tab.',
-        this.prefSwitch(p.openLinksInNewWindow, (on) => {
-          p.openLinksInNewWindow = on;
-          save();
-        })
-      )
-    );
-
     // --- Dashboard toggles + a live preview that mirrors the real greeting/quote ---
-    sec.append(el('div', { class: 'settings-group-label', text: '📊 Dashboard' }));
     sec.append(
       this.prefRow(
-        'Personalized greeting',
-        'Use your name in the rotating greeting.',
+        'Smart Content',
+        'Hide a card when it has nothing to show, like Current Tasks with everything checked off or Recently Graded Courses with no new grades. Off: the card stays with a line such as “No tasks today”.',
+        this.prefSwitch(p.dash.smart, (on) => {
+          p.dash.smart = on;
+          save();
+        })
+      )
+    );
+    sec.append(
+      this.prefRow(
+        'Current Tasks',
+        "Show what's still left to do that's due today or tomorrow.",
+        this.prefSwitch(p.dash.tasksCard, (on) => {
+          p.dash.tasksCard = on;
+          save();
+        })
+      )
+    );
+    sec.append(
+      this.prefRow(
+        'Recently Graded Courses',
+        'Show the courses that were graded lately.',
+        this.prefSwitch(p.dash.gradesCard, (on) => {
+          p.dash.gradesCard = on;
+          save();
+        })
+      )
+    );
+    sec.append(
+      this.prefRow(
+        'Upcoming Tests',
+        'Show tests and quizzes due in the next 7 days.',
+        this.prefSwitch(p.dash.testsCard, (on) => {
+          p.dash.testsCard = on;
+          save();
+        })
+      )
+    );
+    sec.append(
+      this.prefRow(
+        'Schedule',
+        "Show this week's Schoology schedule card.",
+        this.prefSwitch(p.dash.scheduleCard, (on) => {
+          p.dash.scheduleCard = on;
+          save();
+        })
+      )
+    );
+
+    // GREETING is the switch; using your name is its child (Gabe, 10/16).
+    const greetChild = this.childBlock(
+      this.prefRow(
+        'Use my name',
+        'Include my name in the dashboard greeting.',
         this.prefSwitch(p.dash.greetName, (on) => {
           p.dash.greetName = on;
           refreshPreview();
@@ -625,6 +626,20 @@ export class SettingsView {
         })
       )
     );
+    sec.append(
+      this.prefRow(
+        'Greeting',
+        'Show a rotating greeting at the top of the dashboard.',
+        this.prefSwitch(p.dash.greet, (on) => {
+          p.dash.greet = on;
+          greetChild.show(on);
+          refreshPreview();
+          save();
+        })
+      )
+    );
+    greetChild.show(p.dash.greet);
+    sec.append(greetChild.wrap);
     // SETTERS, not elements: the settings child folds away through childBlock's own
     // show() (which disables its controls as well as hiding them), while the preview's
     // quote line is a plain element that only needs hiding. One list, two behaviours.
@@ -685,6 +700,7 @@ export class SettingsView {
     };
     const refreshPreview = (): void => {
       const first = (this.draft.name || 'there').trim().split(/\s+/)[0];
+      pvGreet.style.display = p.dash.greet ? '' : 'none';
       pvGreet.textContent = p.dash.greetName ? `Let's lock in, ${first}` : "Let's lock in";
       const q = SAMPLE_QUOTES[p.dash.quoteStyle];
       pvQuote.textContent = `“${q[0]}”`;
@@ -693,22 +709,80 @@ export class SettingsView {
     quoteChildren.forEach((set) => set(p.dash.quote));
     refreshPreview();
 
+    this.refreshDashPreview = refreshPreview;
+    return sec;
+  }
+
+  private sectionProfile(): HTMLElement {
+    const sec = el('section', { class: 'settings-section', id: 'sec-profile' });
+
+    // The Schoology connection (moved here from the Tasks tab, Gabe 10/16: Profile is who
+    // you are and how you are connected). Filled in async because it reads the
+    // account's connection marker; the slot keeps its place at the top meanwhile.
+    const apiSlot = el('div');
+    sec.append(apiSlot);
+    void this.renderSgyApi(apiSlot);
+
+    // Login email — read-only (set by how you signed in). Self-explanatory, no help.
+    sec.append(el('div', { class: 'settings-label', text: 'Account' }));
+    const email = el('div', { class: 'settings-readonly' });
+    email.textContent = this.opts.email || 'Signed in locally';
+    sec.append(email);
+
+    // Display name — editable.
+    const nameLabel = el('div', { class: 'settings-label', text: 'Display name' });
+    nameLabel.style.marginTop = '14px';
+    sec.append(nameLabel);
+    const input = textInput({ class: 'settings-input', value: this.draft.name });
+    input.addEventListener('input', () => {
+      this.draft.name = input.value;
+      this.refreshDashPreview?.();
+    });
+    // Save when you leave the field (and tidy the display to the capitalized form).
+    input.addEventListener('blur', () => {
+      void this.saveName().then(() => {
+        input.value = this.draft.name;
+        this.refreshDashPreview?.();
+      });
+    });
+    sec.append(input);
+
+    const p = this.draft.prefs;
+    const save = (): void => void this.savePrefs();
+
+    // --- Preferences ---
+    sec.append(el('div', { class: 'settings-group-label', text: '⚙️ Preferences' }));
     sec.append(
       this.prefRow(
-        'Current Tasks',
-        "Show what's still left to do that's due today or tomorrow.",
-        this.prefSwitch(p.dash.tasksCard, (on) => {
-          p.dash.tasksCard = on;
+        'Time format',
+        'How due times, sync, and Focus show the clock.',
+        this.prefSeg([['12h', '12-hour'], ['24h', '24-hour']], () => p.timeFormat, (v) => {
+          p.timeFormat = v;
           save();
         })
       )
     );
     sec.append(
       this.prefRow(
-        'Schedule',
-        "Show this week's Schoology schedule card.",
-        this.prefSwitch(p.dash.scheduleCard, (on) => {
-          p.dash.scheduleCard = on;
+        'Open Cobalt to',
+        'Which tab greets you when the app loads.',
+        this.prefSeg(
+          // Same order as the sidebar: Focus outranks Bookmarks (Gabe, 8/12).
+          [['dashboard', 'Dashboard'], ['tasks', 'Tasks'], ['focus', 'Focus'], ['bookmarks', 'Bookmarks']],
+          () => p.openTo,
+          (v) => {
+            p.openTo = v;
+            save();
+          }
+        )
+      )
+    );
+    sec.append(
+      this.prefRow(
+        'Open links in a new window',
+        'Attachments and bookmarks open in their own window instead of a new tab.',
+        this.prefSwitch(p.openLinksInNewWindow, (on) => {
+          p.openLinksInNewWindow = on;
           save();
         })
       )
@@ -818,13 +892,17 @@ export class SettingsView {
           picker.setBusy(true);
           err.textContent = '';
           startSchoologyConnect(h).then(
-            (how) => {
-              if (how !== 'tab') return; // leaving the page
+            ({ how, token, claim }) => {
+              if (how !== 'tab' || !token || !claim) return; // leaving the page
               picker.setBusy(false);
-              picker.setNote('Schoology opened in a new tab. Log in there and approve Cobalt. Come back here if it asks you to log in first.');
-              // The new tab finishes the connection; this one reloads to show it, and
-              // reopens the approval by itself if a login made Schoology forget it.
-              watchSchoologyConnect(this.data, h, () => location.reload());
+              picker.setNote('Schoology opened in a small window. Log in there and approve Cobalt, then click back to this tab.');
+              // This tab finds out by itself the moment the student approves, then reloads.
+              watchSchoologyConnect(
+                token,
+                claim,
+                () => location.reload(),
+                (e) => fail(e)
+              );
             },
             (e) => {
               picker.setBusy(false);
@@ -856,12 +934,6 @@ export class SettingsView {
 
   private sectionSchoology(): HTMLElement {
     const sec = el('section', { class: 'settings-section', id: 'sec-school' });
-    // The Schoology connection. Filled in async because it reads the
-    // account's connection marker; the slot keeps its place at the top meanwhile.
-    const apiSlot = el('div');
-    sec.append(apiSlot);
-    void this.renderSgyApi(apiSlot);
-
     // TEMPORARY iCal link (Gabe, 10/12/26), back where it was until the Schoology
     // API is approved. The button's label reflects whether the typed link differs
     // from what's saved: an unsaved change reads "Save & sync", else "Sync now".
@@ -1693,11 +1765,21 @@ export class SettingsView {
     const drawNote = (): void => {
       gmailNote.replaceChildren();
       const chosen = chosenNotifyEmail();
+      const signIn = this.opts.email || '';
+      const dflt = defaultNotifyEmail(signIn); // the account's own address, never a placeholder
+      const shown = chosen || dflt;
       const line = el('div', { class: 'ngmail-line' });
-      line.innerHTML = chosen
-        ? `✉ Email notifications go to <b>${escapeHtml(chosen)}</b>.`
-        : `✉ Email notifications go to <b>${escapeHtml(this.opts.email || 'your account email')}</b>, your sign-in email.`;
-      if (stage === 'idle' && this.opts.email) {
+      const why = !shown
+        ? ''
+        : shown === signIn
+          ? ', your sign-in email'
+          : shown === schoologyNotifyEmail()
+            ? ', the email on your Schoology account'
+            : '';
+      line.innerHTML = shown
+        ? `✉ Email notifications go to <b>${escapeHtml(shown)}</b>${why}.`
+        : '✉ No email address set yet. Press Change to add one.';
+      if (stage === 'idle') {
         const change = el('button', { class: 'ngmail-link', text: 'Change' });
         change.addEventListener('click', () => {
           stage = 'email';
@@ -1706,8 +1788,9 @@ export class SettingsView {
           gmailNote.querySelector<HTMLTextAreaElement>('.ngmail-input')?.focus();
         });
         line.append(' ', change);
-        if (chosen) {
-          const back = el('button', { class: 'ngmail-link', text: 'Use my sign-in email' });
+        // Only when a different address is in use AND there is an account address to return to.
+        if (chosen && dflt && chosen !== dflt) {
+          const back = el('button', { class: 'ngmail-link', text: signIn ? 'Use my sign-in email' : 'Use my Schoology email' });
           back.addEventListener('click', () => {
             back.setAttribute('disabled', '');
             void clearNotifyEmail()
@@ -1968,12 +2051,12 @@ export class SettingsView {
           // doc to the `mail` collection and the extension delivers it, to the signed-in
           // account's email. No notification permission needed — that's popup-only.
           setEmailAddress(chosenNotifyEmail() || this.opts.email || '');
-          sendNotification(c.title, c.body, { gmail: true });
+          sendNotification(c.title, c.body, { gmail: true, test: true });
         } else {
           const ok = await ensureNotificationPermission();
           refreshPerm();
           if (!ok) return;
-          sendNotification(c.title, c.body, { popup: true });
+          sendNotification(c.title, c.body, { popup: true, test: true });
         }
         btn.textContent = 'Sent ✓';
         btn.classList.add('sent');

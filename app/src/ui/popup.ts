@@ -10,7 +10,7 @@
 // Styles: .popup-backdrop / .popup / .popup-body in ui/components.css.
 
 import { el, enterConfirms, fadeRemove } from '../util/dom';
-import { makeWidthGrip, migratePopupWidth, POPUP_WIDTH_KEY } from '../util/resize';
+import { makeWidthGrip, FILTER_WIDTH_KEY } from '../util/resize';
 
 /**
  * EVERY TRANSIENT OVERLAY CURRENTLY ON SCREEN (Gabe, 8/27).
@@ -86,9 +86,8 @@ export function openPopup(
   build: (body: HTMLElement, close: () => void) => void,
   host?: HTMLElement,
   /** The Filter card passes its own key; every other popup shares the default. */
-  widthKey: string = POPUP_WIDTH_KEY
+  widthKey: string = FILTER_WIDTH_KEY
 ): void {
-  migratePopupWidth();
   const backdrop = el('div', { class: 'popup-backdrop' });
   const box = el('div', { class: 'popup' });
   box.append(el('h3', { text: title }));

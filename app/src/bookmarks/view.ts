@@ -387,6 +387,10 @@ export class BookmarksView {
       // (Gabe, 9/7/26). Middle-click and ctrl/cmd-click never reach here (they
       // either fire outside 'click' or get caught by the modifier branch above),
       // so they're untouched either way.
+      if (this.sample) {
+        e.preventDefault(); // the landing demo never opens a real tab, window or URL
+        return;
+      }
       if (getPrefs().openLinksInNewWindow) {
         e.preventDefault();
         openLink(normalizeUrl(bm.url));

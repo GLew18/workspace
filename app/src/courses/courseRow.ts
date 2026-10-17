@@ -20,7 +20,7 @@ import { MAIL_BTN_SVG, SCHOOLOGY_SVG } from '../tasks/rowIcons';
 export interface CourseRowCtx {
   /** Every course in the list, for parse-word conflicts and recommendations. */
   all: () => CourseConfig[];
-  /** Courses added in this session; only they show gold "+ word" suggestions. */
+  /** Courses added in this session always show gold "+ word" suggestions; others show them while under 3 parse words. */
   isNew: (id: string) => boolean;
   /** Most suggestions to show at once; omitted = all of the set (Settings). */
   recLimit?: number;
@@ -128,12 +128,26 @@ export function buildCourseRow(c: CourseConfig, ctx: CourseRowCtx): HTMLElement 
   const recsHost = el('div', { class: 'parse-recs' });
   const drawRecs = () => {
     recsHost.replaceChildren();
-    if (!ctx.isNew(c.id)) return;
+    // Always offered while the course has fewer than 3 parse words, new or not
+    // (Gabe, 10/16): not picking them at creation must not hide them for good.
+    if (!ctx.isNew(c.id) && c.parseWords.length >= 3) return;
     const named = c.name.trim();
     if (!named || named.toLowerCase() === 'new course') return; // wait for a real name
     const used = new Set(ctx.all().flatMap((x) => x.parseWords));
     const recs = recommendedSet(named, used).slice(0, ctx.recLimit ?? Infinity);
     if (!recs.length) return;
+    // One press takes every suggestion (Gabe, 10/16), in Settings and in onboarding.
+    if (recs.length > 1) {
+      const all = el('button', { class: 'parse-rec parse-rec-all', title: 'Add every suggested parse word' });
+      all.append(el('span', { class: 'parse-rec-plus', text: '+' }), el('span', { text: 'Add all' }));
+      all.addEventListener('click', () => {
+        for (const w of recs) if (!c.parseWords.includes(w)) c.parseWords.push(w);
+        ctx.refocus.id = c.id;
+        ctx.onSave();
+        ctx.redraw();
+      });
+      recsHost.append(all);
+    }
     for (const w of recs) {
       const rec = el('button', { class: 'parse-rec', title: `Add “${w}”` });
       rec.append(el('span', { class: 'parse-rec-plus', text: '+' }), el('span', { text: w }));

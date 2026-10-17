@@ -44,28 +44,39 @@ export async function getSgyApiState(data: Data): Promise<SgyApiState | null> {
   return s && typeof s === 'object' ? s : null;
 }
 
-/** Opens the school's Schoology approve screen in a NEW tab, so Cobalt stays open
- *  behind it and a student who logs into the wrong account can just close the tab
- *  (Gabe, 10/15/26). The tab is opened before the server call so the click still
- *  counts as a user gesture; if the browser blocks it, this falls back to leaving the
- *  page. Resolves 'tab' (Cobalt is still here, waiting) or 'page' (we are leaving). */
-export async function startSchoologyConnect(host: string, allowPage = true): Promise<'tab' | 'page' | 'blocked'> {
+/** Opens the school's Schoology approve screen in a small popup window and leaves Cobalt
+ *  where it is. The Schoology window just STOPS at Schoology once the student approves (no return
+ *  to Cobalt: Gabe, 10/16); this tab finds out by itself (see watchSchoologyConnect)
+ *  and the student clicks back into it. The tab is opened before the server call so
+ *  the click still counts as a user gesture. If the browser blocks the tab, this falls
+ *  back to leaving the page, and Schoology sends the student back to it. */
+export async function startSchoologyConnect(
+  host: string,
+  allowPage = true
+): Promise<{ how: 'tab' | 'page' | 'blocked'; token?: string; claim?: string }> {
   let win: Window | null = null;
   try {
     // A NAMED tab, so a second attempt reuses the same Schoology tab.
-    win = window.open('about:blank', 'cobalt-schoology');
+    // A small POPUP WINDOW, not a tab (Gabe, 10/16): Schoology's own approve screen,
+    // then Schoology's "you have successfully approved" banner, and Cobalt untouched.
+    const w = 560;
+    const h = 760;
+    const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - w) / 2));
+    const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - h) / 2));
+    win = window.open('about:blank', 'cobalt-schoology', `popup=yes,width=${w},height=${h},left=${left},top=${top}`);
   } catch {
     win = null;
   }
+  const stay = !!win;
   try {
-    const { url } = await callable<{ url: string }>('sgyConnectStart', { host, returnTo: location.origin });
+    const { url, token, claim } = await callable<{ url: string; token?: string; claim?: string }>('sgyConnectStart', { host, returnTo: location.origin, stay });
     if (win && !win.closed) {
       win.location.href = url;
-      return 'tab';
+      return { how: 'tab', token, claim };
     }
-    if (!allowPage) return 'blocked';
+    if (!allowPage) return { how: 'blocked' };
     location.assign(url);
-    return 'page';
+    return { how: 'page' };
   } catch (e) {
     try {
       win?.close();
@@ -76,30 +87,57 @@ export async function startSchoologyConnect(host: string, allowPage = true): Pro
   }
 }
 
-const SGY_CHANNEL = 'cobalt-sgy';
+const JUST_CONNECTED_KEY = 'ws:sgyJustConnected';
+const CONNECT_ERROR_KEY = 'ws:sgyConnectError';
 
-/** Tells Cobalt's other tabs that this one just finished a Schoology connection. */
-function announceSgyConnected(state: SgyApiState): void {
+/** The connection finished on the page load that signed this student in. Read once:
+ *  the onboarding (new account) or the app (returning one) takes it and shows the payoff. */
+export function takeJustConnected(): SgyApiState | null {
   try {
-    const bc = new BroadcastChannel(SGY_CHANNEL);
-    bc.postMessage({ type: 'connected', state });
-    bc.close();
+    const raw = sessionStorage.getItem(JUST_CONNECTED_KEY);
+    sessionStorage.removeItem(JUST_CONNECTED_KEY);
+    return raw ? (JSON.parse(raw) as SgyApiState) : null;
   } catch {
-    /* no BroadcastChannel: the other tab just keeps waiting, the student can press Connect again */
+    return null;
   }
 }
-
-/** Runs cb when ANOTHER Cobalt tab finishes a Schoology connection (the new tab the
- *  approve screen opened in). Returns the unsubscribe. */
-export function onSgyConnectedElsewhere(cb: (state: SgyApiState) => void): () => void {
+export function peekJustConnected(): boolean {
   try {
-    const bc = new BroadcastChannel(SGY_CHANNEL);
-    bc.onmessage = (e) => {
-      if (e.data && e.data.type === 'connected') cb(e.data.state as SgyApiState);
-    };
-    return () => bc.close();
+    return !!sessionStorage.getItem(JUST_CONNECTED_KEY);
   } catch {
-    return () => {};
+    return false;
+  }
+}
+/** A return from Schoology that failed (expired, refused): said on the Connect screen. */
+export function takeConnectError(): string {
+  try {
+    const m = sessionStorage.getItem(CONNECT_ERROR_KEY) || '';
+    sessionStorage.removeItem(CONNECT_ERROR_KEY);
+    return m;
+  } catch {
+    return '';
+  }
+}
+export function isSgyReturn(): boolean {
+  const q = new URLSearchParams(location.search);
+  return q.get('sgy') === 'return' && !!q.get('oauth_token');
+}
+/** Page-load step, BEFORE the sign-in listener starts: if this load is the return
+ *  from Schoology's approve screen, finish the connection (which signs a new visitor in). */
+export async function finishReturnAtBoot(): Promise<void> {
+  if (!isSgyReturn()) return;
+  try {
+    // The finish call must carry the identity of whoever started the connection, so
+    // wait for any saved sign-in to be restored first.
+    const { authReady } = await import('../auth');
+    await authReady();
+    await finishSchoologyConnectIfReturning();
+  } catch (e) {
+    try {
+      sessionStorage.setItem(CONNECT_ERROR_KEY, sgyErrorText(e));
+    } catch {
+      /* nothing to carry it in */
+    }
   }
 }
 
@@ -114,12 +152,18 @@ export async function finishSchoologyConnectIfReturning(): Promise<SgyApiState |
   for (const k of ['sgy', 'oauth_token', 'oauth_verifier']) q.delete(k);
   const qs = q.toString();
   history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
-  const st = await callable<SgyApiState>('sgyConnectFinish', { token, verifier });
-  announceSgyConnected(st);
-  // This is the tab startSchoologyConnect opened: its job is done, so hand the student
-  // back to the Cobalt tab behind it. (Only works when the browser kept the link to
-  // the tab that opened it; otherwise this tab simply carries on as Cobalt.)
-  if (window.opener) setTimeout(() => window.close(), 600);
+  const res = await callable<SgyApiState & { customToken?: string }>('sgyConnectFinish', { token, verifier });
+  const { customToken, ...st } = res;
+  // A signed-out visitor: the server sent a login with the connection.
+  if (customToken) {
+    const { signInWithToken } = await import('../auth');
+    await signInWithToken(customToken);
+  }
+  try {
+    sessionStorage.setItem(JUST_CONNECTED_KEY, JSON.stringify(st));
+  } catch {
+    /* no session storage: the app just opens without the "connected" reveal */
+  }
   return st;
 }
 
@@ -137,47 +181,64 @@ export async function fetchSgyGrades(): Promise<unknown> {
   return callable<unknown>('sgyGrades', {});
 }
 
-/** While the Schoology tab is open: when the student comes back to this tab without a
- *  connection, either the connection finished (the server says so) or Schoology made
- *  them log in first and forgot the approval request. In the second case the approval
- *  is reopened in the same Schoology tab, so nobody presses Connect twice. Gives up
- *  after 3 reopenings. Returns the stop function. */
-export function watchSchoologyConnect(data: Data, host: string, onConnected: (st: SgyApiState) => void): () => void {
-  const opened = Date.now();
-  let tries = 0;
+/** While the Schoology window is open: asks the server every few seconds whether the
+ *  student has approved yet. The moment they have, the connection is finished HERE (a
+ *  signed-out visitor is signed in here too) and onConnected runs; the student only has
+ *  to click back into this tab. `claim` is the secret only this tab holds, so nobody who
+ *  merely sees the Schoology address can finish the connection. Gives up after 15
+ *  minutes or on a real refusal. Returns the stop function. */
+export function watchSchoologyConnect(
+  token: string,
+  claim: string,
+  onConnected: (st: SgyApiState) => void,
+  onError?: (e: unknown) => void
+): () => void {
+  const started = Date.now();
   let busy = false;
   let stopped = false;
-  const done = (st: SgyApiState): void => {
-    stop();
-    onConnected(st);
+  const stop = (): void => {
+    stopped = true;
+    clearInterval(timer);
   };
-  const check = async (): Promise<void> => {
-    if (stopped || busy || document.visibilityState !== 'visible' || Date.now() - opened < 4000) return;
+  const poll = async (): Promise<void> => {
+    if (stopped || busy) return;
+    if (Date.now() - started > 15 * 60_000) {
+      stop();
+      onError?.(new Error('That Schoology connection expired. Try connecting again.'));
+      return;
+    }
     busy = true;
     try {
-      const st = await getSgyApiState(data);
+      const res = await callable<SgyApiState & { customToken?: string; pending?: boolean }>('sgyConnectFinish', { token, claim, poll: true });
       if (stopped) return;
-      if (st?.connected) done(st);
-      else if (tries < 3) {
-        tries++;
-        await startSchoologyConnect(host, false);
+      if (res && res.pending) return; // not approved yet
+      const { customToken, pending: _pending, ...st } = res;
+      stop();
+      // Left for the page that opens next, BEFORE signing in: signing in starts the app
+      // up, and it must find the "just connected" marker waiting.
+      try {
+        sessionStorage.setItem(JUST_CONNECTED_KEY, JSON.stringify(st));
+      } catch {
+        /* the app just opens without the "connected" reveal */
       }
-    } catch {
-      /* offline or refused: the next return to this tab tries again */
+      if (customToken) {
+        const { signInWithToken } = await import('../auth');
+        await signInWithToken(customToken);
+      }
+      onConnected(st as SgyApiState);
+    } catch (e) {
+      // A network blip just tries again on the next tick; anything else the server
+      // said is final (expired, refused, signing in failed), so say it.
+      const code = (e as { code?: string })?.code || '';
+      if (!/unavailable|deadline|network/i.test(code)) {
+        stop();
+        onError?.(e);
+      }
     } finally {
       busy = false;
     }
   };
-  const onVis = (): void => void check();
-  document.addEventListener('visibilitychange', onVis);
-  window.addEventListener('focus', onVis);
-  const off = onSgyConnectedElsewhere(done);
-  function stop(): void {
-    stopped = true;
-    document.removeEventListener('visibilitychange', onVis);
-    window.removeEventListener('focus', onVis);
-    off();
-  }
+  const timer = setInterval(() => void poll(), 3000);
   return stop;
 }
 
@@ -210,16 +271,6 @@ export function buildSchoolAddress(opts: {
   input.setAttribute('spellcheck', 'false');
   const btn = el('button', { class: opts.btnClass, type: 'button', text: 'Connect' }) as HTMLButtonElement;
   btn.style.marginTop = '0';
-  // "PRESS THIS FOR NOW" STAYS (Gabe, 10/10): PowerSchool's app reviewers were told
-  // to press it, and it connects the developer sandbox in one tap. Remove it only
-  // once the review is over.
-  const sandbox = el('button', { class: opts.btnClass, type: 'button', text: 'Press this for now' }) as HTMLButtonElement;
-  sandbox.style.marginTop = '0';
-  sandbox.addEventListener('click', () => {
-    if (sandbox.disabled) return;
-    err.textContent = '';
-    opts.onPick('app.schoology.com');
-  });
   const err = el('div', { style: 'font-size:12px;color:var(--red)' });
   const note = el('div', { style: 'font-size:12px;color:var(--text-dim)' });
   const submit = (): void => {
@@ -242,7 +293,7 @@ export function buildSchoolAddress(opts: {
     submit();
   });
   input.addEventListener('input', () => (err.textContent = ''));
-  wrap.append(input, btn, sandbox, err, note);
+  wrap.append(input, btn, err, note);
   return {
     el: wrap,
     setNote(text: string) {
@@ -251,7 +302,6 @@ export function buildSchoolAddress(opts: {
     /** While busy, the Connect button itself is the progress line (Gabe, 10/12). */
     setBusy(b: boolean, label = 'Opening Schoology…') {
       btn.disabled = b;
-      sandbox.disabled = b;
       input.disabled = b;
       btn.textContent = b ? label : 'Connect';
     },

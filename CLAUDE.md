@@ -68,6 +68,8 @@ This came from the schedule quick-link paste box shipping with no look-class and
 
 Same continuity rule already applies to every ✕ close/dismiss button (see `.dlg-close` in `app/src/ui/components.css`): rests on `var(--text-dim)`, hovers to `var(--text)`.
 
+**The three "Open all" buttons are identical, in the Attachments popup and on Bookmarks groups (Gabe, 10/16).** Gray at rest (transparent, `var(--border-strong)` border, `var(--text-dim)` text), blue on hover (accent text and border, 10% accent tint). No violet, no white text, no glow. Rules: `.attach-footer .btn-primary` (components.css) and `.bm-group-head-open` (bookmarks.css).
+
 **Task-row toolbox: Schoology on the left, Cobalt on the right, no dot between (Gabe, 10/10).** Left = Schoology itself or a Schoology feature brought into Cobalt (↗, ⓘ, 📷 submit photo, 📎 attachments). Right = native to Cobalt (priority, 🌐, folder, duplicate, ⋯). The split is `SCHOOLOGY_SIDE` in `renderTask` (`app/src/tasks/render.ts`); the landing's replica row (`landing/view.ts`) mirrors it by hand.
 
 **Every pencil and every DELETE ✕ looks the same (Gabe, 10/10).** One glyph (13px, weight 400) resting on `var(--text-dim)`. On hover only the glyph changes: the pencil goes `var(--text)`, the delete ✕ goes `var(--red)`. Never a red background, tint or border. The shared rules are the "ICON BUTTONS" block at the end of `components.css`; add any new pencil or delete ✕ to its selector lists.

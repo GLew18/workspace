@@ -16,7 +16,7 @@ import { el, fadeRemove, showToast, textInput } from '../util/dom';
 import { getSgyApiState, sgyErrorText } from './api';
 import { firebaseConfig } from '../firebase';
 import { confirmDialog } from '../ui/confirm';
-import { makeWidthGrip, migratePopupWidth, POPUP_WIDTH_KEY } from '../util/resize';
+import { makeWidthGrip, FILTER_WIDTH_KEY } from '../util/resize';
 
 const TASK_PREFIX = 'ical_assign_';
 const MAX_PHOTOS = 5; // photos AND recordings together: one submission, five files
@@ -149,8 +149,7 @@ export function openPhotoSubmit(task: Task, demo?: DemoOpts): void {
   row.append(cancel, send);
   box.append(row);
   // Same width as every other popup: they share one remembered width (ui/popup.ts).
-  migratePopupWidth();
-  if (!demo) box.append(makeWidthGrip({ box, storageKey: POPUP_WIDTH_KEY, min: 240 }));
+  if (!demo) box.append(makeWidthGrip({ box, storageKey: FILTER_WIDTH_KEY, min: 240 }));
   back.append(box);
 
   // "Submitted your files to “Essay”" (Gabe, 10/11): what went, and where. No

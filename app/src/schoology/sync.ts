@@ -353,8 +353,29 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
   const ledger = (await data.getProfile<SeenLedger>('imported')) || { keys: [] };
   const seen = new Set(ledger.keys);
   const existing = await data.getTasksAll(); // also reused by the alterations pass below
+
+  // Onboarding's "use sample data" fallback saves "Sample: ..." tasks as ordinary
+  // manual tasks. Real Schoology data has now been read, so they must not linger
+  // beside it (Gabe, 10/16).
+  const sampleIds = Object.values(existing)
+    .filter((t) => t.source === 'manual' && t.title.startsWith('Sample: '))
+    .map((t) => t.id);
+  if (sampleIds.length) {
+    await data.removeTasksBulk(sampleIds);
+    for (const id of sampleIds) delete existing[id];
+  }
+  if (await data.getProfile<boolean>('sampleData')) await data.setProfile('sampleData', false);
+  // Tasks the student deleted never come back on their own, however the connection
+  // was made or re-made (Gabe, 10/16). Only the deliberate "force" re-import skips this,
+  // and it clears them, since the student asked for those back.
+  const deleted = new Set((await data.getProfile<{ keys?: string[] }>('deletedKeys'))?.keys ?? []);
+  if (opts.force && deleted.size) {
+    for (const k of byKey.keys()) deleted.delete(k);
+    await data.setProfile('deletedKeys', { keys: [...deleted] });
+  }
   const fresh: { key: string; e: SourceEvent }[] = [];
   for (const [key, e] of byKey) {
+    if (deleted.has(key)) continue;
     const isNew = opts.force ? !existing['ical_' + key] : !seen.has(key);
     if (isNew) fresh.push({ key, e });
   }
@@ -378,6 +399,10 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
   const toWrite: Task[] = fresh.map(({ key, e }) =>
     newTask(key, e, trueCourse(e) || guesses[key]?.course || '')
   );
+  // NEWLY POSTED (Gabe, 10/16): red dot + Tasks-tab count until the student leaves the
+  // Tasks tab. Not on the very first import (nothing was "posted since you looked",
+  // the whole backlog arrives at once) and not on a forced re-import of deleted tasks.
+  if (seen.size > 0 && !opts.force) for (const t of toWrite) t.newlyPosted = true;
 
   // --- AUTO-FILE INTO FOLDERS (Gabe, 9/1/26) ---------------------------------
   // A folder can claim a course: everything that course sends from Schoology from
@@ -428,6 +453,10 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
   }
 
   await data.putTasksBulk(toWrite);
+  // The ledger is saved RIGHT AFTER the tasks, not at the end: if a later step threw,
+  // tasks already imported were missing from it and came back once deleted.
+  for (const { key } of fresh) seen.add(key);
+  await data.setProfile('imported', { keys: [...seen] });
 
   // --- carry feed ALTERATIONS onto ALREADY-imported tasks ---
   // Teachers rename assignments, move due dates, and rewrite instructions after
@@ -575,7 +604,7 @@ export async function runSync(data: Data, opts: SyncOptions = {}): Promise<SyncR
     .map(([id]) => id)
     .filter((id) => !allSourceKeys.has(id.slice('ical_'.length)));
   if (gone.length) {
-    await data.removeTasksBulk(gone);
+    await data.removeTasksBulk(gone, { sourceGone: true });
     // Drop their keys from the ledger too: the SOURCE deleted these, not the
     // student, so if a teacher re-posts the same assignment it should come back
     // on its own instead of needing the force button.

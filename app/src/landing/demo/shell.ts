@@ -28,7 +28,9 @@ import { TasksView } from '../../tasks/render';
 import { BookmarksView } from '../../bookmarks/view';
 import { SettingsView } from '../../settings/view';
 import { FocusView } from '../../focus/view';
-import { createDanData, danDueTodayCount } from './seed';
+import { GradesView } from '../../grades/view';
+import { sampleGrades } from '../../grades/sample';
+import { createDanData, danNewTaskCount } from './seed';
 
 // The signed-in header's exact glyphs (main.ts) — copied, not imported, because
 // main.ts exports nothing; these must never drift from the real ones.
@@ -106,10 +108,11 @@ export async function buildDemoShell(): Promise<DemoShell> {
   // demo's bar can never drift from the app's. Store is in the bar (the app has
   // it) but has no panel here: visitors can't click the demo and the cursor never
   // picks it.
-  const { nav, btns: navBtns, tasksCount } = createAppTabs((id) => controller.goToTab(id));
-  // Grades is left off the landing for now (Gabe, 10/11): drop its tab from the replica bar.
-  navBtns.get('grades')?.remove();
-  const n = danDueTodayCount();
+  const { nav, btns: navBtns, tasksCount, gradesCount } = createAppTabs((id) => controller.goToTab(id));
+  // Grades is back on the landing (Gabe, 10/16), with the red new-grades count the app shows.
+  gradesCount.textContent = '2';
+  gradesCount.classList.add('on');
+  const n = danNewTaskCount();
   tasksCount.textContent = String(n);
   if (n > 0) tasksCount.classList.add('on');
   header.append(headerLeft, nav, userBox);
@@ -143,6 +146,7 @@ export async function buildDemoShell(): Promise<DemoShell> {
     [
       { id: 'dashboard', label: 'Dashboard', render: (p) => dashboardView.mount(p) },
       { id: 'tasks', label: 'Tasks', render: (p) => new TasksView(data, { host: body }).mount(p) },
+      { id: 'grades', label: 'Grades', render: (p) => new GradesView(data, () => {}, { sample: sampleGrades(), host: body }).mount(p) },
       { id: 'focus', label: 'Focus', render: (p) => void focusView.mount(p) },
       { id: 'bookmarks', label: 'Bookmarks', render: (p) => void new BookmarksView(data, { host: body }).mount(p) },
       { id: 'settings', label: 'Settings', onShow: (p) => void settingsView.mount(p) },

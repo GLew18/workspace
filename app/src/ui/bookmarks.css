@@ -176,14 +176,9 @@
    wears, which is the whole job. Sits right of the free button; only the free
    one carries the auto push-right margin. */
 .bm-group-head-gopen {
-  margin-left: 6px;
-  color: #b9a6f2;
-  border-color: rgba(139, 92, 246, 0.55);
-}
-.bm-group-head-gopen:hover {
-  color: #fff;
-  border-color: #8b5cf6;
-  background: rgba(139, 92, 246, 0.18);
+  /* Colors: none of its own (Gabe, 10/16). Gray at rest, blue on hover, exactly
+     the plain "Open all"; only the position differs. */
+  margin-left: 0;
 }
 
 .bm-empty {
@@ -798,7 +793,7 @@
    nothing. */
 
 /* ---- Submit photo to Schoology (schoology/submitPhoto.ts) ---- */
-.photo-submit-modal { max-width: 384px; width: calc(100% - 32px); }
+.photo-submit-modal { max-width: 900px; width: calc(100% - 32px); }
 /* The picker button, full width under the note (Gabe, 10/10: popup first). */
 .photo-submit-pick {
   display: block;

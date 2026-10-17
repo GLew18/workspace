@@ -29,7 +29,7 @@ const DEMO_COURSES: CourseConfig[] = [
   { id: 'course_sci', name: 'Science', color: '#9b7ec8', parseWords: ['science', 'bio', 'lab', 'photosynthesis'] },
   { id: 'course_hist', name: 'Social Studies', color: '#e05050', parseWords: ['social studies', 'history', 'dbq'] },
   { id: 'course_bball', name: 'Basketball', color: '#e07b3a', parseWords: ['basketball', 'coach', 'practice'] },
-  // Dan's "get cobalt plus" task lives here until he builds the `cobalt`
+  // Dan's "try cobalt today" task lives here until he builds the `cobalt`
   // course live in scene 5. Color = the app's real default-course gray.
   { id: 'course_misc', name: 'Miscellaneous', color: '#9ca3af', parseWords: ['misc'] },
 ];
@@ -114,6 +114,7 @@ function danTasks(): Record<string, Task> {
       ...base,
       ...imported,
       id: 'dan_spanish',
+      newlyPosted: true, // the red dot, and the Tasks tab's 1
       title: 'Estudiar los verbos irregulares para la prueba',
       course: 'Spanish',
       dueDate: addDays(today, 2),
@@ -169,7 +170,7 @@ function danTasks(): Record<string, Task> {
     {
       ...base,
       id: 'dan_prem',
-      title: 'get cobalt plus',
+      title: 'try cobalt today',
       course: 'Miscellaneous',
       dueDate: '',
       priority: 'normal',
@@ -196,10 +197,9 @@ function danBookmarks() {
   };
 }
 
-/** Count Dan uses for the briefing card + the top-bar Tasks badge. */
-export function danDueTodayCount(): number {
-  const today = todayStr();
-  return Object.values(danTasks()).filter((t) => !t.completed && t.dueDate === today).length;
+/** Count Dan uses for the top-bar Tasks badge: newly posted tasks, as the app counts them. */
+export function danNewTaskCount(): number {
+  return Object.values(danTasks()).filter((t) => t.newlyPosted).length;
 }
 
 /** Dan's focus records: a heart or two already given, and the "whole bunch of

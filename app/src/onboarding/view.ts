@@ -31,25 +31,28 @@ import type { Data } from '../db';
 import { el, textInput } from '../util/dom';
 import { capitalizeName, nameFromEmail } from '../util/names';
 import { runSync } from '../schoology/sync';
-import { replaceCourses, getCourseColor } from '../courses/registry';
+import { SGY_LOGO } from '../schoology/logo';
+import { replaceCourses } from '../courses/registry';
 import { buildCourseRow } from '../courses/courseRow';
 import { nextCourseColor } from '../courses/colors';
 import {
   startSchoologyConnect,
-  finishSchoologyConnectIfReturning,
+  peekJustConnected,
+  takeJustConnected,
+  takeConnectError,
   fetchSgyApiPayload,
   sgyErrorText,
   type SgyApiState,
   buildSchoolAddress,
   watchSchoologyConnect,
 } from '../schoology/api';
-import { addDays, todayStr } from '../util/dates';
+import { todayStr } from '../util/dates';
 import { genId } from '../util/ids';
 import { openGcalGuide } from './gcalGuide';
 import { buildLanguagePicker } from '../settings/languagePicker';
 import { normalizePrefs } from '../prefs';
 import { signOut } from '../auth'; // TEMPORARY: powers the "‹ Landing page" escape hatch
-import type { CourseConfig, Task } from '../types';
+import type { CourseConfig } from '../types';
 import {
   currentCourses,
   dayToShow,
@@ -66,6 +69,9 @@ interface OnboardingOpts {
   email: string;
   fallbackName: string;
   onDone: (displayName: string) => void;
+  /** Nobody is signed in: Connect Schoology is the login (it leaves the page and
+   *  comes back signed in). Only the screens up to Connect are ever reached. */
+  signedOut?: boolean;
   /** PREVIEW ONLY (onbpreview.html, the audit copy of this flow): hands over a
    *  way to jump between screens and to seed the draft. Real sign-ups omit it. */
   preview?: (ctl: { go: (i: number) => void; count: number; draft: { name: string; courses: CourseConfig[] } }) => void;
@@ -79,15 +85,6 @@ const CAL_ICON =
   '<path d="M4 13a7 7 0 0 1 7-7h26a7 7 0 0 1 7 7v4H4z" fill="#4285f4"/>' +
   '<rect x="13" y="2" width="4" height="9" rx="2" fill="#1a5fd0"/><rect x="31" y="2" width="4" height="9" rx="2" fill="#1a5fd0"/>' +
   '<text x="24" y="36" text-anchor="middle" font-family="Inter, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" fill="#1a73e8">31</text>' +
-  '</svg>';
-
-/** The real Schoology mark, so the connect step shows the service by its own logo. */
-const SGY_LOGO =
-  '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Schoology">' +
-  '<circle cx="50" cy="50" r="47" fill="#fff"/>' +
-  '<circle cx="50" cy="50" r="42.5" fill="none" stroke="#4BAFE8" stroke-width="9"/>' +
-  '<text x="50" y="51" text-anchor="middle" dominant-baseline="central" ' +
-  'font-family="Inter, Helvetica, Arial, sans-serif" font-size="56" font-weight="700" fill="#38383B">S</text>' +
   '</svg>';
 
 /** New courses, each given the next colour from Settings' colour rule (yellow, red,
@@ -173,7 +170,10 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   // page, so the deck restarts; this sends it straight back to the Connect screen,
   // which finishes the connection and plays the reveal. Nothing typed before
   // Connect is lost: the screens ahead of it take no input.
-  let sgyResumePending = new URLSearchParams(location.search).get('sgy') === 'return';
+  // main.ts finishes the connection BEFORE sign-in (it is what signs a new student in),
+  // so what is left here is its result, or the reason it failed.
+  const returnError = takeConnectError();
+  let sgyResumePending = peekJustConnected() || !!returnError;
   let connectAt = 0;
 
   function go(i: number): void {
@@ -222,8 +222,8 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   /** The Connect screen's caption once Schoology has answered. */
   const connectedLine = (total: number): string =>
     total
-      ? `Connected. Found ${total} upcoming assignment${total === 1 ? '' : 's'}.`
-      : 'Connected. No upcoming assignments yet, new ones will import automatically.';
+      ? `Connected. Found ${total} item${total === 1 ? '' : 's'} in your Schoology data.`
+      : 'Connected. Nothing new yet, your data will import automatically.';
 
   /** Shared: the white Schoology tile. */
   const sgyTile = (big = false): HTMLElement => {
@@ -277,31 +277,32 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         el('div', { class: 'onb-fly f3' })
       );
       const mini = el('div', { class: 'onb-mini' });
-      for (const [title, course, color] of [
-        ['Read Ch. 7 & annotate', 'English', '#e091a8'],
-        ['Unit 5 Test', 'Math', '#f0c040'],
-        ['Finish lab write-up', 'Science', '#9b7ec8'],
-      ] as const) {
-        const row = el('div', { class: 'onb-mini-task' });
-        row.append(
-          el('span', { class: 'cb' }),
-          el('span', { class: 'nm', text: title }),
-          el('span', { class: 'crs', style: `color:${color}`, text: course })
-        );
-        mini.append(row);
-      }
+      // One assignment and one grade, so the picture says "everything", not just tasks.
+      const task = el('div', { class: 'onb-mini-task' });
+      task.append(
+        el('span', { class: 'cb' }),
+        el('span', { class: 'nm', text: 'Read Ch. 7 & annotate' }),
+        el('span', { class: 'crs', style: 'color:#e091a8', text: 'English' })
+      );
+      // A stripped copy of the real course grade cell (grades/view.ts courseCard): same
+      // classes, so it reads as the same component. No red badge, no "Updated" line.
+      const grade = el('div', { class: 'grades-card grades-course onb-mini-grade', style: '--course:#60a5fa' }, [
+        el('span', { class: 'grades-course-head' }, [el('span', { class: 'grades-course-name', text: 'Math' })]),
+        el('span', { class: 'grades-course-pct' }, ['94.2%', el('span', { class: 'grades-letter', text: ' (A)' })]),
+      ]);
+      mini.append(task, grade);
       imp.append(sgyTile(), lane, mini);
       card.append(imp);
       visual.append(card);
 
       const h1 = el('h1', { class: 'rise d1' });
-      h1.append('Every assignment ', el('span', { class: 'g', text: 'imports itself' }));
+      h1.append('Everything ', el('span', { class: 'g', text: 'imports itself' }));
       sc.append(
         visual,
         h1,
         el('p', {
           class: 'onb-sub rise d2',
-          text: 'Cobalt reads your Schoology and turns it into a clean task list. Automatically, forever.',
+          text: 'Cobalt reads your Schoology, your assignments, grades and courses, and keeps them organized. Automatically, forever.',
         })
       );
       const next = cta('Continue');
@@ -347,20 +348,27 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         picker.setBusy(true); // the button itself says "Opening Schoology…"
         apiStatus.textContent = '';
         // Leaves the page on success; Schoology sends the student back here.
-        startSchoologyConnect(host).then(
-          (how) => {
-            if (how !== 'tab') return; // leaving the page
+        startSchoologyConnect(host, true).then(
+          ({ how, token, claim }) => {
+            if (how !== 'tab' || !token || !claim) return; // leaving the page
             picker.setBusy(false);
-            picker.setNote('Schoology opened in a new tab. Log in there and approve Cobalt. Come back here if it asks you to log in first.');
-            // The new tab finishes the connection; this one carries on from here, and
-            // reopens the approval by itself if a login made Schoology forget it.
+            picker.setNote('Schoology opened in a small window. Log in there and approve Cobalt, then click back to this tab.');
+            // The Schoology tab just stops at Schoology. This tab finds out by itself the
+            // moment the student approves, then reloads into the signed-in app and plays
+            // the "connected" reveal (the same path a return in one tab always took).
             stopListen?.();
-            stopListen = watchSchoologyConnect(data, host, (st) => {
-              stopListen?.();
-              stopListen = null;
-              picker.setNote('');
-              void afterConnect(st);
-            });
+            stopListen = watchSchoologyConnect(
+              token,
+              claim,
+              () => {
+                stopListen = null;
+                location.reload();
+              },
+              (e) => {
+                stopListen = null;
+                apiStatus.textContent = sgyErrorText(e);
+              }
+            );
           },
           (e) => {
             picker.setBusy(false);
@@ -370,20 +378,14 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       };
       // The school's own Schoology address (Gabe, 10/10/26), shared with Settings.
       const picker = buildSchoolAddress({ inputClass: 'onb-field', btnClass: 'onb-route-btn', onPick: startApi });
-      // SAMPLE-DATA FALLBACK (Gabe, 10/15/26): while Schoology has not approved Cobalt,
-      // a reviewer's login is refused after they authorize. Rather than a dead end, they
-      // can carry on with made-up courses and assignments (marked "Sample"). Remove this
-      // once the app is approved.
-      const sampleBtn = el('button', { class: 'onb-route-btn', type: 'button', text: 'Continue with sample data' }) as HTMLButtonElement;
-      sampleBtn.style.display = 'none';
-      sampleBtn.style.marginTop = '8px';
-      apiCard.append(picker.el, apiStatus, sampleBtn);
+      apiCard.append(picker.el, apiStatus);
 
       if (draft.connected) {
         // Back-navigation after connecting: no replay, just the result and Continue.
         stage.classList.add('done');
         // Going Back and returning keeps the assignments in the picture (Gabe, 10/12).
         draft.found.forEach((t) => chips.append(el('span', { class: 'onb-chip', text: t })));
+        if (draft.foundCount > draft.found.length) chips.append(el('span', { class: 'onb-chip more', text: `+${draft.foundCount - draft.found.length} more` }));
         sub.textContent = connectedLine(draft.foundCount);
         sub.style.display = '';
         sc.append(visual, h1, sub, btn);
@@ -393,27 +395,24 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         sc.append(visual, h1, sub, apiCard, btn);
       }
 
-      // AUDIT PREVIEW ONLY (Gabe, 10/9): a way past Connect so the later screens
-      // can be reviewed without a Schoology login. Never in the real app: a student
-      // who skips forgets, opens an empty app, and concludes Cobalt is useless. The
-      // connection IS the product, so getting into Cobalt means Schoology is connected.
-      // It plays the real reveal over sample titles (Gabe, 10/10), so the chips
-      // flying in and the Continue button can be audited too. Nothing is imported:
-      // the student was never connected, so the payoff runs no sync.
-      if (preview) {
-        const skip = el('button', { class: 'onb-skip', type: 'button', text: 'Skip for now (preview only)' });
-        skip.addEventListener('click', () => {
-          skip.remove();
-          reveal(['Read Ch. 7 & annotate', 'Unit 5 Test', 'Finish lab write-up'], 3);
-        });
-        sc.append(skip);
-      }
-
       // The payoff: the picker folds away, the Schoology mark sweeps, the real
       // titles fly in, and only then do the caption and Continue appear.
       const mine = index; // only touch this screen if the student is still on it
       const alive = (): boolean => index === mine;
-      function reveal(titles: string[], total: number): void {
+      function reveal(all: string[], total: number): void {
+        // Only titles that fit on one line are flown in; the rest are counted in a
+        // "+N more" caption, so the picture never shows a clipped name (Gabe, 10/16).
+        const room = chips.clientWidth || 380;
+        const probe = el('span', { class: 'onb-chip', style: 'position:absolute;visibility:hidden;white-space:nowrap;animation:none' });
+        chips.append(probe);
+        const titles: string[] = [];
+        for (const t of all) {
+          if (titles.length >= 6) break;
+          probe.textContent = t;
+          if (probe.offsetWidth <= room - 8) titles.push(t);
+        }
+        probe.remove();
+        const hidden = Math.max(0, total - titles.length);
         draft.connected = true;
         draft.found = titles;
         draft.foundCount = total;
@@ -425,6 +424,11 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
             chips.append(el('span', { class: 'onb-chip', text: t }));
           }, 350 + i * 230)
         );
+        if (hidden > 0)
+          setTimeout(() => {
+            if (!alive()) return;
+            chips.append(el('span', { class: 'onb-chip more', text: `+${hidden} more` }));
+          }, 350 + titles.length * 230);
         setTimeout(() => {
           if (!alive()) return;
           stage.classList.remove('scanning');
@@ -433,73 +437,10 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
           sub.style.display = '';
           // Continue arrives WITH the caption, once every chip has landed (Gabe, 10/10).
           btn.style.display = '';
-        }, 350 + titles.length * 230 + 250);
+        }, 350 + (titles.length + (hidden > 0 ? 1 : 0)) * 230 + 250);
       }
       btn.addEventListener('click', () => {
         if (draft.connected) go(index + 1);
-      });
-
-      sampleBtn.addEventListener('click', () => {
-        sampleBtn.disabled = true;
-        const SAMPLE: [string, string, number, Task['priority']][] = [
-          ['Honors Algebra 2/Trig', 'Sample: Problem set 4.2', -1, 'high'],
-          ['Honors Algebra 2/Trig', 'Sample: Quiz on logarithms', 1, 'highest'],
-          ['Honors Algebra 2/Trig', 'Sample: Unit 5 test', 6, 'highest'],
-          ['Honors Algebra 2/Trig', 'Sample: HW 5.1 to 5.4', 2, 'normal'],
-          ['Honors Algebra 2/Trig', 'Sample: Desmos graphing activity', 9, 'low'],
-          ['AP Biology', 'Sample: Lab write-up, enzyme rates', 0, 'high'],
-          ['AP Biology', 'Sample: Read chapter 12', 1, 'normal'],
-          ['AP Biology', 'Sample: Cell respiration FRQ', 4, 'high'],
-          ['AP Biology', 'Sample: Unit 4 test', 11, 'highest'],
-          ['AP Biology', 'Sample: Vocabulary flashcards', 3, 'low'],
-          ['US History', 'Sample: Read chapter 9 & annotate', 0, 'normal'],
-          ['US History', 'Sample: DBQ essay outline', 3, 'high'],
-          ['US History', 'Sample: Primary source analysis', 5, 'normal'],
-          ['US History', 'Sample: Unit 5 test', 8, 'highest'],
-          ['US History', 'Sample: Timeline project', 14, 'normal'],
-          ['English 11', 'Sample: Hw #9, Absolutism and the English Civil War', 1, 'normal'],
-          ['English 11', 'Sample: Essay draft, The Great Gatsby', 4, 'high'],
-          ['English 11', 'Sample: Vocabulary quiz', 2, 'low'],
-          ['English 11', 'Sample: Read chapters 5 to 6', 5, 'normal'],
-          ['English 11', 'Sample: Presentation slides', 10, 'high'],
-          ['Spanish 3', 'Sample: Verb conjugation worksheet', 0, 'normal'],
-          ['Spanish 3', 'Sample: Oral presentation', 7, 'high'],
-          ['Spanish 3', 'Sample: Capítulo 6 quiz', 3, 'high'],
-          ['Spanish 3', 'Sample: Write a short story', 12, 'normal'],
-          ['Chemistry', 'Sample: Stoichiometry problem set', 2, 'high'],
-          ['Chemistry', 'Sample: Lab safety quiz', 4, 'low'],
-          ['Chemistry', 'Sample: Periodic trends test', 9, 'highest'],
-          ['Chemistry', 'Sample: Lab report, titration', 6, 'normal'],
-          ['Studio Art', 'Sample: Self-portrait sketch', 5, 'normal'],
-          ['Studio Art', 'Sample: Color theory reflection', 13, 'low'],
-        ];
-        const names = [...new Set(SAMPLE.map((r) => r[0]))];
-        draft.courses = freshCourses(names);
-        draft.coursesFrom = 'schoology';
-        const today = todayStr();
-        const tasks: Task[] = SAMPLE.map(([course, title, days, priority]) => ({
-          id: 'manual_' + genId(),
-          title,
-          dueDate: addDays(today, days),
-          dueTime: '',
-          timeLabel: '',
-          course,
-          source: 'manual',
-          completed: false,
-          completedAt: null,
-          priority,
-          addedAt: new Date().toISOString(),
-          notes: [],
-          translationChecked: true,
-        }));
-        // Tells the Grades tab to show the sample gradebook (it has no real connection to read).
-        void data.setProfile('sampleData', true);
-        void data.putTasksBulk(tasks).then(() => {
-          if (!alive()) return;
-          apiStatus.textContent = '';
-          sampleBtn.style.display = 'none';
-          reveal(tasks.filter((x) => x.dueDate >= today).slice(0, 6).map((x) => x.title), tasks.length);
-        });
       });
 
       // After the connection exists: real titles fly in, and the courses screen is
@@ -508,7 +449,7 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
       async function afterConnect(st: SgyApiState): Promise<void> {
         try {
           if (st.firstName) draft.name = capitalizeName(st.firstName);
-          if (alive()) picker.setBusy(true, 'Reading your assignments…');
+          if (alive()) picker.setBusy(true, 'Reading your Schoology data…');
           const p = await fetchSgyApiPayload();
           if (!alive()) return;
           const names = [...new Set((p?.courses ?? []).map((c) => c.name.trim()).filter(Boolean))];
@@ -522,14 +463,13 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
             .filter((a) => a.date >= today)
             .sort((a, b) => a.date.localeCompare(b.date));
           reveal(
-            upcoming.slice(0, 6).map((a) => a.title),
+            upcoming.map((a) => a.title),
             upcoming.length
           );
         } catch (e) {
           if (!alive()) return;
           picker.setBusy(false);
           apiStatus.textContent = sgyErrorText(e);
-          if (/approved Cobalt/i.test(apiStatus.textContent)) sampleBtn.style.display = '';
         }
       }
 
@@ -539,15 +479,15 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         picker.setBusy(true, 'Finishing the connection…');
         void (async () => {
           try {
-            const st = await finishSchoologyConnectIfReturning();
+            if (returnError) throw new Error(returnError);
+            const st = takeJustConnected();
             if (!st) throw new Error('That Schoology connection expired. Try connecting again.');
             await afterConnect(st);
           } catch (e) {
             if (!alive()) return;
             picker.setBusy(false);
             apiStatus.textContent = sgyErrorText(e);
-            if (/approved Cobalt/i.test(apiStatus.textContent)) sampleBtn.style.display = '';
-          }
+            }
         })();
       }
     },
@@ -572,7 +512,7 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         el('p', {
           class: 'onb-sub rise d1',
           text: discovered
-            ? `Pulled from ${draft.coursesFrom === 'schedule' ? 'your schedule' : 'Schoology'}. Fix anything that looks wrong, and add parse words for easy navigation.`
+            ? `Pulled from ${draft.coursesFrom === 'schedule' ? 'your schedule' : 'Schoology'}. Change course names, apply colors, and add parse words for easy navigation.`
             : 'Add your courses here. Change them any time in Settings.',
         })
       );
@@ -805,7 +745,7 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
   // Cobalt and it is highly personal, but it lived behind Settings, and students
   // rarely open Settings. Asking here is how the feature gets found.
   //
-  // Two is the ask because two is what the free tier gives. Nothing is REQUIRED:
+  // No cap on languages (Gabe, 10/16: there is no premium tier for now). Nothing is REQUIRED:
   // Continue is live from the first frame, an empty list is a real answer, and the
   // subtitle says where to change it later. An onboarding step that refuses to let
   // you past is a worse first impression than a feature you discover a week in.
@@ -844,8 +784,6 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
           lead: '', // the subtitle above already said it
           placeholder: 'Search 185 languages…',
           emptyText: 'Nothing picked yet.',
-          // TWO, which is what the free tier gives.
-          max: 2,
         })
       );
       sc.append(wrap);
@@ -888,7 +826,7 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         el('p', {
           class: 'onb-sub',
           text: draft.connected
-            ? 'Importing your assignments from Schoology.'
+            ? 'Importing your data from Schoology.'
             : 'Saving your courses and preferences.',
         })
       );
@@ -934,41 +872,12 @@ export function runOnboarding({ data, email, fallbackName, onDone, preview }: On
         else h1.append('You’re ', el('span', { class: 'g', text: 'in' }));
         sc.append(h1);
 
-        // Every imported assignment, listed. The count in the headline and the
-        // rows below it are the SAME data, so the number can never be a claim
-        // the list contradicts.
-        // Undated tasks sort last, not first: '' would win a plain string compare.
-        const imported = (Object.values(data.getTasks()) as Task[])
-          .filter((t) => !t.completed)
-          .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
-
         let subText: string;
         if (failed) subText = 'Couldn’t reach Schoology. You’re connected, retry from Settings.';
-        else if (added > 0) subText = `${added} assignment${added === 1 ? '' : 's'} imported, sorted into your courses.`;
-        else if (draft.apiConnected) subText = 'Connected. New assignments will import automatically.';
+        else if (added > 0) subText = 'Your assignments are in, sorted into your courses.';
+        else if (draft.apiConnected) subText = 'Connected. New data will import automatically.';
         else subText = 'Your courses are saved and ready.';
         sc.append(el('p', { class: 'onb-sub', text: subText }));
-
-        if (imported.length) {
-          const wrap = el('div', { class: 'onb-imp-wrap' });
-          const list = el('div', { class: 'onb-imp-rows' });
-          for (const t of imported) {
-            const row = el('div', { class: 'onb-imp-row' });
-            row.append(el('span', { class: 'onb-imp-title', text: t.title }));
-            if (t.course) {
-              row.append(
-                el('span', {
-                  class: 'course',
-                  style: `color:${getCourseColor(t.course)}`,
-                  text: t.course,
-                })
-              );
-            }
-            list.append(row);
-          }
-          wrap.append(list);
-          sc.append(wrap);
-        }
 
         const enter = el('button', { class: 'onb-cta', style: 'margin-top:30px', text: 'Enter Cobalt' });
         enter.addEventListener('click', () => {

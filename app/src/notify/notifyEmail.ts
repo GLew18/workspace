@@ -10,6 +10,8 @@
 import { firebaseConfig, hasFirebaseConfig } from '../firebase';
 
 let chosen = ''; // the proven address, '' = use the sign-in email
+let lastUid = '';
+let sgyEmail = ''; // the email Schoology holds for the student ('' = unknown)
 const listeners = new Set<() => void>();
 
 const notify = (): void => listeners.forEach((cb) => cb());
@@ -22,6 +24,13 @@ export function onNotifyEmailChange(cb: () => void): () => void {
 /** The proven custom address, or '' when reminders go to the sign-in email. */
 export const chosenNotifyEmail = (): string => chosen;
 
+/** The email Schoology gave Cobalt for this student, or '' if none is known. */
+export const schoologyNotifyEmail = (): string => sgyEmail;
+
+/** The account's own address: the sign-in email, or for a Schoology-only login
+ *  (which has none) the email Schoology gave. What "use my account email" returns to. */
+export const defaultNotifyEmail = (signIn: string): string => signIn || sgyEmail;
+
 async function app() {
   const { initializeApp, getApps, getApp } = await import('firebase/app');
   return getApps().length ? getApp() : initializeApp(firebaseConfig);
@@ -29,14 +38,18 @@ async function app() {
 
 /** Read the stored choice once at sign-in. Never throws. */
 export async function loadNotifyEmail(uid: string): Promise<void> {
+  lastUid = uid;
   chosen = '';
+  sgyEmail = '';
   if (!hasFirebaseConfig || !uid) return;
   try {
     const { getFirestore, doc, getDoc } = await import('firebase/firestore');
     const snap = await getDoc(doc(getFirestore(await app()), 'notifyEmails', uid));
     chosen = snap.exists() ? String(snap.data().email || '') : '';
+    sgyEmail = snap.exists() ? String(snap.data().schoologyEmail || '') : '';
   } catch {
     chosen = '';
+    sgyEmail = '';
   }
   notify();
 }
@@ -56,7 +69,7 @@ async function call<T>(name: string, payload: Record<string, unknown>): Promise<
 export async function requestNotifyEmail(email: string): Promise<'sent' | 'done'> {
   const r = await call<{ sent?: boolean; done?: boolean }>('requestNotifyEmail', { email });
   if (r.done) {
-    chosen = '';
+    await loadNotifyEmail(lastUid);
     notify();
     return 'done';
   }
@@ -74,6 +87,6 @@ export async function confirmNotifyEmail(code: string): Promise<string> {
 /** Back to the sign-in email. */
 export async function clearNotifyEmail(): Promise<void> {
   await call('clearNotifyEmail', {});
-  chosen = '';
+  await loadNotifyEmail(lastUid);
   notify();
 }

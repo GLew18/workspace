@@ -1007,6 +1007,24 @@ export function openShortcutModal(bm: ShortcutBookmark, opts: OpenShortcutModalO
     };
     document.addEventListener('keydown', onKey, true);
     removeKeyListener = () => document.removeEventListener('keydown', onKey, true);
+    // Sample mode (landing demo): the demo's keys arrive as a private event on the
+    // modal, never as a real keydown on the page, so a visitor's extension can
+    // never see the combo and open their saved shortcut. The event is rebuilt
+    // here and handed straight to onKey; it is never dispatched.
+    if (opts.host) {
+      back.addEventListener('cobalt-demo-key', (ev) => {
+        const d = (ev as CustomEvent<{ key: string; alt?: boolean; ctrl?: boolean; shift?: boolean; meta?: boolean }>).detail;
+        onKey(
+          new KeyboardEvent('keydown', {
+            key: d.key,
+            altKey: !!d.alt,
+            ctrlKey: !!d.ctrl,
+            shiftKey: !!d.shift,
+            metaKey: !!d.meta,
+          })
+        );
+      });
+    }
 
     keysBox.addEventListener('focus', () => {
       keysBox.classList.add('is-focused');

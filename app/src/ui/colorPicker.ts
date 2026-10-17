@@ -145,6 +145,30 @@ export function attachColorPicker(swatch: HTMLElement, opts: ColorPickerOpts): v
     hexIn.spellcheck = false;
     hexIn.maxLength = 7; // "#rrggbb"; six hex digits also parse without the hash
     const row = el('div', { class: 'cp-row' }, [chip, hexIn]);
+    // EYEDROPPER (Gabe, 10/16): pick the exact color of anything on screen, so a student
+    // can match a course to a color they already see. The browser's own EyeDropper
+    // (Chrome and Edge); where it does not exist the button is simply not drawn.
+    const EyeDropperCtor = (window as unknown as { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }).EyeDropper;
+    if (EyeDropperCtor) {
+      const eye = el('button', { class: 'cp-eye', type: 'button', title: 'Pick a color from the screen', 'aria-label': 'Pick a color from the screen' });
+      eye.innerHTML =
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg>';
+      eye.addEventListener('click', () => {
+        void new EyeDropperCtor()
+          .open()
+          .then(({ sRGBHex }) => {
+            const rgb = hexToRgb(sRGBHex);
+            if (!rgb) return;
+            [h, s, v] = rgbToHsv(...rgb);
+            commit(true); // sets the course color
+            close(); // closing is what saves it, so the pick is saved at once
+          })
+          .catch(() => {
+            /* cancelled with Escape: nothing to do */
+          });
+      });
+      row.append(eye);
+    }
     pop = el('div', { class: 'cp-pop' }, [sq, hue, row]);
 
     /** Repaint everything from (h,s,v); notify = stream the color to the caller. */

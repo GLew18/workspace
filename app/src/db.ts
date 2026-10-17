@@ -218,8 +218,9 @@ export class Data {
    * update and ONE notify for the batch, never a loop of removeTask (which would
    * repaint, back up and re-notify per task; see putTasksBulk for the same rule).
    */
-  async removeTasksBulk(ids: string[]): Promise<void> {
+  async removeTasksBulk(ids: string[], opts: { sourceGone?: boolean } = {}): Promise<void> {
     if (!ids.length) return;
+    if (!opts.sourceGone) await this.rememberDeleted(ids);
     this.bulkDepth++;
     this.lastWriteAt = Date.now();
     const next = { ...this.lastTasks };
@@ -296,7 +297,29 @@ export class Data {
     this.notifyTasks({ tasks: this.lastTasks, suspectedWipe: false });
   }
 
+  /** A Schoology task the STUDENT deletes stays deleted (Gabe, 10/16): its key goes on a
+   *  list the import never forgets, written BEFORE the delete so a failure or a
+   *  reconnect between the two cannot let it come back. Tasks Schoology itself dropped
+   *  are removed with `sourceGone` and are not remembered, so a teacher re-posting
+   *  one still arrives. */
+  private async rememberDeleted(ids: string[]): Promise<void> {
+    const keys = ids
+      .map((id) => this.lastTasks[id])
+      .filter((t): t is Task => !!t && t.source === 'schoology-ical' && t.id.startsWith('ical_'))
+      .map((t) => t.id.slice('ical_'.length));
+    if (!keys.length) return;
+    try {
+      const cur = (await this.getProfile<{ keys?: string[] }>('deletedKeys')) ?? {};
+      const all = new Set(Array.isArray(cur.keys) ? cur.keys : []);
+      for (const k of keys) all.add(k);
+      await this.setProfile('deletedKeys', { keys: [...all] });
+    } catch (e) {
+      console.error('rememberDeleted failed', e);
+    }
+  }
+
   async removeTask(id: string): Promise<void> {
+    await this.rememberDeleted([id]);
     this.lastWriteAt = Date.now();
     const next = { ...this.lastTasks };
     delete next[id];

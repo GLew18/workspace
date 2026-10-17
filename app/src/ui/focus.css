@@ -206,9 +206,10 @@
   display: none;
 }
 /* The three setup sections (length / what you're working on / music) are isolated
-   by ONE shared gap: 8px flex gap + this margin = 56px above both labels. */
+   by ONE shared gap: 8px flex gap + this margin = 72px above both labels
+   (Gabe, 10/16: +16px). */
 .focus-label.focus-section-label {
-  margin-top: 48px;
+  margin-top: 64px;
 }
 /* "+ title" affordance shown when a focus todo has only a course, no title. */
 .focus-todo-text.empty {

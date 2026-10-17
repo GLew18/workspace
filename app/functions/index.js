@@ -1400,8 +1400,13 @@ async function sgyForget(uid, reason) {
   await db.ref(`users/${uid}/profile/sgyApi`).update({ connected: false, expired: reason === 'expired' });
 }
 
+// SCHOOLOGY IS THE LOGIN (Gabe, 10/16/26). Start and Finish are callable SIGNED OUT:
+// a new visitor has no account yet. Finish then answers with a Firebase custom token
+// for an account whose id is made from the school and the student's Schoology id, so
+// the same student gets the same account on any device. A caller that IS signed in
+// (an account made before this change) keeps the old behaviour untouched.
 exports.sgyConnectStart = onCall({ region: 'us-central1', secrets: [SGY_KEY, SGY_SECRET] }, async (req) => {
-  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const callerUid = req.auth ? req.auth.uid : null;
   const host = sgyHost(req.data && req.data.host);
   if (!host) throw new HttpsError('invalid-argument', 'Enter your school’s Schoology address, like yourschool.schoology.com.');
   const origin = sgyReturnOrigin(req.data && req.data.returnTo);
@@ -1427,31 +1432,53 @@ exports.sgyConnectStart = onCall({ region: 'us-central1', secrets: [SGY_KEY, SGY
   // Replace this user's previous abandoned attempt so the pending node can't grow
   // forever. A direct pointer per uid, not a query: a query on pending/ needs an
   // ".indexOn" in the rules and crashed without one (10/7/26).
-  const prev = (await db.ref(`sgyPrivate/pendingByUid/${req.auth.uid}`).get()).val();
   const writes = {};
-  if (typeof prev === 'string' && prev && prev !== token) writes[`pending/${prev}`] = null;
-  writes[`pending/${token}`] = { uid: req.auth.uid, secret, host, at: Date.now() };
-  writes[`pendingByUid/${req.auth.uid}`] = token;
+  if (callerUid) {
+    const prev = (await db.ref(`sgyPrivate/pendingByUid/${callerUid}`).get()).val();
+    if (typeof prev === 'string' && prev && prev !== token) writes[`pending/${prev}`] = null;
+    writes[`pendingByUid/${callerUid}`] = token;
+  }
+  // The claim is a secret only the Cobalt tab that started this holds (stay mode), so
+  // seeing the Schoology address is not enough to finish someone's connection.
+  const claim = req.data && req.data.stay ? require('crypto').randomBytes(24).toString('hex') : '';
+  writes[`pending/${token}`] = { uid: callerUid, secret, host, at: Date.now(), claim };
   await db.ref('sgyPrivate').update(writes);
 
+  // STAY MODE (Gabe, 10/16): Cobalt opened this approval in its own tab and is polling
+  // for the result, so Schoology gets NO return address and the student simply stops at
+  // Schoology after approving, then clicks back into the Cobalt tab that is waiting.
+  // Without it (the browser blocked the tab) Schoology sends them back to Cobalt.
+  const stay = !!(req.data && req.data.stay);
   const callback = origin + '/?sgy=return';
   const url =
-    'https://' + host + '/oauth/authorize?oauth_token=' + oEnc(token) + '&oauth_callback=' + oEnc(callback);
-  return { url };
+    'https://' + host + '/oauth/authorize?oauth_token=' + oEnc(token) + (stay ? '' : '&oauth_callback=' + oEnc(callback));
+  return { url, token, claim };
 });
 
 exports.sgyConnectFinish = onCall({ region: 'us-central1', secrets: [SGY_KEY, SGY_SECRET] }, async (req) => {
-  if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const callerUid = req.auth ? req.auth.uid : null;
   const token = String((req.data && req.data.token) || '');
   if (!/^[A-Za-z0-9._-]{8,200}$/.test(token)) throw new HttpsError('invalid-argument', 'Bad connection token.');
   const db = admin.database();
   const ref = db.ref(`sgyPrivate/pending/${token}`);
   const snap = await ref.get();
   const pending = snap.val();
-  // ONE-SHOT: burned before anything else, whatever happens next (see header).
-  await ref.remove();
-  if (pending && pending.uid) await db.ref(`sgyPrivate/pendingByUid/${pending.uid}`).remove();
-  if (!pending || pending.uid !== req.auth.uid || Date.now() - pending.at > SGY_PENDING_TTL_MS) {
+  // POLL MODE (the Cobalt tab waiting while the student approves in the Schoology tab):
+  // the request is NOT burned while Schoology still says "not approved yet", so the next
+  // poll can try again. It is burned the moment it succeeds, and when it has expired.
+  const poll = !!(req.data && req.data.poll);
+  const burn = async () => {
+    await ref.remove();
+    if (pending && pending.uid) await db.ref(`sgyPrivate/pendingByUid/${pending.uid}`).remove();
+  };
+  // ONE-SHOT otherwise: burned before anything else, whatever happens next (see header).
+  if (!poll) await burn();
+  if (poll && pending && Date.now() - pending.at > SGY_PENDING_TTL_MS) await burn();
+  // A request started in stay mode can only be finished by the tab holding its claim.
+  if (pending && pending.claim && String((req.data && req.data.claim) || '') !== pending.claim) {
+    throw new HttpsError('permission-denied', 'That Schoology connection doesn’t belong to this page. Try connecting again.');
+  }
+  if (!pending || (pending.uid || null) !== callerUid || Date.now() - pending.at > SGY_PENDING_TTL_MS) {
     throw new HttpsError('failed-precondition', 'That Schoology connection expired. Try connecting again.');
   }
 
@@ -1467,6 +1494,11 @@ exports.sgyConnectFinish = onCall({ region: 'us-central1', secrets: [SGY_KEY, SG
   const body = await res.text();
   const p = new URLSearchParams(body);
   const tok = { token: p.get('oauth_token'), secret: p.get('oauth_token_secret') };
+  if (poll && (!res.ok || !tok.token || !tok.secret)) {
+    // Not approved yet (or Schoology is briefly unhappy): leave the request alone.
+    return { pending: true };
+  }
+  if (poll) await burn();
   if (!res.ok || !tok.token || !tok.secret) {
     console.error('sgy access_token failed', res.status, body.slice(0, 300));
     throw new HttpsError('permission-denied', 'Schoology didn’t approve the connection. Try again.');
@@ -1507,8 +1539,12 @@ exports.sgyConnectFinish = onCall({ region: 'us-central1', secrets: [SGY_KEY, SG
   if (!/^\d+$/.test(sgyUid)) throw new HttpsError('internal', 'Connected, but Schoology didn’t say who you are. Try again.');
   const name = me ? [me.name_first, me.name_last].filter((s) => typeof s === 'string' && s.trim()).join(' ').trim() : '';
 
+  // The account this connection belongs to: the caller's own when signed in,
+  // otherwise one derived from school + Schoology id (same student, same account).
+  const accountUid = callerUid || 'sgy_' + (pending.host + '_' + sgyUid).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 100);
+
   const now = new Date().toISOString();
-  await db.ref(`sgyPrivate/tokens/${req.auth.uid}`).set({
+  await db.ref(`sgyPrivate/tokens/${accountUid}`).set({
     token: tok.token,
     secret: tok.secret,
     sgyUid,
@@ -1520,8 +1556,38 @@ exports.sgyConnectFinish = onCall({ region: 'us-central1', secrets: [SGY_KEY, SG
   const pick = (v) => (typeof v === 'string' ? v.trim() : '');
   const firstName = me ? pick(me.name_first_preferred) || pick(me.name_first) : '';
   const marker = { connected: true, expired: false, host: pending.host, name, firstName, connectedAt: now };
-  await db.ref(`users/${req.auth.uid}/profile/sgyApi`).set(marker);
-  return marker;
+  await db.ref(`users/${accountUid}/profile/sgyApi`).set(marker);
+  // WHERE EMAILS GO NOW THAT SCHOOLOGY IS THE LOGIN (Gabe, 10/16): a Schoology sign-in
+  // gives the Firebase account no email, so Cobalt's emails (reminders, new grades)
+  // would have nowhere to go. Schoology's email is always remembered as
+  // `schoologyEmail` (it is what "use my account email" returns to), and becomes the
+  // notification address only for an account with no email of its own and no address
+  // already chosen. A student who proved one with a code in Settings is never overwritten.
+  const sgyMail = me && typeof me.primary_email === 'string' ? me.primary_email.trim().toLowerCase() : '';
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(sgyMail)) {
+    try {
+      const ref = admin.firestore().collection(NOTIFY_EMAILS).doc(accountUid);
+      const cur = (await ref.get()).data() || {};
+      const own = await admin.auth().getUser(accountUid).then((r) => r.email || '').catch(() => '');
+      const patch = { schoologyEmail: sgyMail };
+      if (!cur.email && !own) {
+        patch.email = sgyMail;
+        patch.verifiedAt = Date.now();
+        patch.source = 'schoology';
+      }
+      await ref.set(patch, { merge: true });
+    } catch (err) {
+      console.error('sgy notify email failed', err && err.message);
+    }
+  }
+  if (callerUid) return marker;
+  try {
+    const customToken = await admin.auth().createCustomToken(accountUid);
+    return { ...marker, customToken };
+  } catch (err) {
+    console.error('sgy custom token failed', err && err.message);
+    throw new HttpsError('internal', 'Connected to Schoology, but signing you in failed. Try again in a minute.');
+  }
 });
 
 exports.sgyFetch = onCall(
@@ -1589,6 +1655,25 @@ exports.sgyFetch = onCall(
         realmName.set(realm, name);
         courses.push({ id: realm.slice(1), name });
         for (const aid of r.aids) labels[aid] = name;
+      }
+
+      // EVERY ENROLLED COURSE (Gabe, 10/16): the loop above only knows courses that
+      // have an assignment in the window, so a class with nothing due was missing
+      // from the course list. The student's own section list names them all.
+      try {
+        await sgySleep(SGY_SPACING_MS);
+        const mine = await sgyJson(`/users/${tok.sgyUid}/sections`, tok);
+        const have = new Set(courses.map((c) => c.id));
+        for (const sec of sgyList(mine, 'section')) {
+          if (!sec || sec.id == null || sec.active === 0 || sec.active === '0') continue;
+          const id = String(sec.id);
+          const nm = String(sec.course_title || sec.section_title || '').trim();
+          if (!nm || have.has(id)) continue;
+          have.add(id);
+          courses.push({ id, name: nm });
+        }
+      } catch (err) {
+        console.warn('sgy sections list failed', err && err.message);
       }
 
       const byId = new Map();
@@ -2162,6 +2247,22 @@ async function readNotifyEmail(uid) {
   }
 }
 
+/** Back to the account's own address: the sign-in email, or for a Schoology-only
+ *  account (no email of its own) the email Schoology gave. With `only`, does nothing
+ *  unless that address IS the default (no proof needed then). Returns true if reset. */
+async function resetNotifyEmail(uid, signInEmail, only) {
+  const ref = admin.firestore().collection(NOTIFY_EMAILS).doc(uid);
+  const cur = (await ref.get()).data() || {};
+  const own = String(signInEmail || '').toLowerCase();
+  const sgy = String(cur.schoologyEmail || '').toLowerCase();
+  const dflt = own || sgy;
+  if (only && (!dflt || only !== dflt)) return false;
+  if (own) await ref.set({ email: admin.firestore.FieldValue.delete() }, { merge: true });
+  else if (sgy) await ref.set({ email: sgy, verifiedAt: Date.now(), source: 'schoology' }, { merge: true });
+  else await ref.set({ email: admin.firestore.FieldValue.delete() }, { merge: true });
+  return true;
+}
+
 exports.requestNotifyEmail = onCall({ region: 'us-central1' }, async (req) => {
   if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
   const uid = req.auth.uid;
@@ -2171,8 +2272,8 @@ exports.requestNotifyEmail = onCall({ region: 'us-central1' }, async (req) => {
   }
   const fs = admin.firestore();
   // Their own sign-in email needs no proof: switching back just clears the choice.
-  if (email === String(req.auth.token.email || '').toLowerCase()) {
-    await fs.collection(NOTIFY_EMAILS).doc(uid).delete();
+  const dflt = await resetNotifyEmail(uid, req.auth.token.email, email);
+  if (dflt) {
     await fs.collection(NOTIFY_CODES).doc(uid).delete();
     return { done: true };
   }
@@ -2214,14 +2315,24 @@ exports.confirmNotifyEmail = onCall({ region: 'us-central1' }, async (req) => {
     await ref.update({ tries: (Number(cur.tries) || 0) + 1 });
     throw new HttpsError('permission-denied', 'That code isn’t right. Check the email and try again.');
   }
-  await fs.collection(NOTIFY_EMAILS).doc(uid).set({ email: cur.email, verifiedAt: Date.now() });
+  await fs.collection(NOTIFY_EMAILS).doc(uid).set({ email: cur.email, verifiedAt: Date.now() }, { merge: true });
   await ref.update({ hash: '' }); // spent; the send history stays for the rate limit
   return { email: cur.email };
 });
 
 exports.clearNotifyEmail = onCall({ region: 'us-central1' }, async (req) => {
   if (!req.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
-  await admin.firestore().collection(NOTIFY_EMAILS).doc(req.auth.uid).delete();
+  await resetNotifyEmail(req.auth.uid, req.auth.token.email, '');
   return { done: true };
 });
 // #endregion
+
+// TEMP PROBE (10/16): remove after checking custom-token signing works.
+exports.tokenProbe = onCall({ region: 'us-central1' }, async () => {
+  try {
+    await admin.auth().createCustomToken('probe_uid');
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message).slice(0, 300) };
+  }
+});

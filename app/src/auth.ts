@@ -385,6 +385,25 @@ export async function signOut(): Promise<void> {
   await auth.signOut(instance);
 }
 
+/** Sign in with a Firebase custom token (Schoology is the login: the server mints it
+ *  once the student has approved Cobalt on their own Schoology page). */
+export async function signInWithToken(customToken: string): Promise<void> {
+  const { auth, instance } = await firebaseAuth();
+  await auth.signInWithCustomToken(instance, customToken);
+}
+
+/** Resolves once Firebase has restored any saved sign-in (or found none), so a call made
+ *  right after page load carries the right identity. Never rejects. */
+export async function authReady(): Promise<void> {
+  if (isLocalMode()) return;
+  try {
+    const { instance } = await firebaseAuth();
+    await (instance as unknown as { authStateReady?: () => Promise<void> }).authStateReady?.();
+  } catch {
+    /* proceed unauthenticated, as before */
+  }
+}
+
 /** Subscribe to auth state. Fires immediately with the current user (or null). */
 export function onAuth(cb: AuthCb): void {
   if (isLocalMode()) {

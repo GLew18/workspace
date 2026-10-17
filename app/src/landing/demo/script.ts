@@ -13,6 +13,10 @@
 // throws logs exactly which beat broke and the loop restarts; the landing
 // never shows a half-dead animation.
 //
+// RULE: the demo never opens a real tab, window or URL. No scene may click a
+// bookmark card without a modifier, press "Open all", fire a shortcut, or send
+// a real key event; BookmarksView in sample mode also refuses to open anything.
+//
 // Pausing: an IntersectionObserver gates scene advancement while the hero is
 // off-screen (environments without IO run ungated). The cursor's own rAF
 // animation stops naturally in background tabs.
@@ -58,7 +62,17 @@ const sceneDashboard: Scene = {
     // The whole dashboard must fit the fold — the smoke run guards it so a
     // future seed change can't quietly push the schedule card off screen.
     const app = shell.body.querySelector<HTMLElement>('.app')!;
-    expect(app.scrollHeight <= app.clientHeight + 1, 'dashboard (incl. schedule) must fit the frame without scrolling');
+    // The New Grades card (10/16) made the dashboard taller than the frame, and the old
+    // hard check threw here, so the loop restarted at the logo forever (Gabe, 10/16: the
+    // demo "just repeats and the cursor goes off screen"). An overflow is now a short
+    // scroll down to the rest and back, never a failure.
+    const spill = app.scrollHeight - app.clientHeight;
+    if (spill > 1) {
+      await cur.wait(700);
+      await cur.scrollBy(app, spill, 900);
+      await cur.wait(1100);
+      await cur.scrollBy(app, -spill, 700);
+    }
     // NO DRIFT-AND-PARK (Gabe, 9/2/26: at the open "his cursor just hovers over
     // today's task, not doing anything"). The dashboard is the establishing shot and
     // it reads on its own; a hand crossing the screen to stop on a row it will not
@@ -375,7 +389,7 @@ const sceneQuickAdd: Scene = {
   },
 };
 
-/** Scene 5 — Dan shapes the "get cobalt plus" task: due today, very high
+/** Scene 5 — Dan shapes the "try cobalt today" task: due today, very high
  *  priority; then builds a real `cobalt` course in Settings (name, color,
  *  parse word `cob`) and tags the task with it by typing the parse word. */
 const scenePremiumAndCourse: Scene = {
@@ -663,6 +677,49 @@ const sceneCalendar: Scene = {
   },
 };
 
+/** Grades — Dan opens Math, asks the grade-goal calculator on Tests what he needs
+ *  for an 88 in Tests, and the practice grades land in the category and move the banner;
+ *  then Undo practice puts the real grade back. */
+const sceneGrades: Scene = {
+  name: 'grades-goal-practice',
+  async run({ shell, cur }) {
+    await cur.click(shell.navBtn('grades'));
+    await cur.waitFor('.grades-course', shell.body);
+    await cur.wait(900);
+    const scroller = shell.body.querySelector<HTMLElement>('.app')!;
+    if (scroller.scrollTop > 0) await cur.scrollBy(scroller, -scroller.scrollTop, 400);
+    const math = await cur.fresh(
+      () => [...shell.body.querySelectorAll<HTMLElement>('.grades-course')].find((b) => /math/i.test(b.textContent ?? '')),
+      'Math course card'
+    );
+    await cur.click(math);
+    await cur.waitFor('.grades-banner', shell.body);
+    await cur.wait(1100);
+    const calc = await cur.fresh(() => shell.body.querySelector<HTMLElement>('.grades-cat-calc[aria-label="Grade goal for Tests"]'), 'Tests calculator button');
+    await cur.ensureInView(scroller, calc, 80);
+    await cur.click(calc);
+    const modal = await cur.waitFor<HTMLElement>('.popup-backdrop:not(.closing) .popup', shell.body);
+    const want = modal.querySelector<HTMLInputElement>('input[aria-label="The category grade you want"]')!;
+    const count = modal.querySelector<HTMLInputElement>('input[aria-label="How many assignments"]')!;
+    await cur.click(count);
+    await cur.retype(count, '2');
+    await cur.click(want);
+    await cur.retype(want, '88');
+    await cur.wait(900);
+    const create = [...modal.querySelectorAll<HTMLButtonElement>('button')].find((b) => /Create practice grades/.test(b.textContent ?? ''))!;
+    expect(!create.disabled, 'goal calculator could not reach the demo goal');
+    await cur.click(create);
+    beat('grades-practice-created');
+    await cur.waitUntil(() => !!shell.body.querySelector('.grades-banner.whatif'), 3000, 'banner shows the practice grade');
+    await cur.wait(1800);
+    const reset = await cur.fresh(() => shell.body.querySelector<HTMLElement>('.grades-reset'), 'Undo practice button');
+    await cur.ensureInView(scroller, reset, 60);
+    await cur.click(reset);
+    await cur.waitUntil(() => !shell.body.querySelector('.grades-banner.whatif'), 3000, 'practice grades reset');
+    await cur.wait(700);
+  },
+};
+
 /** Scene 8 — bookmarks: add Desmos + GeoGebra, group them into a colored
  *  "Math" group, and give Desmos an in-app keyboard shortcut (the capture UI
  *  accepts the combo exactly as the real one does). */
@@ -765,20 +822,21 @@ const sceneBookmarks: Scene = {
     // extension and opened THEIR saved shortcut (Desmos, in Gabe's Chrome). The
     // recorder only needs the box focused, not to be the event's target, and a
     // dispatched event never moves focus, so it records exactly as before.
-    const keySink = document.createElement('textarea');
-    keySink.setAttribute('aria-hidden', 'true');
-    keySink.tabIndex = -1;
-    keySink.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
-    shell.body.append(keySink);
+    // 10/16: no key event is dispatched on the page at all now. The keys go to the
+    // modal as a private event (see openShortcutModal), so no extension listener
+    // can ever see this combo. The demo never opens a real tab, window or URL.
+    const keyModal = keysBox.closest<HTMLElement>('.bm-backdrop')!;
+    const demoKey = (key: string, shift = false): void => {
+      keyModal.dispatchEvent(new CustomEvent('cobalt-demo-key', { detail: { key, alt: true, shift } }));
+    };
     // A real keyboard lands the combo one key at a time, and the recorder's
     // building label ("Alt + …") narrates each step — show that.
-    cur.pressKey(keySink, 'Alt', { alt: true });
+    demoKey('Alt');
     await cur.wait(260);
-    cur.pressKey(keySink, 'Shift', { alt: true, shift: true });
+    demoKey('Shift', true);
     await cur.wait(260);
-    cur.pressKey(keySink, 'd', { alt: true, shift: true });
+    demoKey('d', true);
     await cur.wait(500);
-    keySink.remove();
     const saveBtn = [...shell.body.querySelectorAll<HTMLElement>('.bm-backdrop button')].find((b) => /^save$/i.test(b.textContent ?? ''));
     expect(saveBtn, 'shortcut modal has no Save');
     await cur.click(saveBtn!);
@@ -916,8 +974,8 @@ const sceneFocusSetup: Scene = {
     );
     await cur.wait(500); // the row landed — let cause and effect read
     await pressImportPlus(
-      () => [...shell.body.querySelectorAll<HTMLElement>('.focus-import-task')].find((r) => (r.textContent ?? '').includes('get cobalt plus')),
-      'get cobalt plus'
+      () => [...shell.body.querySelectorAll<HTMLElement>('.focus-import-task')].find((r) => (r.textContent ?? '').includes('try cobalt today')),
+      'try cobalt today'
     );
     // Setup-screen rows (see SETUP_ROW); the session's are SESSION_ROW.
     await cur.waitUntil(() => shell.body.querySelectorAll(SETUP_ROW).length >= 2, 4000, 'both imports landed in the session list');
@@ -997,15 +1055,15 @@ const sceneFocusSession: Scene = {
     const looseRows = (): HTMLElement[] =>
       [...ov.querySelectorAll<HTMLElement>(SESSION_ROW)].filter((r) => {
         const txt = r.textContent ?? '';
-        return txt.includes('get cobalt plus') || txt.includes('study for algebra 2 test');
+        return txt.includes('try cobalt today') || txt.includes('study for algebra 2 test');
       });
     beat('reorder-start');
     let rows = looseRows();
     expect(rows.length === 2, 'expected the two loose session todos');
-    const orderBefore = rows.map((r) => (r.textContent ?? '').includes('cobalt plus') ? 'prem' : 'math').join(',');
+    const orderBefore = rows.map((r) => (r.textContent ?? '').includes('try cobalt') ? 'prem' : 'math').join(',');
     await cur.dragRow(rows[0], rows[0].querySelector('.focus-todo-handle')!, rows[1]);
     await cur.waitUntil(() => {
-      const now = looseRows().map((r) => (r.textContent ?? '').includes('cobalt plus') ? 'prem' : 'math').join(',');
+      const now = looseRows().map((r) => (r.textContent ?? '').includes('try cobalt') ? 'prem' : 'math').join(',');
       return now !== orderBefore && now.length === orderBefore.length;
     }, 4000, 'loose todos reordered by drag');
     await cur.wait(400);
@@ -1013,7 +1071,7 @@ const sceneFocusSession: Scene = {
     // Append to the premium todo's title (dblclick → the editor opens with the
     // text; typing appends; Enter commits).
     const premText = await cur.fresh(
-      () => [...ov.querySelectorAll<HTMLElement>(TODO_TEXT)].find((t) => (t.textContent ?? '').includes('get cobalt plus')),
+      () => [...ov.querySelectorAll<HTMLElement>(TODO_TEXT)].find((t) => (t.textContent ?? '').includes('try cobalt today')),
       'premium todo'
     );
     beat('premium-append-dblclick');
@@ -1026,7 +1084,7 @@ const sceneFocusSession: Scene = {
     // and which hid the highlight the gesture is known by. retype() shows the
     // selection, holds it, then replaces it, exactly as typing over one does.
     await cur.wait(420); // the highlight reads before a key lands on it
-    await cur.retype(editor, 'get cobalt plus right after completing homework');
+    await cur.retype(editor, 'try cobalt today right after completing homework');
     cur.pressKey(editor, 'Enter');
     await cur.waitUntil(
       () => [...ov.querySelectorAll<HTMLElement>(TODO_TEXT)].some((t) => /right after completing homework/.test(t.textContent ?? '')),
@@ -1196,6 +1254,7 @@ const SCENES: Scene[] = [
   scenePremiumAndCourse,
   sceneEssayAttachments,
   sceneCalendar,
+  sceneGrades,
   sceneBookmarks,
   sceneFocusSetup,
   sceneFocusSession,
@@ -1284,6 +1343,22 @@ function installStagePatches(): void {
   HTMLElement.prototype.focus = function (this: HTMLElement, options?: FocusOptions) {
     origFocus.call(this, inStage(this) ? { ...options, preventScroll: true } : options);
   };
+  // THE DEMO NEVER OPENS A REAL TAB OR WINDOW (Gabe, 10/16: a ghost ctrl-click on the
+  // Desmos card still launched Desmos in his Chrome). Two root-level guards, so no
+  // scene and no view can leak: a window.open made while a demo is on screen does
+  // nothing, and a click or middle-click on any link inside a demo stage is cancelled
+  // before the browser can act on it.
+  const origOpen = window.open;
+  window.open = function (this: Window, ...args: Parameters<typeof window.open>) {
+    for (const s of activeStages) if (s.isConnected) return null;
+    return origOpen.apply(this, args);
+  } as typeof window.open;
+  const blockLinks = (e: Event): void => {
+    const t = e.target as Element | null;
+    if (t && t.closest && t.closest('a[href]') && inStage(t)) e.preventDefault();
+  };
+  document.addEventListener('click', blockLinks, true);
+  document.addEventListener('auxclick', blockLinks, true);
   const origSIV = Element.prototype.scrollIntoView;
   Element.prototype.scrollIntoView = function (this: Element, arg?: boolean | ScrollIntoViewOptions) {
     if (inStage(this)) return;
@@ -1500,7 +1575,30 @@ export function startHeroDemo(stage: HTMLElement, opts: HeroDemoOpts = {}): Hero
     shell?.destroy();
   };
 
-  void loop();
+  // THE DEMO MUST NEVER STOP FOR GOOD (Gabe, 10/16): nothing caught a throw out of the
+  // loop, so one bad frame (leftover app state after a sign-out, say) ended the demo
+  // silently. Now a failed pass is cleaned away and the demo starts again.
+  const keepRunning = async (): Promise<void> => {
+    for (let fails = 0; !stopped && stage.isConnected && fails < 20; fails++) {
+      try {
+        await loop();
+        return; // finished normally: stopped, detached, or its set number of loops
+      } catch (e) {
+        console.warn('[demo] pass failed, restarting', e);
+        try {
+          cur?.destroy();
+          shell?.destroy();
+        } catch {
+          /* already gone */
+        }
+        cur = null;
+        shell = null;
+        stage.replaceChildren();
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+  };
+  void keepRunning();
 
   return {
     stop() {

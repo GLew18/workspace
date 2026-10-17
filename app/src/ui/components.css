@@ -555,15 +555,13 @@ body.app-mode .app-below {
   position: absolute;
   top: -3px;
   right: -3px;
-  /* Gold, not red: nothing here is an error, it's Cobalt with something for you.
-     The dark-on-accent pair is the same one every filled accent control uses.
-     Red/white was tried on 8/15 and reverted the same day — the SIZE was the real
-     complaint, and that stays fixed at 18px. */
-  background: var(--accent);
-  color: var(--on-accent);
+  /* RED, like every other notification count (Gabe, 10/16). It was the accent blue
+     (red was tried 8/15 and reverted over the SIZE, which stays 18px). */
+  background: #ef4444;
+  color: #fff;
   font-size: 10.5px;
   display: none; /* .on flips it back to the badge's inline-flex */
-  box-shadow: 0 0 0 2px #0e2049, 0 0 10px var(--gold-glow);
+  box-shadow: 0 0 0 2px #0e2049;
 }
 .bell-dot.on {
   display: inline-flex;
@@ -1299,6 +1297,51 @@ body.app-mode .app-below {
 }
 .task-altered-badge:hover {
   filter: brightness(1.2);
+}
+/* The ✱ (changed) and the red dot (new) are centered on the title's first line
+   (Gabe, 10/16): each sits in a box exactly one title line tall, content centered, so
+   both line up with the middle of the text instead of hanging at its top. The title is
+   15px at the app's 1.45 line-height. */
+.task-title .task-altered-badge,
+.task-title .new-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(15px * 1.45);
+  margin-top: 0;
+  vertical-align: top;
+  box-sizing: border-box;
+}
+.task-title .task-altered-badge {
+  line-height: 1;
+}
+.task-title .new-dot {
+  /* the dot itself stays 8px: a one-line-tall box with the dot drawn in its middle */
+  width: 8px;
+  height: calc(15px * 1.45);
+  border-radius: 0;
+  background: none;
+}
+.task-title .new-dot::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+/* The solid red "new" dot (Gabe, 10/16): on a task Schoology just posted, beside the
+   title where the ✱ sits, and on a newly graded assignment. No number: the Tasks
+   and Grades tabs, the course and the category carry the counts. */
+.new-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  vertical-align: top;
+  margin-top: 5px;
 }
 /* Bottom row: [ meta + due badge ] .......... [ actions ]
    WRAPS RATHER THAN CRUSHING (Gabe, 9/1). This was `nowrap`, and that is what
@@ -2814,7 +2857,7 @@ body:has(.selbar:not([hidden])) .toast {
   border-radius: var(--dlg-radius);
   padding: var(--dlg-pad); /* matches .bm-modal, the app-wide dialog reference */
   width: 100%;
-  max-width: 420px; /* back to 420, the .bm-modal width (Gabe, 10/15: 336 read as very narrow on his Mac); the Filter cards keep their own width below */
+  max-width: 900px; /* same as the Filter card, so every popup opens equally wide (Gabe, 10/16) */
   max-height: 80vh;
   box-shadow: var(--dlg-shadow); /* matches .bm-modal */
   /* The BODY scrolls, not the card: an edge-anchored width grip (and the title)
@@ -3076,6 +3119,19 @@ body:has(.selbar:not([hidden])) .toast {
   min-width: 0;
   padding: 7px 3px;
   font-size: 11.5px;
+  /* Gray at rest, blue on hover (Gabe, 10/16): the same recipe as the Bookmarks
+     tab's .bm-group-head-open, for all three buttons. */
+  background: none;
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+  font-weight: 600;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.attach-footer .btn-primary:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.1);
+  box-shadow: none;
 }
 /* The premium launcher: VIOLET on purpose, a color no free control wears, so
    the tier difference is visible before reading. The MAIN "Open all" line stays
@@ -3086,8 +3142,6 @@ body:has(.selbar:not([hidden])) .toast {
 .attach-open-group {
   /* Premium is VIOLET again (Gabe, 8/10): the accent is the gem's blue now, so a
      blue premium button stopped reading as a different tier. */
-  background: linear-gradient(180deg, #9b79ee, #7c56dd);
-  color: #fff;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3096,8 +3150,8 @@ body:has(.selbar:not([hidden])) .toast {
   line-height: 1.15;
 }
 .attach-open-group:hover {
-  filter: brightness(1.07);
-  /* Gabe, 9/8/26: "remove that weird sort of glow for the hover pseudo selector
+  /* Colors now come from .attach-footer .btn-primary (gray, blue on hover), the
+     same as the plain "Open all". Gabe, 9/8/26: "remove that weird sort of glow for the hover pseudo selector
      for those open all buttons and attachments." .btn-primary:hover (above) puts
      a soft box-shadow halo on every primary button, colored by a --glow-rgb
      custom property (this class used to set --glow-rgb: 139, 92, 246 so the halo
@@ -3735,4 +3789,29 @@ html .task-test-badge .task-test-badge-x:hover {
 /* The top bar's ↻ Refresh spins while it works (Gabe, 10/12). */
 .icon-btn.spinning svg {
   animation: ws-spin 0.7s linear infinite;
+}
+
+/* ---- THE HEADER SCALES WITH THE WINDOW (Gabe, 10/16) ------------------------
+   At narrow desktop widths the wordmark touched "Dashboard" and the refresh icon
+   overlapped "Shop". The wordmark and the right-hand icons now shrink smoothly
+   with the width (full size from ~1300px up), so the tabs keep their room.
+   Real app only (body.app-mode): the landing demo keeps its own fixed sizes. */
+@media (max-width: 1300px) {
+  body.app-mode .app-header .ws-mark {
+    font-size: clamp(20px, 2.6vw, 34px);
+  }
+  body.app-mode .app-header .app-user {
+    gap: 2px;
+  }
+  body.app-mode .app-header .app-user .icon-btn {
+    width: clamp(28px, 3vw, 38px);
+    height: clamp(28px, 3vw, 38px);
+  }
+  body.app-mode .app-header .app-user .icon-btn svg {
+    width: clamp(15px, 1.6vw, 18px);
+    height: clamp(15px, 1.6vw, 18px);
+  }
+  body.app-mode .app-header .app-tab {
+    padding-inline: clamp(8px, 1vw, 14px);
+  }
 }

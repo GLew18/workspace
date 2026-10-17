@@ -42,6 +42,10 @@ function seedDefaults(): CourseConfig[] {
 export async function initRegistry(d: Data): Promise<void> {
   data = d;
   const stored = await d.getProfile<{ list: CourseConfig[] }>('courses');
+  // Courses the student deleted ON PURPOSE (Gabe, 10/16): like a rename or a color, a
+  // delete is a deliberate choice, so no later Schoology import may bring one back.
+  const gone = await d.getProfile<{ names?: string[] }>('coursesDismissed').catch(() => null);
+  dismissed = new Set(Array.isArray(gone?.names) ? gone.names.map((n) => String(n).toLowerCase().trim()) : []);
   if (stored?.list?.length) {
     // Firebase Realtime Database silently drops empty arrays on write, so a course
     // saved with parseWords: [] reads back with parseWords undefined. Normalize here
@@ -56,6 +60,31 @@ export async function initRegistry(d: Data): Promise<void> {
     // They persist the first time the user saves real edits in Settings.
     courses = seedDefaults();
   }
+}
+
+/** Lowercased names (current and former) of courses the student deleted on purpose. */
+let dismissed = new Set<string>();
+
+/** True when the student deleted a course by this name; imports must not recreate it. */
+export function isCourseDismissed(name: string): boolean {
+  return dismissed.has(name.toLowerCase().trim());
+}
+
+/** Record what a list change deleted (and forget anything the student added back). */
+async function trackDismissed(prev: CourseConfig[], next: CourseConfig[]): Promise<void> {
+  const nextIds = new Set(next.map((c) => c.id));
+  const norm = (n: string): string => n.toLowerCase().trim();
+  const before = new Set(dismissed);
+  // Only the student's STORED courses can be "deleted": before that the list is just
+  // in-memory default seeds, and dropping those (onboarding does) is not a deletion.
+  for (const c of hydratedFromStore ? prev : []) {
+    if (nextIds.has(c.id)) continue;
+    for (const n of [c.name, ...(c.aliases ?? [])]) if (n && norm(n)) dismissed.add(norm(n));
+  }
+  // A course the student has (again) is not deleted: typing the name back in re-allows it.
+  for (const c of next) for (const n of [c.name, ...(c.aliases ?? [])]) if (n) dismissed.delete(norm(n));
+  const same = before.size === dismissed.size && [...before].every((n) => dismissed.has(n));
+  if (!same && data) await data.setProfile('coursesDismissed', { names: [...dismissed] });
 }
 
 async function persist(): Promise<void> {
@@ -81,7 +110,10 @@ export function courseByAnyName(name: string): CourseConfig | undefined {
  *  student's rename is the course, not a second one (Gabe, 10/14). Unknown names
  *  come back unchanged. */
 export function canonicalCourseName(name: string): string {
-  return courseByAnyName(name)?.name ?? name;
+  const hit = courseByAnyName(name);
+  if (hit) return hit.name;
+  // A course the student deleted stays deleted: its imports get no course at all.
+  return isCourseDismissed(name) ? '' : name;
 }
 
 export function getCourses(): CourseConfig[] {
@@ -282,6 +314,7 @@ export function parseWordConflict(word: string, exceptId: string): string {
 export async function replaceCourses(list: CourseConfig[]): Promise<void> {
   const prev = courses;
   courses = list;
+  await trackDismissed(prev, list);
   await persist();
   // A course is identified by its stable id, but a task stores its course by NAME.
   // So without this, a rename would orphan every task under the old name (wrong
@@ -341,7 +374,9 @@ export async function updateCourse(id: string, patch: Partial<Omit<CourseConfig,
 }
 
 export async function removeCourse(id: string): Promise<void> {
+  const prev = courses;
   courses = courses.filter((c) => c.id !== id);
+  await trackDismissed(prev, courses);
   await persist();
 }
 

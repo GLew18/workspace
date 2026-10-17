@@ -395,11 +395,6 @@
   height: 100%;
   display: block;
 }
-/* Wider than screen 2's lane: the pills travel 52px + their own 34px, and here
-   they must fade out before the mark rather than over it. */
-.onb-imp-cal .onb-lane {
-  width: 92px;
-}
 /* The globe moved above the heading (10/9), so the caption now sits directly on
    the picker; give it the gap the globe used to provide. */
 .onb-lang-wrap {
@@ -409,7 +404,7 @@
 .onb-lane {
   position: relative;
   flex: none;
-  width: 64px;
+  width: 80px;
   height: 60px;
 }
 .onb-fly {
@@ -437,11 +432,13 @@
   10% {
     opacity: 1;
   }
-  70% {
+  85% {
     opacity: 1;
   }
+  /* 34px pill + 46px travel = the lane's 80px: the pills stop as far short of the
+     task as they start from the Schoology tile (Gabe, 10/16). */
   100% {
-    transform: translateX(52px);
+    transform: translateX(46px);
     opacity: 0;
   }
 }
@@ -1079,3 +1076,15 @@
 .onb-sc.stacked > .onb-cta {
   margin-top: 0;
 }
+
+/* Slide 2's grade row, and the Connect screen's "+N more" caption chip. */
+/* The real grade cell (classes from grades.css), drawn at picture size. */
+.onb-mini .grades-course {
+  gap: 2px;
+  padding: 9px 12px;
+  cursor: default;
+  pointer-events: none;
+}
+.onb-mini .grades-course-name { font-size: 13px; }
+.onb-mini .grades-course-pct { font-size: 28px; }
+.onb-chip.more { background: transparent; border-style: dashed; color: var(--text-dim); }

@@ -81,13 +81,16 @@
 }
 .lp-nav-login:hover { color: var(--text); }
 .lp-nav-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   background: var(--accent);
   color: var(--on-accent);
   border: none;
-  border-radius: 999px;
+  border-radius: 12px;
   font-weight: 700;
-  font-size: 13px;
-  padding: 8px 18px;
+  font-size: 14px;
+  padding: 10px 20px;
   cursor: pointer;
   transition: filter 0.16s ease;
 }
@@ -299,7 +302,7 @@
     linear-gradient(
         130deg,
         rgba(125, 180, 255, 0.85),
-        rgba(139, 92, 246, 0.45) 30%,
+        rgba(61, 127, 232, 0.45) 30%,
         rgba(125, 180, 255, 0.12) 55%,
         rgba(61, 127, 232, 0.7) 85%,
         rgba(125, 180, 255, 0.85)
@@ -410,10 +413,16 @@
   background: var(--accent);
   color: var(--on-accent);
   border: none;
-  border-radius: 999px;
+  /* A rounded RECTANGLE, nearer square than pill (Gabe, 10/16): the only button now. */
+  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
   font-weight: 700;
-  font-size: 17px;
-  padding: 15px 42px;
+  font-size: 21px;
+  padding: 20px 40px;
+  min-width: min(100%, 380px);
   cursor: pointer;
   box-shadow: 0 10px 30px rgba(125, 180, 255, 0.32);
   transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
@@ -1803,16 +1812,6 @@ html[data-kbd] .landing :is(button, a):focus-visible {
   cursor: pointer;
 }
 .lp-footer-login:hover { color: var(--text); }
-.lp-footer-cta {
-  background: var(--accent);
-  color: var(--on-accent);
-  border: none;
-  border-radius: 999px;
-  font-weight: 700;
-  font-size: 12.5px;
-  padding: 7px 16px;
-  cursor: pointer;
-}
 .lp-footer-rule {
   height: 1px;
   background: var(--border);
@@ -1972,6 +1971,50 @@ html[data-kbd] .landing :is(button, a):focus-visible {
   padding-top: 52px;
   padding-bottom: 52px;
   margin-top: -20px;
+}
+/* INSIDE THE HERO (Gabe, 10/16): the hero column is narrower than the page and its
+   children shrink to their content, so the strip, whose track is as wide as all the
+   pills, stretched the section to the right and sat off-centre. Pin it to the page
+   column's width and centre it, and give it more air under the button. */
+.lp-hero-inner .lp-fn {
+  width: min(1360px, 96vw);
+  max-width: none;
+  align-self: center;
+  box-sizing: border-box;
+  /* THE REAL CAUSE (10/16): .lp-section sets `margin: 0 auto`, and in a flex column
+     an auto margin beats align-self. The strip is wider than the 860px hero column,
+     so there was no free space, the auto margins collapsed to 0 and the strip stuck
+     to the column's left edge, running off to the right. Zero margins hand the job
+     back to align-self, which centres an overflowing item evenly on both sides. */
+  margin: 24px 0 10px; /* +10px above and below (Gabe, 10/16: the hero was cramped) */
+}
+.lp-hero-inner .lp-fn-viewport {
+  min-width: 0;
+  max-width: 100%;
+}
+/* OUT OF THE HERO'S CENTRING (Gabe, 10/16: "it must not push the hero text up").
+   The hero block is centred in a 100vh box, so a strip sitting in its flow made the
+   whole block ride half the strip's height higher. On desktop the strip now hangs
+   off the bottom of the text block instead (top:100% of .lp-hero-inner), taking no
+   height, so the headline sits exactly where it did before the strip existed.
+   Placed with left/width and NOT a transform, because the entrance animation on
+   .lp-rise-plain owns transform. 50% of the column minus half the strip's width
+   centres it on the page. Its own 52px paddings are dropped so the pill row sits 40px
+   under the button. The demo is pushed 20px lower (see .lp-stage-glow) to leave room.
+   Phones and reduced motion keep the in-flow version above. */
+@media (min-width: 641px) and (prefers-reduced-motion: no-preference) {
+  .lp-hero-inner { position: relative; }
+  .lp-hero-inner .lp-fn {
+    position: absolute;
+    top: calc(100% + 70px); /* 70, up from 50 (Gabe, 10/16) */
+    left: calc(50% - min(680px, 48vw));
+    margin: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  /* 346, up from 314 (Gabe, 10/16): +20 follows the strip down, +12 grows the ~30px
+     gap under the strip by the same 40% its top offset grew (50 -> 70). */
+  .lp-stage-glow { margin-top: calc(346px - 50vh); }
 }
 /* One quiet line, at the size the label was before the h2 experiment (Gabe,
    9/2/26: "same size as what it was before, I was just asking for a font revamp").
@@ -2299,4 +2342,18 @@ html[data-kbd] .landing :is(button, a):focus-visible {
 .lp-car-dot.on {
   width: 22px;
   background: var(--accent);
+}
+
+.lp-nav-cta, .lp-cta { white-space: nowrap; }
+
+/* The Grades card's frame never scrolls (Gabe, 10/16): drop the phone tab bar's 88px
+   of bottom padding, which is meaningless inside a picture of the app. */
+.lp-frame-grades .lp-frame-body > .app {
+  padding-bottom: 16px;
+}
+/* A course's page (banner, graph, categories) is taller than this fixed frame, so
+   inside the frame only it is drawn at 70%: same arrangement as the app, smaller
+   (the graph is also drawn shorter, see compactGraph in grades/view.ts). */
+.lp-frame-grades .grades-detail {
+  zoom: 0.7;
 }

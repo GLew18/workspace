@@ -11,7 +11,11 @@ import { quoteOfDay, type Quote } from '../quotes';
 import { openAttachment, normalizeUrl } from '../tasks/attachments';
 import { isAssessmentTask } from '../tasks/store';
 import { TasksView } from '../tasks/render';
-import { addCourse, getCourses, matchByParseWords } from '../courses/registry';
+import { addCourse, courseByAnyName, getCourses, matchByParseWords } from '../courses/registry';
+import { defaultPeriod, lastChange } from '../grades/calc';
+import { readGradesCache, GRADES_CACHE_EVENT } from '../grades/cache';
+import { courseCard, isUnseenGrade, sampleSeen, GRADES_SEEN_EVENT } from '../grades/view';
+import { GRADES_TAB_ON } from '../ui/appTabs';
 import { nextCourseColor } from '../courses/colors';
 import type { CourseConfig } from '../types';
 import { openPopup, tabScopedOverlay } from '../ui/popup';
@@ -150,6 +154,21 @@ export class DashboardView {
     this.pickedDay = null;
     void this.refreshSchedule();
   };
+  private gradedBox!: HTMLElement;
+  private testsBox!: HTMLElement;
+  private testsBody: HTMLElement | null = null;
+  private testsN = -1;
+  /** SMART CONTENT: how many tasks the Current Tasks card holds, how many are overdue,
+   *  and whether empty cards hide themselves. */
+  private dueN = -1;
+  private overN = 0;
+  private smartOn = true;
+  private applySmart(): void {
+    if (!this.dueBox) return;
+    this.dueBox.style.display = this.smartOn && this.dueN === 0 && this.overN === 0 ? 'none' : '';
+    if (this.testsBox) this.testsBox.style.display = this.smartOn && this.testsN === 0 ? 'none' : '';
+  }
+  private onGradesCache = (): void => void this.renderGraded();
   private onPrefsChange = (): void => {
     if (this.panelEl) this.mount(this.panelEl);
   };
@@ -191,7 +210,7 @@ export class DashboardView {
           ? greeting(this.firstName)
           : greetingPhrase(),
     });
-    wrap.append(this.greetingEl);
+    if (this.sample || prefs.greet) wrap.append(this.greetingEl);
 
     if (this.sample || prefs.quote) {
       const q = this.sample ? SAMPLE_QUOTE : quoteOfDay(prefs.quoteStyle);
@@ -214,7 +233,18 @@ export class DashboardView {
     this.overdueBox = el('div', { class: 'dash-overdue' });
 
     this.dueBox = el('div', { class: 'dash-due' });
+    this.smartOn = prefs.smart;
     if (this.sample || prefs.tasksCard) wrap.append(this.dueBox);
+
+    // RECENTLY GRADED COURSES (Gabe, 10/16): courses whose latest grade landed inside
+    // the Grades tab's chosen time frame. Real accounts only.
+    this.gradedBox = el('div', { class: 'dash-graded' });
+    if (GRADES_TAB_ON && (this.sample || prefs.gradesCard)) wrap.append(this.gradedBox);
+
+    // UPCOMING TESTS (Gabe, 10/16): tests and quizzes due in the next 7 days, as the
+    // Tasks tab's own rows. Hides itself under Smart Content.
+    this.testsBox = el('div', { class: 'dash-due dash-tests' });
+    if (this.sample || prefs.testsCard) wrap.append(this.testsBox);
 
     this.scheduleBox = el('div', { class: 'dash-schedule' });
     if (this.sample || prefs.scheduleCard) wrap.append(this.scheduleBox);
@@ -230,6 +260,15 @@ export class DashboardView {
     // directly. This one stays for the SCHEDULE card.
     this.renderOverdue();
     this.renderDue();
+    this.renderTests();
+    this.applySmart();
+    {
+      window.removeEventListener(GRADES_CACHE_EVENT, this.onGradesCache);
+      window.addEventListener(GRADES_CACHE_EVENT, this.onGradesCache);
+      window.removeEventListener(GRADES_SEEN_EVENT, this.onGradesCache);
+      window.addEventListener(GRADES_SEEN_EVENT, this.onGradesCache);
+      void this.renderGraded();
+    }
     if (!this.wired) {
       this.wired = true;
       this.data.watchTasks(() => {
@@ -279,10 +318,37 @@ export class DashboardView {
         // late (Gabe, 9/1/26) — same rule the Tasks list applies.
         filter: (t) => !!t.dueDate && t.dueDate < todayStr() && !isAssessmentTask(t),
         empty: '', // never seen: the card hides itself at zero
-        onCount: (n) => this.overdueBox.classList.toggle('on', n > 0),
+        onCount: (n) => {
+          this.overdueBox.classList.toggle('on', n > 0);
+          this.overN = n;
+          this.applySmart();
+        },
       }).mount(this.overdueBody);
     }
     this.overdueBox.append(this.overdueBody);
+  }
+
+  /** The Upcoming Tests card: assessments (tests, quizzes, exams) still open and due in
+   *  the next 7 days. The same real-excerpt trick as Current Tasks. */
+  private renderTests(): void {
+    this.testsBox.replaceChildren();
+    const header = el('div', { class: 'dash-schedule-header' });
+    const link = el('button', { class: 'dash-due-link', text: 'Upcoming Tests' });
+    link.addEventListener('click', () => this.goToTab('tasks'));
+    header.append(link);
+    this.testsBox.append(header);
+    if (!this.testsBody) {
+      this.testsBody = el('div', { class: 'dash-due-list' });
+      new TasksView(this.data, this.sample ? { host: this.testsBody } : undefined, {
+        filter: (t) => isAssessmentTask(t) && t.dueDate >= todayStr() && t.dueDate <= addDays(todayStr(), 7),
+        empty: 'No tests this week',
+        onCount: (n) => {
+          this.testsN = n;
+          this.applySmart();
+        },
+      }).mount(this.testsBody);
+    }
+    this.testsBox.append(this.testsBody);
   }
 
   private renderDue(): void {
@@ -307,13 +373,60 @@ export class DashboardView {
       // to get done tonight.
       new TasksView(this.data, this.sample ? { host: this.dueBody } : undefined, {
         filter: (t) => t.dueDate === todayStr() || t.dueDate === addDays(todayStr(), 1),
-        empty: 'All clear today and tomorrow',
+        empty: 'No tasks today',
+        onCount: (n) => {
+          this.dueN = n;
+          this.applySmart();
+        },
       }).mount(this.dueBody);
     }
     // A prefs change re-mounts the dashboard and rebuilds dueBox. RE-USE the same
     // element and the same view: constructing a second one would add a second
     // watchTasks subscription every time (Data has no unsubscribe).
     this.dueBox.append(this.dueBody);
+  }
+
+  /** The "New Grades" card (Gabe, 10/16): an excerpt of the Grades tab, the same course
+   *  cells for only the courses holding grades the student has not looked at yet, with
+   *  the red count of those grades beside the title. Any click goes to Grades. Hidden
+   *  when nothing is new. */
+  private async renderGraded(): Promise<void> {
+    // The landing's sample dashboard shows the sample gradebook; a real one, the last read.
+    const payload = this.sample ? (await import('../grades/sample')).sampleGrades() : readGradesCache(this.data.uid);
+    const seen = this.sample
+      ? sampleSeen(payload!)
+      : await this.data.getProfile<Record<string, number>>('gradesSeen').catch(() => undefined);
+    // Nothing saved yet: what is already graded is the baseline, not "new".
+    const known = seen && typeof seen === 'object' ? seen : null;
+    const rows = (payload?.courses ?? [])
+      .map((c) => {
+        const p = defaultPeriod(c);
+        const n = c.periods.reduce((t, q) => t + q.assignments.filter((a) => isUnseenGrade(a, known)).length, 0);
+        return { c, p, n };
+      })
+      .filter((r) => r.n > 0)
+      .sort((a, b) => lastChange(b.p.assignments) - lastChange(a.p.assignments));
+    this.gradedBox.replaceChildren();
+    this.gradedBox.style.display = rows.length || !getPrefs().dash.smart ? '' : 'none';
+    if (!rows.length) {
+      if (!getPrefs().dash.smart) {
+        const head = el('div', { class: 'dash-schedule-header' }, [el('span', { class: 'dash-due-link', text: 'New Grades' })]);
+        this.gradedBox.append(head, el('div', { class: 'dash-due-empty', text: 'No new grades today' }));
+      }
+      return;
+    }
+    const header = el('div', { class: 'dash-schedule-header' });
+    const link = el('button', { class: 'dash-due-link', text: 'New Grades' });
+    link.addEventListener('click', () => this.goToTab('grades'));
+    // No count beside the title (Gabe, 10/16): the red numbers live on the course cells and the top bar only.
+    header.append(link);
+    const grid = el('div', { class: 'grades-grid' });
+    for (const { c, p, n } of rows) {
+      const card = courseCard(c, p, n);
+      card.addEventListener('click', () => this.goToTab('grades'));
+      grid.append(card);
+    }
+    this.gradedBox.append(header, grid);
   }
 
   // --- schedule (Monday-anchored, matching Schoology's weekly posts) -------
@@ -501,6 +614,7 @@ export class DashboardView {
     const courses = getCourses();
     const byWord = matchByParseWords(name);
     return (
+      courseByAnyName(name) ??
       courses.find((c) => c.name.toLowerCase() === lower) ??
       courses.find(
         (c) => c.name.length >= 3 && (lower.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(lower))

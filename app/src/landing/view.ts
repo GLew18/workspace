@@ -11,6 +11,7 @@
 // from the SAME real app CSS classes, and "Cobalt vs Schoology" makes the
 // pitch explicit.
 
+import { GradesView } from '../grades/view';
 import { el } from '../util/dom';
 import { createWordmark, STONE_SVG } from '../ui/laurel';
 import type { Data } from '../db';
@@ -100,12 +101,10 @@ function navBar(opts: LandingOpts, root: HTMLElement): HTMLElement {
   }
 
   const actions = el('div', { class: 'lp-nav-actions' });
-  const login = el('button', { class: 'lp-nav-login', text: 'Log in' });
-  login.addEventListener('click', opts.onLogIn ?? opts.onTryNow);
-  const cta = el('button', { class: 'lp-nav-cta', text: 'Get started free' });
+  const cta = el('button', { class: 'lp-nav-cta', text: 'Get Started' });
   cta.addEventListener('click', opts.onTryNow);
   // CTA FIRST, log in second (Gabe, 9/2/26) — the same order everywhere on the page.
-  actions.append(cta, login);
+  actions.append(cta);
 
   nav.append(brand, links, actions);
   return nav;
@@ -164,7 +163,7 @@ interface Feature {
   id: string;
   label: string;
   emoji: string;
-  kind: 'tasks' | 'focus' | 'bookmarks';
+  kind: 'tasks' | 'grades' | 'focus' | 'bookmarks';
   urlPath: string;
   title: string;
   blurb: string;
@@ -181,6 +180,16 @@ const FEATURES: Feature[] = [
     title: 'Your assignments, finally organized',
     blurb: 'Every Schoology assignment, test, and quiz, auto-imported, translated and grouped by due date. Check off, add, or edit tasks, view descriptions, set priorities, and attach links, with instant navigation to Schoology.',
     bullets: ['Quizzes, tests & exams auto-detected', 'Double-click to edit anything', 'Priorities, attachments & handing in to Schoology'],
+  },
+  {
+    id: 'grades',
+    label: 'Grades',
+    emoji: '📊',
+    kind: 'grades',
+    urlPath: 'grades',
+    title: 'Your grades, finally clear',
+    blurb: 'Every course’s grade, categories and graph, pulled from Schoology and updated for you, with a red count the moment something new is graded. Try practice grades, or tell Cobalt the grade you want and see exactly what you need to get.',
+    bullets: ['New grades flagged by course and category', 'Practice grades that change the graph', 'A grade goal calculator for every category'],
   },
   {
     id: 'focus',
@@ -429,7 +438,6 @@ export function renderLanding(opts: LandingOpts): HTMLElement {
 
   root.append(
     heroSection(opts),
-    functionsSection(),
     demoSection(root),
     featuresSection(seeSandbox),
     setupsSection(),
@@ -515,26 +523,16 @@ function heroSection(opts: LandingOpts): HTMLElement {
 
   // Log in + Get started, matching the nav's pairing (Gabe, 8/13).
   const actions = rise(el('div', { class: 'lp-hero-actions' }), 3);
-  const login = el('button', { class: 'lp-cta-ghost', text: 'Log in' });
-  login.addEventListener('click', opts.onLogIn ?? opts.onTryNow);
-  actions.append(ctaButton('Get started free', opts.onTryNow), login); // CTA left (Gabe, 9/2/26)
+  actions.append(ctaButton('Get Started', opts.onTryNow)); // CTA left (Gabe, 9/2/26)
   inner.append(actions);
 
   // The byline (Gabe, 8/13): the cheapest real trust signal on the page. A tool
   // by one of their own beats any feature claim for this audience.
   
 
-  // Three quick-glance chips, one per tab: Tasks, Focus, Bookmarks. Each chip wears
-  // its tab's OWN emoji from FEATURES above (✅ / 🎯 / 🔖), so the hero and the
-  // "see it in action" tabs read as the same three things. (Tasks used a ⚡ here
-  // until 8/13, the one chip that didn't match its tab.)
-  const chips = rise(el('div', { class: 'lp-hero-chips' }), 5);
-  chips.append(
-    el('span', { class: 'lp-hero-chip', text: '✅ Auto-import from Schoology' }),
-    el('span', { class: 'lp-hero-chip', text: '🎯 Curated focus timer with music' }),
-    el('span', { class: 'lp-hero-chip', text: '🔖 Optimized website navigation' })
-  );
-  inner.append(chips);
+  // The feature marquee sits where the three chips were, between the button and the
+  // demo (Gabe, 10/16: "I just want to see what that would look like").
+  inner.append(functionsSection());
 
   top.append(inner);
 
@@ -558,13 +556,23 @@ function heroSection(opts: LandingOpts): HTMLElement {
   const glow = rise(el('div', { class: 'lp-stage-glow lp-rise-plain', id: 'video' }), 6);
   const stage = el('div', { class: 'lp-hero-stage' });
   glow.append(stage);
-  void import('./demo/script')
-    .then(({ startHeroDemo }) => {
+  // THE DEMO MUST ALWAYS START (Gabe, 10/16: it sometimes never showed, mostly after
+  // pressing sign out). Cause: once the demo's code is cached, the import settles
+  // before this page has been attached to the document, and the demo's loop quits
+  // the moment it sees its stage is not on the page. So wait until the stage is
+  // really attached, and retry the load once if it fails.
+  const launchDemo = async (attempt = 0): Promise<void> => {
+    try {
+      const { startHeroDemo } = await import('./demo/script');
+      for (let i = 0; i < 200 && !stage.isConnected; i++) await new Promise((r) => setTimeout(r, 50));
+      if (!stage.isConnected) return; // this page was replaced before it ever showed
       startHeroDemo(stage);
-    })
-    .catch(() => {
-      /* demo unavailable — the hero text stands alone, nothing breaks */
-    });
+    } catch {
+      if (attempt < 2) setTimeout(() => void launchDemo(attempt + 1), 1500);
+      /* still unavailable — the hero text stands alone, nothing breaks */
+    }
+  };
+  void launchDemo();
 
   // No scroll hint and no bridge line (Gabe, 8/17): the demo's glowing edge
   // peeking above the fold IS the invitation now.
@@ -679,7 +687,7 @@ function functionsSection(): HTMLElement {
   // same reason the stage uses it: the strip is scaled by scaleToFit, and a
   // lingering transform from the entrance would sit under that one.
   // NOT a scroll-reveal target any more: it would have faded in twice.
-  const sec = rise(el('section', { class: 'lp-section lp-fn lp-rise-plain', id: 'functions' }), 6);
+  const sec = rise(el('section', { class: 'lp-section lp-fn lp-rise-plain', id: 'functions' }), 5);
  
 
   const viewport = el('div', { class: 'lp-fn-viewport' });
@@ -752,9 +760,7 @@ function finalCtaSection(opts: LandingOpts): HTMLElement {
     })
   );
   const actions = el('div', { class: 'lp-final-actions' });
-  const login = el('button', { class: 'lp-cta-ghost', text: 'Log in' });
-  login.addEventListener('click', opts.onLogIn ?? opts.onTryNow);
-  actions.append(ctaButton('Get started free', opts.onTryNow), login);
+  actions.append(ctaButton('Get Started', opts.onTryNow));
   card.append(actions);
   sec.append(card);
   return sec;
@@ -882,7 +888,8 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
     // (~1100px wide). Give its frame that design size and let the fit-scaler shrink
     // the whole thing, so it keeps the app's own proportions instead of being squeezed.
     if (f.kind === 'focus') frame.frame.classList.add('lp-frame-focus');
-    row.append(text, scaleToFit(frame.frame, f.kind === 'focus' ? 1100 : 620)); // copy LEFT, frame RIGHT
+    if (f.kind === 'grades') frame.frame.classList.add('lp-frame-grades');
+    row.append(text, f.kind === 'focus' ? scaleToFit(frame.frame, 1100, 560) : scaleToFit(frame.frame, 620)); // copy LEFT, frame RIGHT
     card.append(row);
     track.append(card);
     mounts.push(() => {
@@ -891,6 +898,16 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
       sandbox
         .then(async (data) => {
           if (f.kind === 'tasks') new TasksView(data, { host: frame.body }).mount(frame.body);
+          else if (f.kind === 'grades') {
+            const { sampleGrades } = await import('../grades/sample');
+            const panel = el('div', { class: 'app' });
+            frame.body.append(panel);
+            // THREE COURSES, NO SCROLLING (Gabe, 10/16 hard rule): the frame is a fixed
+            // 558px tall and four cells overflowed it. Three fill it with room to spare.
+            const sample = sampleGrades();
+            sample.courses = (sample.courses ?? []).slice(0, 3);
+            new GradesView(data, () => {}, { sample, host: frame.body, compactGraph: true }).mount(panel);
+          }
           else if (f.kind === 'focus') {
             const { FocusView } = await import('../focus/view');
             const panel = el('div', { class: 'app' });
@@ -1005,7 +1022,16 @@ function featuresSection(sandbox: Promise<Data>): HTMLElement {
     const n = FEATURES.length;
     const cur = shown();
     if (i === cur) return;
-    step(((i - cur + n) % n) === 1 ? 1 : -1);
+    // Any card is `fwd` steps ahead going forward, or n - fwd going back: take the
+    // shorter way. Cards in between are skipped silently; only the last step slides.
+    const fwd = (i - cur + n) % n;
+    if (fwd <= n - fwd) {
+      for (let k = 1; k < fwd; k++) track.append(track.firstElementChild!);
+      step(1);
+    } else {
+      for (let k = 1; k < n - fwd; k++) track.prepend(track.lastElementChild!);
+      step(-1);
+    }
   };
   prev.addEventListener('click', () => step(-1));
   next.addEventListener('click', () => step(1));
@@ -1037,18 +1063,22 @@ function bulletList(items: string[]): HTMLElement {
  *  instead of rewrapping or squeezing its contents. A media query can set
  *  --fit-off: 1 on the target to suspend scaling where a stacked layout
  *  takes over. */
-function scaleToFit(target: HTMLElement, designWidth: number): HTMLElement {
+function scaleToFit(target: HTMLElement, designWidth: number, fillHeight?: number): HTMLElement {
   const wrap = el('div', { class: 'lp-fit' });
   wrap.append(target);
   const apply = () => {
     if (getComputedStyle(target).getPropertyValue('--fit-off').trim() === '1') {
       target.style.transform = '';
+      target.style.height = '';
       wrap.style.height = '';
       return;
     }
     const w = wrap.clientWidth;
     if (!w) return; // hidden/unmounted — the observer refires when it shows
     const s = Math.min(1, w / designWidth);
+    // Fill the slide: the scaled picture ends up exactly `fillHeight` tall, like the
+    // other cards' frames (never shorter than the frame's own design height).
+    if (fillHeight) target.style.height = `${Math.max(740, fillHeight / s)}px`;
     target.style.transform = s < 1 ? `scale(${s})` : '';
     // transform doesn't take layout space — reserve exactly the scaled height.
     wrap.style.height = s < 1 ? `${target.offsetHeight * s}px` : '';
@@ -1326,10 +1356,8 @@ function gamifySection(): HTMLElement {
   const brand = el('div', { class: 'app-brand' });
   brand.append(createWordmark(gemAltById(GAM_GEM)?.svg).el);
   left.append(brand);
-  const { nav, btns, tasksCount } = createAppTabs(() => {});
+  const { nav, btns } = createAppTabs(() => {});
   btns.get('tasks')?.classList.add('active');
-  tasksCount.textContent = '1'; // due today and unfinished, as main.ts counts it
-  tasksCount.classList.add('on');
   const user = el('div', { class: 'app-user' });
   for (const svg of [GAM_BULB, GAM_BELL, GAM_GEAR]) {
     const b = el('button', { class: 'icon-btn' });
@@ -1571,11 +1599,7 @@ function footerSection(opts: LandingOpts, scrollTo: (id: string) => void): HTMLE
   }
 
   const actions = el('div', { class: 'lp-footer-actions' });
-  const login = el('button', { class: 'lp-footer-login', text: 'Log in' });
-  login.addEventListener('click', opts.onLogIn ?? opts.onTryNow);
-  const cta = el('button', { class: 'lp-footer-cta', text: 'Get started free' });
-  cta.addEventListener('click', opts.onTryNow);
-  actions.append(cta, login); // CTA left (Gabe, 9/2/26)
+  actions.append(ctaButton('Get Started', opts.onTryNow)); // CTA left (Gabe, 9/2/26); same button as the hero
 
   top.append(mark, links, actions);
 

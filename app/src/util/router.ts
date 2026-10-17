@@ -21,7 +21,7 @@ const TABS = new Set(['dashboard', 'tasks', 'grades', 'focus', 'bookmarks', 'set
 
 /** Settings' own side tabs, lowercased. The labels live in settings/view.ts; these
  *  are their slugs, and SETTINGS_LABEL maps back to the label it renders. */
-export const SETTINGS_SECTIONS = ['profile', 'tasks', 'courses', 'focus', 'notifications'] as const;
+export const SETTINGS_SECTIONS = ['profile', 'dashboard', 'tasks', 'courses', 'focus', 'notifications'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export interface Route {

@@ -360,7 +360,7 @@ export interface Windowed {
   change: number | null;
 }
 
-const dayMsOf = (d: string): number => new Date(d + 'T12:00:00').getTime();
+export const dayMsOf = (d: string): number => new Date(d + 'T12:00:00').getTime();
 
 /** The part of the grade history inside the last `days` days (all of it when null).
  *  The trend number and the graph both come from this one object, so they can

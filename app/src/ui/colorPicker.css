@@ -98,3 +98,20 @@
   outline: none;
   border-color: var(--accent);
 }
+/* The eyedropper: same quiet icon button as the app's other small controls. */
+.cp-eye {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.cp-eye:hover {
+  color: var(--text);
+}

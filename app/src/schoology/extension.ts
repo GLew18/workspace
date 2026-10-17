@@ -19,7 +19,7 @@
 
 import type { Data } from '../db';
 import type { Task } from '../types';
-import { getCourses, addCourse, registryHydratedFromStore, canonicalCourseName } from '../courses/registry';
+import { getCourses, addCourse, registryHydratedFromStore, canonicalCourseName, isCourseDismissed } from '../courses/registry';
 import { DEFAULT_COURSE_COLOR } from '../courses/maps';
 import { saveSections, saveTeachers } from '../tasks/teachers';
 
@@ -339,6 +339,7 @@ export async function applySgyPayload(data: Data, payload: SgyPayload): Promise<
     ];
     for (const name of names) {
       if (!name || have.has(name.toLowerCase())) continue;
+      if (isCourseDismissed(name)) continue; // the student deleted it on purpose
       await addCourse(name, DEFAULT_COURSE_COLOR);
       have.add(name.toLowerCase());
       result.coursesAdded++;

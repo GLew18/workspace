@@ -5268,6 +5268,10 @@ export class FocusView {
    *  Routed through sendNotification so it carries the Cobalt logo like every other
    *  notification (the old bare Notification here had no icon). */
   private async notify(title: string, body: string): Promise<void> {
+    // The landing's demo and its Focus card run real sessions on a loop; their "complete"
+    // must never reach a visitor's real notifications (Gabe, 10/16: a popup every minute
+    // or two while signed out).
+    if (this.sample) return;
     try {
       const s = normalizeNotifySettings(await this.data.getProfile('notifications'));
       // Gate on the focus card's OWN channels (the master is a UI select-all, not a

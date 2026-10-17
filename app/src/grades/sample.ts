@@ -1,5 +1,5 @@
-// Dev-only sample gradebook (see devSample in view.ts). Never shipped: the only
-// import of this file is behind import.meta.env.DEV.
+// The sample gradebook the landing's "See it in action" Grades card shows (loaded
+// only there). Course names match the landing sandbox's courses.
 
 import { addDays, todayStr } from '../util/dates';
 import type { GAssign, GCourse, GradesPayload } from './calc';
@@ -7,7 +7,7 @@ import type { GAssign, GCourse, GradesPayload } from './calc';
 let n = 0;
 const A = (cat: string, title: string, daysAgo: number, earned: number | null, max: number, exc = 0): GAssign => {
   const due = addDays(todayStr(), -daysAgo);
-  return { id: 'a' + ++n, title, cat, earned, max, exc, ts: Math.floor(new Date(due + 'T12:00:00').getTime() / 1000), due, ...(n % 4 === 2 ? { comment: 'Good reasoning. Show one more step on question 3 next time.' } : {}) };
+  return { id: 'a' + ++n, title, cat, earned, max, exc, ts: Math.floor(new Date(due + 'T12:00:00').getTime() / 1000), due };
 };
 
 const SCALE = {
@@ -22,7 +22,7 @@ export function sampleGrades(): GradesPayload {
   const cats = (ids: [string, string, number][]) => ids.map(([id, title, weight]) => ({ id, title, weight }));
   const algebra: GCourse = {
     id: '1',
-    name: 'Honors Algebra 2/Trig',
+    name: 'Math',
     scale: SCALE,
     categories: cats([['1', 'Engagement', 10], ['2', 'Homework', 20], ['3', 'Quizzes', 30], ['4', 'Tests', 40]]),
     periods: [
@@ -50,7 +50,7 @@ export function sampleGrades(): GradesPayload {
   };
   const bio: GCourse = {
     id: '2',
-    name: 'AP Biology',
+    name: 'Science',
     // A school whose levels are not letters: Cobalt shows percentages only.
     scale: { levels: [{ cutoff: 95, title: 'PC' }, { cutoff: 85, title: 'P' }, { cutoff: 0, title: 'L' }] },
     categories: cats([['1', 'Labs', 25], ['2', 'Quizzes', 25], ['3', 'Tests', 50]]),
@@ -74,7 +74,7 @@ export function sampleGrades(): GradesPayload {
   };
   const hist: GCourse = {
     id: '3',
-    name: 'US History',
+    name: 'Social Studies',
     scale: SCALE,
     categories: cats([['1', 'Homework', 30], ['2', 'Essays', 30], ['3', 'Tests', 40]]),
     periods: [
@@ -95,7 +95,7 @@ export function sampleGrades(): GradesPayload {
   };
   const eng: GCourse = {
     id: '4',
-    name: 'English 11',
+    name: 'English',
     categories: [],
     periods: [
       {
